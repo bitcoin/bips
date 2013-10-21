@@ -1,11 +1,15 @@
+{{bip}}
+
 <pre>
   BIP: 15
-  Title: Aliases
+  Title: BIP Aliases
   Author: Amir Taaki <genjix@riseup.net>
-  Status: Withdrawn
+  Status: Deferred 
   Type: Standards Track
   Created: 10-12-2011
 </pre>
+
+[[BIP 0070]] (payment protocol) may be seen as the alternative to Aliases.
 
 Using vanilla bitcoin, to send funds to a destination, an address in the form 1Hd44nkJfNAcPJeZyrGC5sKJS1TzgmCTjjZ is needed. The problem with using addresses is they are not easy to remember. An analogy can be thought if one were required to enter the IP address of their favourite websites if domain names did not exist.
 
@@ -31,7 +35,7 @@ Their FirstBits alias becomes:
 
 It is enough information to be given the FirstBits alias ''1brmlab''. When someone wishes to make a purchase, without FirstBits, they either have to type out their address laboriously by hand, scan their QR code (which requires a mobile handset that this author does not own) or find their address on the internet to copy and paste into the client to send bitcoins. FirstBits alleviates this impracticality by providing an easy method to make payments.
 
-Together with Vanitygen (vanity generator), it becomes possible to create memorable unique named addresses. Addresses that are meaningful, rather than an odd assemblage of letters and numbers but add context to the destination.
+Together with [[vanitygen|Vanitygen (vanity generator)]], it becomes possible to create memorable unique named addresses. Addresses that are meaningful, rather than an odd assemblage of letters and numbers but add context to the destination.
 
 However FirstBits has its own problems. One is that the possible aliases one is able to generate is limited by the available computing power available. It may not be feasible to generate a complete or precise alias that is wanted- only approximates may be possible. It is also computationally resource intensive which means a large expenditure of power for generating unique aliases in the future, and may not scale up to the level of individuals at home or participants with hand-held devices in an environment of ubiquitous computing.
 
@@ -48,6 +52,8 @@ An issue is that it requires people who wish to create such mappings to be famil
 Security wise, DNS is unsafe and insecure by design. It is possible to spoof records by being on the same network as another host. A number of revisions to mitigate the issue under the guise of DNSSEC have been in the works since the 1990s and are still being rolled out.
 
 As of Dec 2011, DNSSEC is still not yet a defacto standard on the internet. Should a participant in the bitcoin network wish to use DNS TXT records, they would in addition to having to configure DNS, be able to setup DNSSEC. This may not be feasible, especially where some registrars provide access to DNS through a web interface only.
+
+The disadvantage of DNS TXT records is that updating a record takes time. This encourages people to not use new addresses per transaction which has certain security issues.
 
 === Server Service ===
 
@@ -323,3 +329,75 @@ Value rpc_send(const Array& params, bool fHelp)
 ...
 </source>
 
+=== IP Transactions ===
+
+An IP transaction is an old transaction format in bitcoin that is disabled and possibly could be deprecated. It involves being given an IP address to make payment to. Upon connecting to the node and requesting their public key using "checkorder", they will respond with a script in the form:
+
+  <public key> OP_CHECKSIG
+
+Similar to coinbase output transactions. IP transactions have the advantage of being able to contain additional metadata which can be useful in many transactions. Currently no authentication is done making the scheme insecure against man in the middle (MITM) attacks.
+
+This proposal seeks to enable DNS lookups for IP transactions.
+
+The "checkorder" message would contain a destination account, which could map to different isolated sets of keypairs/wallets running under the same host. The exact mapping from the checkorder reference info to the local system is implementation defined.
+
+By using DNS lookups, the MITM problem with IP transactions could be mitigated by storing a public key in a DNS TXT record. This public key would be used for all future "reply" messages originating from that host. First time use would require a confirmation for acceptance of that public key; like with SSH. Should the "reply" message not match the accepted public key, then the host will be given an error.
+
+[[Category:BIP|E]]
+
+=== Namecoin ID ===
+
+This proposal uses the Namecoin blockchain to associate an alias with a bitcoin address. Bitcoin queries a namecoin node. This retreives the structured data containing the bitcoin address(es) associated with this alias.
+
+Using a decentralised domain name system like Namecoin, means no external server or entity needs to be trusted unlike the other proposals listed here. This indicates a system with the advantage of having a high availability and ease of entry (no restrictions for users to create aliases).
+
+Two examples are presented below. The first shows a simpler format, while the second shows several Bitcoin addresses in a structured format.
+
+ $ namecoind name_show id/khal
+ {
+   "bitcoin" : "1KHAL8bUjnkMRMg9yd2dNrYnJgZGH8Nj6T"
+ }
+
+ $ namecoind name_show id/khal
+ {
+   "bitcoin" :
+   {
+     "default" : "1KHAL8bUjnkMRMg9yd2dNrYnJgZGH8Nj6T",
+     "donation": "1J3EKMfboca3SESWGrQKESsG1MA9yK6vN4"
+   }
+ }
+
+'''More possibilities :'''
+
+* Allow to securely use '''unsecured channels''' 
+You can put an url and a bitcoin address that will be used to sign the result. It means that a query to this url will return a bitcoin address and a signature. Bitcoin can then check (with the verify_message function) that the returned address has not been replaced by another one.
+ $ namecoind name_show id/khal
+ {
+   "bitcoin" :
+   {
+     "url" : "http://merchant.com/bitcoin/getnewaddres/",
+     "signedWith" : "1KHAL8bUjnkMRMg9yd2dNrYnJgZGH8Nj6T"
+   }
+ }
+
+* Allow to get a different address each time, or per user, per order, etc
+ $ namecoind name_show id/khal
+ {
+   "bitcoin" :
+   {
+     "url" : "http://merchant.com/bitcoin/getaddres/{Your customer id}",
+     "signedWith" : "1KHAL8bUjnkMRMg9yd2dNrYnJgZGH8Nj6T",
+     "useOnce": false
+   }
+ }
+In the above example, bitcoin will ask the user for "Your customer id" and replace that value in the url before making the http request. The merchant will receive the request and give the user a payment address associated with that customer.
+
+Any text can be put into the brackets, allowing merchants to adapt it to all their needs.
+
+
+* Specification is extensible
+
+New features can be added later to support uncovered cases.
+
+
+See the specification of [http://dot-bit.org/Namespace:Identity Namecoin ID] for more informations.
