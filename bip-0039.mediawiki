@@ -1,8 +1,9 @@
 <pre>
   BIP:     BIP-0039
   Title:   Mnemonic code for generating deterministic keys
-  Author:  Pavol Rusnak <stick@gk2.sk>
-           Marek Palatinus <info@bitcoin.cz>
+  Authors: Marek Palatinus <slush@satoshilabs.com>
+           Pavol Rusnak <stick@satoshilabs.com>
+           ThomasV <thomasv@bitcointalk.org>
            Aaron Voisine <voisine@gmail.com>
   Status:  Draft
   Type:    Standards Track
@@ -11,9 +12,12 @@
 
 ==Abstract==
 
-This BIP proposes a scheme for translating binary data (usually master seeds
-for deterministic keys, but it can be applied to any binary data) into a group
-of easy to remember words also known as mnemonic code or mnemonic sentence.
+This BIP describes an usage of mnemonic code or mnemonic sentence - a group of
+easy to remember words - to generate deterministic wallets.
+
+It consists of two parts: generating the mnemonic and converting it into
+a binary seed. This seed can be later used to generate deterministic wallets
+using BIP-0032 or similar methods.
 
 ==Motivation==
 
@@ -23,20 +27,38 @@ could be writen down on paper (e.g. for storing in a secure location such as
 safe), told over telephone or other voice communication method, or memorized
 in ones memory (this method is called brainwallet).
 
-==Backwards Compatibility==
+==Generating the mnemonic==
 
-As this BIP is written, only one Bitcoin client (Electrum) implements mnemonic
-codes, but it uses a different wordlist than the proposed one.
+First, we decide how much entropy we want mnemonic to encode. Recommended size
+is 128-256 bits, but basically any multiple of 32 bits will do. More bits
+mean more security, but also longer word sentence.
 
-For compatibility reasons we propose adding a checkbox to Electrum, which will
-allow user to indicate if the legacy code is being entered during import or
-it is a new one that is BIP-0039 compatible. For exporting, only the new format
-will be used, so this is not an issue.
+We take initial entropy of ENT bits and compute its checksum by taking first
+ENT / 32 bits of its SHA256 hash. We append these bits to the end of the initial
+entropy. Next we take these concatenated bits and split them into groups of 11
+bits. Each group encodes number from 0-2047 which is a position in a wordlist.
+We convert numbers into words and use joined words as mnemonic sentence.
 
-==Rationale==
+The following table describes the relation between initial entropy length (ENT),
+checksum length (CS) and length of the generated mnemonic sentence (MS) in words.
 
-Our proposal is inspired by implementation used in Electrum, but we enhanced
-the wordlist and algorithm so it meets the following criteria:
+<pre>
+CS = ENT / 32
+MS = (ENT + CS) / 11
+
+|  ENT  | CS | ENT+CS |  MS  |
++-------+----+--------+------+
+|  128  |  4 |   132  |  12  |
+|  160  |  5 |   165  |  15  |
+|  192  |  6 |   198  |  18  |
+|  224  |  7 |   231  |  21  |
+|  256  |  8 |   264  |  24  |
+</pre>
+
+==Wordlist==
+
+In previous section we described how to pick words from a wordlist. Now we
+describe how does a good wordlist look like.
 
 a) smart selection of words
    - wordlist is created in such way that it's enough to type just first four
@@ -53,79 +75,30 @@ c) sorted wordlists
      (i.e. implementation can use binary search instead of linear search)
    - this also allows trie (prefix tree) to be used, e.g. for better compression
 
-d) localized wordlists
-   - we would like to allow localized wordlists, so it is easier for users
-     to remember the code in their native language
-   - by using wordlists with no colliding words among languages, it's easy to
-     determine which language was used just by checking the first word of
-     the sentence
+Wordlist can contain native characters, but they have to be encoded using UTF-8.
 
-e) mnemonic checksum
-   - this leads to better user experience, because user can be notified
-     if the mnemonic sequence is wrong, instead of showing the confusing
-     data generated from the wrong sequence.
+==From mnemonic to seed==
 
-f) seed stretching
-   - before the encoding and after the decoding the input binary sequence is
-     stretched using a symmetric cipher (Blowfish) in order to prevent
-     brute-force attacks in case some of the mnemonic words are leaked
+User can decide to protect his mnemonic by passphrase. If passphrase is not present
+an empty string "" is used instead.
 
-==Specification==
+To create binary seed from mnemonic, we use PBKDF2 function with mnemonic sentence
+(in UTF-8) used as a password and string "mnemonic" + passphrase (again in UTF-8)
+used as a salt. Iteration count is set to 4096 and HMAC-SHA512 is used as a pseudo-
+random function. Desired length of the derived key is 512 bits (= 64 bytes).
 
-<pre>
-Our proposal implements two methods - "encode" and "decode".
+This seed can be later used to generate deterministic wallets using BIP-0032 or
+similar methods.
 
-The first method takes a binary data which have to length (L) in bytes divisable
-by four and returns a sentence that consists of (L/4*3) words from the wordlist.
+The conversion of the mnemonic sentence to binary seed is completely independent
+from generating the sentence. This results in rather simple code, there are no
+constraints on sentence structure and clients are free to implement their own
+wordlists or even whole sentence generators (they'll lose the proposed method
+for typo detection in that case, but they can come up with their own).
 
-The second method takes sentences generated by first method (number of words in
-the sentence has to be divisable by 3) and reconstructs the original binary data.
-
-Words can repeat in the sentence more than one time.
-
-Wordlist contains 2048 words (instead of 1626 words in Electrum), allowing
-the code to compute the checksum of the whole mnemonic sequence.
-Each 32 bits of input data add 1 bit of checksum.
-
-See the following table for relation between input lengths, output lengths and
-checksum sizes for the most common usecases:
-
-+--------+---------+---------+----------+
-| input  |  input  | output  | checksum |
-| (bits) | (bytes) | (words) |  (bits)  |
-+--------+---------+---------+----------+
-|   128  |    16   |    12   |     4    |
-|   192  |    24   |    18   |     6    |
-|   256  |    32   |    24   |     8    |
-+--------+---------+---------+----------+
-</pre>
-
-===Algorithm:===
-
-<pre>
-Encoding:
-1. Read input data (I).
-2. Make sure its length (L) is divisable by 64 bits.
-3. Encrypt input data 1000x with Blowfish (ECB) using the word "mnemonic" as key.
-4. Compute the length of the checkum (LC). LC = L/32
-5. Split I into chunks of LC bits (I1, I2, I3, ...).
-6. XOR them altogether and produce the checksum C. C = I1 xor I2 xor I3 ... xor In.
-7. Concatenate I and C into encoded data (E). Length of E is divisable by 33 bits.
-8. Keep taking 11 bits from E until there are none left.
-9. Treat them as integer W, add word with index W to the output.
-
-Decoding:
-1. Read input mnemonic (M).
-2. Make sure its wordcount is divisable by 6.
-3. Figure out word indexes in a dictionary and output them as binary stream E.
-4. Length of E (L) is divisable by 33 bits.
-5. Split E into two parts: B and C, where B are first L/33*32 bits, C are last L/33 bits.
-6. Make sure C is the checksum of B (using the step 5 from the above paragraph).
-7. If it's not we have invalid mnemonic code.
-8. Treat B as binary data.
-9. Decrypt this data 1000x with Blowfish (ECB) using the word "mnemonic" as key.
-10. Return the result as output.
-</pre>
+Described method also provides plausable deniability, because every passphrase
+generates a valid seed (and thus deterministic wallet) but only the correct one
+will make the desired wallet available.
 
 ==Test vectors==
 
@@ -136,3 +109,4 @@ See https://github.com/trezor/python-mnemonic/blob/master/vectors.json
 Reference implementation including wordlists is available from
 
 http://github.com/trezor/python-mnemonic
+
