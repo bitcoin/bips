@@ -148,7 +148,40 @@ Obviously, nFlags == 1 or nFlags == 2 mean that the filter will get dirtier as m
 
 A ''Merkle tree'' is a way of arranging a set of items as leaf nodes of tree in which the interior nodes are hashes of the concatenations of their child hashes. The root node is called the ''Merkle root''. Every Bitcoin block contains a Merkle root of the tree formed from the blocks transactions. By providing some elements of the trees interior nodes (called a ''Merkle branch'') a proof is formed that the given transaction was indeed in the block when it was being mined, but the size of the proof is much smaller than the size of the original block.
 
-The encoding works as follows: we traverse the tree in depth-first order, storing a bit for each traversed node, signifying whether the node is the parent of at least one matched leaf txid (or a matched txid itself). In case we are at the leaf level, or this bit is 0, its merkle node hash is stored, and its children are not explored further. Otherwise, no hash is stored, but we recurse into both (or the only) child branch. During decoding, the same depth-first traversal is performed, consuming bits and hashes as they written during encoding.
+====Constructing a partial merkle tree object====
+
+* Traverse the merkle tree from the root down, and for each encountered node:
+** Check whether this node corresponds to a leaf node (transaction) that is to be included OR any parent thereof:
+*** If so, append a '1' bit to the flag bits
+*** Otherwise, append a '0' bit.
+** Check whether this node is a internal node (non-leaf) AND is the parent of an included leaf node:
+*** If so:
+**** Descend into its left child node, and process the subtree beneath it entirely (depth-first).
+**** If this node has a right child node too, descend into it as well.
+*** Otherwise: append this node's hash to the hash list.
+
+====Parsing a partial merkle tree object====
+
+As the partial block message contains the number of transactions in the entire block, the shape of the merkle tree is known before hand. Again, traverse this tree, computing traversed node's hashes along the way:
+* Read a bit from the flag bit list:
+** If it is '0':
+*** Read a hash from the hashes list, and return it as this node's hash.
+** If it is '1' and this is a leaf node:
+*** Read a hash from the hashes list, store it as a matched txid, and return it as this node's hash.
+** If it is '1' and this is an internal node:
+*** Descend into its left child tree, and store its computed hash as L.
+*** If this node has a right child as well:
+**** Descend into its right child, and store its computed hash as R.
+**** If L == R, the partial merkle tree object is invalid.
+**** Return Hash(L || R).
+*** If this node has no right child, return Hash(L || L).
+
+The partial merkle tree object is only valid if:
+* All hashes in the hash list were consumed and no more.
+* All bits in the flag bits list were consumed (except padding to make it into a full byte), and no more.
+* The hash computed for the root node matches the block header's merkle root.
+* The block header is valid, and matches its claimed proof of work.
+* In two-child nodes, the hash of the left and right branches was never equal.
 
 ===Bloom filter format===
 
