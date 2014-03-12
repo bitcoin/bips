@@ -1,0 +1,91 @@
+<pre>
+  BIP: 62
+  Title: Dealing with malleability
+  Author: Pieter Wuille <pieter.wuille@gmail.com>
+  Status: Draft
+  Type: Standards Track
+  Created: 12-03-2014
+</pre>
+
+==Abstract==
+
+This document specifies proposed changes to the Bitcoin transaction validity rules in order to make malleability of transactions impossible (at least when the sender doesn't choose to avoid it).
+
+==Motivation==
+
+As of february 2014, Bitcoin transactions are malleable in multiple ways. This means a (valid) transaction can be modified in-flight, without invalidating it, but without access to the relevant private keys.
+
+This is a problem for multiple reasons:
+* The sender may not recognize his own transaction after being modified.
+* The sender may create transactions that spend change created by the original transaction. In case the modified transaction gets mined, this becomes invalid.
+* Modified transactions are effectively double-spends which can be created without malicious intent (of the sender), but can be used to make other attacks easier.
+
+Several sources of malleability are known:
+
+# '''Inherent ECDSA signature malleability''' ECDSA signatures themselves are already malleable: taking the negative of the number S inside (modulo the curve order) does not invalidate it.
+# '''Non-DER encoded ECDSA signatures''' Right now, the Bitcoin reference client uses OpenSSL to validate signatures. As OpenSSL accepts more than serializations that strictly adhere to the DER standard, this is a source of malleability. Since v0.8.0, non-DER signatures are no longer relayed already.
+# '''Superfluous scriptSig operations''' Adding extra data pushes at the start of scripts, which are not consumed by the corresponding scriptPubKey, is also a source of malleability.
+# '''Non-push operations in scriptSig''' Any sequence of script operations in scriptSig that results in the intended data pushes, but is not just a push of that data, results in an alternative transaction with the same validity.
+# '''Push operations in scriptSig of non-standard size type''' The Bitcoin scripting language has several push operators (OP_0, single-byte pushes, data pushes of up to 75 bytes, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4). As the later ones have the same result as the former ones, they result in additional possibilities.
+# '''Zero-padded number pushes''' In cases where scriptPubKey opcodes use inputs that are interpreted as numbers, they can be zero padded.
+# '''Inputs ignored by scripts''' If a scriptPubKey starts with an OP_DROP, for example, the last data push of the corresponding scriptSig will always be ignored.
+# '''Sighash flags based masking''' Sighash flags can be used to ignore certain parts of a script when signing.
+# '''New signatures by the sender''' The sender (or anyone with access to the relevant private keys) is always able to create new signatures that spend the same inputs to the same outputs.
+The first six and part of the seventh can be fixed by extra consensus rules. The last three can't, but are always under control of the (original) sender.
+
+==Specification==
+
+===New rules===
+
+Seven extra rules are introduced, to combat exactly the seven first sources of malleability listed above:
+# '''Inherent ECDSA signature malleability''' We require that the S value inside ECDSA signatures is at most the curve order divided by 2 (essentially restricting this value to its lower half range). To convert another signature, simply take the complement of the S value (modulo the curve order).
+# '''Non-DER encoded ECDSA signatures''' All ECDSA signatures must be encoded using strict DER encoding.
+# '''Superfluous scriptSig operations''' scriptPubKey evaluation will be required to result in a single non-zero value. If any extra data elements remain on the stack, the result is invalid.
+# '''Non-push operations in scriptSig''' Any non-push operation in a scriptSig invalidates it.
+# '''Push operations in scriptSig of non-standard size type''' The smallest possible push operation (including OP_0 for an empty byte vector, or the direct pushes of a single byte) must be used when possible. Using any push operation that could be encoded in a shorter way invalidates it.
+# '''Zero-padded number pushes''' Any time a script opcode consumes a stack value that is interpreted as a number, it must be encoded in its shortest possible form. 'Negative zero' is not allowed.
+# '''Inputs ignored by scripts''' The (unnecessary) extra stack element consumed by OP_CHECKMULTISIG and OP_CHECKMULTISIGVERIFY must be the empty byte array (the result of OP_0). Anything else makes the script invalid.
+
+===References===
+
+Below is a summary of the effects on signatures, their encoding and data pushes.
+
+====Low S values in signatures====
+
+The value S in signatures must be between 0x1 and 0x7FFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF 5D576E73 57A4501D DFE92F46 681B20A0 (inclusive). If S is too high, simply replace it by S' = 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141 - S.
+
+The constraints on the value R is unchanged w.r.t. ECDSA, and can be between 0x1 and 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364140 (inclusive). 
+
+====DER encoding====
+For reference, here is how to encode signatures correctly in DER format.
+
+0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash-type]
+* total-length: 1-byte length descriptor of everything that follows, excluding the sighash byte.
+* R-length: 1-byte length descriptor of the R value that follows.
+* R: arbitrary-length big-endian encoded R value. It cannot start with any 0x00 bytes, unless the first byte that follows is 0x80 or higher, in which case a single 0x00 is required.
+* S-length: 1-byte length descriptor of the S value that follows.
+* S: arbitrary-length big-endian encoded S value. The same rules apply as for R.
+* sighash-type: 1-byte hashtype flag (only 0x01, 0x02, 0x03, 0x81, 0x82 and 0x83 are allowed).
+This is already enforced by the reference client as of version 0.8.0 (only as relay policy, not as a consensus rule).
+
+This rule, combined with the low S requirement above, results in S-length being at most 32 (and R-length at most 33), and the total signature size being at most 72 bytes (and on average 71.494 bytes).
+
+====Shortest possible data pushes====
+For reference:
+* Pushing an empty byte sequence (or the number 0) must use OP_0.
+* Pushing a single byte sequence of byte 0x01 through 0x10 (or the numbers 1 through 16) must use OP_n.
+* Pushing the byte 0x81 (or the number -1) must use OP_1NEGATE.
+* Pushing any other byte sequence up to 75 bytes must use the normal data push (opcode byte n, with n the number of bytes, followed n bytes of data being pushed).
+* Only pushes of more than 75 bytes can use OP_PUSHDATA1.
+* Only pushes of more than 255 bytes can use OP_PUSHDATA2.
+* OP_PUSHDATA4 can never be used, as pushes over 520 bytes are not allowed, and those below can be done using OP_PUSHDATA2.
+
+==Compatibility==
+
+'''Version 3 blocks and transactions''' To introduce these new rules in the network, we add both nVersion=3 blocks and nVersion=3 transactions (nVersion=2 transactions are skipped in order to keep the version numbers synchronized).
+
+'''Relay of transactions''' A new node software version is released which makes nVersion=3 transactions standard, and relays them when their scriptSigs satisfy the above rules. Relaying of nVersion=1 transactions is unaffected. An nVersion=1 transaction spending an output created by an nVersion=3 transaction is also unaffected.
+
+'''Block validity''' In addition, the same mechanism as in BIP 0034 is reused to introduce nVersion=3 blocks. When 75% of the past 1000 blocks are nVersion=3, a new consensus rule is activated which requires nVersion>=3 transactions in nVersion>=3 blocks (and only that combination) to follow the above rules. An nVersion>=3 block with an nVersion>=3 transaction whose scriptSig does not follow the new rules, becomes invalid. When 95% of the past blocks are nVersion>=3, nVersion=2 blocks become invalid entirely. Note however that nVersion=1 transactions remain valid forever.
+
+'''Wallet updates''' As nVersion=3 transactions are non-standard currently, it is not possible to start creating them immediately. Software can be checked to confirm to the new rules of course, but setting nVersion=3 should only start when a significant part of the network's nodes has upgraded to compatible code. Its intended meaning is "I want this transaction protected from malleability", and remains a choice of the wallet software.
