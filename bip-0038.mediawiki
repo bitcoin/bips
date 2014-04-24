@@ -88,7 +88,7 @@ Encrypting a private key without the EC multiplication offers the advantage that
 Encryption steps:
 # Compute the Bitcoin address (ASCII), and take the first four bytes of SHA256(SHA256()) of it.  Let's call this "addresshash".
 # Derive a key from the passphrase using scrypt
-#*Parameters: ''passphrase'' is the passphrase itself encoded in UTF-8.  ''addresshash'' came from the earlier step, n=16384, r=8, p=8, length=64 (n, r, p are provisional and subject to consensus)
+#*Parameters: ''passphrase'' is the passphrase itself encoded in UTF-8.  salt is ''addresshash'' from the earlier step, n=16384, r=8, p=8, length=64 (n, r, p are provisional and subject to consensus)
 #*Let's split the resulting 64 bytes in half, and call them ''derivedhalf1'' and ''derivedhalf2''.
 # Do AES256Encrypt(bitcoinprivkey[0...15] xor derivedhalf1[0...15], derivedhalf2), call the 16-byte result ''encryptedhalf1''
 # Do AES256Encrypt(bitcoinprivkey[16...31] xor derivedhalf1[16...31], derivedhalf2), call the 16-byte result ''encryptedhalf2''
@@ -124,7 +124,7 @@ Steps performed by ''owner'' to generate a single intermediate code, if lot and 
 #* Take SHA256(SHA256(''prefactor'' + ''ownerentropy'')) and call this ''passfactor''.
 # Compute the elliptic curve point G * ''passfactor'', and convert the result to compressed notation (33 bytes).  Call this ''passpoint''.  Compressed notation is used for this purpose regardless of whether the intent is to create Bitcoin addresses with or without compressed public keys.
 # Convey ''ownersalt'' and ''passpoint'' to the party generating the keys, along with a checksum to ensure integrity.
-#* The following Base58Check-encoded format is recommended for this purpose: magic bytes "2C E9 B3 E1 FF 39 E2 51" followed by ''ownerentropy'', and then ''passpoint''.  The resulting string will start with the word "passphrase" due to the constant bytes, will be 72 characters in length, and encodes 49 bytes (8 bytes constant + 8 bytes ''ownersalt'' + 33 bytes ''passpoint'').  The checksum is handled in the Base58Check encoding.  The resulting string is called ''intermediate_passphrase_string''.
+#* The following Base58Check-encoded format is recommended for this purpose: magic bytes "2C E9 B3 E1 FF 39 E2 51" followed by ''ownerentropy'', and then ''passpoint''.  The resulting string will start with the word "passphrase" due to the constant bytes, will be 72 characters in length, and encodes 49 bytes (8 bytes constant + 8 bytes ''ownerentropy'' + 33 bytes ''passpoint'').  The checksum is handled in the Base58Check encoding.  The resulting string is called ''intermediate_passphrase_string''.
 
 If lot and sequence numbers are not being included, then follow the same procedure with the following changes:
 * ''ownersalt'' is 8 random bytes instead of 4, and ''lotsequence'' is omitted.  ''ownerentropy'' becomes an alias for ''ownersalt''.
@@ -161,6 +161,12 @@ The result is a Base58Check-encoded concatenation of the following:
 * 0x64 0x3B 0xF6 0xA8 0x9A + ''flagbyte'' + ''addresshash'' + ''ownerentropy'' + ''encryptedpointb''
 
 A confirmation tool, given a passphrase and a confirmation code, can recalculate the address, verify the address hash, and then assert the following: "It is confirmed that Bitcoin address ''address'' depends on this passphrase".  If applicable: "The lot number is ''lotnumber'' and the sequence number is ''sequencenumber''."
+
+To recalculate the address:
+# Derive ''passfactor'' using scrypt with ''ownerentropy'' and the user's passphrase and use it to recompute ''passpoint''
+# Derive decryption key for ''pointb'' using scrypt with ''passpoint'', ''addresshash'', and ''ownerentropy''
+# Decrypt ''encryptedpointb'' to yield ''pointb''
+# ECMultiply ''pointb'' by ''passfactor''. Use the resulting EC point as a public key and hash it into ''address'' using either compressed or uncompressed public key methodology as specifid in ''flagbyte''.
 
 =====Decryption=====
 # Collect encrypted private key and passphrase from user.
