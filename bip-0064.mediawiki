@@ -1,0 +1,296 @@
+<pre>
+  BIP:     BIP-0064
+  Title:   Hierarchy for Deterministic Wallets
+  Authors: Marek Palatinus <slush@satoshilabs.com>
+           Pavol Rusnak <stick@satoshilabs.com>
+  Status:  Draft
+  Type:    Standards Track
+  Created: 04-04-2014
+</pre>
+
+==Abstract==
+
+This BIP defines logical hierarchy for deterministic wallets based on algorithm
+described in BIP-0032 (BIP32 from now on). It is a particular application of
+the general idea described there.
+
+==Motivation==
+
+Although Hierarchical Deterministic Wallet structure as described by BIP32
+is an important step in user experience and security of the cryptocoin wallets,
+the BIP32 specification offers implementors too many degrees of freedom.
+Multiple implementations may claim they are BIP32 compatible, but in fact
+they can produce wallets with different logical structures making them
+non-interoperable. This situation unfortunately renders "BIP32 compatible"
+statement rather useless.
+
+We propose the following tree structure to be applied on top of BIP32:
+
+<pre>
+m / purpose' / *
+</pre>
+
+where the purpose value determines the structure beneath. This BIP defines
+one purpose (with id 64') and the associated structure (see chapter "Path
+levels" below). This guarantees that master nodes and wallet structures
+generated in BIP64 compatible software are interoperable among different
+these independent implementations.
+
+Hierarchy proposed in this paper is quite comprehensive. It allows to handle
+multiple coins, multiple accounts, external and internal chains per account and
+millions of addresses per chain.
+
+Not all wallets may want to support wide range of features and possibilities.
+Instead of choosing arbitrary subset of defined features and calling themselves
+BIP64 compatible, we suggest that software which needs only a limited structure
+should describe such structure in another BIP and use different "purpose" value
+in the proposed BIP32 path below.
+
+==Path levels==
+
+We define the following 5 levels in BIP32 path:
+
+<pre>
+m / purpose' / coin_type' / account' / change / address_index
+</pre>
+
+Apostrophe in the path indicates that BIP32 hardened derivation is used.
+
+Each level has special meaning described in the chapters below.
+
+===Purpose===
+
+Purpose is a constant set to 64' (0x80000040). It indicates that the subtree
+of this node is used according to this specification.
+
+For BIPs describing different wallet structures, we suggest to use different
+constant (e.g. BIP number) , so addresses won't be generated overlapping BIP32
+spaces.
+
+Hardened derivation is used at this level.
+
+===Coin type===
+
+One master node (seed) can be used for unlimited number of independent
+cryptocoins such as Bitcoin, Litecoin or Namecoin. However, sharing the same
+space for various cryptocoins has some disadvantages.
+
+This level creates a separate subtree for every cryptocoin, avoiding
+reusing addresses across cryptocoins and improving privacy issues.
+
+Coin type is a constant set for each cryptocoin. Cryptocoin developers may ask
+for registering unused number for their project.
+
+The list of already allocated coin types is in the chapter
+"Registered coin types" below.
+
+Hardened derivation is used at this level.
+
+===Account===
+
+This level splits the key space into independent user identities,
+so the wallet never mixes the coins across different accounts.
+
+User can use these accounts to organize the funds in the same
+fashion like bank accounts; for donation purposes (where all
+addresses are considered public), for saving purposes,
+for common expenses etc.
+
+Accounts are numbered from index 0 in sequentially increasing manner.
+This number is used as child index in BIP32 derivation.
+
+Hardened derivation is used at this level.
+
+Software should prevent a creation of an account if previous account does not
+have a transaction history (meaning no its address has been used before).
+
+Software needs to discover all used accounts after importing the seed from
+an external source. Such algorithm is described in "Account discovery" chapter.
+
+===Change===
+
+Constant 0 is used for external chain and constant 1 for internal chain (also
+known as change addresses). External chain is used for addresses that are meant
+to be visible outside of the wallet (e.g. for receiving payments). Internal
+chain is used for addresses which are not meant to be visible outside of the
+wallet and is used for return transaction change.
+
+Public derivation is used at this level.
+
+===Index===
+
+Addresses are numbered from index 0 in sequentially increasing manner.
+This number is used as child index in BIP32 derivation.
+
+Public derivation is used at this level.
+
+==Account discovery==
+
+When the master seed is imported from an external source the software should
+start to discover the accounts in the following manner:
+
+# derive the first account's node (index = 0)
+# derive the external chain node of this account
+# scan addresses of the external chain; respect the gap limit described below
+# if no transactions are found on the external chain stop discovery
+# if there are some transactions, increase the account index and go to step 1
+
+This algorithm is correct, because software should disallow creation of new
+accounts if previous one has no transaction history as described in chapter
+"Account" above.
+
+Please note that the algorithm works with the transaction history, not account
+balances, so you can have account with total 0 coins and the algorithm will
+still continue with discovery.
+
+===Address gap limit===
+
+Address gap limit is currently set to 20. If the software hits 20 unused
+addresses in a row, it expects there are no used addresses beyond this point
+and stops searching the address chain.
+
+Wallet software should warn when user is trying to exceed the gap limit on
+an external chain by generating a new address.
+
+==Node serialization==
+
+Because the coin type is determined by index in level 2 of the path, there's no
+need to use special version magic described in section "Serialization format" of
+BIP32 during serialization and de-serialization of nodes. We suggest to use always
+0x0488B21E for public and 0x0488ADE4 for private nodes (leading to prefixes "xpub"
+and "xprv" respectively).
+
+==Registered coin types==
+
+These are the registered coin types for usage in level 2 of BIP64 described in
+chapter "Coin type" above.
+
+All these constants are used as hardened derivation.
+
+{|
+!index
+!hexa
+!coin
+|-
+|0
+|0x80000000
+|Bitcoin
+|-
+|1
+|0x80000001
+|Bitcoin Testnet
+|}
+
+==Examples==
+
+{|
+!coin
+!account
+!chain
+!address
+!path
+|-
+|Bitcoin
+|first
+|external
+|first
+|m / 64' / 0' / 0' / 0 / 0
+|-
+|Bitcoin
+|first
+|external
+|second
+|m / 64' / 0' / 0' / 0 / 1
+|-
+|Bitcoin
+|first
+|change
+|first
+|m / 64' / 0' / 0' / 1 / 0
+|-
+|Bitcoin
+|first
+|change
+|second
+|m / 64' / 0' / 0' / 1 / 1
+|-
+|Bitcoin
+|second
+|external
+|first
+|m / 64' / 0' / 1' / 0 / 0
+|-
+|Bitcoin
+|second
+|external
+|second
+|m / 64' / 0' / 1' / 0 / 1
+|-
+|Bitcoin
+|second
+|change
+|first
+|m / 64' / 0' / 1' / 1 / 0
+|-
+|Bitcoin
+|second
+|change
+|second
+|m / 64' / 0' / 1' / 1 / 1
+|-
+|Bitcoin Testnet
+|first
+|external
+|first
+|m / 64' / 1' / 0' / 0 / 0
+|-
+|Bitcoin Testnet
+|first
+|external
+|second
+|m / 64' / 1' / 0' / 0 / 1
+|-
+|Bitcoin Testnet
+|first
+|change
+|first
+|m / 64' / 1' / 0' / 1 / 0
+|-
+|Bitcoin Testnet
+|first
+|change
+|second
+|m / 64' / 1' / 0' / 1 / 1
+|-
+|Bitcoin Testnet
+|second
+|external
+|first
+|m / 64' / 1' / 1' / 0 / 0
+|-
+|Bitcoin Testnet
+|second
+|external
+|second
+|m / 64' / 1' / 1' / 0 / 1
+|-
+|Bitcoin Testnet
+|second
+|change
+|first
+|m / 64' / 1' / 1' / 1 / 0
+|-
+|Bitcoin Testnet
+|second
+|change
+|second
+|m / 64' / 1' / 1' / 1 / 1
+|}
+
+==Compatible walets==
+
+* [[https://mytrezor.com|myTREZOR web wallet]] ([[https://github.com/trezor/webwallet|source]])
+
+==Reference==
+
+* [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
