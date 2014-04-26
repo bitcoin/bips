@@ -99,6 +99,12 @@ about the merchant and a digital signature.
 | merchant_data || Arbitrary data that may be used by the merchant to identify the PaymentRequest. May be omitted if the merchant does not need to associate Payments with PaymentRequest or if they associate each PaymentRequest with a separate payment address.
 |}
 
+The payment_url specified in the PaymentDetails must remain valid at least until the PaymentDetails
+expires (or indefinitely if the PaymentDetails does not expire). Note that this is irrespective of
+any state change in the underlying payment request; for example cancellation of an order should not
+invalidate the payment_url, as it is important that the merchant's server can record mis-payments
+in order to refund the payment.
+
 A PaymentRequest is PaymentDetails optionally tied to a merchant's identity:
 <pre>
     message PaymentRequest {
@@ -156,11 +162,13 @@ If the customer authorizes payment, then the Bitcoin client:
 # If PaymentDetails.payment_url is specified, POST a Payment message to that URL. The Payment message is serialized and sent as the body of the POST request.
 
 Errors communicating with the payment_url server should be communicated to the user.
-The merchant's server should handle receiving multiple copies of the same Payment
-message in response to a single PaymentRequest. This is required to ensure that in
-case of a transport level failure during transmission, recovery is possible by
-re-sending the Payment message. The endpoint URL must remain valid for at least
-the same period of time as the original PaymentRequest.
+In the scenario where the merchant's server receives multiple identical Payment
+messages for an individual PaymentRequest, it must acknowledge each. The second
+and further PaymentACK messages sent from the merchant's server may vary by memo
+field to indicate current state of the Payment (for example number of confirmations
+seen on the network). This is required in order to ensure that in case of a transport
+level failure during transmission, recovery is possible by the Bitcoin client
+re-sending the Payment message.
 
 PaymentDetails.payment_url should be secure against man-in-the-middle
 attacks that might alter Payment.refund_to (if using HTTP, it must be
