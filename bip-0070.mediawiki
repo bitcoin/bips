@@ -25,7 +25,7 @@ The current, minimal Bitcoin payment protocol operates as follows:
 
 This BIP extends the above protocol to support several new features:
 
-# Human-readable, secure payment destinations-- customers will be asked to authorize payment to "website.com" instead of an inscrutable, 34-character bitcoin address.
+# Human-readable, secure payment destinations-- customers will be asked to authorize payment to "example.com" instead of an inscrutable, 34-character bitcoin address.
 # Secure proof of payment, which the customer can use in case of a dispute with the merchant.
 # Resistance from man-in-the-middle attacks that replace a merchant's bitcoin address with an attacker's address before a transaction is authorized with a hardware wallet.
 # Payment received messages, so the customer knows immediately that the merchant has received, and has processed (or is processing) their payment.
@@ -99,6 +99,12 @@ about the merchant and a digital signature.
 | merchant_data || Arbitrary data that may be used by the merchant to identify the PaymentRequest. May be omitted if the merchant does not need to associate Payments with PaymentRequest or if they associate each PaymentRequest with a separate payment address.
 |}
 
+The payment_url specified in the PaymentDetails should remain valid at least until the PaymentDetails
+expires (or as long as possible if the PaymentDetails does not expire). Note that this is irrespective of
+any state change in the underlying payment request; for example cancellation of an order should not
+invalidate the payment_url, as it is important that the merchant's server can record mis-payments
+in order to refund the payment.
+
 A PaymentRequest is PaymentDetails optionally tied to a merchant's identity:
 <pre>
     message PaymentRequest {
@@ -157,6 +163,13 @@ If the customer authorizes payment, then the Bitcoin client:
 # If PaymentDetails.payment_url is specified, POST a Payment message to that URL. The Payment message is serialized and sent as the body of the POST request.
 
 Errors communicating with the payment_url server should be communicated to the user.
+In the scenario where the merchant's server receives multiple identical Payment
+messages for an individual PaymentRequest, it must acknowledge each. The second
+and further PaymentACK messages sent from the merchant's server may vary by memo
+field to indicate current state of the Payment (for example number of confirmations
+seen on the network). This is required in order to ensure that in case of a transport
+level failure during transmission, recovery is possible by the Bitcoin client
+re-sending the Payment message.
 
 PaymentDetails.payment_url should be secure against man-in-the-middle
 attacks that might alter Payment.refund_to (if using HTTP, it must be
@@ -172,6 +185,9 @@ When the merchant's server receives the Payment message, it must
 determine whether or not the transactions satisfy conditions of
 payment. If and only if they do, if should broadcast the
 transaction(s) on the Bitcoin p2p network.
+
+Payment messages larger than 50,000 bytes should be rejected by
+the merchant's server, to mitigate denial-of-service attacks.
 
 ===PaymentACK===
 
@@ -189,6 +205,11 @@ Payment message:
 |-
 | memo || UTF-8 encoded note that should be displayed to the customer giving the status of the transaction (e.g. "Payment of 1 BTC for eleven tribbles accepted for processing.")
 |}
+
+PaymentACK messages larger than 60,000 bytes should be rejected by
+the wallet application, to mitigate denial-of-service attacks. This
+is larger than the limits on Payment and PaymentRequest messages
+as PaymentACK contains a full Payment message within it.
 
 ==Localization==
 
