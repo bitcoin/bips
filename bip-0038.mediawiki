@@ -90,8 +90,8 @@ Encryption steps:
 # Derive a key from the passphrase using scrypt
 #*Parameters: ''passphrase'' is the passphrase itself encoded in UTF-8.  salt is ''addresshash'' from the earlier step, n=16384, r=8, p=8, length=64 (n, r, p are provisional and subject to consensus)
 #*Let's split the resulting 64 bytes in half, and call them ''derivedhalf1'' and ''derivedhalf2''.
-# Do AES256Encrypt(bitcoinprivkey[0...15] xor derivedhalf1[0...15], derivedhalf2), call the 16-byte result ''encryptedhalf1''
-# Do AES256Encrypt(bitcoinprivkey[16...31] xor derivedhalf1[16...31], derivedhalf2), call the 16-byte result ''encryptedhalf2''
+# Do AES256Encrypt(block = bitcoinprivkey[0...15] xor derivedhalf1[0...15], key = derivedhalf2), call the 16-byte result ''encryptedhalf1''
+# Do AES256Encrypt(block = bitcoinprivkey[16...31] xor derivedhalf1[16...31], key = derivedhalf2), call the 16-byte result ''encryptedhalf2''
 
 The encrypted private key is the Base58Check-encoded concatenation of the following, which totals 39 bytes without Base58 checksum:
 * 0x01 0x42 + ''flagbyte'' + ''salt'' + ''encryptedhalf1'' + ''encryptedhalf2''
@@ -141,8 +141,8 @@ Steps to create new encrypted private keys given ''intermediate_passphrase_strin
 # Now we will encrypt ''seedb''.  Derive a second key from ''passpoint'' using scrypt
 #*Parameters: ''passphrase'' is ''passpoint'' provided from the first party (expressed in binary as 33 bytes).  ''salt'' is ''addresshash'' + ''ownerentropy'', n=1024, r=1, p=1, length=64.  The "+" operator is concatenation.
 #*Split the result into two 32-byte halves and call them ''derivedhalf1'' and ''derivedhalf2''.
-# Do AES256Encrypt(seedb[0...15] xor derivedhalf1[0...15], derivedhalf2), call the 16-byte result ''encryptedpart1''
-# Do AES256Encrypt((encryptedpart1[8...15] + seedb[16...23]) xor derivedhalf1[16...31], derivedhalf2), call the 16-byte result ''encryptedpart2''.  The "+" operator is concatenation.
+# Do AES256Encrypt(block = (seedb[0...15] xor derivedhalf1[0...15]), key = derivedhalf2), call the 16-byte result ''encryptedpart1''
+# Do AES256Encrypt(block = ((encryptedpart1[8...15] + seedb[16...23]) xor derivedhalf1[16...31]), key = derivedhalf2), call the 16-byte result ''encryptedpart2''.  The "+" operator is concatenation.
 
 The encrypted private key is the Base58Check-encoded concatenation of the following, which totals 39 bytes without Base58 checksum:
 * 0x01 0x43 + ''flagbyte'' + ''addresshash'' + ''ownerentropy'' + ''encryptedpart1''[0...7] + ''encryptedpart2''
@@ -153,8 +153,8 @@ The party generating the Bitcoin address has the option to return a ''confirmati
 To generate it, we need ''flagbyte'', ''ownerentropy'', ''factorb'', ''derivedhalf1'' and ''derivedhalf2'' from the original encryption operation.
 # ECMultiply ''factorb'' by G, call the result ''pointb''.  The result is 33 bytes.
 # The first byte is 0x02 or 0x03.  XOR it by (derivedhalf2[31] & 0x01), call the resulting byte ''pointbprefix''.
-# Do AES256Encrypt(pointb[1...16] xor derivedhalf1[0...15], derivedhalf2) and call the result ''pointbx1''.
-# Do AES256Encrypt(pointb[17...32] xor derivedhalf1[16...31], derivedhalf2) and call the result ''pointbx2''.
+# Do AES256Encrypt(block = (pointb[1...16] xor derivedhalf1[0...15]), key = derivedhalf2) and call the result ''pointbx1''.
+# Do AES256Encrypt(block = (pointb[17...32] xor derivedhalf1[16...31]), key = derivedhalf2) and call the result ''pointbx2''.
 # Concatenate ''pointbprefix'' + ''pointbx1'' + ''pointbx2'' (total 33 bytes) and call the result ''encryptedpointb''.
 
 The result is a Base58Check-encoded concatenation of the following:
