@@ -1,7 +1,7 @@
 #Wordlists
 
-* [English](bip-0039/english.txt)
-* [Japanese](bip-0039/japanese.txt)
+* [English](english.txt)
+* [Japanese](japanese.txt)
 
 ##Wordlists (Special Considerations)
 
