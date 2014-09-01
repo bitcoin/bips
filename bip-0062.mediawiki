@@ -31,7 +31,7 @@ Several sources of malleability are known:
 # '''Inputs ignored by scripts''' If a scriptPubKey starts with an OP_DROP, for example, the last data push of the corresponding scriptSig will always be ignored.
 # '''Sighash flags based masking''' Sighash flags can be used to ignore certain parts of a script when signing.
 # '''New signatures by the sender''' The sender (or anyone with access to the relevant private keys) is always able to create new signatures that spend the same inputs to the same outputs.
-The first six and part of the seventh can be fixed by extra consensus rules. The last three can't, but are always under control of the (original) sender.
+The first six and part of the seventh can be fixed by extra consensus rules. The last two can't, but are always under control of the (original) sender.
 
 ==Specification==
 
@@ -45,6 +45,16 @@ Seven extra rules are introduced, to combat exactly the seven first sources of m
 # '''Push operations in scriptSig of non-standard size type''' The smallest possible push operation (including OP_0 for an empty byte vector, or the direct pushes of a single byte) must be used when possible. Using any push operation that could be encoded in a shorter way invalidates it.
 # '''Zero-padded number pushes''' Any time a script opcode consumes a stack value that is interpreted as a number, it must be encoded in its shortest possible form. 'Negative zero' is not allowed.
 # '''Inputs ignored by scripts''' The (unnecessary) extra stack element consumed by OP_CHECKMULTISIG and OP_CHECKMULTISIGVERIFY must be the empty byte array (the result of OP_0). Anything else makes the script invalid.
+
+===Block validity===
+
+To introduce these new rules in the network, we add both nVersion=3 blocks and nVersion=3 transactions (nVersion=2 is skipped for transactions in order to keep the version numbers synchronized with block version numbers).
+The same mechanism as in BIP 0034 is used to introduce nVersion=3 blocks. When 75% of the past 1000 blocks are nVersion=3, a new consensus rule is activated which requires:
+* All transactions in such blocks are required to follow rules #2 and #4.
+* nVersion>=3 transactions in such blocks are required to follow all the above rules.
+
+When 95% of the past 1000 blocks are nVersion>=3, nVersion=2 blocks become invalid entirely. Note however that nVersion=1 transactions remain valid forever.
+
 
 ===References===
 
@@ -82,10 +92,6 @@ For reference:
 
 ==Compatibility==
 
-'''Version 3 blocks and transactions''' To introduce these new rules in the network, we add both nVersion=3 blocks and nVersion=3 transactions (nVersion=2 transactions are skipped in order to keep the version numbers synchronized).
-
 '''Relay of transactions''' A new node software version is released which makes nVersion=3 transactions standard, and relays them when their scriptSigs satisfy the above rules. Relaying of nVersion=1 transactions is unaffected. An nVersion=1 transaction spending an output created by an nVersion=3 transaction is also unaffected.
-
-'''Block validity''' In addition, the same mechanism as in BIP 0034 is reused to introduce nVersion=3 blocks. When 75% of the past 1000 blocks are nVersion=3, a new consensus rule is activated which requires nVersion>=3 transactions in nVersion>=3 blocks (and only that combination) to follow the above rules. An nVersion>=3 block with an nVersion>=3 transaction whose scriptSig does not follow the new rules, becomes invalid. When 95% of the past blocks are nVersion>=3, nVersion=2 blocks become invalid entirely. Note however that nVersion=1 transactions remain valid forever.
 
 '''Wallet updates''' As nVersion=3 transactions are non-standard currently, it is not possible to start creating them immediately. Software can be checked to confirm to the new rules of course, but setting nVersion=3 should only start when a significant part of the network's nodes has upgraded to compatible code. Its intended meaning is "I want this transaction protected from malleability", and remains a choice of the wallet software.
