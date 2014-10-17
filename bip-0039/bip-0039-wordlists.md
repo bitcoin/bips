@@ -2,6 +2,7 @@
 
 * [English](english.txt)
 * [Japanese](japanese.txt)
+* [Spanish](spanish.txt)
 
 ##Wordlists (Special Considerations)
 
@@ -15,3 +16,11 @@ words should use the UTF-8 ideographic space if it looks like the symbols are to
 2. Word-wrapping doesn't work well, so making sure that words only word-wrap at one of the  
 ideographic spaces may be a necessary step. As a long word split in two could be mistaken easily  
 for two smaller words (This would be a problem with any of the 3 character sets in Japanese)
+
+###Spanish
+
+1. Words can be uniquely determined typing the first 4 characters (sometimes less).
+
+2. Special Spanish characters like 'ñ', 'ü', 'á', etc... are considered equal to 'n', 'u', 'a', etc... in terms of identifying a word. Therefore, there is no need to use a Spanish keyboard to introduce the passphrase, an application with the Spanish wordlist will be able to identify the words after the first 4 chars have been typed even if the chars with accents have been replaced with the equivalent without accents.
+
+3. There are no words in common between the Spanish wordlist and any other language wordlist, therefore it is possible to detect the language with just one word.
