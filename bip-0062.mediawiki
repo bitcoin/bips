@@ -38,7 +38,7 @@ The first six and part of the seventh can be fixed by extra consensus rules, but
 ===New rules===
 
 Seven extra rules are introduced, to combat exactly the seven first sources of malleability listed above:
-# '''Require DER encoded ECDSA signatures''' An ECDSA signature passed to OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG or OP_CHECKMULTISIGVERIFY must be encoded using strict DER encoding. Doing a verification with a non-DER signature makes the entire script evaluate to False (not just the signature verification). See reference: [[#der-encoding|DER encoding]].
+# '''Require DER encoded ECDSA signatures''' An ECDSA signature passed to OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG or OP_CHECKMULTISIGVERIFY must be encoded using strict DER encoding, though the hashtype byte that follows it can be anything. Doing a verification with a non-DER signature makes the entire script evaluate to False (not just the signature verification). See reference: [[#der-encoding|DER encoding]].
 # '''Only push operations in scriptSig''' Only data pushes are allowed in scriptSig. Evaluating any other operation makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
 # '''No push operations of non-standard size type''' The smallest possible push operation must be used when possible. Pushing data using an operation that could be encoded in a shorter way makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
 # '''No zero-padded number pushes''' Any time a script opcode consumes a stack value that is interpreted as a number, it must be encoded in its shortest possible form. 'Negative zero' is not allowed. See reference: [[#numbers|Numbers]].
@@ -63,18 +63,20 @@ Below is a summary of the effects on signatures, their encoding and data pushes.
 
 The value S in signatures must be between 0x1 and 0x7FFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF 5D576E73 57A4501D DFE92F46 681B20A0 (inclusive). If S is too high, simply replace it by S' = 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141 - S.
 
-The constraints on the value R is unchanged w.r.t. ECDSA, and can be between 0x1 and 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364140 (inclusive). 
+The constraints on the value R is unchanged w.r.t. ECDSA, and can be between 0x1 and 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364140 (inclusive).
 
 ====DER encoding====
 For reference, here is how to encode signatures correctly in DER format.
 
-0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash-type]
+0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S]
 * total-length: 1-byte length descriptor of everything that follows, excluding the sighash byte.
 * R-length: 1-byte length descriptor of the R value that follows.
 * R: arbitrary-length big-endian encoded R value. It cannot start with any 0x00 bytes, unless the first byte that follows is 0x80 or higher, in which case a single 0x00 is required.
 * S-length: 1-byte length descriptor of the S value that follows.
 * S: arbitrary-length big-endian encoded S value. The same rules apply as for R.
-* sighash-type: 1-byte hashtype flag (only 0x01, 0x02, 0x03, 0x81, 0x82 and 0x83 are allowed).
+
+The DER signature is followed by a 1-byte hashtype flag, which is Bitcoin-specific and not part of DER.
+
 This is already enforced by the reference client as of version 0.8.0 (only as relay policy, not as a consensus rule).
 
 This rule, combined with the low S requirement above, results in S-length being at most 32 (and R-length at most 33), and the total signature size being at most 72 bytes (and on average 71.494 bytes).
