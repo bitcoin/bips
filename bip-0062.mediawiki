@@ -31,29 +31,30 @@ Several sources of malleability are known:
 # '''Inputs ignored by scripts''' If a scriptPubKey starts with an OP_DROP, for example, the last data push of the corresponding scriptSig will always be ignored.
 # '''Sighash flags based masking''' Sighash flags can be used to ignore certain parts of a script when signing.
 # '''New signatures by the sender''' The sender (or anyone with access to the relevant private keys) is always able to create new signatures that spend the same inputs to the same outputs.
-The first six and part of the seventh can be fixed by extra consensus rules, but the last two can't. Not being able to fix #7 means that even with these new consensus rules, it will always be possible to create outputs whose spending transactions will all be malleable. However, when restricted to using a safe set of output scripts, extra consensus rules can make spending transactions optionally non-malleable (if the spender chooses to; as he can always bypass #8 and #9 himself).
+# '''Signature reordering''' If a signature is valid for more than one pubkey, for instance due to a CHECKMULTISIG where two or more of the keys are equivalent, the order of signatures can be changed.
+The first six and part of the seventh can be fixed by extra consensus rules, but the last three can't. Not being able to fix #7 and #10 means that even with these new consensus rules, it will always be possible to create outputs whose spending transactions will all be malleable. However, when restricted to using a safe set of output scripts, extra consensus rules can make spending transactions optionally non-malleable (if the spender chooses to; as he can always bypass #8 and #9 himself).
 
 ==Specification==
 
 ===New rules===
 
 Seven extra rules are introduced, to combat exactly the seven first sources of malleability listed above:
-# '''Canonically encoded ECDSA signatures''' An ECDSA signature passed to OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG or OP_CHECKMULTISIGVERIFY must be encoded using strict DER encoding. Doing a verification with a non-DER signature makes the entire script evaluate to False (not just the signature verification). See reference: [[#der-encoding|DER encoding]].
-# '''Non-push operations in scriptSig''' Only data pushes are allowed in scriptSig. Evaluating any other operation makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
-# '''Push operations in scriptSig of non-standard size type''' The smallest possible push operation must be used when possible. Pushing data using an operation that could be encoded in a shorter way makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
-# '''Zero-padded number pushes''' Any time a script opcode consumes a stack value that is interpreted as a number, it must be encoded in its shortest possible form. 'Negative zero' is not allowed. See reference: [[#numbers|Numbers]].
-# '''Inherent ECDSA signature malleability''' We require that the S value inside ECDSA signatures is at most the curve order divided by 2 (essentially restricting this value to its lower half range). See reference: [[#low-s-values-in-signatures|Low S values in signatures]].
-# '''Superfluous scriptSig operations''' scriptPubKey evaluation will be required to result in a single non-zero value. If any extra data elements remain on the stack, the script evaluates to false.
-# '''Inputs ignored by scripts''' The (unnecessary) extra stack element consumed by OP_CHECKMULTISIG and OP_CHECKMULTISIGVERIFY must be the empty byte array (the result of OP_0). Anything else makes the script evaluate to false.
+# '''Require DER encoded ECDSA signatures''' An ECDSA signature passed to OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG or OP_CHECKMULTISIGVERIFY must be encoded using strict DER encoding, though the hashtype byte that follows it can be anything. Doing a verification with any non-DER signature passed to it makes the entire script evaluate to False, even when an invalid signature is encountered before (which would otherwise make the opcode evaluate to False, but not necessarily the entire script). See reference: [[#der-encoding|DER encoding]].
+# '''Only push operations in scriptSig''' Only data pushes are allowed in scriptSig. Evaluating any other operation makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
+# '''No push operations of non-standard size type''' The smallest possible push operation must be used when possible. Pushing data using an operation that could be encoded in a shorter way makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
+# '''No zero-padded number pushes''' Any time a script opcode consumes a stack value that is interpreted as a number, it must be encoded in its shortest possible form. 'Negative zero' is not allowed. See reference: [[#numbers|Numbers]].
+# '''Require low S in ECDSA signatures''' We require that the S value inside all ECDSA signatures passed to any of the CHECKSIG operators is at most the curve order divided by 2 (essentially restricting this value to its lower half range). See reference: [[#low-s-values-in-signatures|Low S values in signatures]].
+# '''No superfluous scriptSig operations''' scriptPubKey evaluation will be required to result in a single non-zero value. If any extra data elements remain on the stack, the script evaluates to false. For P2SH scripts, this check is only done after the redeemscript evaluation, not after the actual script evaluation.
+# '''Inputs ignored by scripts are 0''' The (unnecessary) extra stack element consumed by OP_CHECKMULTISIG and OP_CHECKMULTISIGVERIFY must be the empty byte array (the result of OP_0). Anything else makes the script evaluate to false.
 
 ===Block validity===
 
-To introduce these new rules in the network, we add both v3 blocks and v3 transactions. v2 is skipped for transactions to keep the version numbers between transaction and block rules in sync. v2 transactions are treated identically to v1 transactions.
+To introduce these new rules in the network, we add both v3 blocks and v2 transactions.
 The same mechanism as in BIP 0034 is used to introduce v3 blocks. When 75% of the past 1000 blocks are v3, a new consensus rule is activated:
-* All transactions in v3 blocks are required to follow rules #1-#2.
-* v3 (and higher) transactions in v3 blocks are required to follow rules #3-#7 as well.
+* All transactions in v3 blocks are required to follow rule #1.
+* v2 transactions in v3 blocks are required to follow rules #2-#7 as well. Transactions with version 1 or a version higher than 2 do not have this requirement, even when in a v3 block.
 
-When 95% of the past 1000 blocks are v3 or higher, v2 blocks become invalid entirely. Note however that v1 (and v2) transactions remain valid forever.
+When 95% of the past 1000 blocks are v3 or higher, the above rules start applying for every block, and v3 for blocks loses special meaning, so it can be reused. Note however that v1 transactions remain valid forever.
 
 ===References===
 
@@ -63,18 +64,20 @@ Below is a summary of the effects on signatures, their encoding and data pushes.
 
 The value S in signatures must be between 0x1 and 0x7FFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF 5D576E73 57A4501D DFE92F46 681B20A0 (inclusive). If S is too high, simply replace it by S' = 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141 - S.
 
-The constraints on the value R is unchanged w.r.t. ECDSA, and can be between 0x1 and 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364140 (inclusive). 
+The constraints on the value R is unchanged w.r.t. ECDSA, and can be between 0x1 and 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364140 (inclusive).
 
 ====DER encoding====
 For reference, here is how to encode signatures correctly in DER format.
 
-0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash-type]
+0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S]
 * total-length: 1-byte length descriptor of everything that follows, excluding the sighash byte.
 * R-length: 1-byte length descriptor of the R value that follows.
 * R: arbitrary-length big-endian encoded R value. It cannot start with any 0x00 bytes, unless the first byte that follows is 0x80 or higher, in which case a single 0x00 is required.
 * S-length: 1-byte length descriptor of the S value that follows.
 * S: arbitrary-length big-endian encoded S value. The same rules apply as for R.
-* sighash-type: 1-byte hashtype flag (only 0x01, 0x02, 0x03, 0x81, 0x82 and 0x83 are allowed).
+
+The DER signature is followed by a 1-byte hashtype flag, which is Bitcoin-specific and not part of DER.
+
 This is already enforced by the reference client as of version 0.8.0 (only as relay policy, not as a consensus rule).
 
 This rule, combined with the low S requirement above, results in S-length being at most 32 (and R-length at most 33), and the total signature size being at most 72 bytes (and on average 71.494 bytes).
@@ -106,6 +109,6 @@ In particular, note that zero could be encoded as (01 80) (negative zero) if usi
 
 ==Compatibility==
 
-'''Relay of transactions''' A new node software version is released which makes v3 transactions standard, and relays them when their scriptSigs satisfy the above rules. Relaying of v1 transactions is unaffected. A v1 transaction spending an output created by a v3 transaction is also unaffected.
+'''Relay of transactions''' A new node software version is released which makes v2 transactions standard, and relays them when their scriptSigs satisfy the above rules. Relaying of v1 transactions is unaffected. A v1 transaction spending an output created by a v2 transaction is also unaffected.
 
-'''Wallet updates''' As v3 transactions are non-standard currently, it is not possible to start creating them immediately. Software can be checked to confirm to the new rules of course, but using v3 should only start when a significant part of the network's nodes has upgraded to compatible code. Its intended meaning is "I want this transaction protected from malleability", and remains a choice of the wallet software.
+'''Wallet updates''' As v2 transactions are non-standard currently, it is not possible to start creating them immediately. Software can be checked to comply to the new rules of course, but using v2 should only start when a significant part of the network's nodes has upgraded to compatible code. Its intended meaning is "I want this transaction protected from malleability", and remains a choice of the wallet software.
