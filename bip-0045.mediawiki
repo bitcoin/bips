@@ -49,7 +49,7 @@ Purpose is a constant set to 45, following the BIP43 recommendation.
 It indicates that the subtree of this node is used according to this specification.
 
 <code>
-m / purpose' / *
+m / 45' / *
 </code>
 
 Hardened derivation is used at this level.
@@ -76,11 +76,11 @@ purpose public keys:
 03f76588e06c0d688617ef365d1e58a7f1aa84daa3801380b1e7f12acc9a69cd13
 </pre>
 
-it should use `m / purpose ' / 0 / *` for 
+it should use `m / 45 ' / 0 / *` for 
 `039863fb5f07b667d9b1ca68773c6e6cdbcac0088ffba9af46f6f6acd153d44463`, 
-`m / purpose ' / 1 / *` for
+`m / 45 ' / 1 / *` for
 `03a473275a750a20b7b71ebeadfec83130c014da4b53f1c4743fcf342af6589a38`,
-and `m / purpose ' / 2 / *` for
+and `m / 45 ' / 2 / *` for
 `03f76588e06c0d688617ef365d1e58a7f1aa84daa3801380b1e7f12acc9a69cd13`,
 as dictated by their lexicographical order.
 
@@ -99,7 +99,7 @@ chain is used for addresses which are not meant to be visible outside of the
 wallet and is used for return transaction change.
 
 For example, if cosigner 2 wants to generate a change address, he would use
-`m / purpose ' / 2 / 1 / *`, and `m / purpose ' / 2 / 0 / *` for a receive
+`m / 45 ' / 2 / 1 / *`, and `m / 45 ' / 2 / 0 / *` for a receive
 address.
 
 Non-hardened derivation is used at this level.
@@ -134,7 +134,7 @@ others using the next index, and calculate the needed script for the address.
 
 Example: Cosigner #2 wants to receive a payment to the shared wallet. His last
 used index on his own branch is 4. Then, the path for the next receive
-address is `m/$purpose/2/1/5`. He uses this same path in all of the cosigners
+address is `m/45'/2/0/5`. He uses this same path in all of the cosigners
 trees to generate a public key for each one, and from that he gets the new
 p2sh address.
 ====Change address case====
@@ -145,7 +145,7 @@ using a separate index to track the used change addresses.
 
 Example: Cosigner #5 wants to send a payment from the shared wallet, for which
 he'll need a change address. His last used change index on his own branch is
-11. Then, the path for the next change address is `m/$purpose/5/0/12`. He uses
+11. Then, the path for the next change address is `m/45'/5/1/12`. He uses
 this same path in all of the cosigners trees to generate a public key for each
 one, and from that he gets the new p2sh address.
 
@@ -165,27 +165,23 @@ protocol to accept or reject it, belong to another BIP, in my opinion.
 ===Address discovery===
 
 When the master seed is imported from an external source the software should
-start to discover the accounts in the following manner:
+start to discover the addresses in the following manner:
 
-# derive the first account's node (index = 0)
-# derive the external chain node of this account
-# scan addresses of the external chain; respect the gap limit described below
-# if no transactions are found on the external chain stop discovery
-# if there are some transactions, increase the account index and go to step 1
+# for each cosigner:
+# derive the cosigner's node (`m / 45' / cosigner_index`)
+# for both the external and internal chains on this node (`m / 45' / cosigner_index / 0` and `m / 45' / cosigner_index / 1`):
+# scan addresses of the chain; respect the gap limit described below
 
-This algorithm is correct, because software should disallow creation of new
-accounts if previous one has no transaction history as described in chapter
-"Account" above.
-
-Please note that the algorithm works with the transaction history, not account
-balances, so you can have account with total 0 coins and the algorithm will
-still continue with discovery.
+Please note that the algorithm uses the transaction history, not address
+balances, so even if the address has 0 coins, the program should continue with discovery.
+Opposite to BIP44, each cosigner branch needs to be checked,
+even if the earlier ones don't have transactions
 
 ===Address gap limit===
 
-Address gap limit is currently set to 20. If the software hits 20 unused
-addresses in a row, it expects there are no used addresses beyond this point
-and stops searching the address chain.
+Address gap limit is currently set to 20. If the software hits 20 unused 
+addresses (no transactions associated with that address) in a row, it expects
+there are no used addresses beyond this point and stops searching the address chain.
 
 Wallet software should warn when user is trying to exceed the gap limit on
 an external chain by generating a new address.
