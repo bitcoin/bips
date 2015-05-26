@@ -5,6 +5,7 @@
 * [Spanish](spanish.txt)
 * [Chinese (Simplified)](chinese_simplified.txt)
 * [Chinese (Traditional)](chinese_traditional.txt)
+* [French](french.txt)
 
 ##Wordlists (Special Considerations)
 
@@ -31,3 +32,26 @@ for two smaller words (This would be a problem with any of the 3 character sets 
 
 1. Chinese text typically does not use any spaces as word separators. For the sake of
 uniformity, we propose to use normal ASCII spaces (0x20) to separate words as per standard.
+
+###French
+
+Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
+([The pull request](https://github.com/bitcoin/bips/issues/152))
+
+1.  High priority on simple and common french words.
+2.  Only words with 5-8 letters.
+3.  A word is fully recognizable by typing the first 4 letters (special french characters "é-è" are considered equal to "e", for exemple "museau" and "musée" can not be together).
+4.  Only infinitive verbs, adjectives and nouns.
+5.  No pronouns, no adverbs, no prepositions, no conjunctions, no interjections (unless a noun/adjective is also popular than its interjection like "mince;chouette").
+6.  No numeral adjectives.
+7.  No words in the plural (except invariable words like "univers", or same spelling than singular like "heureux").
+8.  No female adjectives (except words with same spelling for male and female adjectives like "magique").
+9.  No words with several senses AND different spelling in speaking like "verre-vert", unless a word has a meaning much more popular than another like "perle" and "pairle".
+10. No very similar words with 1 letter of difference.
+11. No essentially reflexive verbs (unless a verb is also a noun like "souvenir").
+12. No words with "ô;â;ç;ê;œ;æ;î;ï;û;ù;à;ë;ÿ".
+13. No words ending by "é;ée;è;et;ai;ait".
+14. No demonyms.
+15. No words in conflict with the spelling corrections of 1990 (http://goo.gl/Y8DU4z).
+16. No embarrassing words (in a very, very large scope) or belonging to a particular religion.
+17. No identical words with the Spanish wordlist (as Y75QMO wants).
