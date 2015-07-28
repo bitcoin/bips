@@ -1,0 +1,146 @@
+<pre>
+  BIP: 121
+  Title: Proof of Payment URI scheme
+  Author: Kalle Rosenbaum <kalle@rosenbaum.se>
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-07-27
+</pre>
+
+== Abstract ==
+
+This is a proposal for a URI scheme to be used in the Proof of Payment
+process.
+
+== Motivation ==
+
+To make a Proof of Payment, the party that wants the proof needs to
+transfer a Proof of Payment request to the wallet software of the
+other party. To facilitate that transfer, a new URI scheme
+representing the PoP request is proposed. This URI can then be encoded
+in QR images or be sent over NFC in order to transfer it to the wallet.
+
+== Specification ==
+
+The specification is the same as BIP0021, with the following
+differences:
+
+* The URI scheme is <tt>btcpop</tt> instead of <tt>bitcoin</tt>
+* The path component, i.e. the address part, is always empty.
+* A mandatory <tt>p</tt> parameter whose value contains the destination for the PoP. This could for example be a <tt>https:</tt> URL or a <tt>mailto:</tt> URI.
+* A mandatory <tt>n</tt> parameter representing the nonce, base58 encoded.
+* An optional <tt>txid</tt> parameter containing the Base58 encoded hash of the transaction to prove.
+
+Just as in BIP0021, elements of the query component may contain
+characters outside the valid range. These must first be encoded
+according to UTF-8, and then each octet of the corresponding UTF-8
+sequence must be percent-encoded as described in RFC 3986.
+
+All parameters except <tt>p</tt> and <tt>n</tt> are hints to the
+wallet on which transaction to create a PoP for.
+
+The extensibility of BIP0021 applies to this scheme as well. For
+example, a <tt>date</tt> parameter or a <tt>toaddr</tt> parameter
+might be useful. <tt>req-*</tt> parameters are also allowed and obey
+the same rules as in BIP0021, clients not supporting a <tt>req-*</tt>
+parameter must consider the URI invalid.
+
+=== Keep URIs short ===
+
+Implementations should keep the URIs as short as possible. This is
+because it makes QR decoding more stable. A camera with a scratched
+lens or low resolution may run into problems scanning huge QR
+codes. This is why the <tt>txid</tt> parameter is encoded in Base58
+instead of the classic hex encoded string. We get away with 44
+characters instead of 64. Also, the <tt>nonce</tt> parameter is Base58
+encoded for the same reason.
+
+== Interpretation ==
+
+=== Transaction hints ===
+
+The wallet processing the URI must use the hints in the PoP request to
+filter its transaction set. The <tt>label</tt>, <tt>amount</tt> and
+<tt>message</tt> parameters must, if present in the URI, exactly match
+the data associated with the original payment according to the
+following table:
+
+{|
+| <tt>btcpop:</tt> URI parameter || <tt>bitcoin:</tt> URI parameter || BIP70 PaymentDetails data
+|-
+| <tt>label</tt>                 || <tt>label</tt>                  || <tt>merchant_data</tt>
+|-
+| <tt>amount</tt>                || <tt>amount</tt>                 || <tt>sum of outputs.amount</tt>
+|-
+| <tt>message</tt>               || <tt>message</tt>                || <tt>memo</tt>
+|}
+
+The <tt>txid</tt> parameter value must match the transaction hash of
+the payment.
+
+After filtering, the resulting transaction set is displayed to the
+user who selects one of them to prove. An implementation could also
+automatically select a transaction in the filtered set, but
+there must still be a way for the user to select freely among the
+matching transactions. If the filtered set is empty, no transaction
+fits the hints and a message about that is presented to the user. If
+the filtered set contains exactly one transaction, which is
+preferable, that transaction can be automatically selected.
+
+As a fallback, there must also be a way for the user to select any
+transaction from the wallet regardless of the transaction hints. This
+can be useful if the metadata of the wallet is lost, possibly due to a
+restore from backup.
+
+=== PoP destination <tt>p</tt> ===
+
+The <tt>p</tt> parameter value is the destination where to send the
+PoP to. This destination is typically a <tt>https:</tt> URL or a
+<tt>http:</tt> URL, but it could be any type of URI, for example
+<tt>mailto:</tt>. To keep <tt>btcpop:</tt> URIs short, users should
+not make their <tt>p</tt> parameter unneccesarily long.
+
+==== <tt>http:</tt> and <tt>https:</tt> URLs ====
+
+Wallet implementations must support the <tt>http:</tt> and
+<tt>https:</tt> schemes in which case <tt>POST</tt> method must be
+used. The content type of the POST request must be set to
+
+ Content-Type: application/bitcoin-pop
+ Content-Transfer-Encoding: binary
+
+== Examples ==
+
+Send PoP for a transaction with label "video 42923" to
+<tt><nowiki>https://www.example.com/pop/352</nowiki></tt>, using nonce
+<tt>0x73 0xd5 0x1a 0xbb 0xd8 0x9c</tt>:
+<pre>
+ btcpop:?p=https://www.example.com/pop/352&n=zgWTm8yH&label=video 42923
+</pre>
+Send PoP through mail using
+<tt><nowiki>mailto:pop@example.com?subject=pop444</nowiki></tt>, amount
+is 13370000 satoshis, nonce is <tt>0x6f 0xe 0xfb 0x68 0x92 0xf9</tt>.
+Note that the <tt>?</tt> before <tt>subject</tt> is OK according to RFC3986,
+since the query part starts from the first <tt>?</tt>:
+<pre>
+ btcpop:?p=mailto:pop@example.com?subject%3Dpop444&n=xJdKmEbr&amount=0.1337
+</pre>
+Send PoP for transaction with id
+<tt>cca7507897abc89628f450e8b1e0c6fca4ec3f7b34cccf55f3f531c659ff4d79</tt>
+to pizza place at <tt><nowiki>http://pizza.example.com/pop/laszlo111</nowiki></tt> using nonce <tt>0xfc 0xcc 0x2c 0x35 0xf0 0xb8</tt>
+<pre>
+ btcpop:?p=http://pizza.example.com/pop/laszlo111&n=3AtNpVrPh&txid=Emt9MPvt1joznqHy5eEHkNtcuQuYWXzYJBQZN6BJm6NL
+</pre>
+== Reference implementation ==
+
+[https://github.com/kallerosenbaum/poppoc PoP Demo server on GitHub]
+
+[https://github.com/kallerosenbaum/wallet PoP-enabled Mycelium fork on GitHub]
+
+== References ==
+
+[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki BIP0021]: URI Scheme
+
+[https://github.com/bitcoin/bips/blob/master/bip-0120.mediawiki BIP0120]: Proof of Payment
+
+[https://www.ietf.org/rfc/rfc3986.txt RFC3986]: Uniform Resource Identifier (URI): Generic Syntax
