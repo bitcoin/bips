@@ -1,0 +1,206 @@
+<pre>
+  BIP: XX
+  Title: OP_CHECKSEQUENCEVERIFY
+  Authors: BtcDrak <btcdrak@gmail.com>
+           Mark Friedenbach <mark@friedenbach.org>	
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-08-10
+</pre>
+
+==Abstract==
+
+This BIP describes a new opcode (OP_CHECKSEQUENCEVERIFY) for the Bitcoin 
+scripting system that allows a transaction output to be made unspendable 
+until some relative point in the future according to the nSequence field.
+
+
+==Summary==
+
+CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed it 
+compares the top item on the stack to the nSequence field of the transaction 
+containing the scriptSig. If that top stack item is greater than the 
+transaction sequence threshold (1 << 31) the script fails immediately, 
+otherwise script evaluation continues as though a NOP was executed.
+
+By comparing the argument to CHECKSEQUENCEVERIFY against the nSequence field,
+we indirectly verify that the desired block height or block time has been 
+reached (according to BIP68's redefinition of nSequence); until that block
+height or block time has been reached the transaction output remains 
+unspendable.
+
+
+==Motivation==
+
+BIP68 repurposes the transaction nSequence field meaning by giving sequence
+numbers new consensus-enforced semantics as a relative lock-time. However,
+there is no way to build Bitcoin scripts to make decisions based on this 
+field.
+
+
+==Specification==
+
+Refer to the reference implementation, reproduced below, for the precise 
+semantics and detailed rationale for those semantics.
+
+    
+    case OP_NOP3:
+    {
+        if (!(flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)) {
+            // not enabled; treat as a NOP3
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) {
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+            }
+            break;
+        }
+        
+        if (stack.size() < 1)
+            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+        
+        // Note that unlike CHECKLOCKTIMEVERIFY we do not need to
+        // accept 5-byte bignums since any value greater than or
+        // equal to SEQUENCE_THRESHOLD (= 1 << 31) will be rejected
+        // anyway. This limitation just happens to coincide with
+        // CScriptNum's default 4-byte limit with an explicit sign
+        // bit.
+        //
+        // This means there is a maximum relative lock time of 52
+        // years, even though the nSequence field in transactions
+        // themselves is uint32_t and could allow a relative lock
+        // time of up to 120 years.
+        const CScriptNum nInvSequence(stacktop(-1), fRequireMinimal);
+        
+        // In the rare event that the argument may be < 0 due to
+        // some arithmetic being done first, you can always use
+        // 0 MAX CHECKSEQUENCEVERIFY.
+        if (nInvSequence < 0)
+            return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
+        
+        // Actually compare the specified inverse sequence number
+        // with the input.
+        if (!CheckSequence(nInvSequence))
+            return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+        
+        break;
+    }
+    
+    bool CheckSequence(const CScriptNum& nSequence) const
+    {
+        int64_t txToSequence;
+        
+        // Fail under all circumstances if the transaction's version
+        // number is not set high enough to enable enforced sequence
+        // number rules.
+        if (txTo->nVersion < 3)
+            return false;
+        
+        txToSequence = (int64_t)~txTo->vin[nIn].nSequence;
+        if (txToSequence >= SEQUENCE_THRESHOLD)
+            return false;
+        
+        // There are two types of nSequence: lock-by-blockheight
+        // and lock-by-blocktime, distinguished by whether
+        // nSequence < LOCKTIME_THRESHOLD.
+        //
+        // We want to compare apples to apples, so fail the script
+        // unless the type of nSequence being tested is the same as
+        // the nSequence in the transaction.
+        if (!(
+            (txToSequence <  LOCKTIME_THRESHOLD && nSequence <  LOCKTIME_THRESHOLD) ||
+            (txToSequence >= LOCKTIME_THRESHOLD && nSequence >= LOCKTIME_THRESHOLD)
+        ))
+            return false;
+        
+        // Now that we know we're comparing apples-to-apples, the
+        // comparison is a simple numeric one.
+        if (nSequence > txToSequence)
+            return false;
+    
+        return true;
+    }
+
+https://github.com/btcdrak/bips/blob/bip-csv/bip-csv/example.cpp
+
+
+==Example: Escrow with Timeout==
+
+An escrow that times out automatically 30 days after being funded can be
+established in the following way. Alice, Bob and Escrow create a 2-of-3
+address with the following redeemscript.
+
+    IF
+        2 <Alice's pubkey> <Bob's pubkey> <Escrow's pubkey> 3 CHECKMULTISIGVERIFY
+    ELSE
+        <30 days> CHECKSEQUENCEVERIFY DROP
+        <Alice's pubkey> CHECKSIGVERIFY
+    ENDIF
+
+At any time funds can be spent using signatures from any two of Alice, 
+Bob or the Escrow.
+
+After 30 days Alice can sign alone.
+
+The clock does not start ticking until the payment to the escrow address
+confirms. 
+
+
+==Reference Implementation==
+
+A reference implementation is provided in the following git repository:
+
+https://github.com/maaku/bitcoin/tree/checksequenceverify
+
+
+==Deployment==
+
+We reuse the double-threshold switchover mechanism from BIPs 34 and 66,
+with the same thresholds, but for nVersion = 4. The new rules are in 
+effect for every block (at height H) with nVersion = 4 and at least 750 
+out of 1000 blocks preceding it (with heights H-1000..H-1) also have 
+nVersion = 4. Furthermore, when 950 out of the 1000 blocks preceding a 
+block do have nVersion = 4, nVersion = 3 blocks become invalid, and all 
+further blocks enforce the new rules.
+
+It is recommended that this soft-fork deployment trigger include other 
+related proposals for improving Bitcoin's lock-time capabilities, including:
+
+[https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP 65]: 
+OP_CHECKLOCKTIMEVERIFY, 
+
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68]: 
+Consensus-enforced transaction replacement signalled via sequence numbers,
+
+and [https://github.com/bitcoin/bips/blob/master/bip-00XX.mediawiki BIP XX]: 
+Median-Past-Time-Lock.
+
+
+==Upgrade and Testing Plan==
+
+TBD
+
+
+==Credits==
+
+Mark Friedenbach for designing and authoring the actual implementation 
+for CHECKSEQUENCEVERIFY.
+
+
+==References==
+
+BIP 68: Consensus-enforced transaction replacement signalled via sequence numbers
+https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki 
+
+BIP 65: OP_CHECKLOCKTIMEVERIFY
+https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki
+
+BIP XX: Median-Past-Time-Lock 
+https://github.com/bitcoin/bips/blob/master/bip-00XX.mediawiki 
+
+HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and revocation hashes
+http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html 
+
+
+==Copyright==
+
+This document is placed in the public domain.
+
