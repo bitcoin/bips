@@ -1,0 +1,146 @@
+<pre>
+  BIP: XX
+  Title: Median-Past-TimeLock
+  Author: Thomas Kerin <me@thomaskerin.io>
+          Mark Friedenbach <mark@friedenbach.org>	
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-08-10
+</pre>
+
+==Abstract==
+
+This BIP is a proposal to redefine the semantics used to determine a time-locked 
+transactions eligibilty for inclusion in a block. The proposal is to use a 
+blocks MedianTimePast instead of the included timestamp, ensuring that it 
+increases monotonically with each block. 
+
+==Motivation==
+
+At present, transactions are excluded from the next block if the present time 
+or block height is less than that specified in the locktime. Since there is no 
+network rule ensuring that block timestamps come in chronological order, 
+directly using this can lead to transactions being incorrectly excluded, when 
+they ought to be valid. 
+
+This BIP proposes comparing the locktime against the MedianTimePast over the 
+last 11 blocks, rather than the time included in the block. The benefit is 
+this figure is derived via consensus, and guaranteed to monotonically advance. 
+
+This proposal seeks to ensure reliable behaviour in locktime calculations as 
+required by BIP65 [1], OP_CHECKSEQUENCEVERIFY [2], and BIP68 [3].
+
+==Specification==
+
+The values for transaction locktime remain unchanged. The difference is only in 
+the calculation determining whether a transaction can be included. Instead of 
+an unreliable timestamp, the following function is used to determine the current 
+blocks time. 
+
+      
+    enum { nMedianTimeSpan=11 }; 
+      
+    int64_t GetMedianTimePast() const 
+    {
+        int64_t pmedian[nMedianTimeSpan]; 
+        int64_t* pbegin = &pmedian[nMedianTimeSpan]; 
+        int64_t* pend = &pmedian[nMedianTimeSpan]; 
+        const CBlockIndex* pindex = this; 
+        for (int i = 0; i < nMedianTimeSpan && pindex; i++, pindex = pindex->pprev) 
+             *(--pbegin) = pindex->GetBlockTime(); 
+        std::sort(pbegin, pend); 
+        return pbegin[(pend - pbegin)/2]; 
+    }
+
+BIP68 proposes to replace IsFinalTx() and CheckFinalTx() with Locktime(), and CheckLocktime(),
+allowing a TxIn’s sequence number to specify a relative locktime. 
+
+Adopting the use of MedianTimePast in comparisons with a locktime, involves modifying 
+CheckLocktime() to use the next blocks MedianTimePast, should the LOCKTIME_MEDIAN_TIME_PAST 
+flag be set.
+
+The following function introduces this behaviour:
+
+      
+    int64_t CheckLockTime(const CTransaction &tx, int flags)
+    {
+      AssertLockHeld(cs_main);
+      
+      // By convention a negative value for flags indicates that the
+      // current network-enforced consensus rules should be used. In
+      // a future soft-fork scenario that would mean an
+      // IsSuperMajority check against chainActive.Tip().
+      if (flags < 0)
+        flags = LOCKTIME_MEDIAN_TIME_PAST;
+      
+      // pcoinsTip contains the UTXO set for chainActive.Tip()
+      const CCoinsView *pCoinsView = pcoinsTip;
+      
+      // CheckLockTime() uses chainActive.Height()+1 to evaluate
+      // nLockTime because when LockTime() is called within
+      // CBlock::AcceptBlock(), the height of the block *being*
+      // evaluated is what is used. Thus if we want to know if a
+      // transaction can be part of the *next* block, we need to call
+      // LockTime() with one more than chainActive.Height().
+      const int nBlockHeight = chainActive.Height() + 1;
+      
+      // Timestamps on the other hand don't get any special treatment,
+      // because we can't know what timestamp the next block will have,
+      // and there aren't timestamp applications where it matters.
+      int64_t nBlockTime = GetAdjustedTime();
+      if (flags & LOCKTIME_MEDIAN_TIME_PAST)
+        nBlockTime -= ((CBlockIndex::nMedianTimeSpan + 1) >> 1) * Params().GetConsensus().nPowTargetSpacing;
+      
+      return LockTime(tx, flags, pCoinsView, nBlockHeight, nBlockTime);
+    }
+
+Where a value for LocktimeCutoff is used, the switchover logic is implemented as such: 
+     
+    int64_t nLockTimeCutoff = (nLockTimeFlags & LOCKTIME_MEDIAN_TIME_PAST)
+                              ? nMedianTimePast
+                              : pblock->GetBlockTime();
+
+==Upgrade and Testing Plan==
+
+TBD
+
+
+==Acknowledgements==
+
+Mark Friedenbach for designing and authoring the actual implementation for Median-
+Past time-lock.
+
+==Implementations==
+
+A reference implementation is provided in the following git repository:
+
+https://github.com/maaku/bitcoin/tree/medianpasttimelock
+
+
+==Deployment==
+
+We reuse the double-threshold switchover mechanism from BIPs 34 and 66, with the 
+same thresholds, but for block.nVersion = 4. The new rules are in effect for 
+every block (at height H) with nVersion = 4 and at least 750 out of 1000 blocks 
+preceding it (with heights H-1000...H-1) also have nVersion = 4. Furthermore, 
+when 950 out of the 1000 blocks preceding a block do have nVersion = 4, 
+nVersion = 3 blocks become invalid, and all further blocks enforce the new rules.
+
+It is recommended that this soft-fork deployment trigger include other related 
+proposals for improving Bitcoin's lock-time capabilities, such as BIP 65, BIP68
+and OP_CHECKSEQUENCEVERIFY.
+
+
+==Compatibility==
+
+
+
+==References==
+[https://github.com/bitcoin/bips/blob/master/bip-00.mediawiki BIP65: OP_CHECKLOCKTIMEVERIFY]
+[https://github.com/bitcoin/bips/blob/master/bip-00.mediawiki BIP68: Consensus-enforced transaction replacement signaled via sequence numbers]
+[https://github.com/bitcoin/bips/blob/master/bip-00.mediawiki BIP65: OP_CHECKSEQUENCEVERIFY]
+
+==Copyright==
+
+This document is placed in the public domain.
+
