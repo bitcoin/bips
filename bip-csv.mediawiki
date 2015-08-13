@@ -1,6 +1,6 @@
 <pre>
   BIP: XX
-  Title: OP_CHECKSEQUENCEVERIFY
+  Title: CHECKSEQUENCEVERIFY
   Authors: BtcDrak <btcdrak@gmail.com>
            Mark Friedenbach <mark@friedenbach.org>	
   Status: Draft
@@ -10,32 +10,46 @@
 
 ==Abstract==
 
-This BIP describes a new opcode (OP_CHECKSEQUENCEVERIFY) for the Bitcoin 
-scripting system that allows a transaction output to be made unspendable 
-until some relative point in the future according to the nSequence field.
+This BIP describes a new opcode (CHECKSEQUENCEVERIFY) for the Bitcoin
+scripting system that in combination with BIP 68 allows execution
+pathways of a script to be restricted based on the age of the output
+being spent.
 
 
 ==Summary==
 
-CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed it 
-compares the top item on the stack to the nSequence field of the transaction 
-containing the scriptSig. If that top stack item is greater than the 
-transaction sequence threshold (1 << 31) the script fails immediately, 
-otherwise script evaluation continues as though a NOP was executed.
+CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed
+it compares the top item on the stack to the inverse of the nSequence
+field of the transaction input containing the scriptSig. If the
+inverse of nSequence is less than the sequence threshold (1 << 31),
+the transaction version is greater than or equal to 2, and the top
+item on the stack is less than or equal to the inverted nSequence,
+script evaluation continues as though a NOP was executed. Otherwise
+the script fails immediately.
 
-By comparing the argument to CHECKSEQUENCEVERIFY against the nSequence field,
-we indirectly verify that the desired block height or block time has been 
-reached (according to BIP68's redefinition of nSequence); until that block
-height or block time has been reached the transaction output remains 
-unspendable.
+BIP 68's redefinition of nSequence prevents a non-final transaction
+from being selected for inclusion in a block until the corresponding
+input has reached the specified age, as measured in block heiht or
+block time. By comparing the argument to CHECKSEQUENCEVERIFY against
+the nSequence field, we indirectly verify a desired minimum age of the
+the output being spent; until that relative age has been reached any
+script execution pathway including the CHECKSEQUENCEVERIFY will fail
+to validate, causing the transaction not to be selected for inclusion
+in a block.
 
 
 ==Motivation==
 
-BIP68 repurposes the transaction nSequence field meaning by giving sequence
-numbers new consensus-enforced semantics as a relative lock-time. However,
-there is no way to build Bitcoin scripts to make decisions based on this 
-field.
+BIP 68 repurposes the transaction nSequence field meaning by giving
+sequence numbers new consensus-enforced semantics as a relative
+lock-time. However, there is no way to build Bitcoin scripts to make
+decisions based on this field.
+
+By making the nSequence field accessible to script, it becomes
+possible to construct code pathways that only become accessible some
+minimum time after proof-of-publication. This enables a wide variety
+of applications in phased protocols such as escrow, payment channels,
+or bidirectional pegs.
 
 
 ==Specification==
@@ -84,42 +98,47 @@ semantics and detailed rationale for those semantics.
         break;
     }
     
-    bool CheckSequence(const CScriptNum& nSequence) const
+    bool CheckSequence(const CScriptNum& nInvSequence) const
     {
-        int64_t txToSequence;
+        int64_t txToInvSequence;
         
         // Fail under all circumstances if the transaction's version
         // number is not set high enough to enable enforced sequence
         // number rules.
-        if (txTo->nVersion < 3)
+        if (txTo->nVersion < 2)
+            return false;
+
+        // Sequence number must be inverted to convert it into a
+        // relative lock-time.
+	txToInvSequence = (int64_t)~txTo->vin[nIn].nSequence;
+        
+        // Sequence numbers under SEQUENCE_THRESHOLD are not consensus
+	// constrained.
+	if (txToInvSequence >= SEQUENCE_THRESHOLD)
             return false;
         
-        txToSequence = (int64_t)~txTo->vin[nIn].nSequence;
-        if (txToSequence >= SEQUENCE_THRESHOLD)
-            return false;
-        
-        // There are two types of nSequence: lock-by-blockheight
-        // and lock-by-blocktime, distinguished by whether
-        // nSequence < LOCKTIME_THRESHOLD.
+        // There are two types of relative lock-time: lock-by-
+        // blockheight and lock-by-blocktime, distinguished by
+	// whether txToInvSequence < LOCKTIME_THRESHOLD.
         //
         // We want to compare apples to apples, so fail the script
-        // unless the type of nSequence being tested is the same as
-        // the nSequence in the transaction.
+        // unless the type of lock-time being tested is the same as
+        // the lock-time in the transaction input.
         if (!(
-            (txToSequence <  LOCKTIME_THRESHOLD && nSequence <  LOCKTIME_THRESHOLD) ||
-            (txToSequence >= LOCKTIME_THRESHOLD && nSequence >= LOCKTIME_THRESHOLD)
+            (txToInvSequence <  LOCKTIME_THRESHOLD && nInvSequence <  LOCKTIME_THRESHOLD) ||
+            (txToInvSequence >= LOCKTIME_THRESHOLD && nInvSequence >= LOCKTIME_THRESHOLD)
         ))
             return false;
         
         // Now that we know we're comparing apples-to-apples, the
         // comparison is a simple numeric one.
-        if (nSequence > txToSequence)
+        if (nInvSequence > txInvToSequence)
             return false;
     
         return true;
     }
 
-https://github.com/btcdrak/bips/blob/bip-csv/bip-csv/example.cpp
+https://github.com/maaku/bitcoin/commit/33be476a60fcc2afbe6be0ca7b93a84209173eb2
 
 
 ==Example: Escrow with Timeout==
@@ -131,7 +150,7 @@ address with the following redeemscript.
     IF
         2 <Alice's pubkey> <Bob's pubkey> <Escrow's pubkey> 3 CHECKMULTISIGVERIFY
     ELSE
-        <30 days> CHECKSEQUENCEVERIFY DROP
+        <LOCKTIME_THRESHOLD + 30*24*60*60> CHECKSEQUENCEVERIFY DROP
         <Alice's pubkey> CHECKSIGVERIFY
     ENDIF
 
@@ -153,13 +172,13 @@ https://github.com/maaku/bitcoin/tree/checksequenceverify
 
 ==Deployment==
 
-We reuse the double-threshold switchover mechanism from BIPs 34 and 66,
-with the same thresholds, but for nVersion = 4. The new rules are in 
-effect for every block (at height H) with nVersion = 4 and at least 750 
-out of 1000 blocks preceding it (with heights H-1000..H-1) also have 
-nVersion = 4. Furthermore, when 950 out of the 1000 blocks preceding a 
-block do have nVersion = 4, nVersion = 3 blocks become invalid, and all 
-further blocks enforce the new rules.
+We reuse the double-threshold switchover mechanism from BIPs 34 and
+66, with the same thresholds, but for nVersion = 4. The new rules are
+in effect for every block (at height H) with nVersion = 4 and at least
+750 out of 1000 blocks preceding it (with heights H-1000..H-1) also
+have nVersion = 4. Furthermore, when 950 out of the 1000 blocks
+preceding a block do have nVersion = 4, nVersion = 3 blocks become
+invalid, and all further blocks enforce the new rules.
 
 It is recommended that this soft-fork deployment trigger include other 
 related proposals for improving Bitcoin's lock-time capabilities, including:
@@ -174,33 +193,35 @@ and [https://github.com/bitcoin/bips/blob/master/bip-00XX.mediawiki BIP XX]:
 Median-Past-Time-Lock.
 
 
-==Upgrade and Testing Plan==
-
-TBD
-
-
 ==Credits==
 
-Mark Friedenbach for designing and authoring the actual implementation 
-for CHECKSEQUENCEVERIFY.
+Mark Friedenbach invented the application of sequence numbers to
+achieve relative lock-time, and wrote the reference implementation of
+CHECKSEQUENCEVERIFY.
+
+The reference implementation and this BIP was based heavily on work
+done by Peter Todd for the closely related BIP 65.
+
+BtcDrak edited this BIP document.
 
 
 ==References==
 
-BIP 68: Consensus-enforced transaction replacement signalled via sequence numbers
-https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki 
+BIP 68: Consensus-enforced transaction replacement signalled via
+sequence numbers
+https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
 
 BIP 65: OP_CHECKLOCKTIMEVERIFY
 https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki
 
-BIP XX: Median-Past-Time-Lock 
-https://github.com/bitcoin/bips/blob/master/bip-00XX.mediawiki 
+BIP XX: Median past block time for time-lock constraints
+https://github.com/bitcoin/bips/blob/master/bip-00XX.mediawiki
 
-HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and revocation hashes
-http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html 
+HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and
+revocation hashes
+http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html
 
 
 ==Copyright==
 
 This document is placed in the public domain.
-
