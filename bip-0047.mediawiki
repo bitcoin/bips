@@ -1,0 +1,235 @@
+<pre>
+  BIP:     47
+  Title:   Reusable Payment Codes for Hierarchical Deterministic Wallets
+  Authors: Justus Ranvier <justus@openbitcoinprivacyproject.org>
+  Status:  Draft
+  Type:    Informational
+  Created: 2015-04-24
+</pre>
+
+==Abstract==
+
+This BIP defines a technique for creating a payment code which can be publicly advertised and associated with a real-life identity without creating the loss of security or privacy inherent to P2PKH address reuse.
+
+This BIP is a particular application of BIP43 and is intended to supplement HD wallets which implement BIP44.
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
+
+==Motivation==
+
+Payment codes add identity information to transactions which is useful in a merchant-customer interaction while protecting the privacy of users. Payment codes provide the privacy benefits of Darkwallet-style Stealth Addresses to SPV clients without requiring the assistance of a trusted full node and while greatly reducing reliance on blockchain storage.
+
+==Path levels==
+
+We define the following 3 levels in BIP32 path:
+
+<pre>
+m / purpose' / coin_type' / identity'
+</pre>
+
+Apostrophe in the path indicates that BIP32 hardened derivation is used.
+
+Each level has a special meaning, described in the chapters below.
+
+===Purpose===
+
+Purpose is a constant set to 47' (or 0x8000002F) following the BIP43 recommendation. It indicates that the subtree of this node is used according to this specification.
+
+===Coin type===
+
+The coin type field is identical to the same field in BIP44
+
+Hardened derivation is used at this level.
+
+===Identity===
+
+Identity is a particular extended public/private key pair. The extended public key is a payment code.
+
+Identities SHOULD have 1:1 correspondence with a BIP44 account, as in each BIP44 account in an HD wallet should be assigned exactly one payment code which shares the same index value.
+
+Hardened derivation is used at this level.
+
+Except where noted, all keys derived from a payment code use the public derivation method.
+
+====Binary Serialization====
+
+A payment code contains the following elements:
+
+* Byte 0: type. required value: 0x01
+* Byte 1: features bit field. All bits must be zero except where specified elsewhere in this specification
+** Bit 0: Bitmessage notification
+** Bits 1-7: reserved
+* Byte 2: sign. required value: 0x02 or 0x03
+* Bytes 3 - 34: x value
+* Bytes 35 - 66: chain code
+* Bytes 67 - 79: reserved for future expansion, zero-filled unless otherwise noted
+
+====Base58 Serialization====
+
+When a payment code is presented to the user, it SHOULD be presented encoded in Base58Check form.
+
+* The version byte is: 0x23 (produces a "P" as the first character of the serialized form)
+* The payload is the binary serialization of the payment code
+
+===Protocol===
+
+In the following examples, Alice and Bob are identities with a corresponding payment codes. Alice initiates a Bitcoin transaction, and Bob is the recipient of the transaction.
+
+It is assumed that Alice can easily obtain Bob's payment code via a suitable method outside the scope of the payment code protocol.
+
+====Definitions====
+
+* Payment code: an extended public key which is associated with a particular identity
+* Notification address: the P2PKH address associated with the 0<sup>th</sup> public key derived from a payment code
+* Notification transaction: a transaction which sends an output to a notification address which includes an embedded payment code
+
+====Notification Transaction====
+
+Prior to the first time Alice initiates a transaction to Bob, Alice MUST inform Bob of her payment code via the following procedure:
+
+# Alice constructs a transaction which sends a small quantity of bitcoins to Bob's notification address (notification transaction)
+## The inputs selected for this transaction MUST NOT be easily associated with Alice's notification address
+# Alice derives a unique shared secret using ECDH:
+## Alice selects the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>a</pre>
+## Alice selects the public key associated with Bob's notification address: <pre>B, where B = bG</pre>
+## Alice calculates a secret point: <pre>S = aB</pre>
+## Alice expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
+# Alice serializes her payment code in binary form.
+# Alice renders her payment code (P) unreadable to anyone except Bob by:
+## Replace the x value with: <pre>s XOR (x value)</pre>
+## Replace the chain code with: <pre>sha256(s) XOR (chain code)</pre>
+# Alice adds an OP_RETURN output to her transaction which consists of P.
+<img src="bip-0047/reusable_payment_codes-01.png" />
+
+Now that Bob's client has received Alice's payment code, it is possible for Alice to send payments (up to 2<sup>32</sup> payments) to Bob.
+
+Alice will never again need to send a notification transaction to Bob.
+
+Bitcoins received via notification transactions require special handling in order to avoid privacy leaks:
+
+# The value of outputs received to notification addresses MUST NOT be displayed to the user as part of their spendable balance.
+# Outputs received to notification addresses MUST NOT be used as inputs for any transaction that involve ECDH calculations using any of the user's payment codes.
+# Outputs received to notification addresses MAY be passed through a mixing service before being added to the user's spendable balance.
+# Outputs received to notification addresses MAY be donated to miners using dust-b-gone or an equivalent procedure.
+
+====Sending====
+
+# Each time Alice wants to initiate a transaction to Bob, Alice derives a unique P2PKH address for the transaction using ECDH follows:
+## Alice selects the 0th private key derived from her payment code: <pre>a</pre>
+## Alice selects the next unused public key derived from Bob's payment code, starting from zero: <pre>B, where B = bG</pre>
+### The "next unused" public key is based on an index specific to the Alice-Bob context, not global to either Alice or Bob
+## Alice calculates a secret point: <pre>S = aB</pre>
+## Alice expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
+### If the value of s is not in the secp256k1 group, Alice MUST increment the index used to derive Bob's public key and try again.
+## Alice uses the scalar shared secret to calculate the ephemeral public key used to generate the P2PKH address for this transaction: <pre>B' = B + sG</pre>
+<img src="bip-0047/reusable_payment_codes-04.png" />
+<img src="bip-0047/reusable_payment_codes-05.png" />
+# Bob is watching for incoming payments on B' ever since he received the notification transaction from Alice.
+## Bob calculates n shared secrets with Alice, using the 0<sup>th</sup> public key derived Alice's payment code, and private keys 0 - n derived from Bob's payment code, where n is his desired lookahead window.
+## Bob calculates the ephemeral deposit addresses using the same procedure as Alice: <pre>B' = B + sG</pre>
+## Bob calculate the private key for each ephemeral address as: <pre>b' = b + s</pre>
+<img src="bip-0047/reusable_payment_codes-02.png" />
+<img src="bip-0047/reusable_payment_codes-03.png" />
+
+====Refunds====
+
+Because Bob learns Alice's payment code as part of the process of receiving a payment, Bob has all the information he needs in order to send a refund to Alice.
+
+A refund transaction is identical to a payment transactions, with only the roles of the participants switches.
+
+Bob MUST send a notification transaction to Alice prior to the first time he sends funds to Alice, even if he has received transactions from her in the past.
+
+<img src="bip-0047/reusable_payment_codes-06.png" />
+
+====Anonymous Payments====
+
+If Alice does not want her payment to Bob to be associated with her identity, she generates an ephemeral payment code to use for the transaction.
+
+* Ephemeral payment codes are the hardened children of a payment code, starting from an index of zero.
+* An ephemeral payment code SHOULD only be used for a single outgoing payment.
+* The notification address of an ephemeral payment code MUST be monitored for notification transactions in order to detect incoming refund payments
+* The correspondence between BIP44 accounts and ephemeral payment codes is 1:many
+
+====Cold Storage====
+
+* Unlike traditional watching-only wallets, those associated with payment codes help in cold storage can not detect incoming payments immediately.
+* When the watching-only wallet detects an incoming notification transaction, it packages the transaction in an implementation-specific format suitable for transfer to the offline device.
+* The offline device recovers the payment code, then pre-generates a large number of relevant keypairs (example: 10000) in order to minimize the need for air gap round trips.
+* The offline device then packages the relevant public keys in an implementation-specific format suitable for transfer to the online device.
+* The online device can then watch for incoming payments using a suitable lookahead window.
+* If the lookahead window reaches the end of the pre-generated public keys, the user must generate more keys on the offline device and transfer them to the online device.
+
+====Wallet Recovery====
+
+Normal operation of a payment code-enabled wallet can be performed by an SPV client and does not require access to a complete copy of the blockchain.
+
+Recovering a wallet from a seed, however, does require access to a fully-indexed blockchain.
+
+The required data may be obtained from copy of the blockchain under the control of the user, or via a publicly-queriable blockchain explorer.
+
+When querying a public blockchain explorer, wallets SHOULD connect to the explorer through Tor (or equivalent) and SHOULD avoid grouping queries in a manner that associates ephemeral addresses with each other.
+
+Previously-spendable funds will generally not be lost or become inaccessible after a recovery from a seed, but all information regarding previous outgoing payments will be lost.
+
+The metadata which a wallet must store regarding the state an identity consists of:
+
+# A list of every payment code to which the identity has sent a notification transaction.
+## This list is lost if a wallet must be recovered from a seed.
+## The recovered wallet MUST send notification transactions as if it was a newly-created wallet
+# The index value corresponding to the next unused pubkey for each payment code on the previous list
+## This value can be recovered by checking each ephemeral deposit address in sequence for transactions.
+## Wallets MAY use a lookahead window capable of detecting gaps in the address sequence during this recovery operation.
+# The index value of the next unused ephemeral payment code.
+## Recovering all incoming funds associated with ephemeral payment codes with 100% certainty requires exhausting the entire 2<sup>32</sup> address space of potential ephemeral payment codes.
+### In most cases, less than 100% certainty is acceptable as long as a fallback "deep scan" is available as an option to the user.
+## The wallet checks the notification address for each ephemeral payment code for notification transactions in order to recover associated funds.
+## Since most ephemeral payment codes will not receive a refund transaction wallets SHOULD use a large lookahead window for this recovery operation.
+## The recovered value MUST be chosen as a number higher than any ephemeral payment code which has received a notification transaction.
+
+===Wallet Sharing===
+
+Wallets using payment codes generally should not be shared across multiple devices, given the need to synchronize metadata between each instance.
+
+If wallets are shared between devices without a synchronization mechanism, undesirable address reuse can occur.
+
+Wallets may perform an OPTIONAL check for existing transactions to an ephemeral deposit addresses prior to sending a transaction by checking a local copy of the blockchain or querying a public blockchain explorer via Tor or equivalent.
+
+===Alternate Notification Methods===
+
+In order to ensure that no funds will be lost in the event the recipient must recover their wallet from a seed, the sender MUST send a notification transaction the first time the sender interacts with a particular recipient.
+
+A recipient MAY choose to designate alternate notification methods which the sender may use in addition to a notification transaction.
+
+If the recipient specifies an alternate notification method, a compliant implementation MAY refrain from continually monitoring the notification address and SHOULD check the notification address periodically to detect payments sent by users who can not employ the alternate method.
+
+A recipient specifies their preference for alternate notification by setting the appropriate bits in the feature byte of their payment code.
+
+===Bitmessage Notification===
+
+A recipient prefers to receive notifications via Bitmessage indiates this preference by:
+
+* Setting bit 0 of the features byte to 1
+* Setting byte 67 of the serialized payment code to the desired Bitmessage address version
+* Setting byte 67 of the serialized payment code to the desired Bitmessage stream number
+
+The sender uses this information to construct a valid notification Bitmessage address:
+
+# Derive a Bitmessage signing key as: <pre>B = payment code / 0 / 0</pre>
+# Initialize a counter at 1: <pre>n</pre>
+# Derive a candidate encryption key as: <pre>B' = payment code / 0 / n</pre>
+# If the combination of B and B` do not form a valid Bitmessage address, increment n by one and try again
+# Use the address version, signing key, encryption key, and stream number to construct a Bitmessage address per the Bitmessage protocol
+
+The sender transmits their payment code in base58 form to the calculated Bitmessage address.
+
+In order to use Bitmessage notification, the recipient must have a Bitmessage client which listens at the address which the senders will derive and is capable of relaying received payment codes to the Bitcoin wallet.
+
+==Reference==
+
+* [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
+* [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
+* [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
+* [[https://github.com/petertodd/dust-b-gone|dust-b-gone]]
+* [[https://en.bitcoin.it/wiki/Base58Check_encoding|Base58Check encoding]]
+* [[https://bitmessage.org/bitmessage.pdf|Bitmessage]]
+* [[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-April/007812.html|Mailing list discussion]]
