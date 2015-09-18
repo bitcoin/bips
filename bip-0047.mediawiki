@@ -1,3 +1,7 @@
+RECENT CHANGES:
+
+* (18 Sep 2015) Clarify decoding of notification transactions
+
 <pre>
   BIP:     47
   Title:   Reusable Payment Codes for Hierarchical Deterministic Wallets
@@ -60,7 +64,7 @@ A payment code contains the following elements:
 ** Bit 0: Bitmessage notification
 ** Bits 1-7: reserved
 * Byte 2: sign. required value: 0x02 or 0x03
-* Bytes 3 - 34: x value
+* Bytes 3 - 34: x value, must be a member of the secp256k1 group
 * Bytes 35 - 66: chain code
 * Bytes 67 - 79: reserved for future expansion, zero-filled unless otherwise noted
 
@@ -90,16 +94,29 @@ Prior to the first time Alice initiates a transaction to Bob, Alice MUST inform 
 # Alice constructs a transaction which sends a small quantity of bitcoins to Bob's notification address (notification transaction)
 ## The inputs selected for this transaction MUST NOT be easily associated with Alice's notification address
 # Alice derives a unique shared secret using ECDH:
-## Alice selects the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>a</pre>
+## Alice selects the private key corresponding to the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>a</pre>
 ## Alice selects the public key associated with Bob's notification address: <pre>B, where B = bG</pre>
 ## Alice calculates a secret point: <pre>S = aB</pre>
 ## Alice expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
 # Alice serializes her payment code in binary form.
 # Alice renders her payment code (P) unreadable to anyone except Bob by:
-## Replace the x value with: <pre>s XOR (x value)</pre>
-## Replace the chain code with: <pre>sha256(s) XOR (chain code)</pre>
+## Replace the x value with x': <pre>x' = s XOR (x value)</pre>
+## Replace the chain code with c': <pre>c' = sha256(s) XOR (chain code)</pre>
 # Alice adds an OP_RETURN output to her transaction which consists of P.
 <img src="bip-0047/reusable_payment_codes-01.png" />
+
+# Bob watches for any transactions which create an output at his notification address.
+# When a transaction is received, the client examines it to determine if it contains a standard OP_RETURN output with an 80 byte payload (notification transactions).
+# If the first byte of the payload in a notification transaction is 0x01:
+## Bob selects the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>A, where A = aG</pre>
+## Bob selects the private key associated with his notification address: <pre>b</pre>
+## Bob calculates a secret point: <pre>S = bA</pre>
+## Bob expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
+## Bob interprets the 80 byte payload as a payment code, except:
+### Replace the x value with x': <pre>x' = s XOR (x value)</pre>
+### Replace the chain code with c': <pre>c' = sha256(s) XOR (chain code)</pre>
+## If the updated x value is a member of the secp256k1 group, the payment code is valid.
+## If the updated x value is not a member of the secp256k1 group, the payment code is ignored.
 
 Now that Bob's client has received Alice's payment code, it is possible for Alice to send payments (up to 2<sup>32</sup> payments) to Bob.
 
