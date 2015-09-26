@@ -18,14 +18,9 @@ being spent.
 
 ==Summary==
 
-CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed
-it compares the top item on the stack to the inverse of the nSequence
-field of the transaction input containing the scriptSig. If the
-inverse of nSequence is less than the sequence threshold (1 << 31),
-the transaction version is greater than or equal to 2, and the top
-item on the stack is less than or equal to the inverted nSequence,
-script evaluation continues as though a NOP was executed. Otherwise
-the script fails immediately.
+CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed it
+compares the top item on the stack to the nSequence field of the transaction
+input containing the scriptSig. **
 
 BIP 68's redefinition of nSequence prevents a non-final transaction
 from being selected for inclusion in a block until the corresponding
@@ -58,13 +53,14 @@ Refer to the reference implementation, reproduced below, for the precise
 semantics and detailed rationale for those semantics.
 
     
-    // Threshold for nLockTime: below this value it is interpreted as block number,
-    // otherwise as UNIX timestamp (already defined in Bitcoin Core).
-    static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
+    /* Threshold for nSequence: below this value it is interpreted
+     * as a relative lock-time, otherwise ignored. */
+    static const uint32_t SEQUENCE_LOCKTIME_THRESHOLD = (1 << 31);
     
-    // Threshold for inverted nSequence: below this value it is interpreted
-    // as a relative lock-time, otherwise ignored.
-    static const uint32_t SEQUENCE_THRESHOLD = (1 << 31);
+    /* Threshold for nSequence when interpreted as a relative
+     * lock-time: below this value it has units of blocks, otherwise
+     * seconds. */
+    static const uint32_t SEQUENCE_UNITS_THRESHOLD = (1 << 30);
     
     case OP_NOP3:
     {
@@ -79,74 +75,80 @@ semantics and detailed rationale for those semantics.
         if (stack.size() < 1)
             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
         
-        // Note that unlike CHECKLOCKTIMEVERIFY we do not need to
-        // accept 5-byte bignums since any value greater than or
-        // equal to SEQUENCE_THRESHOLD (= 1 << 31) will be rejected
-        // anyway. This limitation just happens to coincide with
-        // CScriptNum's default 4-byte limit with an explicit sign
-        // bit.
+        // Note that elsewhere numeric opcodes are limited to
+        // operands in the range -2**31+1 to 2**31-1, however it is
+        // legal for opcodes to produce results exceeding that
+        // range. This limitation is implemented by CScriptNum's
+        // default 4-byte limit.
         //
-        // This means there is a maximum relative lock time of 52
-        // years, even though the nSequence field in transactions
-        // themselves is uint32_t and could allow a relative lock
-        // time of up to 120 years.
-        const CScriptNum nInvSequence(stacktop(-1), fRequireMinimal);
+        // If we kept to that limit we'd have a year 2038 problem,
+        // even though the nLockTime field in transactions
+        // themselves is uint32 which only becomes meaningless
+        // after the year 2106.
+        //
+        // Thus as a special case we tell CScriptNum to accept up
+        // to 5-byte bignums, which are good until 2**39-1, well
+        // beyond the 2**32-1 limit of the nLockTime field itself.
+        const CScriptNum nSequence(stacktop(-1), fRequireMinimal, 5);
         
         // In the rare event that the argument may be < 0 due to
         // some arithmetic being done first, you can always use
         // 0 MAX CHECKSEQUENCEVERIFY.
-        if (nInvSequence < 0)
+        if (nSequence < 0)
             return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
         
-        // Actually compare the specified inverse sequence number
-        // with the input.
-        if (!CheckSequence(nInvSequence))
+        // To provide for future soft-fork extensibility, if the
+        // operand is too large to be treated as a relative lock-
+        // time, CHECKSEQUENCEVERIFY behaves as a NOP.
+        if (nSequence >= SEQUENCE_LOCKTIME_THRESHOLD)
+            break;
+        
+        // Actually compare the specified sequence number with the input.
+        if (!CheckSequence(nSequence))
             return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
         
         break;
     }
     
-    bool CheckSequence(const CScriptNum& nInvSequence) const
+    bool CheckSequence(const CScriptNum& nSequence) const
     {
-        int64_t txToInvSequence;
+        // Relative lock times are supported by comparing the passed
+        // in operand to the sequence number of the input.
+        const int64_t txToSequence = (int64_t)txTo->vin[nIn].nSequence;
         
-        // Fail under all circumstances if the transaction's version
-        // number is not set high enough to enable enforced sequence
-        // number rules.
-        if (txTo->nVersion < 2)
+        // Fail if the transaction's version number is not set high
+        // enough to trigger BIP 68 rules.
+        if (static_cast<uint32_t>(txTo->nVersion) < 2)
             return false;
         
-        // Sequence number must be inverted to convert it into a
-        // relative lock-time.
-        txToInvSequence = (int64_t)~txTo->vin[nIn].nSequence;
-        
-        // Sequence numbers under SEQUENCE_THRESHOLD are not consensus
-        // constrained.
-        if (txToInvSequence >= SEQUENCE_THRESHOLD)
+        // Sequence numbers above SEQUENCE_LOCKTIME_THRESHOLD
+        // are not consensus constrained. Testing that the transaction's
+        // sequence number is not above this threshold prevents
+        // using this property to get around a CHECKSEQUENCEVERIFY
+        // check.
+        if (txToSequence >= SEQUENCE_LOCKTIME_THRESHOLD)
             return false;
         
-        // There are two types of relative lock-time: lock-by-
-        // blockheight and lock-by-blocktime, distinguished by
-        // whether txToInvSequence < LOCKTIME_THRESHOLD.
+        // There are two kinds of nSequence: lock-by-blockheight
+        // and lock-by-blocktime, distinguished by whether
+        // nSequence < nThreshold (SEQUENCE_UNITS_THRESHOLD).
         //
         // We want to compare apples to apples, so fail the script
-        // unless the type of lock-time being tested is the same as
-        // the lock-time in the transaction input.
+        // unless the type of nSequence being tested is the same as
+        // the nSequence in the transaction.
         if (!(
-            (txToInvSequence <  LOCKTIME_THRESHOLD && nInvSequence <  LOCKTIME_THRESHOLD) ||
-            (txToInvSequence >= LOCKTIME_THRESHOLD && nInvSequence >= LOCKTIME_THRESHOLD)
+            (txToSequence <  nThreshold && nSequence <  nThreshold) ||
+            (txToSequence >= nThreshold && nSequence >= nThreshold)
         ))
             return false;
         
         // Now that we know we're comparing apples-to-apples, the
         // comparison is a simple numeric one.
-        if (nInvSequence > txToInvSequence)
+        if (nSequence > txToSequence)
             return false;
         
         return true;
     }
-
-https://github.com/maaku/bitcoin/commit/33be476a60fcc2afbe6be0ca7b93a84209173eb2
 
 
 ==Example: Escrow with Timeout==
@@ -244,3 +246,4 @@ http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html
 ==Copyright==
 
 This document is placed in the public domain.
+
