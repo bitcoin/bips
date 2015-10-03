@@ -20,7 +20,11 @@ being spent.
 
 CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed it
 compares the top item on the stack to the nSequence field of the transaction
-input containing the scriptSig. **
+input containing the scriptSig. If it is greater than or equal to (1 << 31),
+or if the transaction version is greater than or equal to 2, the transaction
+sequence is less than or equal to (1 << 31) and the top stack item is less than
+the transaction sequence, script exection continues as if a NOP was executed,
+otherwise the script fails.
 
 BIP 68's redefinition of nSequence prevents a non-final transaction
 from being selected for inclusion in a block until the corresponding
@@ -131,14 +135,14 @@ semantics and detailed rationale for those semantics.
         
         // There are two kinds of nSequence: lock-by-blockheight
         // and lock-by-blocktime, distinguished by whether
-        // nSequence < nThreshold (SEQUENCE_UNITS_THRESHOLD).
+        // nSequence < SEQUENCE_UNITS_THRESHOLD.
         //
         // We want to compare apples to apples, so fail the script
         // unless the type of nSequence being tested is the same as
         // the nSequence in the transaction.
         if (!(
-            (txToSequence <  nThreshold && nSequence <  nThreshold) ||
-            (txToSequence >= nThreshold && nSequence >= nThreshold)
+            (txToSequence <  SEQUENCE_UNITS_THRESHOLD && nSequence <  SEQUENCE_UNITS_THRESHOLD) ||
+            (txToSequence >= SEQUENCE_UNITS_THRESHOLD && nSequence >= SEQUENCE_UNITS_THRESHOLD)
         ))
             return false;
         
@@ -151,7 +155,9 @@ semantics and detailed rationale for those semantics.
     }
 
 
-==Example: Escrow with Timeout==
+==Examples==
+
+===Escrow with Timeout===
 
 An escrow that times out automatically 30 days after being funded can be
 established in the following way. Alice, Bob and Escrow create a 2-of-3
@@ -171,6 +177,25 @@ After 30 days Alice can sign alone.
 
 The clock does not start ticking until the payment to the escrow address
 confirms. 
+
+
+===Payment Channel Revokation===
+
+Scriptable relative locktime provides a predictable amount of time to respond in
+the event a counterparty broadcasts a revoked transaction: Absolute locktime
+necessitates closing the channel and reopen it when getting close to the timeout,
+whereas with relative locktime, the clock starts ticking the moment the
+transactions confirms in a block. It also provides a means to know exactly how
+long to wait (in number of blocks) before funds can be pulled out of the channel
+in the event of a noncooperative counterparty.
+
+
+===Hash Time-Locked Contracts===
+
+Hashed Timelock Contracts (HTLCs) can be used to create chains of payments which
+is required for lightning network payment channels. The scheme requires both
+CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY to enforce HTLC timeouts and
+revokation.
 
 
 ==Reference Implementation==
@@ -224,23 +249,23 @@ BtcDrak authored this BIP document.
 
 ==References==
 
-BIP 68: Consensus-enforced transaction replacement signalled via
-sequence numbers
-https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68] Consensus-enforced transaction replacement signalled via sequence numbers
 
-BIP 65: OP_CHECKLOCKTIMEVERIFY
-https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki
+[https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP 65] OP_CHECKLOCKTIMEVERIFY
 
-BIP 113: Median past block time for time-lock constraints
-https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki
+[https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki BIP 113] Median past block time for time-lock constraints
 
-HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and
-revocation hashes
-http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html
+[http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and revocation hashes]
+
+[http://lightning.network/lightning-network-paper.pdf Lightning Network]
+
+[http://diyhpl.us/diyhpluswiki/transcripts/sf-bitcoin-meetup/2015-02-23-scaling-bitcoin-to-billions-of-transactions-per-day/ Scaling Bitcoin to Billions of Transactions Per Day]
 
 [http://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-August/010396.html Softfork deployment considerations]
 
 [https://gist.github.com/sipa/bf69659f43e763540550 Version bits]
+
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2013-April/002433.html Jeremy Spilman Micropayment Channels]
 
 
 ==Copyright==
