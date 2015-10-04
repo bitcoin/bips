@@ -3,7 +3,7 @@
   Title: CHECKSEQUENCEVERIFY
   Authors: BtcDrak <btcdrak@gmail.com>
            Mark Friedenbach <mark@friedenbach.org>
-           Eric Lombrozo <Eric Lombrozo>
+           Eric Lombrozo <elombrozo@gmail.com>
   Status: Draft
   Type: Standards Track
   Created: 2015-08-10
@@ -53,7 +53,10 @@ or bidirectional pegs.
 
 ===Examples===
 
-====Escrow with Timeout====
+
+====Contracts With Expiration Deadlines====
+
+=====Escrow with Timeout=====
 
 An escrow that times out automatically 30 days after being funded can be
 established in the following way. Alice, Bob and Escrow create a 2-of-3
@@ -75,7 +78,28 @@ The clock does not start ticking until the payment to the escrow address
 confirms. 
 
 
-====Payment Channel Revokation====
+====Retroactive Invalidation====
+
+In many instances, we would like to create contracts that can be revoked in case
+of some future event. However, given the immutable nature of the blockchain, it
+is practically impossible to retroactively invalidate a previous commitment that
+has already confirmed. The only mechanism we really have for retroactive
+invalidation is blockchain reorganization which, for fundamental security
+reasons, is designed to be very hard and very expensive to deliberately pull off.
+
+Despite this limitation, we do have a way to provide something functionally similar
+using CHECKSEQUENCEVERIFY. By constructing scripts with multiple branches of
+execution where one or more of the branches are delayed we provide
+a time window in which someone can supply an invalidation condition that allows the
+output to be spent, effectively invalidating the would-be delayed branch and potentially discouraging
+another party from broadcasting the transaction in the first place. If the invalidation
+condition does not occur before the timeout, the delayed branch becomes spendable,
+honoring the original contract.
+
+Some more specific applications of this  idea:
+
+
+=====Payment Channel Revokation=====
 
 Scriptable relative locktime provides a predictable amount of time to respond in
 the event a counterparty broadcasts a revoked transaction: Absolute locktime
@@ -86,7 +110,7 @@ long to wait (in number of blocks) before funds can be pulled out of the channel
 in the event of a noncooperative counterparty.
 
 
-====Hash Time-Locked Contracts====
+=====Hash Time-Locked Contracts=====
 
 Hashed Timelock Contracts (HTLCs) can be used to create chains of payments which
 is required for lightning network payment channels. The scheme requires both
@@ -99,23 +123,13 @@ output. The delay is needed so that the counterparty has time to prove the
 commitment was revoked and claim the outputs as a penalty.
 
 
-====Retroactive Invalidation====
+=====2-Way Pegged Sidechains=====
 
-In many instances, we would like to create contracts that can be revoked in case
-of some future event. However, given the immutable nature of the blockchain, it
-is practically impossible to retroactively invalidate a previous commitment that
-has already confirmed. The only mechanism we really have for retroactive
-invalidation is blockchain reorganization which, for fundamental security
-reasons, is designed to be very hard and very expensive to deliberately pull off.
-
-Despite this limitation, we do have a way to provide something fairly similar
-using CHECKSEQUENCEVERIFY by constructing scripts with multiple branches of
-execution where one or more of the branches are delayed. That's to say, a
-delayed branch cannot execute until a certain amount of time has passed since
-the transaction containing the script (or a hash of it) confirmed. This provides
-a time window in which someone can supply an invalidation condition which spends
-the output, effectively invalidating the contract and potentially discouraging
-another party from broadcasting the transaction in the first place.
+    OP_IF
+        lockTxHeight <lockTxHash> nlocktxOut [<workAmount>] reorgBounty Hash160(<...>) <genesisHash> OP_REORGPROOFVERIFY
+    OP_ELSE
+        withdrawLockTime OP_CHECKSEQUENCEVERIFY OP_DROP OP_HASH160 p2shWithdrawDest OP_EQUAL
+    OP_ENDIF
 
 
 ==Specification==
