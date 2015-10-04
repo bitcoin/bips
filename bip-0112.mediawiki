@@ -2,7 +2,8 @@
   BIP: 112
   Title: CHECKSEQUENCEVERIFY
   Authors: BtcDrak <btcdrak@gmail.com>
-           Mark Friedenbach <mark@friedenbach.org>	
+           Mark Friedenbach <mark@friedenbach.org>
+           Eric Lombrozo <elombrozo@gmail.com>
   Status: Draft
   Type: Standards Track
   Created: 2015-08-10
@@ -18,14 +19,13 @@ being spent.
 
 ==Summary==
 
-CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed
-it compares the top item on the stack to the inverse of the nSequence
-field of the transaction input containing the scriptSig. If the
-inverse of nSequence is less than the sequence threshold (1 << 31),
-the transaction version is greater than or equal to 2, and the top
-item on the stack is less than or equal to the inverted nSequence,
-script evaluation continues as though a NOP was executed. Otherwise
-the script fails immediately.
+CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed it
+compares the top item on the stack to the nSequence field of the transaction
+input containing the scriptSig. If it is greater than or equal to (1 << 31),
+or if the transaction version is greater than or equal to 2, the transaction input
+sequence is less than or equal to (1 << 31) and the top stack item is less than
+the transaction input sequence, script exection continues as if a NOP was executed,
+otherwise the script fails.
 
 BIP 68's redefinition of nSequence prevents a non-final transaction
 from being selected for inclusion in a block until the corresponding
@@ -51,105 +51,12 @@ minimum time after proof-of-publication. This enables a wide variety
 of applications in phased protocols such as escrow, payment channels,
 or bidirectional pegs.
 
-
-==Specification==
-
-Refer to the reference implementation, reproduced below, for the precise 
-semantics and detailed rationale for those semantics.
-
-    
-    // Threshold for nLockTime: below this value it is interpreted as block number,
-    // otherwise as UNIX timestamp (already defined in Bitcoin Core).
-    static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
-    
-    // Threshold for inverted nSequence: below this value it is interpreted
-    // as a relative lock-time, otherwise ignored.
-    static const uint32_t SEQUENCE_THRESHOLD = (1 << 31);
-    
-    case OP_NOP3:
-    {
-        if (!(flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)) {
-            // not enabled; treat as a NOP3
-            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) {
-                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
-            }
-            break;
-        }
-        
-        if (stack.size() < 1)
-            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-        
-        // Note that unlike CHECKLOCKTIMEVERIFY we do not need to
-        // accept 5-byte bignums since any value greater than or
-        // equal to SEQUENCE_THRESHOLD (= 1 << 31) will be rejected
-        // anyway. This limitation just happens to coincide with
-        // CScriptNum's default 4-byte limit with an explicit sign
-        // bit.
-        //
-        // This means there is a maximum relative lock time of 52
-        // years, even though the nSequence field in transactions
-        // themselves is uint32_t and could allow a relative lock
-        // time of up to 120 years.
-        const CScriptNum nInvSequence(stacktop(-1), fRequireMinimal);
-        
-        // In the rare event that the argument may be < 0 due to
-        // some arithmetic being done first, you can always use
-        // 0 MAX CHECKSEQUENCEVERIFY.
-        if (nInvSequence < 0)
-            return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
-        
-        // Actually compare the specified inverse sequence number
-        // with the input.
-        if (!CheckSequence(nInvSequence))
-            return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
-        
-        break;
-    }
-    
-    bool CheckSequence(const CScriptNum& nInvSequence) const
-    {
-        int64_t txToInvSequence;
-        
-        // Fail under all circumstances if the transaction's version
-        // number is not set high enough to enable enforced sequence
-        // number rules.
-        if (txTo->nVersion < 2)
-            return false;
-        
-        // Sequence number must be inverted to convert it into a
-        // relative lock-time.
-        txToInvSequence = (int64_t)~txTo->vin[nIn].nSequence;
-        
-        // Sequence numbers under SEQUENCE_THRESHOLD are not consensus
-        // constrained.
-        if (txToInvSequence >= SEQUENCE_THRESHOLD)
-            return false;
-        
-        // There are two types of relative lock-time: lock-by-
-        // blockheight and lock-by-blocktime, distinguished by
-        // whether txToInvSequence < LOCKTIME_THRESHOLD.
-        //
-        // We want to compare apples to apples, so fail the script
-        // unless the type of lock-time being tested is the same as
-        // the lock-time in the transaction input.
-        if (!(
-            (txToInvSequence <  LOCKTIME_THRESHOLD && nInvSequence <  LOCKTIME_THRESHOLD) ||
-            (txToInvSequence >= LOCKTIME_THRESHOLD && nInvSequence >= LOCKTIME_THRESHOLD)
-        ))
-            return false;
-        
-        // Now that we know we're comparing apples-to-apples, the
-        // comparison is a simple numeric one.
-        if (nInvSequence > txToInvSequence)
-            return false;
-        
-        return true;
-    }
-
-https://github.com/maaku/bitcoin/commit/33be476a60fcc2afbe6be0ca7b93a84209173eb2
+===Examples===
 
 
-==Example: Escrow with Timeout==
+====Contracts With Expiration Deadlines====
+
+=====Escrow with Timeout=====
 
 An escrow that times out automatically 30 days after being funded can be
 established in the following way. Alice, Bob and Escrow create a 2-of-3
@@ -171,6 +78,164 @@ The clock does not start ticking until the payment to the escrow address
 confirms. 
 
 
+====Retroactive Invalidation====
+
+In many instances, we would like to create contracts that can be revoked in case
+of some future event. However, given the immutable nature of the blockchain, it
+is practically impossible to retroactively invalidate a previous commitment that
+has already confirmed. The only mechanism we really have for retroactive
+invalidation is blockchain reorganization which, for fundamental security
+reasons, is designed to be very hard and very expensive to deliberately pull off.
+
+Despite this limitation, we do have a way to provide something functionally similar
+using CHECKSEQUENCEVERIFY. By constructing scripts with multiple branches of
+execution where one or more of the branches are delayed we provide
+a time window in which someone can supply an invalidation condition that allows the
+output to be spent, effectively invalidating the would-be delayed branch and potentially discouraging
+another party from broadcasting the transaction in the first place. If the invalidation
+condition does not occur before the timeout, the delayed branch becomes spendable,
+honoring the original contract.
+
+Some more specific applications of this  idea:
+
+
+=====Payment Channel Revocation=====
+
+Scriptable relative locktime provides a predictable amount of time to respond in
+the event a counterparty broadcasts a revoked transaction: Absolute locktime
+necessitates closing the channel and reopen it when getting close to the timeout,
+whereas with relative locktime, the clock starts ticking the moment the
+transactions confirms in a block. It also provides a means to know exactly how
+long to wait (in number of blocks) before funds can be pulled out of the channel
+in the event of a noncooperative counterparty.
+
+
+=====Hash Time-Locked Contracts=====
+
+Hashed Timelock Contracts (HTLCs) can be used to create chains of payments which
+is required for lightning network payment channels. The scheme requires both
+CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY to enforce HTLC timeouts and
+revokation.
+
+In lightning commitment transactions, CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY
+enforce a delay between publishing the commitment transaction, and spending the
+output. The delay is needed so that the counterparty has time to prove the
+commitment was revoked and claim the outputs as a penalty.
+
+
+=====2-Way Pegged Sidechains=====
+
+    OP_IF
+        lockTxHeight <lockTxHash> nlocktxOut [<workAmount>] reorgBounty Hash160(<...>) <genesisHash> OP_REORGPROOFVERIFY
+    OP_ELSE
+        withdrawLockTime OP_CHECKSEQUENCEVERIFY OP_DROP OP_HASH160 p2shWithdrawDest OP_EQUAL
+    OP_ENDIF
+
+
+==Specification==
+
+Refer to the reference implementation, reproduced below, for the precise 
+semantics and detailed rationale for those semantics.
+
+    
+    /* Threshold for nSequence: below this value it is interpreted
+     * as a relative lock-time, otherwise ignored. */
+    static const uint32_t SEQUENCE_LOCKTIME_THRESHOLD = (1 << 31);
+    
+    /* Threshold for nSequence when interpreted as a relative
+     * lock-time: below this value it has units of blocks, otherwise
+     * seconds. */
+    static const uint32_t SEQUENCE_UNITS_THRESHOLD = (1 << 30);
+    
+    case OP_NOP3:
+    {
+        if (!(flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)) {
+            // not enabled; treat as a NOP3
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) {
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+            }
+            break;
+        }
+        
+        if (stack.size() < 1)
+            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+        
+        // Note that elsewhere numeric opcodes are limited to
+        // operands in the range -2**31+1 to 2**31-1, however it is
+        // legal for opcodes to produce results exceeding that
+        // range. This limitation is implemented by CScriptNum's
+        // default 4-byte limit.
+        //
+        // If we kept to that limit we'd have a year 2038 problem,
+        // even though the nLockTime field in transactions
+        // themselves is uint32 which only becomes meaningless
+        // after the year 2106.
+        //
+        // Thus as a special case we tell CScriptNum to accept up
+        // to 5-byte bignums, which are good until 2**39-1, well
+        // beyond the 2**32-1 limit of the nLockTime field itself.
+        const CScriptNum nSequence(stacktop(-1), fRequireMinimal, 5);
+        
+        // In the rare event that the argument may be < 0 due to
+        // some arithmetic being done first, you can always use
+        // 0 MAX CHECKSEQUENCEVERIFY.
+        if (nSequence < 0)
+            return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
+        
+        // To provide for future soft-fork extensibility, if the
+        // operand is too large to be treated as a relative lock-
+        // time, CHECKSEQUENCEVERIFY behaves as a NOP.
+        if (nSequence >= SEQUENCE_LOCKTIME_THRESHOLD)
+            break;
+        
+        // Actually compare the specified sequence number with the input.
+        if (!CheckSequence(nSequence))
+            return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+        
+        break;
+    }
+    
+    bool CheckSequence(const CScriptNum& nSequence) const
+    {
+        // Relative lock times are supported by comparing the passed
+        // in operand to the sequence number of the input.
+        const int64_t txToSequence = (int64_t)txTo->vin[nIn].nSequence;
+        
+        // Fail if the transaction's version number is not set high
+        // enough to trigger BIP 68 rules.
+        if (static_cast<uint32_t>(txTo->nVersion) < 2)
+            return false;
+        
+        // Sequence numbers above SEQUENCE_LOCKTIME_THRESHOLD
+        // are not consensus constrained. Testing that the transaction's
+        // sequence number is not above this threshold prevents
+        // using this property to get around a CHECKSEQUENCEVERIFY
+        // check.
+        if (txToSequence >= SEQUENCE_LOCKTIME_THRESHOLD)
+            return false;
+        
+        // There are two kinds of nSequence: lock-by-blockheight
+        // and lock-by-blocktime, distinguished by whether
+        // nSequence < SEQUENCE_UNITS_THRESHOLD.
+        //
+        // We want to compare apples to apples, so fail the script
+        // unless the type of nSequence being tested is the same as
+        // the nSequence in the transaction.
+        if (!(
+            (txToSequence <  SEQUENCE_UNITS_THRESHOLD && nSequence <  SEQUENCE_UNITS_THRESHOLD) ||
+            (txToSequence >= SEQUENCE_UNITS_THRESHOLD && nSequence >= SEQUENCE_UNITS_THRESHOLD)
+        ))
+            return false;
+        
+        // Now that we know we're comparing apples-to-apples, the
+        // comparison is a simple numeric one.
+        if (nSequence > txToSequence)
+            return false;
+        
+        return true;
+    }
+
+
 ==Reference Implementation==
 
 A reference implementation is provided in the following git repository:
@@ -181,20 +246,12 @@ https://github.com/maaku/bitcoin/tree/checksequenceverify
 ==Deployment==
 
 We reuse the double-threshold switchover mechanism from BIPs 34 and
-66, with the same thresholds, but for nVersion = 8. The new rules are
-in effect for every block (at height H) with nVersion = 8 and at least
+66, with the same thresholds, but for nVersion = 4. The new rules are
+in effect for every block (at height H) with nVersion = 4 and at least
 750 out of 1000 blocks preceding it (with heights H-1000..H-1) also
-have nVersion = 8. Furthermore, when 950 out of the 1000 blocks
-preceding a block do have nVersion = 8, nVersion = 3 blocks become
+have nVersion = 4. Furthermore, when 950 out of the 1000 blocks
+preceding a block do have nVersion = 4, nVersion = 3 blocks become
 invalid, and all further blocks enforce the new rules.
-
-When assessing the block version as mask of ~0x20000007 must be applied
-to work around the complications caused by
-[http://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-August/010396.html BIP101's premature use]
-of the [https://gist.github.com/sipa/bf69659f43e763540550 undecided version bits proposal].
-
-By applying ~0x20000007 with nVersion = 8, the thresholds should be tested
-comparing block nVersion >= 4 as this will save a bit for future use.
 
 It is recommended that this soft-fork deployment trigger include other 
 related proposals for improving Bitcoin's lock-time capabilities, including:
@@ -219,28 +276,33 @@ done by Peter Todd for the closely related BIP 65.
 
 BtcDrak authored this BIP document.
 
+Thanks to Eric Lombrozo help with example usecases.
+
 
 ==References==
 
-BIP 68: Consensus-enforced transaction replacement signalled via
-sequence numbers
-https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68] Consensus-enforced transaction replacement signalled via sequence numbers
 
-BIP 65: OP_CHECKLOCKTIMEVERIFY
-https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki
+[https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP 65] OP_CHECKLOCKTIMEVERIFY
 
-BIP 113: Median past block time for time-lock constraints
-https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki
+[https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki BIP 113] Median past block time for time-lock constraints
 
-HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and
-revocation hashes
-http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html
+[http://lists.linuxfoundation.org/pipermail/lightning-dev/2015-July/000021.html HTLCs using OP_CHECKSEQUENCEVERIFY/OP_LOCKTIMEVERIFY and revocation hashes]
+
+[http://lightning.network/lightning-network-paper.pdf Lightning Network]
+
+[http://diyhpl.us/diyhpluswiki/transcripts/sf-bitcoin-meetup/2015-02-23-scaling-bitcoin-to-billions-of-transactions-per-day/ Scaling Bitcoin to Billions of Transactions Per Day]
 
 [http://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-August/010396.html Softfork deployment considerations]
 
 [https://gist.github.com/sipa/bf69659f43e763540550 Version bits]
 
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2013-April/002433.html Jeremy Spilman Micropayment Channels]
+
+
+
 
 ==Copyright==
 
 This document is placed in the public domain.
+
