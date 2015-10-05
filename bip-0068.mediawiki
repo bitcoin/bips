@@ -52,7 +52,7 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
     {
         CCoins coins;
     
-        bool fEnforceBIP68 = tx.nVersion >= 2
+        bool fEnforceBIP68 = static_cast<uint32_t>(tx.nVersion) >= 2
                           && flags & LOCKTIME_VERIFY_SEQUENCE;
     
         // Will be set to the equivalent height- and time-based nLockTime
@@ -72,8 +72,9 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
                 fFinalized = false;
     
             // Do not enforce sequence numbers as a relative lock time
-            // unless we have been instructed to.
-            if (!fEnforceBIP68)
+            // unless we have been instructed to, and a view has been
+            // provided.
+            if (!(fEnforceBIP68 && pCoinsView))
                 continue;
     
             // Sequence numbers equal to or above the locktime threshold
@@ -82,31 +83,62 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
             if (txin.nSequence >= CTxIn::SEQUENCE_LOCKTIME_THRESHOLD)
                 continue;
     
-            // Skip this input if it is not in the UTXO set. Aside from
-            // the coinbase input, this should only ever happen in non-
-            // consensus code.
-            if (!pCoinsView->GetCoins(txin.prevout.hash, coins))
-                continue;
+            // Fetch the UTXO corresponding to this input.
+            if (!pCoinsView->GetCoins(txin.prevout.hash, coins)) {
+                // It is fully expected that coinbases inputs are not
+                // found in the UTXO set. Proceed to the next intput...
+                if (txin.prevout.IsNull())
+                    continue;
+                // If a non-coinbase input cannot be found, we cannot
+                // be certain about whether lock-time constraints have
+                // been satisfied. Note that it should only ever be
+                // possible for this to happen with wallet transactions
+                // that have unknown inputs.
+                else
+                    return std::numeric_limits<int64_t>::max();
+            }
     
-            if (txin.nSequence < CTxIn::SEQUENCE_UNITS_THRESHOLD)
+            // coins.nHeight is MEMPOOL_HEIGHT (an absurdly high value)
+            // if the parent transaction was from the mempool. We can't
+            // know what height it will have once confirmed, but we
+            // assume it makes it in the same block.
+            int nCoinHeight = std::min(coins.nHeight, nBlockHeight);
+    
+            if (txin.nSequence < CTxIn::SEQUENCE_UNITS_THRESHOLD) {
                 // We subtract 1 from relative lock-times because a lock-
                 // time of 0 has the semantics of "same block," so a lock-
                 // time of 1 should mean "next block," but nLockTime has
                 // the semantics of "last invalid block height."
-                nMinHeight = std::max(nMinHeight,
-                      coins.nHeight
-                    + (int)(txin.nSequence >> CTxIn::SEQUENCE_BLOCKS_OFFSET)
-                    - 1);
-            else
+                nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(
+                    txin.nSequence >> CTxIn::SEQUENCE_BLOCKS_OFFSET) - 1);
+            } else {
+                // In two locations that follow we make reference to
+                // chainActive.Tip(). To prevent a race condition, we
+                // store a reference to the current tip.
+                //
+                // Note that it is not guaranteed that indexBestBlock will
+                // be consistent with the passed in view. The proper thing
+                // to do is to have the view return time information about
+                // UTXOs.
+                const CBlockIndex& indexBestBlock = *chainActive.Tip();
+    
+                // The only time the negative branch of this conditional
+                // is executed is when the prior output was taken from the
+                // mempool, in which case we assume it makes it into the
+                // same block (see above).
+                int64_t nCoinTime = (nCoinHeight <= (indexBestBlock.nHeight+1))
+                                  ? indexBestBlock.GetAncestor(nCoinHeight-1)->GetMedianTimePast()
+                                  : nBlockTime;
+
                 // Time-based relative lock-times are measured from the
                 // smallest allowed timestamp of the block containing the
                 // txout being spent, which is the median time past of the
                 // block prior. We subtract one for the same reason as
                 // above.
-                nMinTime = std::max(nMinTime,
-                      pindexBestHeader->GetAncestor(coins.nHeight-1)->GetMedianTimePast()
-                    + (int64_t)((txin.nSequence ^ CTxIn::SEQUENCE_UNITS_THRESHOLD) >> CTxIn::SEQUENCE_SECONDS_OFFSET)
-                    - 1);
+                nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((
+                    txin.nSequence - CTxIn::SEQUENCE_UNITS_THRESHOLD)
+                    >> CTxIn::SEQUENCE_SECONDS_OFFSET) - 1);
+            }
         }
     
         // If all sequence numbers are CTxIn::SEQUENCE_FINAL, the
@@ -137,7 +169,8 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
         flags = std::max(flags, 0);
     
         // pcoinsTip contains the UTXO set for chainActive.Tip()
-        const CCoinsView *pCoinsView = pcoinsTip;
+        CCoinsViewMemPool viewMemPool(pcoinsTip, mempool);
+        const CCoinsView *pCoinsView = &viewMemPool;
     
         // CheckLockTime() uses chainActive.Height()+1 to evaluate
         // nLockTime because when LockTime() is called within
