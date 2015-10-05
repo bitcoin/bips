@@ -51,12 +51,10 @@ minimum time after proof-of-publication. This enables a wide variety
 of applications in phased protocols such as escrow, payment channels,
 or bidirectional pegs.
 
-===Examples===
 
+===Contracts With Expiration Deadlines===
 
-====Contracts With Expiration Deadlines====
-
-=====Escrow with Timeout=====
+====Escrow with Timeout====
 
 An escrow that times out automatically 30 days after being funded can be
 established in the following way. Alice, Bob and Escrow create a 2-of-3
@@ -78,7 +76,7 @@ The clock does not start ticking until the payment to the escrow address
 confirms. 
 
 
-====Retroactive Invalidation====
+===Retroactive Invalidation===
 
 In many instances, we would like to create contracts that can be revoked in case
 of some future event. However, given the immutable nature of the blockchain, it
@@ -96,10 +94,13 @@ another party from broadcasting the transaction in the first place. If the inval
 condition does not occur before the timeout, the delayed branch becomes spendable,
 honoring the original contract.
 
-Some more specific applications of this  idea:
+Some more specific applications of this idea:
 
+====Hash Time-Locked Contracts====
 
-=====Payment Channel Revocation=====
+Hash Time-Locked Contracts (HTLCs) provide a general mechanism for offchain contract negotiation. An execution pathway can be made to require knowledge of a secret (a hash preimage) that can be presented within an invalidation time window. By sharing the secret it is possible to guarantee to the counterparty that the transaction will never be broadcast since this would allow the counterparty to claim the output immediately while one would have to wait for the time window to pass. If the secret has not been shared, the counterparty will be unable to use the instant pathway and the delayed pathway will be used instead.
+
+====Bidirectional Payment Channels====
 
 Scriptable relative locktime provides a predictable amount of time to respond in
 the event a counterparty broadcasts a revoked transaction: Absolute locktime
@@ -110,20 +111,111 @@ long to wait (in number of blocks) before funds can be pulled out of the channel
 in the event of a noncooperative counterparty.
 
 
-=====Hash Time-Locked Contracts=====
+====Lightning Network====
 
-Hashed Timelock Contracts (HTLCs) can be used to create chains of payments which
-is required for lightning network payment channels. The scheme requires both
-CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY to enforce HTLC timeouts and
-revokation.
+The lightning network extends the bidirectional payment channel idea to allow for payments to be routed over multiple bidirectional payment channel hops.
 
-In lightning commitment transactions, CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY
-enforce a delay between publishing the commitment transaction, and spending the
-output. The delay is needed so that the counterparty has time to prove the
-commitment was revoked and claim the outputs as a penalty.
+These channels are based on an anchor transaction that requires a 2-of-2
+multisig from Alice and Bob, and a series of revocable commitment
+transactions that spend the anchor transaction.  The commitment
+transaction splits the funds from the anchor between Alice and Bob and
+the latest commitment transaction may be published by either party at
+any time, finalising the channel.
+
+Ideally then, a revoked commitment transaction would never be able to
+be successfully spent; and the latest commitment transaction would be
+able to be spent very quickly.
+
+To allow a commitment transaction to be effectively revoked, Alice
+and Bob have slightly different versions of the latest commitment
+transaction. In Alice's version, any outputs in the commitment
+transaction that pay Alice also include a forced delay, and an
+alternative branch that allows Bob to spend the output if he knows that
+transaction's revocation code. In Bob's version, payments to Bob are
+similarly encumbered. When Alice and Bob negotiate new balances and
+new commitment transactions, they also reveal the old revocation code,
+thus committing to not relaying the old transaction.
+
+A simple output, paying to Alice might then look like:
+
+    OP_HASH160 <revokehash> OP_EQUAL
+    OP_IF
+        OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
+    OP_ELSE
+        24h OP_CHECKSEQUENCEVERIFY
+        OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
+    OP_ENDIF
+
+This allows Alice to publish the latest commitment transaction at any
+time and spend the funds after 24 hours, but also ensures that if Alice
+relays a revoked transaction, that Bob has 24 hours to claim the funds.
+
+With CHECKLOCKTIMEVERIFY, this would look like:
+
+    OP_HASH160 <revokehash> OP_EQUAL
+    OP_IF
+        OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
+    OP_ELSE
+        2015/12/15 OP_CHECKLOCKTIMEVERIFY
+        OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
+    OP_ENDIF
+
+This form of transaction would mean that if the anchor is unspent on
+2015/12/16, Alice can use this commitment even if it has been revoked,
+simply by spending it immediately, giving no time for Bob to claim it.
+
+Ths means that the channel has a deadline that cannot be pushed
+back without hitting the blockchain; and also that funds may not be
+available until the deadline is hit. CHECKSEQUENCEVERIFY allows you
+to avoid making that tradeoff.
+
+Hashed Time-Lock Contracts (HTLCs) make this slightly more complicated,
+since in principle they may pay either Alice or Bob, depending on whether
+Alice discovers a secret R, or a timeout is reached, but the same principle
+applies -- the branch paying Alice in Alice's commitment transaction gets a
+delay, and the entire output can be claimed by the other party if the
+revocation secret is known. With CHECKSEQUENCEVERIFY, a HTLC payable to
+Alice might look like the following in Alice's commitment transaction:
+
+    OP_HASH160 OP_DUP <revokehash> OP_EQUAL
+    OP_IF
+        OP_DROP OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
+    OP_ELSE
+        <R hash> OP_EQUAL
+        OP_IF
+            "24h" OP_CHECKSEQUENCEVERIFY OP_DROP
+            OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
+        OP_ELSE
+            "2015/10/20 10:33" OP_CHECKLOCKTIMEVERIFY OP_DROP
+            OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
+        OP_ENDIF
+    OP_ENDIF
+
+and correspondingly in Bob's commitment transaction:
+
+   OP_HASH160 OP_DUP <revokehash> OP_EQUAL
+   OP_IF
+       OP_DROP OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
+   OP_ELSE
+       <R hash> OP_EQUAL
+       OP_IF
+           OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
+       OP_ELSE
+           "24h" OP_CHECKSEQUENCEVERIFY OP_DROP
+           "2015/10/20 10:33" OP_CHECKLOCKTIMEVERIFY OP_DROP
+           OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
+       OP_ENDIF
+   OP_ENDIF
+
+Note that both CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY are used in the
+final branch of above to ensure Bob cannot spend the output until after both
+the timeout is complete and Alice has had time to reveal the revocation
+secret.
+
+See the [https://github.com/ElementsProject/lightning/blob/master/doc/deployable-lightning.pdf Deployable Lightning] paper.
 
 
-=====2-Way Pegged Sidechains=====
+====2-Way Pegged Sidechains====
 
     OP_IF
         lockTxHeight <lockTxHash> nlocktxOut [<workAmount>] reorgBounty Hash160(<...>) <genesisHash> OP_REORGPROOFVERIFY
@@ -276,7 +368,7 @@ done by Peter Todd for the closely related BIP 65.
 
 BtcDrak authored this BIP document.
 
-Thanks to Eric Lombrozo help with example usecases.
+Thanks to Eric Lombrozo and Anthony Towns for contributing example usecases.
 
 
 ==References==
@@ -291,6 +383,8 @@ Thanks to Eric Lombrozo help with example usecases.
 
 [http://lightning.network/lightning-network-paper.pdf Lightning Network]
 
+[https://github.com/ElementsProject/lightning/blob/master/doc/deployable-lightning.pdf Deployable Lightning]
+
 [http://diyhpl.us/diyhpluswiki/transcripts/sf-bitcoin-meetup/2015-02-23-scaling-bitcoin-to-billions-of-transactions-per-day/ Scaling Bitcoin to Billions of Transactions Per Day]
 
 [http://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-August/010396.html Softfork deployment considerations]
@@ -298,8 +392,6 @@ Thanks to Eric Lombrozo help with example usecases.
 [https://gist.github.com/sipa/bf69659f43e763540550 Version bits]
 
 [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2013-April/002433.html Jeremy Spilman Micropayment Channels]
-
-
 
 
 ==Copyright==
