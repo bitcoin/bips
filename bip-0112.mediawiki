@@ -19,13 +19,15 @@ being spent.
 
 ==Summary==
 
-CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode. When executed it
-compares the top item on the stack to the nSequence field of the transaction
-input containing the scriptSig. If it is greater than or equal to (1 << 31),
-or if the transaction version is greater than or equal to 2, the transaction input
-sequence is less than or equal to (1 << 31) and the top stack item is less than
-the transaction input sequence, script exection continues as if a NOP was executed,
-otherwise the script fails.
+CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode.
+When executed, the script interpreter continues as if a NOP was executed
+so long as one of the following conditions is met:
+
+  * the transaction's nVersion field is 0 or 1;
+  * the top item on the stack is a value greater than or equal to (1 << 31); or
+  * the top item on the stack and the transaction input's sequence number are both relative lock-times of the same units, and the relative lock-time represented by the sequence number is greater than or equal to the relative lock-time represented by the top item on the stack.
+
+Otherwise, script execution terminates with an error.
 
 BIP 68's redefinition of nSequence prevents a non-final transaction
 from being selected for inclusion in a block until the corresponding
@@ -63,7 +65,7 @@ address with the following redeemscript.
     IF
         2 <Alice's pubkey> <Bob's pubkey> <Escrow's pubkey> 3 CHECKMULTISIGVERIFY
     ELSE
-        <LOCKTIME_THRESHOLD + 30*24*60*60> CHECKSEQUENCEVERIFY DROP
+        "30d" CHECKSEQUENCEVERIFY DROP
         <Alice's pubkey> CHECKSIGVERIFY
     ENDIF
 
@@ -98,7 +100,7 @@ Some more specific applications of this idea:
 
 ====Hash Time-Locked Contracts====
 
-Hash Time-Locked Contracts (HTLCs) provide a general mechanism for offchain contract negotiation. An execution pathway can be made to require knowledge of a secret (a hash preimage) that can be presented within an invalidation time window. By sharing the secret it is possible to guarantee to the counterparty that the transaction will never be broadcast since this would allow the counterparty to claim the output immediately while one would have to wait for the time window to pass. If the secret has not been shared, the counterparty will be unable to use the instant pathway and the delayed pathway will be used instead.
+Hash Time-Locked Contracts (HTLCs) provide a general mechanism for offchain contract negotiation. An execution pathway can be made to require knowledge of a secret (a hash preimage) that can be presented within an invalidation time window. By sharing the secret it is possible to guarantee to the counterparty that the transaction will never be broadcast since this would allow the counterparty to claim the output immediately while one would have to wait for the time window to pass. If the secret has not been shared, the counterparty will be unable to use the instant pathway and the delayed pathway must be used instead.
 
 ====Bidirectional Payment Channels====
 
@@ -138,13 +140,13 @@ thus committing to not relaying the old transaction.
 
 A simple output, paying to Alice might then look like:
 
-    OP_HASH160 <revokehash> OP_EQUAL
-    OP_IF
-        OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
-    OP_ELSE
-        24h OP_CHECKSEQUENCEVERIFY
-        OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
-    OP_ENDIF
+    HASH160 <revokehash> EQUAL
+    IF
+        DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+    ELSE
+        "24h" CHECKSEQUENCEVERIFY
+        DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+    ENDIF
 
 This allows Alice to publish the latest commitment transaction at any
 time and spend the funds after 24 hours, but also ensures that if Alice
@@ -152,13 +154,13 @@ relays a revoked transaction, that Bob has 24 hours to claim the funds.
 
 With CHECKLOCKTIMEVERIFY, this would look like:
 
-    OP_HASH160 <revokehash> OP_EQUAL
-    OP_IF
-        OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
-    OP_ELSE
-        2015/12/15 OP_CHECKLOCKTIMEVERIFY
-        OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
-    OP_ENDIF
+    HASH160 <revokehash> EQUAL
+    IF
+        DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+    ELSE
+        "2015/12/15" CHECKLOCKTIMEVERIFY
+        DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+    ENDIF
 
 This form of transaction would mean that if the anchor is unspent on
 2015/12/16, Alice can use this commitment even if it has been revoked,
@@ -167,7 +169,7 @@ simply by spending it immediately, giving no time for Bob to claim it.
 Ths means that the channel has a deadline that cannot be pushed
 back without hitting the blockchain; and also that funds may not be
 available until the deadline is hit. CHECKSEQUENCEVERIFY allows you
-to avoid making that tradeoff.
+to avoid making such a tradeoff.
 
 Hashed Time-Lock Contracts (HTLCs) make this slightly more complicated,
 since in principle they may pay either Alice or Bob, depending on whether
@@ -177,35 +179,35 @@ delay, and the entire output can be claimed by the other party if the
 revocation secret is known. With CHECKSEQUENCEVERIFY, a HTLC payable to
 Alice might look like the following in Alice's commitment transaction:
 
-    OP_HASH160 OP_DUP <revokehash> OP_EQUAL
-    OP_IF
-        OP_DROP OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
-    OP_ELSE
-        <R hash> OP_EQUAL
-        OP_IF
-            "24h" OP_CHECKSEQUENCEVERIFY OP_DROP
-            OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
-        OP_ELSE
-            "2015/10/20 10:33" OP_CHECKLOCKTIMEVERIFY OP_DROP
-            OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
-        OP_ENDIF
-    OP_ENDIF
+    HASH160 DUP <revokehash> EQUAL
+    IF
+        DROP DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+    ELSE
+        <R hash> EQUAL
+        IF
+            "24h" CHECKSEQUENCEVERIFY DROP
+            DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+        ELSE
+            "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
+            DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        ENDIF
+    ENDIF
 
 and correspondingly in Bob's commitment transaction:
 
-   OP_HASH160 OP_DUP <revokehash> OP_EQUAL
-   OP_IF
-       OP_DROP OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
-   OP_ELSE
-       <R hash> OP_EQUAL
-       OP_IF
-           OP_DUP OP_HASH160 <Alice key hash> OP_CHECKSIGVERIFY
-       OP_ELSE
-           "24h" OP_CHECKSEQUENCEVERIFY OP_DROP
-           "2015/10/20 10:33" OP_CHECKLOCKTIMEVERIFY OP_DROP
-           OP_DUP OP_HASH160 <Bob key hash> OP_CHECKSIGVERIFY
-       OP_ENDIF
-   OP_ENDIF
+   HASH160 DUP <revokehash> EQUAL
+   IF
+       DROP DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+   ELSE
+       <R hash> EQUAL
+       IF
+           DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+       ELSE
+           "24h" CHECKSEQUENCEVERIFY DROP
+           "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
+           DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+       ENDIF
+   ENDIF
 
 Note that both CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY are used in the
 final branch of above to ensure Bob cannot spend the output until after both
@@ -217,11 +219,13 @@ See the [https://github.com/ElementsProject/lightning/blob/master/doc/deployable
 
 ====2-Way Pegged Sidechains====
 
-    OP_IF
-        lockTxHeight <lockTxHash> nlocktxOut [<workAmount>] reorgBounty Hash160(<...>) <genesisHash> OP_REORGPROOFVERIFY
-    OP_ELSE
-        withdrawLockTime OP_CHECKSEQUENCEVERIFY OP_DROP OP_HASH160 p2shWithdrawDest OP_EQUAL
-    OP_ENDIF
+The 2-way pegged sidechain requires a new REORGPROOFVERIFY opcode, the semantics of which are outside the scope of this BIP. CHECKSEQUENCEVERIFY is used to make sure that sufficient time has passed since the return peg was posted to publish a reorg proof:
+
+    IF
+        lockTxHeight <lockTxHash> nlocktxOut [<workAmount>] reorgBounty Hash160(<...>) <genesisHash> REORGPROOFVERIFY
+    ELSE
+        withdrawLockTime CHECKSEQUENCEVERIFY DROP HASH160 p2shWithdrawDest EQUAL
+    ENDIF
 
 
 ==Specification==
@@ -258,14 +262,9 @@ semantics and detailed rationale for those semantics.
         // range. This limitation is implemented by CScriptNum's
         // default 4-byte limit.
         //
-        // If we kept to that limit we'd have a year 2038 problem,
-        // even though the nLockTime field in transactions
-        // themselves is uint32 which only becomes meaningless
-        // after the year 2106.
-        //
         // Thus as a special case we tell CScriptNum to accept up
         // to 5-byte bignums, which are good until 2**39-1, well
-        // beyond the 2**32-1 limit of the nLockTime field itself.
+        // beyond the 2**32-1 limit of the nSequence field itself.
         const CScriptNum nSequence(stacktop(-1), fRequireMinimal, 5);
         
         // In the rare event that the argument may be < 0 due to
@@ -281,13 +280,13 @@ semantics and detailed rationale for those semantics.
             break;
         
         // Actually compare the specified sequence number with the input.
-        if (!CheckSequence(nSequence))
+        if (!checker.CheckSequence(nSequence))
             return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
         
         break;
     }
     
-    bool CheckSequence(const CScriptNum& nSequence) const
+    bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) const
     {
         // Relative lock times are supported by comparing the passed
         // in operand to the sequence number of the input.
@@ -321,7 +320,7 @@ semantics and detailed rationale for those semantics.
         
         // Now that we know we're comparing apples-to-apples, the
         // comparison is a simple numeric one.
-        if (nSequence > txToSequence)
+        if (txTo->vin[nIn].nSequence > txToSequence)
             return false;
         
         return true;
