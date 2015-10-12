@@ -99,11 +99,13 @@ Prior to the first time Alice initiates a transaction to Bob, Alice MUST inform 
 ## Alice selects the private key corresponding to the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>a</pre>
 ## Alice selects the public key associated with Bob's notification address: <pre>B, where B = bG</pre>
 ## Alice calculates a secret point: <pre>S = aB</pre>
-## Alice expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
+## Alice calculates a 64 byte blinding factor: <pre>s = HMAC-SHA512(x, o)</pre>
+### "x" is the x value of the secret point
+### "o" is the outpoint being spent by the first pubkey-exposing input of the transaction.
 # Alice serializes her payment code in binary form.
-# Alice renders her payment code (P) unreadable to anyone except Bob by:
-## Replace the x value with x': <pre>x' = s XOR (x value)</pre>
-## Replace the chain code with c': <pre>c' = sha256(s) XOR (chain code)</pre>
+# Alice renders her payment code (P) unreadable to anyone except Bob:
+## Replace the x value with x': <pre>x' = x XOR (first 32 bytes of s)</pre>
+## Replace the chain code with c': <pre>c' = c XOR (last 32 bytes of s)</pre>
 # Alice adds an OP_RETURN output to her transaction which consists of P.
 <img src="bip-0047/reusable_payment_codes-01.png" />
 
@@ -113,10 +115,12 @@ Prior to the first time Alice initiates a transaction to Bob, Alice MUST inform 
 ## Bob selects the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>A, where A = aG</pre>
 ## Bob selects the private key associated with his notification address: <pre>b</pre>
 ## Bob calculates a secret point: <pre>S = bA</pre>
-## Bob expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
+## Bob calculates the binding factor: <pre>s = HMAC-SHA512(x, o)</pre>
+### "x" is the x value of the secret point
+### "o" is the outpoint being spent by the first pubkey-exposing input of the transaction.
 ## Bob interprets the 80 byte payload as a payment code, except:
-### Replace the x value with x': <pre>x' = s XOR (x value)</pre>
-### Replace the chain code with c': <pre>c' = sha256(s) XOR (chain code)</pre>
+### Replace the x value with x': <pre>x' = x XOR (first 32 bytes of s)</pre>
+### Replace the chain code with c': <pre>c' = c XOR (last 32 bytes of s)</pre>
 ## If the updated x value is a member of the secp256k1 group, the payment code is valid.
 ## If the updated x value is not a member of the secp256k1 group, the payment code is ignored.
 
@@ -138,7 +142,7 @@ Bitcoins received via notification transactions require special handling in orde
 ## Alice selects the next unused public key derived from Bob's payment code, starting from zero: <pre>B, where B = bG</pre>
 ### The "next unused" public key is based on an index specific to the Alice-Bob context, not global to either Alice or Bob
 ## Alice calculates a secret point: <pre>S = aB</pre>
-## Alice expresses the secret point in compressed DER format, then calculates a scalar shared secret: <pre>s = SHA256(S)</pre>
+## Alice calculates a scalar shared secret using the x value of S: <pre>s = SHA256(Sx)</pre>
 ### If the value of s is not in the secp256k1 group, Alice MUST increment the index used to derive Bob's public key and try again.
 ## Alice uses the scalar shared secret to calculate the ephemeral public key used to generate the P2PKH address for this transaction: <pre>B' = B + sG</pre>
 <img src="bip-0047/reusable_payment_codes-04.png" />
@@ -248,6 +252,7 @@ In order to use Bitmessage notification, the recipient must have a Bitmessage cl
 * [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
 * [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
 * [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
+* [[https://bitcoin.org/en/glossary/outpoint|Outpoint]]
 * [[https://github.com/petertodd/dust-b-gone|dust-b-gone]]
 * [[https://en.bitcoin.it/wiki/Base58Check_encoding|Base58Check encoding]]
 * [[https://bitmessage.org/bitmessage.pdf|Bitmessage]]
