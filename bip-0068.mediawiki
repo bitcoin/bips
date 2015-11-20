@@ -4,6 +4,7 @@
   Author: Mark Friedenbach <mark@friedenbach.org>
           BtcDrak <btcdrak@gmail.com>
           Nicolas Dorier <nicolas.dorier@gmail.com>
+          kinoshitajona <kinoshitajona@gmail.com>
   Status: Draft
   Type: Standards Track
   Created: 2015-05-28
@@ -11,34 +12,33 @@
 
 ==Abstract==
 
-This BIP describes introduces consensus-enforced semantics of the sequence number field to enable a signed transaction input to remain invalid for a defined period of time after confirmation of its corresponding outpoint, for the purpose of supporting consensus-enforced transaction replacement features.
+This BIP introduces consensus-enforced semantics of the sequence number field to enable a signed transaction input to remain invalid for a defined period of time after confirmation of its corresponding outpoint, for the purpose of supporting consensus-enforced transaction replacement features.
 
 ==Motivation==
 
-Bitcoin transactions have a sequence number fields for each input of a transaction. The original idea appears to have been that the highest sequence number should dominate and miners should prefer higher sequence numbers by policy alone, although this was not implemented it assumes miners would prefer the higher sequence numbers even if the lower ones were much much more profitable. However, profit maximizing miners would break that assumption completely. The change described by this BIP repurposes the sequence number into a new usage without breaking existing usages while leaving room for future expansion and other use cases.
+Bitcoin transactions have a sequence number field for each input. The original idea appears to have been that a transaction in the mempool would be replaced by using the same input with a higher sequence value. Although this was not properly implemented, it assumes miners would prefer higher sequence numbers even if the lower ones were more profitable to mine. However, a miner acting on profit motives alone would break that assumption completely. The change described by this BIP repurposes the sequence number for new use cases without breaking existing functionality. It also leaves room for future expansion and other use cases.
 
 The transaction nLockTime is used to prevent the mining of a transaction until a certain date. (in block height or time)
 nSequence will be repurposed to prevent mining of a transaction until a certain age of the spent output. (in blocks or timespan)
-This, among other usage, allows bi-directional payment channels as used in [Hashed Timelock Contrats (HTLCs)](https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf) and [BIP112](https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels).
+This, among other uses, allows bi-directional payment channels as used in [Hashed Timelock Contracts (HTLCs)](https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf) and [BIP112](https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels).
 
 ==Specification==
 
-This specification defined the meaning of sequence numbers for transactions with an nVersion greater than or equal to 2 for which the rest of this specification relies on.
+This specification defines the meaning of sequence numbers for transactions with an nVersion greater than or equal to 2 for which the rest of this specification relies on.
 
-If bit (1 << 31) of the sequence number is set, then no consensus meaning is applied to the sequence number and can be included in any block, like normal, under all circumstances.
+If bit (1 << 31) of the sequence number is set, then no consensus meaning is applied to the sequence number and can be included in any block under all currently possible circumstances.
 
-If bit (1 << 31) of the sequence number is clear, then the sequence number is interpreted as an encoded relative lock-time.
+If bit (1 << 31) of the sequence number is not set, then the sequence number is interpreted as an encoded relative lock-time.
 
 The sequence number encoding is interpreted as follows: 
 
-Bit (1 << 22) determines if the relative lock-time is time based or block based.
-If the bit is set, the interpretation for relative lock-time in units of 512 seconds. If the bit is not set, it specifies relative lock-time in blocks.
+Bit (1 << 22) determines if the relative lock-time is time-based or block based: If the bit is set, it specifies relative lock-time in units of 512 seconds granularity from the median time past of its previous block to the block-time Median Time Past or nTime depending on the enforcement status of BIP113. If the bit is not set, it specifies relative lock-time in blocks.
 
 Note (1 << 22) was chosen because it is the highest you can go without moving to 4-byte pushes when using the Bitcoin scripting language in conjunction with OP_CHECKSEQUENCEVERIFY: i.e. 3 bytes = 24 bits where pushes are signed integers which leaving 1 bit for the flag and 22 bits for the relative lock-time encoding.
 
-This specification only interprets 16 bits of the sequence number as relative lock-time, so a mask of 0x0000ffff must be applied to the sequence field to extract the relative lock-time. This is to allow for future expansion. The specification allows for a year of relative lock-time.
+This specification only interprets 16 bits of the sequence number as relative lock-time, so a mask of 0x0000ffff MUST be applied to the sequence field to extract the relative lock-time. This is to allow for future expansion. The specification allows for a year of relative lock-time.
 
-For time based relative lock-time, 512 second granularity was chosen because bitcoin blocks are generated every 600 seconds. So when using block based or time based relative locktime, the same amount of time can be encoded with the available number of bits. Converting from a sequence number to seconds is performed by multiplying by 512 = 2^9, or equivalently shifting up by 9 bits.
+For time based relative lock-time, 512 second granularity was chosen because bitcoin blocks are generated every 600 seconds. So when using block based or time based relative lock-time, the same amount of time can be encoded with the available number of bits. Converting from a sequence number to seconds is performed by multiplying by 512 = 2^9, or equivalently shifting up by 9 bits.
 
 When the relative lock-time is time-based, it is interpreted as a minimum block-time constraint over the input's age. A relative time-based lock-time of zero indicates an input which can be included in any block. More generally, a relative time-based lock-time n can be included into any block produced 512 * n seconds after the mining date of the output it is spending, or any block thereafter.
 The mining date of the output is equals to the Median Time Past of the previous block which mined it.
@@ -47,11 +47,11 @@ The block produced time is either equals to median time past of its parent or to
 
 When the relative lock-time is block-based, it is interpreted as a minimum block-height constraint over the input's age. A relative block-based lock-time of zero indicates an input which can be included in any block. More generally, a relative block lock-time n can be included n blocks after the mining date of the output it is spending, or any block thereafter.
 
-This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(), existing consensus and non-consensus code functions that return true if a transaction's lock-time constraints are satisfied and false otherwise, with LockTime() and CheckLockTime(), new functions that return a non-zero value if a transaction's lock-time or sequence number constraints are not satisfied and zero otherwise:
+This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(), existing consensus and non-consensus code functions that return true if a transaction's lock-time constraints are satisfied and false otherwise, with LockTime() and CheckLockTime(), new functions that return a non-zero value if a transaction's lock-time or sequence valuenumber constraints are not satisfied and zero otherwise:
 
 <pre>
     enum {
-        /* Interpret sequence numbers as relative lock-time constraints. */
+        /* Interpret sequence valuenumbers as relative lock-time constraints. */
         LOCKTIME_VERIFY_SEQUENCE = (1 << 0),
     };
     
@@ -61,7 +61,7 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
     
     /* If this flag set, CTxIn::nSequence is NOT interpreted as a
      * relative lock-time. Setting the most significant bit of a
-     * sequence number disabled relative lock-time. */
+     * sequence valuenumber disabled relative lock-time. */
     static const uint32_t SEQUENCE_LOCKTIME_DISABLED_FLAG = (1 << 31);
     
     /* If CTxIn::nSequence encodes a relative lock-time and this flag
@@ -108,13 +108,13 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
             else
                 fFinalized = false;
     
-            // Do not enforce sequence numbers as a relative lock time
+            // Do not enforce sequence valuenumbers as a relative lock time
             // unless we have been instructed to, and a view has been
             // provided.
             if (!fEnforceBIP68)
                 continue;
     
-            // Sequence numbers with the most significant bit set are not
+            // Sequence valuenumbers with the most significant bit set are not
             // treated as relative lock-times, nor are they given any
             // consensus-enforced meaning at this point.
             if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLED_FLAG)
@@ -143,7 +143,7 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
             }
         }
     
-        // If all sequence numbers are CTxIn::SEQUENCE_FINAL, the
+        // If all sequence valuenumbers are CTxIn::SEQUENCE_FINAL, the
         // transaction is considered final and nLockTime constraints
         // are not enforced.
         if (fFinalized)
@@ -169,7 +169,7 @@ Code conditional on the return value of IsFinalTx() / CheckLockTime() has to be 
 
 A bidirectional payment channel can be established by two parties funding a single output in the following way: Alice funds a 1 BTC output which is the 2-of-2 multisig of Alice AND Bob, or Alice's key only after a sufficiently long timeout, e.g. 30 days or 4320 blocks. The channel-generating transaction is signed by Alice and broadcast to the network.
 
-Alice desires to send Bob a payment of 0.1 BTC. She does so by constructing a transaction spending the 1 BTC output and sending 0.1 BTC to Bob and 0.9 BTC back to herself. She provides her signature for the 2-of-2 multisig constraint, and sets a relative lock-time using the sequence number field such that the transaction will become valid 24-hours or 144 blocks before the refund timeout. Two more times Alice sends Bob a payment of 0.1 BTC, each time generating and signing her half of a transaction spending the 1btc output and sending 0.2 BTC, then 0.3 BTC to Bob with a relative lock-time of 29 days from creation of the channel.
+Alice desires to send Bob a payment of 0.1 BTC. She does so by constructing a transaction spending the 1 BTC output and sending 0.1 BTC to Bob and 0.9 BTC back to herself. She provides her signature for the 2-of-2 multisig constraint, and sets a relative lock-time using the sequence valuenumber field such that the transaction will become valid 24-hours or 144 blocks before the refund timeout. Two more times Alice sends Bob a payment of 0.1 BTC, each time generating and signing her half of a transaction spending the 1btc output and sending 0.2 BTC, then 0.3 BTC to Bob with a relative lock-time of 29 days from creation of the channel.
 
 Bob now desires to send Alice a refund of 0.25 BTC. He does so by constructing a transaction spending the 1btc output and sending 0.95 BTC (= 0.7 BTC + 0.25 BTC) to Alice and 0.05 BTC to himself. Since Bob will still have in his logs the transaction giving him 0.7 BTC 29 days after the creation of the channel, Alice demands that this new transaction have a relative lock-time of 28 days so she has a full day to broadcast it before the next transaction matures.
 
@@ -185,7 +185,7 @@ https://github.com/bitcoin/bitcoin/pull/6312
 
 Credit goes to Gregory Maxwell for providing a succinct and clear description of the behavior of this change, which became the basis of this BIP text.
 
-This BIP was edited by BtcDrak and Nicholas Dorier.
+This BIP was edited by BtcDrak and Nicolas Dorier.
 
 ==Deployment==
 
@@ -195,11 +195,11 @@ It is recommended to deploy BIP68 and BIP112 at the same time as this BIP.
 
 ==Compatibility==
 
-The only use of sequence numbers by the Bitcoin Core reference client software is to disable checking the nLockTime constraints in a transaction. The semantics of that application are preserved by this BIP.
+The only use of sequence valuenumbers by the Bitcoin Core reference client software is to disable checking the nLockTime constraints in a transaction. The semantics of that application are preserved by this BIP.
 
-There may be other uses for the sequence number field that are not commonplace or yet to be discovered. To allow for other uses of the sequence number field, it is only interpreted as a relative lock-time as described in this BIP if the most significant bit is clear. This allows up to 31 bits of the sequence number field to be used for other purposes in applications which don't simultaneously need a per-input relative lock-time. In addition, the unused low-order bits of the relative lock-time encoding are available for use by future soft-fork extensions.
+There may be other uses for the sequence valuenumber field that are not commonplace or yet to be discovered. To allow for other uses of the sequence valuenumber field, it is only interpreted as a relative lock-time as described in this BIP if the most significant bit is clear. This allows up to 31 bits of the sequence valuenumber field to be used for other purposes in applications which don't simultaneously need a per-input relative lock-time. In addition, the unused low-order bits of the relative lock-time encoding are available for use by future soft-fork extensions.
 
-The most efficient way to calculate sequence number from relative lock-time is with bit masks and shifts:
+The most efficient way to calculate sequence valuenumber from relative lock-time is with bit masks and shifts:
 
 <pre>
     // 0 <= nHeight < 65,535 blocks (1.25 years)
