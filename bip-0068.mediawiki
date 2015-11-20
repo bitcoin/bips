@@ -18,9 +18,7 @@ This BIP introduces consensus-enforced semantics of the sequence number field to
 
 Bitcoin transactions have a sequence number field for each input. The original idea appears to have been that a transaction in the mempool would be replaced by using the same input with a higher sequence value. Although this was not properly implemented, it assumes miners would prefer higher sequence numbers even if the lower ones were more profitable to mine. However, a miner acting on profit motives alone would break that assumption completely. The change described by this BIP repurposes the sequence number for new use cases without breaking existing functionality. It also leaves room for future expansion and other use cases.
 
-The transaction nLockTime is used to prevent the mining of a transaction until a certain date. (in block height or time)
-nSequence will be repurposed to prevent mining of a transaction until a certain age of the spent output. (in blocks or timespan)
-This, among other uses, allows bi-directional payment channels as used in [Hashed Timelock Contracts (HTLCs)](https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf) and [BIP112](https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels).
+The transaction nLockTime is used to prevent the mining of a transaction until a certain date. nSequence will be repurposed to prevent mining of a transaction until a certain age of the spent output in blocks or timespan. This, among other uses, allows bi-directional payment channels as used in https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf Hashed Timelock Contracts (HTLCs)] and [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels BIP112).
 
 ==Specification==
 
@@ -32,7 +30,7 @@ If bit (1 << 31) of the sequence number is not set, then the sequence number is 
 
 The sequence number encoding is interpreted as follows: 
 
-Bit (1 << 22) determines if the relative lock-time is time-based or block based: If the bit is set, it specifies relative lock-time in units of 512 seconds granularity from the median time past of its previous block to the block-time Median Time Past or nTime depending on the enforcement status of BIP113. If the bit is not set, it specifies relative lock-time in blocks.
+Bit (1 << 22) determines if the relative lock-time is time-based or block based: If the bit is set, the relative lock-time specifies a timespan in units of 512 seconds granularity. The timespan starts from the median-time-past (MTP) of the output’s previous block, and ends either at the MTP of the previous block or at the nTime of the transaction’s block (depending on the enforcement status of BIP113). If the bit is not set, the relative lock-time specifies a number of blocks.
 
 Note (1 << 22) was chosen because it is the highest you can go without moving to 4-byte pushes when using the Bitcoin scripting language in conjunction with OP_CHECKSEQUENCEVERIFY: i.e. 3 bytes = 24 bits where pushes are signed integers which leaving 1 bit for the flag and 22 bits for the relative lock-time encoding.
 
@@ -47,11 +45,11 @@ The block produced time is either equals to median time past of its parent or to
 
 When the relative lock-time is block-based, it is interpreted as a minimum block-height constraint over the input's age. A relative block-based lock-time of zero indicates an input which can be included in any block. More generally, a relative block lock-time n can be included n blocks after the mining date of the output it is spending, or any block thereafter.
 
-This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(), existing consensus and non-consensus code functions that return true if a transaction's lock-time constraints are satisfied and false otherwise, with LockTime() and CheckLockTime(), new functions that return a non-zero value if a transaction's lock-time or sequence valuenumber constraints are not satisfied and zero otherwise:
+This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(), existing consensus and non-consensus code functions that return true if a transaction's lock-time constraints are satisfied and false otherwise, with LockTime() and CheckLockTime(), new functions that return a non-zero value if a transaction's lock-time or sequence number constraints are not satisfied and zero otherwise:
 
 <pre>
     enum {
-        /* Interpret sequence valuenumbers as relative lock-time constraints. */
+        /* Interpret sequence numbers as relative lock-time constraints. */
         LOCKTIME_VERIFY_SEQUENCE = (1 << 0),
     };
     
@@ -61,7 +59,7 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
     
     /* If this flag set, CTxIn::nSequence is NOT interpreted as a
      * relative lock-time. Setting the most significant bit of a
-     * sequence valuenumber disabled relative lock-time. */
+     * sequence number disabled relative lock-time. */
     static const uint32_t SEQUENCE_LOCKTIME_DISABLED_FLAG = (1 << 31);
     
     /* If CTxIn::nSequence encodes a relative lock-time and this flag
@@ -108,13 +106,13 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
             else
                 fFinalized = false;
     
-            // Do not enforce sequence valuenumbers as a relative lock time
+            // Do not enforce sequence numbers as a relative lock time
             // unless we have been instructed to, and a view has been
             // provided.
             if (!fEnforceBIP68)
                 continue;
     
-            // Sequence valuenumbers with the most significant bit set are not
+            // Sequence numbers with the most significant bit set are not
             // treated as relative lock-times, nor are they given any
             // consensus-enforced meaning at this point.
             if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLED_FLAG)
@@ -143,7 +141,7 @@ This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(),
             }
         }
     
-        // If all sequence valuenumbers are CTxIn::SEQUENCE_FINAL, the
+        // If all sequence numbers are CTxIn::SEQUENCE_FINAL, the
         // transaction is considered final and nLockTime constraints
         // are not enforced.
         if (fFinalized)
@@ -169,7 +167,7 @@ Code conditional on the return value of IsFinalTx() / CheckLockTime() has to be 
 
 A bidirectional payment channel can be established by two parties funding a single output in the following way: Alice funds a 1 BTC output which is the 2-of-2 multisig of Alice AND Bob, or Alice's key only after a sufficiently long timeout, e.g. 30 days or 4320 blocks. The channel-generating transaction is signed by Alice and broadcast to the network.
 
-Alice desires to send Bob a payment of 0.1 BTC. She does so by constructing a transaction spending the 1 BTC output and sending 0.1 BTC to Bob and 0.9 BTC back to herself. She provides her signature for the 2-of-2 multisig constraint, and sets a relative lock-time using the sequence valuenumber field such that the transaction will become valid 24-hours or 144 blocks before the refund timeout. Two more times Alice sends Bob a payment of 0.1 BTC, each time generating and signing her half of a transaction spending the 1btc output and sending 0.2 BTC, then 0.3 BTC to Bob with a relative lock-time of 29 days from creation of the channel.
+Alice desires to send Bob a payment of 0.1 BTC. She does so by constructing a transaction spending the 1 BTC output and sending 0.1 BTC to Bob and 0.9 BTC back to herself. She provides her signature for the 2-of-2 multisig constraint, and sets a relative lock-time using the sequence number field such that the transaction will become valid 24-hours or 144 blocks before the refund timeout. Two more times Alice sends Bob a payment of 0.1 BTC, each time generating and signing her half of a transaction spending the 1btc output and sending 0.2 BTC, then 0.3 BTC to Bob with a relative lock-time of 29 days from creation of the channel.
 
 Bob now desires to send Alice a refund of 0.25 BTC. He does so by constructing a transaction spending the 1btc output and sending 0.95 BTC (= 0.7 BTC + 0.25 BTC) to Alice and 0.05 BTC to himself. Since Bob will still have in his logs the transaction giving him 0.7 BTC 29 days after the creation of the channel, Alice demands that this new transaction have a relative lock-time of 28 days so she has a full day to broadcast it before the next transaction matures.
 
