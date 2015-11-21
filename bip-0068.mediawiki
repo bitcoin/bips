@@ -1,6 +1,6 @@
 <pre>
   BIP: 68
-  Title: Consensus-enforced transaction replacement signaled via sequence numbers (relative lock-time)
+  Title: Relative lock-time through consensus-enforced sequence numbers
   Author: Mark Friedenbach <mark@friedenbach.org>
           BtcDrak <btcdrak@gmail.com>
           Nicolas Dorier <nicolas.dorier@gmail.com>
@@ -12,13 +12,13 @@
 
 ==Abstract==
 
-This BIP introduces consensus-enforced semantics of the sequence number field to enable a signed transaction input to remain invalid for a defined period of time after confirmation of its corresponding outpoint, for the purpose of supporting consensus-enforced transaction replacement features.
+This BIP introduces consensus-enforced semantics of the sequence number field to enable a signed transaction input to remain invalid for a defined period of time after confirmation of its corresponding outpoint.
 
 ==Motivation==
 
 Bitcoin transactions have a sequence number field for each input. The original idea appears to have been that a transaction in the mempool would be replaced by using the same input with a higher sequence value. Although this was not properly implemented, it assumes miners would prefer higher sequence numbers even if the lower ones were more profitable to mine. However, a miner acting on profit motives alone would break that assumption completely. The change described by this BIP repurposes the sequence number for new use cases without breaking existing functionality. It also leaves room for future expansion and other use cases.
 
-The transaction nLockTime is used to prevent the mining of a transaction until a certain date. nSequence will be repurposed to prevent mining of a transaction until a certain age of the spent output in blocks or timespan. This, among other uses, allows bi-directional payment channels as used in https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf Hashed Timelock Contracts (HTLCs)] and [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels BIP112).
+The transaction nLockTime is used to prevent the mining of a transaction until a certain date. nSequence will be repurposed to prevent mining of a transaction until a certain age of the spent output in blocks or timespan. This, among other uses, allows bi-directional payment channels as used in [https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf Hashed Timelock Contracts (HTLCs)] and [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels BIP112].
 
 ==Specification==
 
@@ -35,6 +35,8 @@ Bit (1 << 22) determines if the relative lock-time is time-based or block based:
 The flag (1<<22) is the highest order bit in a 3-byte signed integer for use in bitcoin scripts as a 3-byte PUSHDATA with OP_CHECKSEQUENCEVERIFY (BIP 112).
 
 This specification only interprets 16 bits of the sequence number as relative lock-time, so a mask of 0x0000ffff MUST be applied to the sequence field to extract the relative lock-time. The 16-bit specification allows for a year of relative lock-time and the remaining bits allow for future expansion.
+
+<img src=bip-0068/encoding.png></img>
 
 For time based relative lock-time, 512 second granularity was chosen because bitcoin blocks are generated every 600 seconds. So when using block based or time based relative lock-time, the same amount of time can be encoded with the available number of bits. Converting from a sequence number to seconds is performed by multiplying by 512 = 2^9, or equivalently shifting up by 9 bits.
 
@@ -204,7 +206,7 @@ The most efficient way to calculate sequence number from relative lock-time is w
 <pre>
     // 0 <= nHeight < 65,535 blocks (1.25 years)
     nSequence = nHeight;
-    nHeight = nSequence;
+    nHeight = nSequence & 0x0000ffff;
     
     // 0 <= nTime < 33,554,431 seconds (1.06 years)
     nSequence = (1 << 22) | (nTime >> 9);
@@ -216,6 +218,8 @@ The most efficient way to calculate sequence number from relative lock-time is w
 Bitcoin mailing list discussion: https://www.mail-archive.com/bitcoin-development@lists.sourceforge.net/msg07864.html
 
 BIP112: https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki
+
 BIP113: https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki
+
 Hashed Timelock Contrats (HTLCs): https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf
 
