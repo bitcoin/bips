@@ -137,11 +137,12 @@ A simple output, paying to Alice might then look like:
 
     HASH160 <revokehash> EQUAL
     IF
-        DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        <Bob key hash>
     ELSE
-        "24h" CHECKSEQUENCEVERIFY
-        DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+        "24h" CHECKSEQUENCEVERIFY DROP
+        <Alice key hash>
     ENDIF
+    CHECKSIG
 
 This allows Alice to publish the latest commitment transaction at any
 time and spend the funds after 24 hours, but also ensures that if Alice
@@ -151,11 +152,12 @@ With CHECKLOCKTIMEVERIFY, this would look like:
 
     HASH160 <revokehash> EQUAL
     IF
-        DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        <Bob key hash>
     ELSE
-        "2015/12/15" CHECKLOCKTIMEVERIFY
-        DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+        "2015/12/15" CHECKLOCKTIMEVERIFY DROP
+        <Alice key hash>
     ENDIF
+    CHECKSIG
 
 This form of transaction would mean that if the anchor is unspent on
 2015/12/16, Alice can use this commitment even if it has been revoked,
@@ -174,35 +176,33 @@ delay, and the entire output can be claimed by the other party if the
 revocation secret is known. With CHECKSEQUENCEVERIFY, a HTLC payable to
 Alice might look like the following in Alice's commitment transaction:
 
-    HASH160 DUP <revokehash> EQUAL
+    HASH160 DUP <R-HASH> EQUAL
     IF
-        DROP DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        "24h" CHECKSEQUENCEVERIFY
+        2DROP
+        <Alice key hash>
     ELSE
-        <R hash> EQUAL
-        IF
-            "24h" CHECKSEQUENCEVERIFY DROP
-            DUP HASH160 <Alice key hash> CHECKSIGVERIFY
-        ELSE
-            "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
-            DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        <Commit-Revocation-Hash> EQUAL
+        NOTIF
+            "24h" CHECKLOCKTIMEVERIFY DROP
         ENDIF
+        <Bob key hash>
     ENDIF
+    CHECKSIG
 
 and correspondingly in Bob's commitment transaction:
 
-   HASH160 DUP <revokehash> EQUAL
+   HASH160 DUP <R-HASH> EQUAL
+   SWAP <Commit-Revocation-Hash> EQUAL ADD
    IF
-       DROP DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+       <Alice key hash>
    ELSE
-       <R hash> EQUAL
-       IF
-           "24h" CHECKSEQUENCEVERIFY DROP
-           DUP HASH160 <Alice key hash> CHECKSIGVERIFY
-       ELSE
-           "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
-           DUP HASH160 <Bob key hash> CHECKSIGVERIFY
-       ENDIF
+       "2015/10/20 10:33" CHECKLOCKTIMEVERIFY
+       "24h" CHECKSEQUENCEVERIFY
+       2DROP
+       <Bob key hash>
    ENDIF
+   CHECKSIG
 
 Note that both CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY are used in the
 final branch of above to ensure Bob cannot spend the output until after both
