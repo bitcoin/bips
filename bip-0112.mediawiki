@@ -20,24 +20,19 @@ being spent.
 ==Summary==
 
 CHECKSEQUENCEVERIFY redefines the existing NOP3 opcode.
-When executed, the script interpreter continues as if a NOP was executed
-so long as one of the following conditions is met:
+When executed, if any of the following conditions are true, the script interpreter will terminate with an error:
 
-  * the transaction's nVersion field is 0 or 1;
-  * the top item on the stack is a value greater than or equal to (1 << 31); or
-  * the top item on the stack and the transaction input's sequence number are both relative lock-times of the same units, and the relative lock-time represented by the sequence number is greater than or equal to the relative lock-time represented by the top item on the stack.
+* the top item on the stack is less than 0; or
+* the top item on the stack has the disable flag (1 << 31) unset; and
+** the transaction version is less than 2; or
+** the transaction input sequence number disable flag (1 << 31) is set; and
+** the relative lock-time type is not the same; or
+** the top stack item is greater than the transaction sequence (when masked according to the BIP68);
 
-Otherwise, script execution terminates with an error.
+Otherwise, script execution will continue as if a NOP had been executed.
 
-BIP 68's redefinition of nSequence prevents a non-final transaction
-from being selected for inclusion in a block until the corresponding
-input has reached the specified age, as measured in block height or
-block time. By comparing the argument to CHECKSEQUENCEVERIFY against
-the nSequence field, we indirectly verify a desired minimum age of the
-the output being spent; until that relative age has been reached any
-script execution pathway including the CHECKSEQUENCEVERIFY will fail
-to validate, causing the transaction not to be selected for inclusion
-in a block.
+BIP 68 prevents a non-final transaction from being selected for inclusion in a block until the corresponding input has reached the specified age, as measured in block-height or block-time. By comparing the argument to CHECKSEQUENCEVERIFY against the nSequence field, we indirectly verify a desired minimum age of the
+the output being spent; until that relative age has been reached any script execution pathway including the CHECKSEQUENCEVERIFY will fail to validate, causing the transaction not to be selected for inclusion in a block.
 
 
 ==Motivation==
@@ -100,7 +95,7 @@ Some more specific applications of this idea:
 
 ====Hash Time-Locked Contracts====
 
-Hash Time-Locked Contracts (HTLCs) provide a general mechanism for offchain contract negotiation. An execution pathway can be made to require knowledge of a secret (a hash preimage) that can be presented within an invalidation time window. By sharing the secret it is possible to guarantee to the counterparty that the transaction will never be broadcast since this would allow the counterparty to claim the output immediately while one would have to wait for the time window to pass. If the secret has not been shared, the counterparty will be unable to use the instant pathway and the delayed pathway must be used instead.
+Hash Time-Locked Contracts (HTLCs) provide a general mechanism for off-chain contract negotiation. An execution pathway can be made to require knowledge of a secret (a hash preimage) that can be presented within an invalidation time window. By sharing the secret it is possible to guarantee to the counterparty that the transaction will never be broadcast since this would allow the counterparty to claim the output immediately while one would have to wait for the time window to pass. If the secret has not been shared, the counterparty will be unable to use the instant pathway and the delayed pathway must be used instead.
 
 ====Bidirectional Payment Channels====
 
@@ -142,11 +137,12 @@ A simple output, paying to Alice might then look like:
 
     HASH160 <revokehash> EQUAL
     IF
-        DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        <Bob key hash>
     ELSE
-        "24h" CHECKSEQUENCEVERIFY
-        DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+        "24h" CHECKSEQUENCEVERIFY DROP
+        <Alice key hash>
     ENDIF
+    CHECKSIG
 
 This allows Alice to publish the latest commitment transaction at any
 time and spend the funds after 24 hours, but also ensures that if Alice
@@ -156,17 +152,18 @@ With CHECKLOCKTIMEVERIFY, this would look like:
 
     HASH160 <revokehash> EQUAL
     IF
-        DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        <Bob key hash>
     ELSE
-        "2015/12/15" CHECKLOCKTIMEVERIFY
-        DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+        "2015/12/15" CHECKLOCKTIMEVERIFY DROP
+        <Alice key hash>
     ENDIF
+    CHECKSIG
 
 This form of transaction would mean that if the anchor is unspent on
 2015/12/16, Alice can use this commitment even if it has been revoked,
 simply by spending it immediately, giving no time for Bob to claim it.
 
-Ths means that the channel has a deadline that cannot be pushed
+This means that the channel has a deadline that cannot be pushed
 back without hitting the blockchain; and also that funds may not be
 available until the deadline is hit. CHECKSEQUENCEVERIFY allows you
 to avoid making such a tradeoff.
@@ -179,35 +176,33 @@ delay, and the entire output can be claimed by the other party if the
 revocation secret is known. With CHECKSEQUENCEVERIFY, a HTLC payable to
 Alice might look like the following in Alice's commitment transaction:
 
-    HASH160 DUP <revokehash> EQUAL
+    HASH160 DUP <R-HASH> EQUAL
     IF
-        DROP DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        "24h" CHECKSEQUENCEVERIFY
+        2DROP
+        <Alice key hash>
     ELSE
-        <R hash> EQUAL
-        IF
-            "24h" CHECKSEQUENCEVERIFY DROP
-            DUP HASH160 <Alice key hash> CHECKSIGVERIFY
-        ELSE
-            "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
-            DUP HASH160 <Bob key hash> CHECKSIGVERIFY
+        <Commit-Revocation-Hash> EQUAL
+        NOTIF
+            "24h" CHECKLOCKTIMEVERIFY DROP
         ENDIF
+        <Bob key hash>
     ENDIF
+    CHECKSIG
 
 and correspondingly in Bob's commitment transaction:
 
-   HASH160 DUP <revokehash> EQUAL
+   HASH160 DUP <R-HASH> EQUAL
+   SWAP <Commit-Revocation-Hash> EQUAL ADD
    IF
-       DROP DUP HASH160 <Alice key hash> CHECKSIGVERIFY
+       <Alice key hash>
    ELSE
-       <R hash> EQUAL
-       IF
-           DUP HASH160 <Alice key hash> CHECKSIGVERIFY
-       ELSE
-           "24h" CHECKSEQUENCEVERIFY DROP
-           "2015/10/20 10:33" CHECKLOCKTIMEVERIFY DROP
-           DUP HASH160 <Bob key hash> CHECKSIGVERIFY
-       ENDIF
+       "2015/10/20 10:33" CHECKLOCKTIMEVERIFY
+       "24h" CHECKSEQUENCEVERIFY
+       2DROP
+       <Bob key hash>
    ENDIF
+   CHECKSIG
 
 Note that both CHECKSEQUENCEVERIFY and CHECKLOCKTIMEVERIFY are used in the
 final branch of above to ensure Bob cannot spend the output until after both
@@ -234,15 +229,19 @@ Refer to the reference implementation, reproduced below, for the precise
 semantics and detailed rationale for those semantics.
 
     
-    /* Threshold for nSequence: below this value it is interpreted
-     * as a relative lock-time, otherwise ignored. */
-    static const uint32_t SEQUENCE_LOCKTIME_THRESHOLD = (1 << 31);
+    /* If this flag set, CTxIn::nSequence is NOT interpreted as a
+     * relative lock-time. */
+    static const uint32_t SEQUENCE_LOCKTIME_DISABLE_FLAG = (1 << 31);
     
-    /* Threshold for nSequence when interpreted as a relative
-     * lock-time: below this value it has units of blocks, otherwise
-     * seconds. */
-    static const uint32_t SEQUENCE_UNITS_THRESHOLD = (1 << 30);
+    /* If CTxIn::nSequence encodes a relative lock-time and this flag
+     * is set, the relative lock-time has units of 512 seconds,
+     * otherwise it specifies blocks with a granularity of 1. */
+    static const uint32_t SEQUENCE_LOCKTIME_TYPE_FLAG = (1 << 22);
     
+    /* If CTxIn::nSequence encodes a relative lock-time, this mask is
+     * applied to extract that lock-time from the sequence field. */
+    static const uint32_t SEQUENCE_LOCKTIME_MASK = 0x0000ffff;
+   
     case OP_NOP3:
     {
         if (!(flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY)) {
@@ -252,10 +251,10 @@ semantics and detailed rationale for those semantics.
             }
             break;
         }
-        
+    
         if (stack.size() < 1)
             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-        
+     
         // Note that elsewhere numeric opcodes are limited to
         // operands in the range -2**31+1 to 2**31-1, however it is
         // legal for opcodes to produce results exceeding that
@@ -266,23 +265,23 @@ semantics and detailed rationale for those semantics.
         // to 5-byte bignums, which are good until 2**39-1, well
         // beyond the 2**32-1 limit of the nSequence field itself.
         const CScriptNum nSequence(stacktop(-1), fRequireMinimal, 5);
-        
+    
         // In the rare event that the argument may be < 0 due to
         // some arithmetic being done first, you can always use
         // 0 MAX CHECKSEQUENCEVERIFY.
         if (nSequence < 0)
             return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
-        
+    
         // To provide for future soft-fork extensibility, if the
-        // operand is too large to be treated as a relative lock-
-        // time, CHECKSEQUENCEVERIFY behaves as a NOP.
-        if (nSequence >= SEQUENCE_LOCKTIME_THRESHOLD)
+        // operand has the disabled lock-time flag set,
+        // CHECKSEQUENCEVERIFY behaves as a NOP.
+        if ((nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) != 0)
             break;
-        
-        // Actually compare the specified sequence number with the input.
+    
+        // Compare the specified sequence number with the input.
         if (!checker.CheckSequence(nSequence))
             return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
-        
+    
         break;
     }
     
@@ -291,38 +290,52 @@ semantics and detailed rationale for those semantics.
         // Relative lock times are supported by comparing the passed
         // in operand to the sequence number of the input.
         const int64_t txToSequence = (int64_t)txTo->vin[nIn].nSequence;
-        
+    
         // Fail if the transaction's version number is not set high
         // enough to trigger BIP 68 rules.
         if (static_cast<uint32_t>(txTo->nVersion) < 2)
             return false;
-        
-        // Sequence numbers above SEQUENCE_LOCKTIME_THRESHOLD
-        // are not consensus constrained. Testing that the transaction's
-        // sequence number is not above this threshold prevents
-        // using this property to get around a CHECKSEQUENCEVERIFY
-        // check.
-        if (txToSequence >= SEQUENCE_LOCKTIME_THRESHOLD)
+    
+        // Sequence numbers with their most significant bit set are not
+        // defined by BIP68. Testing that the transaction's sequence
+        // number do not have this bit set prevents using this property
+        // to get around a CHECKSEQUENCEVERIFY check.
+        if (txToSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG)
             return false;
+    
+        // Mask off any bits that do not have BIP68 consensus-enforced meaning
+        // before doing the integer comparisons of ::VerifySequence.
+        const uint32_t nLockTimeMask = CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG
+                                     | CTxIn::SEQUENCE_LOCKTIME_MASK;
         
-        // There are two kinds of nSequence: lock-by-blockheight
+        if (!::VerifySequence(txToSequence & nLockTimeMask,
+                              CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG,
+                              nSequence & nLockTimeMask))
+            return false;
+    
+        return true;
+    }
+    
+    static bool VerifySequence(int64_t txToSequence, int64_t nThreshold, const CScriptNum& nSequence)
+    {
+        // There are two kinds of nLockTime: lock-by-blockheight
         // and lock-by-blocktime, distinguished by whether
-        // nSequence < SEQUENCE_UNITS_THRESHOLD.
+        // nSequence < nThreshold (CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG).
         //
         // We want to compare apples to apples, so fail the script
         // unless the type of nSequence being tested is the same as
         // the nSequence in the transaction.
         if (!(
-            (txToSequence <  SEQUENCE_UNITS_THRESHOLD && nSequence <  SEQUENCE_UNITS_THRESHOLD) ||
-            (txToSequence >= SEQUENCE_UNITS_THRESHOLD && nSequence >= SEQUENCE_UNITS_THRESHOLD)
+            (txToSequence <  nThreshold && nSequence <  nThreshold) ||
+            (txToSequence >= nThreshold && nSequence >= nThreshold)
         ))
             return false;
-        
+    
         // Now that we know we're comparing apples-to-apples, the
         // comparison is a simple numeric one.
-        if (txTo->vin[nIn].nSequence > txToSequence)
+        if (nSequence > txToSequence)
             return false;
-        
+    
         return true;
     }
 
@@ -336,25 +349,10 @@ https://github.com/bitcoin/bitcoin/pull/6564
 
 ==Deployment==
 
-We reuse the double-threshold switchover mechanism from BIPs 34 and
-66, with the same thresholds, but for nVersion = 4. The new rules are
-in effect for every block (at height H) with nVersion = 4 and at least
-750 out of 1000 blocks preceding it (with heights H-1000..H-1) also
-have nVersion = 4. Furthermore, when 950 out of the 1000 blocks
-preceding a block do have nVersion = 4, nVersion = 3 blocks become
-invalid, and all further blocks enforce the new rules.
+This BIP is to be deployed by either version-bits BIP9 or by isSuperMajority(). Exact details TDB.
 
-It is recommended that this soft-fork deployment trigger include other 
-related proposals for improving Bitcoin's lock-time capabilities, including:
+It is recommended to deploy BIP68 and BIP113 at the same time as this BIP.
 
-[https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP 65]: 
-OP_CHECKLOCKTIMEVERIFY, 
-
-[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68]: 
-Consensus-enforced transaction replacement signalled via sequence numbers,
-
-and [https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki BIP 113]: 
-Median-Past-Time-Lock.
 
 ==Credits==
 
@@ -367,12 +365,12 @@ done by Peter Todd for the closely related BIP 65.
 
 BtcDrak authored this BIP document.
 
-Thanks to Eric Lombrozo and Anthony Towns for contributing example usecases.
+Thanks to Eric Lombrozo and Anthony Towns for contributing example use cases.
 
 
 ==References==
 
-[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68] Consensus-enforced transaction replacement signalled via sequence numbers
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68] Relative lock-time through consensus-enforced sequence numbers
 
 [https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP 65] OP_CHECKLOCKTIMEVERIFY
 
@@ -396,4 +394,5 @@ Thanks to Eric Lombrozo and Anthony Towns for contributing example usecases.
 ==Copyright==
 
 This document is placed in the public domain.
+
 
