@@ -27,13 +27,9 @@ to facilitate identification for address release.
 
 ==Definitions==
 {| class="wikitable"
-| Requestor || Entity Requesting ReturnPaymentRequest
+| Sender    || Entity wishes to transfer value that they control
 |-
-| Responder || Entity Creating and Returning ReturnPaymentRequest
-|-
-| Sender    || Entity wishes to transfer value that they control (<b>NOTE:</b> This can be used interchangeably with <b>requestor</b>)
-|-
-| Receiver  || Entity receiving a value transfer (<b>NOTE:</b> This can be used interchangeably with <b>responder</b>)
+| Receiver  || Entity receiving a value transfer
 |}
 
 ===Acronyms===
@@ -92,72 +88,78 @@ The new ReturnPaymentRequest message is an encapsulating message that allows the
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment_request || AES-256-CBC Encrypted PaymentRequest
+| encrypted_payment_request || AES-256-CBC Encrypted Serialized PaymentRequest
 |-
-| receiver_public_key       || Receiver's EC Public Key (SECP256K1)
+| receiver_public_key       || Receiver's EC Public Key
 |-
-| ephemeral_public_key      || Ephemeral EC Public Key Derived from ECDH Key Exchange where X value used as exponent for Private Key creation (SECP256K1)
+| ephemeral_public_key      || Ephemeral EC Public Key
 |-
-| payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest (used for validation)
+| payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest
 |}
 
-==InvoiceRequest / ReturnPaymentRequest Process== 
-
-# NOTE: The sender is the entity wishing to send value to the receiver.
+==InvoiceRequest / ReturnPaymentRequest Process==
 
 ===Overview===
 
-1. Sender creates InvoiceRequest message
-2. Sender sends InvocieRequest to Receiver
-3. Receiver validates InvoiceRequest
-4. Receiver creates return PaymentRequest message
-5. Receiver encrypts the PaymentRequest message
-6. Receiver creates ReturnPaymentRequest
-7. Receiver returns ReturnPaymentRequest message to Sender
-8. Sender validates ReturnPaymentRequest
-9. Sender decrypts and validates encrypted PaymentRequest
+# Sender [[#ir-creation creates]] InvoiceRequest
+# Sender transmits InvoiceRequest to Receiver
+# Receiver [[#ir-validation validates]] InvoiceRequest
+# Receiver creates PaymentRequest
+# Receiver [[#rpr-creation-encryption encrypts]] the PaymentRequest
+# Receiver [[#rpr-creation-encryption creates]] ReturnPaymentRequest (containing an encrypted PaymentRequest)
+# Receiver transmits ReturnPaymentRequest to Sender
+# Sender validates ReturnPaymentRequest
+# Sender [[#rpr-validation-pr-decryption decrypts and validates]] encrypted PaymentRequest
 
+<span id="ir-creation"></span>
 ===InvoiceRequest Message Creation===
 
 * Create an InvoiceRequest message
-* REQUIRED: Set sender_public_key. This is the public key of an EC keypair using secp256k1.
+* sender_public_key MUST be set. This is the public key of an EC keypair using secp256k1.
 * Set amount if desired
-* Set notification_url to URL that will accept ReturnPaymentRequest from Receiver
+* Set notification_url to URL that Receiver will submit completed ReturnPaymentRequest to
 * If NOT including certificate, set pki_type to "none"
 * If including certificate:
 ** Set pki_type to "x509+sha256"
 ** Set pki_data as it would be set in BIP-0070 (see [Certificates](https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Certificates) section)
 ** Sign InvoiceRequest with signature == "" using the X509 Certificate's private key
 
+<span id="ir-validation"></span>
+===InvoiceRequest Validation===
+
+* Validate sender_public_key is a valid EC public key
+* Validate notification_url if set, contains characters deemed valid for a URL (avoiding XSS related characters, etc).
+* If pki_type is None, InvoiceRequest is VALID
+* If pki_type is x509+sha256 and signature is valid for the serialized InvoiceRequest where signature is set to "", InvoiceRequest is VALID
+
+<span id="rpr-creation-encryption"></span>
 ===ReturnPaymentRequest Message Creation and PaymentRequest Encryption===
 
-* Generate EC secret point using [ECDH](https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman) with the Sender's EC public key and the Receiver's EC private key.
-* Generate Symmetric Encryption Key and Initialization vector using [HMAC_DRBG](http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf) also referenced in [RFC6979](https://tools.ietf.org/html/rfc6979) in the following way:
-** HMAC_DRBG Initialization Entropy is set to the EC secret point's X value
-** HMAC_DRBG Initialization Nonce is set to the InvoiceRequest's sender_public_key
-** Encryption Key = HMAC_DRBG.GENERATE(32) - 256 bits
-** IV = HMAC_DRBG.GENERATE(16) - 128 bits
-* Encrypt the serialized PaymentRequest using AES-256-CBC using the Encryption Key and IV previously generated
-
+* Encrypt the serialized PaymentRequest using AES-256-CBC setup as described in [[#ECDH-AES-Setup ECDH Point Generation and AES-256 (CBC Mode) Setup]]
 * Create ReturnPaymentRequest message
 * Set encrypted_payment_request to be the encrypted value of the PaymentRequest
 * Set receiver_public_key to the Receiver's EC public key (of which the private key was previously used in ECDH secret point calculation)
 * Set ephemeral_public_key to the public key of an EC keypair created using the secret point's X value.
 * Set payment_request_hash to generated SHA256 hash of the serialized PaymentRequest (without encryption)
 
-
+<span id="rpr-validation-pr-decryption"></span>
 ===ReturnPaymentRequest Validation and Decryption===
 
-* Generate EC secret point using [ECDH](https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman) with the Sender's EC private key and the Receiver's EC public key.
-* Generate Symmetric Decryption Key and Initialization vector using [HMAC_DRBG](http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf) also referenced in [RFC6979](https://tools.ietf.org/html/rfc6979) in the following way:
-** HMAC_DRBG Initialization Entropy is set to the EC secret point's X value
-** HMAC_DRBG Initialization Nonce is set to the InvoiceRequest's sender_public_key
-** Encryption Key = HMAC_DRBG.GENERATE(32) - 256 bits
-** IV = HMAC_DRBG.GENERATE(16) - 128 bits
 * Validate ephemeral_public_key matches public key of an EC keypair created using the secret point's X value.
-* Decrypt the serialized PaymentRequest using AES-256-CBC using the Encryption Key and IV previously generated
+* Decrypt the serialized PaymentRequest using AES-256-CBC setup as described in [[#ECDH-AES-Setup ECDH Point Generation and AES-256 (CBC Mode) Setup]]
 * Validate payment_request_hash matches SHA256 of the decrypted, serialized PaymentRequest
 * Deserialize the serialized PaymentRequest
+
+<span id="ECDH-AES-Setup"></span>
+===ECDH Point Generation and AES-256 (CBC Mode) Setup===
+
+* Generate the '''secret point''' using [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH] using the local entity's private key and the remote entity's public key as inputs.
+* Initialize [http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf HMAC_DRBG] 
+** Use '''secret point's''' X value for Entropy
+** Use Sender's public key for Nonce
+* Initialize AES-256 in CBC Mode
+** Use HMAC_DRBG.GENERATE(32) as the Encryption Key (256 bits)
+** Use HMAC_DRBG.GENERATE(16) as the Initialization Vector (IV) (128 bits)
 
 ==Reference==
 
