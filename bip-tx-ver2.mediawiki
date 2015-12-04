@@ -1,6 +1,6 @@
 <pre>
   BIP: (no number)
-  Title: Transaction Version 2 Specification (wildcard inputs)
+  Title: "Coalescing Transaction" Specification (wildcard inputs)
   Author: Chris Priest <cp368202@ohiou.edu>
   Status: Draft
   Type: Standards Track
@@ -10,13 +10,13 @@
 ==Abstract==
 
 This specification defines a new type of transaction that supplements (not replaces)
-version 1 transactions.
+normal "non coalescing" bitcoin transactions.
 
 ==Motivation==
 
-Version 1 Bitcoin Transactions have one large inefficiency: When you want to spend
+Normal "non-coalescing" Bitcoin Transactions have one large inefficiency: When you want to spend
 from multiple inputs with the exact same scriptPubKey, you have to list each
-input separately, along with the same signature multiple times.
+input separately, along with the same signature multiple times, even though the signature expresses the same information.
 This bloats the transaction size and makes it expensive to spend from small value inputs.
 
 Because small value inputs are expensive to send, they remain in the UTXO pool
@@ -29,7 +29,30 @@ fees increase, the minimum economical value of a spending a UTXO will increase.
 
 ==Specification==
 
-A version 2 transaction is formulated the exact same way as a version 1 transaction
+=== Redefinition of Transaction version ===
+
+First, this bips redefines the version field on transactions. The first four bytes
+are defined as the version number, while the last four bytes are defined as the
+transaction type. Type "0000" denotes normal transactions, and "0001" defines
+coalescing transaction.
+
+Examples:
+
+version 1 transaction with normal inputs:
+`version: 10000000`
+
+version 2 transaction with normal inputs:
+`version: 20000000`
+
+version 2 transaction with coalescing inputs:
+`version: 20000001`
+
+Essentially the last bit in the version field is set to 1 to enable wildcard inputs for all
+inputs present in the transaction.
+
+=== Wildcard inputs ====
+
+A coalescing transaction is formulated the exact same way as a version 1 transaction
 with one exception: each input is treated as a "wildcard input".
 
 A wildcard input beings the value of all inputs with the exact same scriptPubKey
@@ -39,16 +62,17 @@ in a block lower or equal to the block the wildcard input is confirmed into.
 
 The bitcoin code needs to be modified in three places in order to handle Version 2 Transactions.
 
-1. **Full Node V2 validation** - When a full node receives a V2 transaction, it has to
+1. **Full Node Coalescing validation** - When a full node receives a coalescing transaction, it has to
    aggregate the value of all the UTXOs in the blockchain older than the input
    with the same scriptPubKey. If this value is greater than or equal to the
-   amount of all outputs, then that V2 transaction is valid and can be propagated.
+   amount of all outputs, then that coalescing transaction is valid and can be propagated.
 
-2. **Full Node V1 validation** - When a V1 transaction comes in, the code needs to be modified
-   to check if each inut has not been spent by a V2 transaction. If there exist any
-   V2 transaction in the blockchain with the same scriptPubKey *after* that input,
+2. **Full Node Non-Coalescing validation** - When a non-coalescing transaction comes in, the code needs to be modified
+   to check if each input has not been spent by a coalescing transaction. If there exist any
+   coalescing transaction in the blockchain with the same scriptPubKey found in a block *after* that input,
    then the UTXO has been spent and the transaction is invalid.
 
 3. **Wallet** - The user facing wallet portion of the reference client should notify
    the user when their wallet contains many UTXOs that qualify it to benefit from
-   a V2 transaction. Wallets should not simply replace V1 transactions with V2 transactions.
+   a coalescing transaction. Wallets should not simply replace non-coalescing transactions
+   with coalescing transactions in all instances.
