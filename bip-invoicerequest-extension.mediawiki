@@ -1,0 +1,167 @@
+<pre>
+  BIP:     XXX
+  Title:   Out of Band Address Exchange using Encrypted PaymentRequests
+  Authors: Matt David <matt@netki.com>
+           Justin Newton <justin@netki.com>
+           Aaron Voisine <aaron@breadwallet.com>
+  Status:  Draft
+  Type:    Informational
+  Created: 2015-11-20
+</pre>
+
+==Abstract==
+
+This BIP is an extension to BIP70 the extends the payment protocol to prevent PaymentRequet interception / modification 
+during transmission using ephemeral key encryption, allow permissioned release of PaymentRequests to PaymentRequest requestors 
+and, allow a requestor to supply a certificate and signature to the PaymentRequest creator.
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and 
+"OPTIONAL" in this document are to be interpreted as described in RFC 2119.
+
+==Motivation==
+
+The motiviation for defining this extension to the BIP-70 Payment Protocol is to allow 2 parties to exchange payment 
+information in a permissioned and encrypted way such that wallet address communication can become a more automated process.
+Additionally, this extension allows for the requestor of a PaymentRequest to supply a certificate and signature in order
+to facilitate identification for address release.
+
+==Definitions==
+{|
+| Requestor || Entity Requesting ReturnPaymentRequest
+-
+| Responder || Entity Creating and Returning ReturnPaymentRequest
+-
+| Sender    || Entity wishes to transfer value that they control (<b>NOTE:</b> This can be used interchangeably with <b>requestor</b>)
+-
+| Receiver  || Entity receiving a value transfer (<b>NOTE:</b> This can be used interchangeably with <b>responder</b>)
+|}
+
+===Acronyms===
+{|
+| <b>Acronym</b> || <b>Expanded</b> || <b>Description</b>
+-
+| IR || InvoiceRequest || A request to create a PaymentRequest
+-
+| RPR || ReturnPaymentRequest  || A ReturnPaymentRequest returned based on a submitted InvoiceRequest
+|}
+
+===New Messages===
+
+====InvoiceRequest====
+The new InvoiceRequest message allows a requestor to send information to the responder such that they can return a ReturnPaymentRequest.
+
+<pre>
+message InvoiceRequest {
+        required bytes  sender_public_key = 1;              // Sender's EC Public Key
+        optional uint64 amount = 2 [default = 0];           // amount is integer-number-of-satoshis
+        optional string pki_type = 3 [default = "none"];    // none / x509+sha256
+        optional bytes  pki_data = 4;                       // Depends on pki_type
+        optional string notification_url = 5;               // URL to notify on ReturnPaymentRequest ready
+        optional bytes  signature = 6;                      // PKI-dependent signature
+}
+</pre>
+
+{|
+| <b>Field Name</b> || <b>Description</b>
+-
+| sender_public_key     || Sender's EC Public Key
+-
+| amount                || amount is integer-number-of-satoshis (default: 0)
+-
+| pki_type              || none / x509+sha256 (default: "none")
+-
+| pki_data              || Depends on pki_type
+-
+| notification_url      || URL to notify on ReturnPaymentRequest ready
+-
+| signature             || PKI-dependent signature
+|}
+
+====ReturnPaymentRequest====
+
+The new ReturnPaymentRequest message is an encapsulating message that allows the transmission of an encrypted, serialized PaymentRequest.
+
+<pre>
+ message ReturnPaymentRequest {
+         required bytes encrypted_payment_request = 1;
+         required bytes receiver_public_key = 2;
+         required bytes ephemeral_public_key = 3;
+         required bytes payment_request_hash = 4;
+ }
+</pre>
+{|
+| <b>Field Name</b> || <b>Description</b>
+-
+| encrypted_payment_request || AES-256-CBC Encrypted PaymentRequest
+-
+| receiver_public_key       || Receiver's EC Public Key (SECP256K1)
+-
+| ephemeral_public_key      || Ephemeral EC Public Key Derived from ECDH Key Exchange where X value used as exponent for Private Key creation (SECP256K1)
+-
+| payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest (used for validation)
+|}
+
+==InvoiceRequest / ReturnPaymentRequest Process== 
+
+# NOTE: The sender is the entity wishing to send value to the receiver.
+
+===Overview===
+
+1. Sender creates InvoiceRequest message
+2. Sender sends InvocieRequest to Receiver
+3. Receiver validates InvoiceRequest
+4. Receiver creates return PaymentRequest message
+5. Receiver encrypts the PaymentRequest message
+6. Receiver creates ReturnPaymentRequest
+7. Receiver returns ReturnPaymentRequest message to Sender
+8. Sender validates ReturnPaymentRequest
+9. Sender decrypts and validates encrypted PaymentRequest
+
+===InvoiceRequest Message Creation===
+
+* Create an InvoiceRequest message
+* REQUIRED: Set sender_public_key. This is the public key of an EC keypair using secp256k1.
+* Set amount if desired
+* Set notification_url to URL that will accept ReturnPaymentRequest from Receiver
+* If NOT including certificate, set pki_type to "none"
+* If including certificate:
+** Set pki_type to "x509+sha256"
+** Set pki_data as it would be set in BIP-0070 (see [Certificates](https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Certificates) section)
+** Sign InvoiceRequest with signature == "" using the X509 Certificate's private key
+
+===ReturnPaymentRequest Message Creation and PaymentRequest Encryption===
+
+* Generate EC secret point using [ECDH](https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman) with the Sender's EC public key and the Receiver's EC private key.
+* Generate Symmetric Encryption Key and Initialization vector using [HMAC_DRBG](http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf) also referenced in [RFC6979](https://tools.ietf.org/html/rfc6979) in the following way:
+** HMAC_DRBG Initialization Entropy is set to the EC secret point's X value
+** HMAC_DRBG Initialization Nonce is set to the InvoiceRequest's sender_public_key
+** Encryption Key = HMAC_DRBG.GENERATE(32) - 256 bits
+** IV = HMAC_DRBG.GENERATE(16) - 128 bits
+* Encrypt the serialized PaymentRequest using AES-256-CBC using the Encryption Key and IV previously generated
+
+* Create ReturnPaymentRequest message
+* Set encrypted_payment_request to be the encrypted value of the PaymentRequest
+* Set receiver_public_key to the Receiver's EC public key (of which the private key was previously used in ECDH secret point calculation)
+* Set ephemeral_public_key to the public key of an EC keypair created using the secret point's X value.
+* Set payment_request_hash to generated SHA256 hash of the serialized PaymentRequest (without encryption)
+
+
+===ReturnPaymentRequest Validation and Decryption===
+
+* Generate EC secret point using [ECDH](https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman) with the Sender's EC private key and the Receiver's EC public key.
+* Generate Symmetric Decryption Key and Initialization vector using [HMAC_DRBG](http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf) also referenced in [RFC6979](https://tools.ietf.org/html/rfc6979) in the following way:
+** HMAC_DRBG Initialization Entropy is set to the EC secret point's X value
+** HMAC_DRBG Initialization Nonce is set to the InvoiceRequest's sender_public_key
+** Encryption Key = HMAC_DRBG.GENERATE(32) - 256 bits
+** IV = HMAC_DRBG.GENERATE(16) - 128 bits
+* Validate ephemeral_public_key matches public key of an EC keypair created using the secret point's X value.
+* Decrypt the serialized PaymentRequest using AES-256-CBC using the Encryption Key and IV previously generated
+* Validate payment_request_hash matches SHA256 of the decrypted, serialized PaymentRequest
+* Deserialize the serialized PaymentRequest
+
+==Reference==
+
+* [[bip-0070.mediawiki|BIP70 - Payment Protocol]]
+* [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH]
+* [http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf HMAC_DRBG]
+* [https://tools.ietf.org/html/rfc6979 RFC6979]
