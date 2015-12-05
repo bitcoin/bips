@@ -1,0 +1,187 @@
+<pre>
+  BIP: bip-harding-opt-in-replace-by-fee
+  Title: Opt-in Full Replace-by-Fee Signaling
+  Author: David A. Harding <dave@dtrt.org>, Peter Todd <pete@petertodd.org>
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-12-04
+</pre>
+
+==Abstract==
+
+Many nodes today will not replace any transaction in their mempool with
+another transaction that spends the same inputs, making it difficult for
+spenders to adjust their previously-sent transactions to deal with
+unexpected confirmation delays or to perform other useful replacements.
+
+The opt-in full Replace-by-Fee (opt-in full-RBF) signaling policy
+described here allows spenders to add a signal to a transaction indicating
+that they want to be able to replace that transaction in the future.
+In response to this signal,
+
+* Nodes may allow transactions containing this signal to be replaced in their mempools.
+
+* The recipient or recipients of a transaction containing this signal may choose not to treat it as payment until it has been confirmed, eliminating the risk that the spender will use allowed replacements to defraud them.
+
+Nodes and recipients may continue to treat transactions without the
+signal the same way they treated them before, preserving the existing
+status quo.
+
+==Summary==
+
+This policy specifies two ways a transaction can signal that it is
+replaceable.
+
+* '''Explicit signaling:''' A transaction is considered to have opted in to allowing replacement of itself if any of its inputs have an nSequence number less than (0xffffffff - 1).
+
+* '''Inherited signaling:''' Transactions that don't explicitly signal replaceability are replaceable under this policy for as long as any one of their ancestors signals replaceability and remains unconfirmed.
+
+===Implementation Details===
+
+The initial implementation expected in Bitcoin Core 0.12.0 uses the following rules:
+
+One or more transactions currently in the mempool (original
+transactions) will be replaced by a new transaction (replacement
+transaction) that spends one or more of the same inputs if,
+
+# The original transactions signal replaceability explicitly or through inheritance as described in the above Summary section.
+
+# The replacement transaction pays an absolute higher fee than the sum paid by the original transactions.
+
+# The replacement transaction does not contain any new unconfirmed inputs that did not previously appear in the mempool. (Unconfirmed inputs are inputs spending outputs from currently unconfirmed transactions.)
+
+# The replacement transaction must pay for its own bandwidth in addition to the amount paid by the original transactions at or above the rate set by the node's minimum relay fee setting.  For example, if the minimum relay fee is 1 satoshi/byte and the replacement transaction is 500 bytes total, then the replacement must pay a fee at least 500 satoshis higher than the sum of the originals.
+
+# The number of original transactions to be replaced and their descendant transactions which will be evicted from the mempool must not exceed a total of 100 transactions.
+
+The initial implementation may be seen in
+[https://github.com/bitcoin/bitcoin/pull/6871 Bitcoin Core PR#6871]
+and specifically the master branch commits from
+5891f870d68d90408aa5ce5b597fb574f2d2cbca to
+16a2f93629f75d182871f288f0396afe6cdc8504 (inclusive).
+
+===Receiving wallet policy===
+
+Wallets that display unconfirmed transactions to users or that provide
+data about unconfirmed transactions to automated systems should consider
+doing one of the following:
+
+# Conveying additional suspicion about opt-in full-RBF transactions to the user or data consumer.
+
+# Ignoring the opt-in transaction until it has been confirmed.
+
+Because descendant transactions may also be replaceable under this
+policy through inherited signaling, any method used to process opt-in
+full-RBF transactions should be inherited by any descendant transactions
+for as long as any ancestor opt-in full-RBF transactions remain
+unconfirmed.
+
+===Spending wallet policy===
+
+Wallets that don't want to signal replaceability should use either a max
+sequence number (0xffffffff) or a sequence number of (0xffffffff-1) when
+then also want to use locktime; all known wallets currently do this.
+They should also take care not to spend any unconfirmed transaction that
+signals replaceability explicitly or through inherited signaling; most wallets also
+currently do this by not spending any unconfirmed transactions except
+for those they created themselves.
+
+Wallets that do want to make replacements should use explicit signaling
+and meet the criteria described above in the Implementation Details
+section. A
+[https://en.bitcoin.it/wiki/Transaction_replacement Bitcoin Wiki page]
+has been created to help wallet authors track deployed mempool policies
+relating to transaction replacement.
+
+The initial implementation makes use of P2P protocol reject messages for
+rejected replacements, allowing P2P clients to determine whether their
+replacements were initially accepted by their peers. Standard P2P
+lightweight client practice of sending to some peers while listening for
+relays from other peers should allow clients to determine whether the
+replacement has propagated.
+
+==Motivation==
+
+Satoshi Nakamoto's original Bitcoin implementation provided the
+nSequence number field in each input to
+[https://github.com/trottier/original-bitcoin/blob/master/src/main.cpp#L434 allow replacement]
+of transactions containing that input within the
+mempool. When receiving replacements, nodes were supposed to replace
+transactions whose inputs had lower sequence numbers with transactions
+that had higher sequence numbers.
+
+In that implementation, replacement transactions did not have to pay
+additional fees, so there was no direct incentive for miners to
+include the replacement and no built-in rate limiting that prevented
+overuse of relay node bandwidth. Nakamoto
+[https://github.com/bitcoin/bitcoin/commit/05454818dc7ed92f577a1a1ef6798049f17a52e7#diff-118fcbaaba162ba17933c7893247df3aR522 removed replacement]
+from Bitcoin version 0.3.12, leaving only the
+comment, "Disable replacement feature for now".
+
+Replacing transactions with higher-fee transactions provided a way for
+spenders to align their desires with miners, but by the time a
+Replace-by-Fee (RBF) patch was available to re-enable replacement, some
+receivers had begun to expect that the first version of a transaction
+they saw was highly likely to be the version of the transaction to be
+confirmed, and so some users advocated that replacement should be
+disallowed.
+
+To address those concerns, a variation on RBF was created that
+required that the replacement transaction pay all of same outputs as
+the original transaction in equal or greater amount.  This was called
+RBF First Seen Safe (RBF-FSS), and the original RBF became known as
+full-RBF.  Although agreeable to recipients who relied on the
+first-seen version of a transaction, each use of RBF-FSS required
+adding an extra input to a transaction, resulting in wallets being
+unable to use it if they had no spare inputs, a loss of privacy when
+inputs from different origins get used in the same transaction, and a
+wasteful increase in transaction byte size.
+
+Opt-in full-RBF uses Nakamoto's original semantics (with a slight
+tweak to allow locktime users to opt-out) to signal that replacement
+is possible, providing first-seen users with the ability to ignore
+those transactions while also allowing for the efficiency benefits
+of full-RBF.
+
+There are no known problematic interactions between opt-in full-RBF and
+other uses of nSequence. Specifically, opt-in full-RBF is compatible
+with consensus-enforced locktime as provided in the Bitcoin 0.1
+implementation, draft BIP68 (Relative lock-time using consensus-enforced
+sequence numbers), and draft BIP112 (CHECKSEQUENCEVERIFY).
+
+==Deployment==
+
+Now, and since Bitcoin's first release, 100% of the network hash rate
+mines transactions using opt-in full-RBF semantics (sequence less than
+(0xffffffff - 1)).
+
+Opt-in full-RBF as a default mempool replacement policy among nodes
+and miners is expected to become widespread as they upgrade to Bitcoin
+Core 0.12.0 (release expected Jan/Feb 2016) and similar node software
+such as Bitcoin LJR.
+
+Actual replacement may be unreliable until two conditions have been satisfied:
+
+# Enough nodes have upgraded to support it, providing a relay path for replacements to go from spending wallets to miners controlling significant amounts of hash rate.
+
+# Enough hash rate has upgraded to support replacement, allowing for reasonable probability that a replacement can be mined.
+
+==Client support==
+
+No known wallet currently creates transactions by default with
+nSequence set below (0xffffffff - 1), so no known existing wallet
+explicitly signals replaceability by default.  No known popular wallet
+spends other users' unconfirmed transactions by default, so no known
+existing wallets signals inherited replaceability.
+
+==See also==
+
+# [https://en.bitcoin.it/wiki/Transaction_replacement Transaction Replaceability on Bitcoin Wiki] targeted at helping wallet authors use RBF
+
+# Tools for creating opt-in full-RBF transactions: https://github.com/petertodd/replace-by-fee-tools#replace-by-fee-tools
+
+# [https://www.reddit.com/r/Bitcoin/comments/3urm8o/optin_rbf_is_misunderstood_ask_questions_about_it/ Reddit: Questions about opt-in RBF] targeted at helping community members understand opt-in full-RBF
+
+==Copyright==
+
+This document is placed in the public domain.
