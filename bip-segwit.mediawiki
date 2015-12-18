@@ -1,0 +1,165 @@
+<pre>
+SEGWIT BIP...yada yada...
+</pre>
+
+==Abstract==
+
+This BIP defines a new structure called a "witness" that is committed to blocks separately from the transaction merkle tree. This structure contains data required to check transaction validity but not required to determine transaction effects. In particular, scripts and signatures are moved into this new structure.
+
+The witness is committed in a tree that is nested into the block's existing merkle root via the coinbase transaction for the purpose of making this BIP soft fork compatible. A future hard fork can place this tree in its own branch.
+
+==Motivation==
+
+The entirety of the transaction's effects are determined by output consumption (spends) and new output creation. Other transaction data, and signatures in particular, are only required to validate the blockchain state, not to determine it.
+
+By removing this data from the transaction structure committed to the transaction merkle tree, several problems are fixed:
+
+# Nonintentional malleability becomes impossible. Since signature data is no longer part of the transaction hash, changes to how the transaction was authorized is no longer relevant to transaction identification. As a solution of transaction malleability, segregated witness is superior to the canonical signature approach (BIP62):
+#* It prevents involuntary transaction malleability for any type of scripts, as long as all inputs are signed (with at least one CHECKSIG or MULTICHECKSIG operation)
+#* In the case of a n-of-m MULTICHECKSIG script, a transaction is malleable only with agreement of n private key holders (as opposed to only 1 private key holder with BIP62)
+#* It prevents involuntary transaction malleability due to unknown ECDSA signature malleability
+#* It allows creation of unconfirmed transaction dependency chains without counterparty risk
+# Transmission of signature data becomes optional. It is needed only if a peer is trying to validate a transaction, instead of just to prove its existence. This also improves prviacy of SPV clients as they could request for more transactions for obscuration.
+# By moving part of the transaction data to a structure unknown to current protocol, several constriants could be bypassed with a soft fork, for example:
+#* Size of witness could be ignored / discounted when calculating the block size, effectively increasing the block size to some extent
+#* Hard coded constants, such as maximum data push size (520 bytes) or sigops limit could be reevaluated or removed
+#* New script system could be introduced without any limitation from the existing script semantic
+# Signature data becomes prunable. <--------- signature is always prunable locally
+# Fraud proofs become possible. <--------- may mention in future extension as this won't be implemented at this stage
+
+==Specification==
+
+* CTransaction gets, in addition to vin and vout, a vwit, which
+contains a CTxInWitness object for each input. A CTxInWitness contains a CScriptWitness object
+and can potentially be extended to contain other kinds of witness data.
+A CScriptWitness is a vector of byte vectors (nominally: the input stack to the program, no longer
+encoded as a CScript, but just the resulting stack directly).
+
+* A new serialization for CTransaction is defined: http://blockhawk.net/diagrams/witnesstx.png
+(int32 nVersion,
+0x00 marker, 0x01 flag, vector<CTxIn>, vector<CTxOut>,
+vector<CTxInWitness>, int32 nLockTime) instead of (int32 nVersion,
+vector<CTxIn>, vector<CTxOut>, int32 nLockTime). This will never parse
+as a valid transaction (even if parsing succeeds, it means it's
+interpreted as a transaction with no inputs and 1 output). If all
+witnesses are empty, the old serialization format is used.
+ - Rationale for not having an independent CWitnessTransaction with
+its own serialization: this would require separate "tx" and "block"
+messages, and all RPC calls operating on raw transactions would need
+to be duplicated, or need inefficinent or nondeterministic guesswork
+to know which type is to be used.
+ - Rationale for not using just a single 0x00 byte as marker: that
+would lead to empty transactions (no inputs, no outputs, which are
+used in some tests) to be interpreted as new serialized data.
+ - Rationale for the 0x01 flag byte in between: this will allow us to
+easily add more extra non-committed data to transactions (like txouts
+being spent, ...). It can be interpreted as a bitvector.
+
+* A new message 'havewitness' is sent after receiving 'verack' to
+indicate that a node can provide witness if requested (similar to
+'sendheaders')
+
+* New inv types MSG_WITNESS_TX and MSG_WITNESS_BLOCK are added, only
+for use in getdata. Inv itself still use just MSG_TX and MSG_BLOCK,
+similar to MSG_FILTERED_BLOCK.
+ - Rationale for not advertizing witnessness in invs: we don't always
+use invs anymore (with 'sendheaders' BIP 130), plus it's not useful:
+implicitly, every transaction and block have a witness, old ones just
+have empty ones.
+
+* Transactions' GetHash is always computed on the old non-witness
+serialization. A new CTransaction::GetWitnessHash is added which is
+computed from the witness-serialization (this means that transactions
+with an empty witness have witness hash equal to normal hash).
+
+* A new block rule is added which requires a commitment (a merkle root
+computed similarly to the normal transaction one) to the witness
+hashes to be present as the last 32 bytes of
+block.vtx[0].vin[0].scriptSig (it doesn't need to be a push). This
+hopefully does not conflict with any other existing commitment
+schemes. To make it extensible, an extra merkle path can be provided
+(in the coinbase's "witness" field) so that coinbase commitment can be
+used for multiple things.
+ 
+=== Witness program ===
+
+* A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a single push of 2 to 41 bytes gets a new special meaning. The byte vector pushed by it is called the "witness program".
+** In case the scriptPubKey pushes a witness program directly, the scriptSig must be exactly empty.
+** In case the redeemScript pushes a witness program, the scriptSig must be exactly the single push of the redeemScript.
+
+* The first byte of a witness program is the "version byte", an unsigned integer.
+** If the version byte is 0, the rest of the witness program is the actual script
+*** The script is executed after normal script evaluation but with data from the witness rather than the scriptSig.
+*** The program must not fail, and result in exactly a single TRUE on the stack.
+** If the version byte is 1, the rest of the witness program must be 32 bytes, as a SHA256 hash of the actual script.
+*** The witness must consist of an input stack to feed to the program, followed by the serialized program.
+*** The serialized program is popped off the initial witness stack. Hash of the serialized program must match the hash pushed in the witness program.
+*** The serialized program deserialized, and executed after normal script evaluation with the remaining witness stack.
+*** The script must not fail, and result in exactly a single TRUE on the stack.
+** If the witness version byte is 2 or above, no further interpretation of the witness program or witness happens.
+
+ 
+== Examples ==
+
+=== Version 0 witness program ===
+
+The following example is a version 0 witness program, equivalent to the existing Pay-to-Pubkey-Hash (P2PKH) output.
+
+    witness:      <signature> <pubkey>
+    scriptSig:    (empty)
+    scriptPubKey: <0x0076A914{20-byte-hash-value}88AC>
+
+The version byte 0x00 is removed. The rest of the witness program is deserialized and becomes:
+
+    DUP HASH160 <20byte-hash-value> EQUALVERIFY CHECKSIG
+
+The script is executed with the data from witness
+
+    <signature> <pubkey> DUP HASH160 <20byte-hash-value> EQUALVERIFY CHECKSIG
+
+Comparing with a P2PKH output, the witness program equivalent occupies 2 more bytes in the scriptPubKey, while moving the signature and public key from scriptSig to witness.
+
+=== Version 1 witness program ===
+
+The following example is an 1-of-2 multi-signature version 1 witness program.
+
+    witness:      0 <signature1> <0x5121{33-byte-pubkey1}21{33-byte-pubkey2}52AE>
+    scriptSig:    (empty)
+    scriptPubKey: <0x01{32-byte-hash-value}>
+
+The last item in the witness is popped off, hashed with SHA256, compared against the 32-byte-hash-value in scriptPubKey, and deserialized:
+
+    1 <33-byte-pubkey1> <33-byte-pubkey2> 2 CHECKMULTISIG
+
+The script is executed with the remaining data from witness
+
+    0 <signature1> 1 <33-byte-pubkey1> <33-byte-pubkey2> 2 CHECKMULTISIG
+
+Since the actual program is larger than 40 bytes, it cannot be accommodated in a version 0 witness program. A version 1 witness program allows arbitrarily large script, as long as other constraints (such as transaction size limitation) are satisfied.
+
+The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of P2SH. The increased size improves security against possible collision attacks, as 2^80 work is not infeasible anymore (By the end of 2015, 2^84 hashes have been calculated in Bitcoin mining). The spending script is same as the one for an equivalent P2SH script but is moved to witness.
+
+=== Witness program nested in Pay-to-Script-Hash ===
+
+The following example is the same 1-of-2 multi-signature version 1 witness program, but nested in a P2SH output.
+
+    witness:      0 <signature1> <0x5121{33-byte-pubkey1}21{33-byte-pubkey2}52AE>
+    scriptSig:    <0x2101{32-byte-hash-value}>
+    scriptPubKey: HASH160 <20-byte-hash-value> EQUAL
+
+The only item in scriptSig is popped off, hashed with HASH160, compared against the 20-byte-hash-value in scriptPubKey, and interpreted as a single push of:
+
+    <0x01{32-byte-hash-value}>
+
+The version 1 witness program is then executed as described in the last example
+
+Comparing with the last example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig, which is not prunable in transmission. Although a nested witness program is less efficient, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
+
+
+
+ 
+==Reference Implementation==
+ 
+ 
+ 
+ 
