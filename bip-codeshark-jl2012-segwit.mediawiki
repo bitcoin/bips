@@ -34,7 +34,6 @@ By removing this data from the transaction structure committed to the transactio
 #* Sum trees for transaction inputs and outputs can be committed making it possible to construct short proofs that no new coins are created in any noncoinbase transaction and that the miner does not add excessive fees to the coinbase transaction. 
 
 ==Specification==
-
 Maybe a seperate BIP
 <pre>
 * CTransaction gets, in addition to vin and vout, a vwit, which
@@ -42,7 +41,6 @@ contains a CTxInWitness object for each input. A CTxInWitness contains a CScript
 and can potentially be extended to contain other kinds of witness data.
 A CScriptWitness is a vector of byte vectors (nominally: the input stack to the program, no longer
 encoded as a CScript, but just the resulting stack directly).
-
 * A new serialization for CTransaction is defined: http://blockhawk.net/diagrams/witnesstx.png
 (int32 nVersion,
 0x00 marker, 0x01 flag, vector<CTxIn>, vector<CTxOut>,
@@ -83,38 +81,54 @@ with an empty witness have witness hash equal to normal hash).
 
 === Commitment structure ===
 
-UPDATE NEEDED
-A new block rule is added which requires a commitment (a merkle root
-computed similarly to the normal transaction one) to the witness
-hashes to be present as the last 32 bytes of
-block.vtx[0].vin[0].scriptSig (it doesn't need to be a push). This
-hopefully does not conflict with any other existing commitment
-schemes. To make it extensible, an extra merkle path can be provided
-(in the coinbase's "witness" field) so that coinbase commitment can be
-used for multiple things.
-<pre>
-    // Validation for witness commitments.
-    // * We compute the witness hash (which is the hash including witnesses) of all the block's transactions, except the
-    //   coinbase (where 0x0000....0000 is used instead).
-    // * We build a merkle tree with all those witness hashes as leaves (similar to the hashMerkleRoot in the block header).
-    // * The first coinbase scriptSig minimal push of 41 bytes for which the first 4 bytes are {0xaa, 0x21, 0xa9, 0xed} is
-    //   treated as a commitment header. If no such push is present, the block is invalid. If multiple are present, the first
-    //   is used.
-    //   * The first 4 bytes of the commitment header are just magic identifier bytes, and have no further meaning.
-    //   * The next 4 bytes describe a nonce.
-    //   * The next 1 byte describes the number of levels in a Merkle tree.
-    //   * locator = SHA256('WitnessV1\x00\x00\x00\x00\x00\x00\x00' || nonce). The first levels bits of locator, interpreted
-    //     in little endian, are assumed to be the position in the leaves of this Merkle tree where the witness commitment
-    //     goes.
-    //   * The last 32 bytes of the commitment header are its root hash.
-    //   * The coinbase's input's witness must consist of a single byte array of 32 * levels bytes, and are assumed to be
-    //     the Merkle path to connect the witness root hash to the commitment root hash.
-    
-    // No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room from spam.
-</pre>
+!!!DRAFT ONLY!!!
+
+A new block rule is added which requires a commitment to the witness hashes in the coinbase (or an OP_RETURN output of a specific transaction, or somewhere else)
+
+(Hardfork after x year to move the commitment to block header?)
+
+Witness hash is the double SHA256 of a transaction including witnesses: http://blockhawk.net/diagrams/witnesstx.png. For the coinbase transaction, its witness hash is assumed to be 0x0000....0000.
+
+A witness root hash is calculated with all those witness hashes as leaves, in a way similar to the hashMerkleRoot in the block header.
+
+No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room from spam.
+
+==== Proposal 1: balance tree (the current implementation) ====
+The commitment is a push of exactly 41 bytes:
+*The first 4 bytes are commitment header: 0xaa21a9ed
+*The next 4 bytes describe a nonce
+*The next 1 byte is the "levels bytes", describes the number of levels in a Merkle tree (0 to 32)
+*The next 32 bytes is a commitment root hash (not the witness root hash)
+
+Locator of the witness root hash is defined as:
+
+<pre>SHA256('WitnessV1\x00\x00\x00\x00\x00\x00\x00' || nonce)</pre>
+
+The first levels bits of locator, interpreted in little endian, are assumed to be the position in the leaves of the Merkle tree where the witness root hash goes.
+
+The coinbase's input's witness must consist of a single byte array of 32 * levels bytes, and are assumed to be the Merkle path to connect the witness root hash to the commitment root hash.
+
+====Proposal 2: imbalance tree====
+The commitment is a push of exactly 40 bytes:
+*The first 4 bytes are commitment header: 0xaa21a9ed
+*The next 4 bytes describe a nonce
+*The next 32 bytes is a commitment root hash (not the witness root hash)
+
+Locator of the witness root hash is defined as:
+
+<pre>SHA256('WitnessV1\x00\x00\x00\x00\x00\x00\x00' || nonce)</pre>
+
+The first levels bits of locator, interpreted in little endian, are assumed to be the position in the leaves of the Merkle tree where the witness root hash goes.
+
+The coinbase's input's witness must consist of a single byte array, which the size must be a multiple of 32 bytes but not bigger than 32*32 bytes. These are assumed to be the Merkle path to connect the witness root hash to the commitment root hash. Depth of the commitment is determined by the length of the path. If the depth of the tree is 0, the path should be represented by 0x00, and the witness root hash will be same as the commitment root hash.
 
 === Block size limit ===
-2-4-8? Discount for witness data?
+A seperate BIP?
+<pre>
+2-4-8?
+Discount for witness data?
+Start at softfork, moving to hardfork?
+</pre>
 
 === Witness program ===
 
@@ -136,14 +150,16 @@ used for multiple things.
 === Other consensus critical constraints ===
 
 == Block size analysis ==
+WORK IN PROGRESS
+
 Definitions:
 <pre>
  Core block size (CBS): The block size as seen by a non-upgrading full node
- Witness size (WS): The total size of witness in a block
+ Witness size (WS): The total size of witness data in a block
  Total block size (TBS): CBS + WS
- Witness discount (WD): A discount factor for witness for calculationg of VBS (1 = no discount)
+ Witness discount (WD): A discount factor for witness data in VBS calculation (1 = no discount)
  Virtual block size (VBS): CBS + (WS * WD)
- Witness adoption (WA): Proportion of new format transactions among all transactions
+ Witness adoption (WA): Proportion (in size) of new format transactions among all transactions
  Prunable ratio (PR): Proportion of signature data size in a transaction
 </pre>
 
@@ -154,8 +170,6 @@ With some transformation it could be shown that:
 </pre>
 
 In order to keep the proposal as a soft fork, the CBS must not have a upper limit higher than 1MB.
-
-TBS is a function of only CBS, PR, and WA.
 
 The PR heavily depends on the transaction script type and input-output ratio. For example, the PR of 1-in 2-out P2PKH and 1-in 1-out 2-of-2 multisig P2SH are about 47% and 72% respectively. According to the data presented by Pieter Wuille on 7 December 2015, the current average PR on the blockchain is about 60%.
 
@@ -244,6 +258,11 @@ Since all witness programs begin with a version byte, and programs with unknown 
 Examples of new script system include Schnorr signatures which reduce the size of multisig transactions dramatically, Lamport signature which is quantum computing resistance, and Merklized abstract syntax trees which allow very compact witness for conditional scripts with extreme complexity.
 
 The 41-byte limitation for witness programme could be easily extended through a soft fork in case a stronger hash function is needed in the future. The version byte is also expandable by introducing a secondary version byte for some specific primary version values.
+
+=== Per-input lock-time and relative-lock-time ===
+Currently there is only one nLockTime field in a transaction and all inputs must share the same value. BIP68 enables per-input relative-lock-time using the nSequence field, however, with a limited lock-time period and resolution.
+
+With a soft fork, it is possible to introduce a separate witness structure to allow per-input lock-time and relative-lock-time, and a new script system that could sign and manipulate the new data (like BIP65 and BIP112).
 
 == Backward compatibility ==
 Without lifting the core block size limit of 1MB at the beginning, this proposal is a soft fork which all existing full nodes and SPV nodes are compatible. Non-upgrading nodes, however, will not see nor validate the witness data, and will consider all witness programs as anyone-can-spend scripts (except a few edge cases in version 0 witness programs which are provably unspendable with original script semantics). Non-upgrading nodes are also unable to generate or sign for scriptPubKey templates (payment address). Nonetheless, they may still pay to a witness program if it is nested in a P2SH address, which has been defined since 2012.
