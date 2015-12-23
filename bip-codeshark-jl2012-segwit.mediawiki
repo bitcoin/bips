@@ -261,7 +261,15 @@ Currently there is only one nLockTime field in a transaction and all inputs must
 With a soft fork, it is possible to introduce a separate witness structure to allow per-input lock-time and relative-lock-time, and a new script system that could sign and manipulate the new data (like BIP65 and BIP112).
 
 == Backward compatibility ==
-Without lifting the core block size limit of 1MB, this proposal is a soft fork which all existing full nodes and SPV nodes are compatible. Non-upgrading nodes, however, will not see nor validate the witness data, and will consider all witness programs as anyone-can-spend scripts (except a few edge cases in version 0 witness programs which are provably unspendable with original script semantics). Non-upgrading nodes are also unable to generate or sign for scriptPubKey templates (payment address). Nonetheless, they may still pay to a witness program if it is nested in a P2SH address, which has been defined since 2012.
+As a soft fork, older software will continue to operate without modification.  Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs as anyone-can-spend scripts (except a few edge cases in version 0 witness programs which are provably unspendable with original script semantics). Wallets should always be wary of anyone-can-spend scripts and treat them with suspicion. Non-upgraded nodes are strongly encouraged to upgrade in order to take advantage of the new features.
+
+Wallets will be able to migrate in two phases:
+
+=== P2SH compatibility ===
+Witness programs are hashed to 256 bit "redeemscripts" which are then hashed to 160 bit P2SH. This format is fully compatible with currently existing wallets that support P2SH. Upgraded wallets will be able to send and receive to and from older wallets without any problems.
+
+=== Native outputs ===
+Witness programs are hashed to a 256 bit output. This format will not be compatible with older wallets but will require less block space and will have better security due to increased collision resistance.
 
 == Deployment ==
 
@@ -273,17 +281,16 @@ have nVersion >= 5. Furthermore, when 950 out of the 1000 blocks
 preceding a block do have nVersion >= 5, nVersion < 5 blocks become
 invalid, and all further blocks enforce the new rules.
 
-It should be noted that BIP9 involves permanently setting a high-order bit to
+(It should be noted that BIP9 involves permanently setting a high-order bit to
 1 which results in nVersion >= all prior IsSuperMajority() soft-forks and thus
-no bits in nVersion are permanently lost.
+no bits in nVersion are permanently lost.)
 
 
 === SPV Clients ===
 
-While SPV clients are (currently) unable to validate blocks in general,
-trusting miners to do validation for them, they are able to validate block
-headers and thus can validate a subset of the deployment rules. SPV clients
-should reject nVersion < 5 blocks if 950 out of 1000 preceding blocks have
+While SPV clients are unable to fully validate blocks,
+they are able to validate block headers and, thus, can check block version and proof-of-work.
+SPV clients should reject nVersion < 5 blocks if 950 out of 1000 preceding blocks have
 nVersion >= 5 to prevent false confirmations from the remaining 5% of
 non-upgraded miners when the 95% threshold has been reached.
 
