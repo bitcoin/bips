@@ -16,11 +16,17 @@ some point in the future.
 
 ==Summary==
 
-CHECKLOCKTIMEVERIFY redefines the existing NOP2 opcode. When executed it
-compares the top item on the stack to the nLockTime field of the transaction
-containing the scriptSig. If that top stack item is greater than the transaction
-nLockTime the script fails immediately, otherwise script evaluation continues
-as though a NOP was executed.
+CHECKLOCKTIMEVERIFY redefines the existing NOP2 opcode. When executed, if
+any of the following conditions are true, the script interpreter will terminate
+with an error:
+
+* the stack is empty; or
+* the top item on the stack is less than 0; or
+* the lock-time type (height vs. timestamp) of the top stack item and the nLockTime field are not the same; or
+* the top stack item is greater than the transaction's nLockTime field; or
+* the nSequence field of the txin is 0xffffffff;
+
+Otherwise, script execution will continue as if a NOP had been executed.
 
 The nLockTime field in a transaction prevents the transaction from being mined
 until either a certain block height, or block time, has been reached. By
@@ -32,18 +38,14 @@ remains unspendable.
 
 ==Motivation==
 
-The nLockTime field in transactions makes it possible to prove that a
-transaction output can be spent in the future: a valid signature for a
-transaction with the desired nLockTime can be constructed, proving that it is
-possible to spend the output with that signature when the nLockTime is reached.
-An example where this technique is used is in micro-payment channels, where the
-nLockTime field proves that should the receiver vanish the sender is guaranteed
-to get all their escrowed funds back when the nLockTime is reached.
+The nLockTime field in transactions can be used to prove that it is
+''possible'' to spend a transaction output in the future, by constructing a
+valid transaction spending that output with the nLockTime field set.
 
-However the nLockTime field is insufficient if you wish to prove that
-transaction output ''cannot'' be spent until some time in the future, as there
-is no way to prove that the secret keys corresponding to the pubkeys controlling
-the funds have not been used to create a valid signature.
+However, the nLockTime field can't prove that it is ''impossible'' to spend a
+transaction output until some time in the future, as there is no way to know if
+a valid signature for a different transaction spending that output has been
+created.
 
 
 ===Escrow===
@@ -60,7 +62,7 @@ either Alice or Bob to steal the funds illegitimately. Equally Lenny may prefer
 not to have immediate access to the funds to discourage bad actors from
 attempting to get the secret keys from him by force.
 
-However with CHECKLOCKTIMEVERIFY the funds can be stored in scriptPubKeys of
+However, with CHECKLOCKTIMEVERIFY the funds can be stored in scriptPubKeys of
 the form:
 
     IF
@@ -74,29 +76,29 @@ the form:
 
 At any time the funds can be spent with the following scriptSig:
 
-    <Alice's signature> <Bob's signature> 0
+    0 <Alice's signature> <Bob's signature> 0
 
 After 3 months have passed Lenny and one of either Alice or Bob can spend the
 funds with the following scriptSig:
 
-    <Alice/Bob's signature> <Lenny's signature> 1
+    0 <Alice/Bob's signature> <Lenny's signature> 1
 
 
 ===Non-interactive time-locked refunds===
 
 There exist a number of protocols where a transaction output is created that
 requires the co-operation of both parties to spend the output. To ensure the
-failure of one party does not result in the funds becoming lost refund
+failure of one party does not result in the funds becoming lost, refund
 transactions are setup in advance using nLockTime. These refund transactions
 need to be created interactively, and additionaly, are currently vulnerable to
-transaction mutability. CHECKLOCKTIMEVERIFY can be used in these protocols,
+transaction malleability. CHECKLOCKTIMEVERIFY can be used in these protocols,
 replacing the interactive setup with a non-interactive setup, and additionally,
-making transaction mutability a non-issue.
+making transaction malleability a non-issue.
 
 
 ====Two-factor wallets====
 
-Services like GreenAddress store Bitcoins with 2-of-2 multisig scriptPubKey's
+Services like GreenAddress store bitcoins with 2-of-2 multisig scriptPubKey's
 such that one keypair is controlled by the user, and the other keypair is
 controlled by the service. To spend funds the user uses locally installed
 wallet software that generates one of the required signatures, and then uses a
@@ -121,14 +123,14 @@ Now the user is always able to spend their funds without the co-operation of
 the service by waiting for the expiry time to be reached.
 
 
-====Micropayment Channels====
+====Payment Channels====
 
-Jeremy Spilman style micropayment channels first setup a deposit controlled by
+Jeremy Spilman style payment channels first setup a deposit controlled by
 2-of-2 multisig, tx1, and then adjust a second transaction, tx2, that spends
 the output of tx1 to payor and payee. Prior to publishing tx1 a refund
 transaction is created, tx3, to ensure that should the payee vanish the payor
 can get their deposit back. The process by which the refund transaction is
-created is currently vulnerable to transaction mutability attacks, and
+created is currently vulnerable to transaction malleability attacks, and
 additionally, requires the payor to store the refund. Using the same
 scriptPubKey from as in the Two-factor wallets example solves both these issues.
 
@@ -168,8 +170,19 @@ non-trivial, and even the best existing technqiue - announce-commit sacrifices
 - could encourage mining centralization. CHECKLOCKTIMEVERIFY can be used to
 create outputs that are provably spendable by anyone (thus to mining fees
 assuming miners behave optimally and rationally) but only at a time
-sufficiently far into the future that large miners profitably can't sell the
+sufficiently far into the future that large miners can't profitably sell the
 sacrifices at a discount.
+
+
+===Freezing Funds===
+
+In addition to using cold storage, hardware wallets, and P2SH multisig outputs
+to control funds, now funds can be frozen in UTXOs directly on the blockchain.
+With the following scriptPubKey, nobody will be able to spend the encumbered
+output until the provided expiry time. This ability to freeze funds reliably may
+be useful in scenarios where reducing duress or confiscation risk is desired.
+
+    <expiry time> CHECKLOCKTIMEVERIFY DROP DUP HASH160 <pubKeyHash> EQUALVERIFY CHECKSIG
 
 
 ===Replacing the nLockTime field entirely===
@@ -188,6 +201,7 @@ transaction output ''can'' be spent.
 Refer to the reference implementation, reproduced below, for the precise
 semantics and detailed rationale for those semantics.
 
+    
     case OP_NOP2:
     {
         // CHECKLOCKTIMEVERIFY
@@ -222,7 +236,7 @@ semantics and detailed rationale for those semantics.
         if (nLockTime < 0)
             return false;
     
-        // There are two times of nLockTime: lock-by-blockheight
+        // There are two types of nLockTime: lock-by-blockheight
         // and lock-by-blocktime, distinguished by whether
         // nLockTime < LOCKTIME_THRESHOLD.
         //
@@ -260,9 +274,29 @@ semantics and detailed rationale for those semantics.
 https://github.com/petertodd/bitcoin/commit/ab0f54f38e08ee1e50ff72f801680ee84d0f1bf4
 
 
-==Upgrade and Testing Plan==
+==Deployment==
 
-TBD
+We reuse the double-threshold IsSuperMajority() switchover mechanism used in
+BIP66 with the same thresholds, but for nVersion = 4. The new rules are
+in effect for every block (at height H) with nVersion = 4 and at least
+750 out of 1000 blocks preceding it (with heights H-1000..H-1) also
+have nVersion >= 4. Furthermore, when 950 out of the 1000 blocks
+preceding a block do have nVersion >= 4, nVersion < 4 blocks become
+invalid, and all further blocks enforce the new rules.
+
+It should be noted that BIP9 involves permanently setting a high-order bit to
+1 which results in nVersion >= all prior IsSuperMajority() soft-forks and thus
+no bits in nVersion are permanently lost.
+
+
+===SPV Clients===
+
+While SPV clients are (currently) unable to validate blocks in general,
+trusting miners to do validation for them, they are able to validate block
+headers and thus can validate a subset of the deployment rules. SPV clients
+should reject nVersion < 4 blocks if 950 out of 1000 preceding blocks have
+nVersion >= 4 to prevent false confirmations from the remaining 5% of
+non-upgraded miners when the 95% threshold has been reached.
 
 
 ==Credits==
@@ -276,9 +310,21 @@ time.
 
 PayPub - https://github.com/unsystem/paypub
 
-Jeremy Spilman Micropayment Channels - http://www.mail-archive.com/bitcoin-development%40lists.sourceforge.net/msg02028.html
+Jeremy Spilman Payment Channels - https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2013-April/002433.html
+
+
+==Implementations==
+
+Python / python-bitcoinlib
+
+- https://github.com/petertodd/checklocktimeverify-demos
+
+JavaScript / Node.js / bitcore
+
+- https://github.com/mruddy/bip65-demos
 
 
 ==Copyright==
 
 This document is placed in the public domain.
+

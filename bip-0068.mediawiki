@@ -1,0 +1,227 @@
+<pre>
+  BIP: 68
+  Title: Relative lock-time using consensus-enforced sequence numbers
+  Author: Mark Friedenbach <mark@friedenbach.org>
+          BtcDrak <btcdrak@gmail.com>
+          Nicolas Dorier <nicolas.dorier@gmail.com>
+          kinoshitajona <kinoshitajona@gmail.com>
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-05-28
+</pre>
+
+==Abstract==
+
+This BIP introduces relative lock-time (RLT) consensus-enforced semantics of the sequence number field to enable a signed transaction input to remain invalid for a defined period of time after confirmation of its corresponding outpoint.
+
+==Motivation==
+
+Bitcoin transactions have a sequence number field for each input. The original idea appears to have been that a transaction in the mempool would be replaced by using the same input with a higher sequence value. Although this was not properly implemented, it assumes miners would prefer higher sequence numbers even if the lower ones were more profitable to mine. However, a miner acting on profit motives alone would break that assumption completely. The change described by this BIP repurposes the sequence number for new use cases without breaking existing functionality. It also leaves room for future expansion and other use cases.
+
+The transaction nLockTime is used to prevent the mining of a transaction until a certain date. nSequence will be repurposed to prevent mining of a transaction until a certain age of the spent output in blocks or timespan. This, among other uses, allows bi-directional payment channels as used in [https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf Hashed Timelock Contracts (HTLCs)] and [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki#Bidirectional_Payment_Channels BIP112].
+
+==Specification==
+
+This specification defines the meaning of sequence numbers for transactions with an nVersion greater than or equal to 2 for which the rest of this specification relies on.
+
+All references to median-time-past (MTP) are as defined by BIP113.
+
+If bit (1 << 31) of the sequence number is set, then no consensus meaning is applied to the sequence number and can be included in any block under all currently possible circumstances.
+
+If bit (1 << 31) of the sequence number is not set, then the sequence number is interpreted as an encoded relative lock-time.
+
+The sequence number encoding is interpreted as follows: 
+
+Bit (1 << 22) determines if the relative lock-time is time-based or block based: If the bit is set, the relative lock-time specifies a timespan in units of 512 seconds granularity. The timespan starts from the median-time-past of the output’s previous block, and ends at the MTP of the previous block. If the bit is not set, the relative lock-time specifies a number of blocks.
+
+The flag (1<<22) is the highest order bit in a 3-byte signed integer for use in bitcoin scripts as a 3-byte PUSHDATA with OP_CHECKSEQUENCEVERIFY (BIP 112).
+
+This specification only interprets 16 bits of the sequence number as relative lock-time, so a mask of 0x0000ffff MUST be applied to the sequence field to extract the relative lock-time. The 16-bit specification allows for a year of relative lock-time and the remaining bits allow for future expansion.
+
+<img src=bip-0068/encoding.png></img>
+
+For time based relative lock-time, 512 second granularity was chosen because bitcoin blocks are generated every 600 seconds. So when using block-based or time-based, the same amount of time can be encoded with the available number of bits. Converting from a sequence number to seconds is performed by multiplying by 512 = 2^9, or equivalently shifting up by 9 bits.
+
+When the relative lock-time is time-based, it is interpreted as a minimum block-time constraint over the input's age. A relative time-based lock-time of zero indicates an input which can be included in any block. More generally, a relative time-based lock-time n can be included into any block produced 512 * n seconds after the mining date of the output it is spending, or any block thereafter.
+The mining date of the output is equals to the median-time-past of the previous block which mined it.
+
+The block produced time is equal to the median-time-past of its previous block.
+
+When the relative lock-time is block-based, it is interpreted as a minimum block-height constraint over the input's age. A relative block-based lock-time of zero indicates an input which can be included in any block. More generally, a relative block lock-time n can be included n blocks after the mining date of the output it is spending, or any block thereafter.
+
+This is proposed to be accomplished by replacing IsFinalTx() and CheckFinalTx(), existing consensus and non-consensus code functions that return true if a transaction's lock-time constraints are satisfied and false otherwise, with LockTime() and CheckLockTime(), new functions that return a non-zero value if a transaction's lock-time or sequence number constraints are not satisfied and zero otherwise:
+
+<pre>
+    enum {
+        /* Interpret sequence numbers as relative lock-time constraints. */
+        LOCKTIME_VERIFY_SEQUENCE = (1 << 0),
+    };
+    
+    /* Setting nSequence to this value for every input in a transaction
+     * disables nLockTime. */
+    static const uint32_t SEQUENCE_FINAL = 0xffffffff;
+    
+    /* If this flag set, CTxIn::nSequence is NOT interpreted as a
+     * relative lock-time. Setting the most significant bit of a
+     * sequence number disabled relative lock-time. */
+    static const uint32_t SEQUENCE_LOCKTIME_DISABLE_FLAG = (1 << 31);
+    
+    /* If CTxIn::nSequence encodes a relative lock-time and this flag
+     * is set, the relative lock-time has units of 512 seconds,
+     * otherwise it specifies blocks with a granularity of 1. */
+    static const uint32_t SEQUENCE_LOCKTIME_TYPE_FLAG = (1 << 22);
+    
+    /* If CTxIn::nSequence encodes a relative lock-time, this mask is
+     * applied to extract that lock-time from the sequence field. */
+    static const uint32_t SEQUENCE_LOCKTIME_MASK = 0x0000ffff;
+    
+    /* In order to use the same number of bits to encode roughly the
+     * same wall-clock duration, and because blocks are naturally
+     * limited to occur every 600s on average, the minimum granularity
+     * for time-based relative lock-time is fixed at 512 seconds.
+     * Converting from CTxIn::nSequence to seconds is performed by
+     * multiplying by 512 = 2^9, or equivalently shifting up by
+     * 9 bits. */
+    static const int SEQUENCE_LOCKTIME_GRANULARITY = 9;
+    
+    int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prevHeights, const CBlockIndex& block)
+    {
+        assert(prevHeights == NULL || prevHeights->size() == tx.vin.size());
+        int64_t nBlockTime = (flags & LOCKTIME_MEDIAN_TIME_PAST)
+                                        ? block.GetAncestor(std::max(block.nHeight-1, 0))->GetMedianTimePast()
+                                        : block.GetBlockTime();
+
+        bool fEnforceBIP68 = static_cast<uint32_t>(tx.nVersion) >= 2
+                          && flags & LOCKTIME_VERIFY_SEQUENCE;
+        
+        // Will be set to the equivalent height- and time-based nLockTime
+        // values that would be necessary to satisfy all relative lock-
+        // time constraints given our view of block chain history.
+        int nMinHeight = 0;
+        int64_t nMinTime = 0;
+        // Will remain equal to true if all inputs are finalized
+        // (CTxIn::SEQUENCE_FINAL).
+        bool fFinalized = true;
+        for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
+            const CTxIn& txin = tx.vin[txinIndex];
+            // Set a flag if we witness an input that isn't finalized.
+            if (txin.nSequence == CTxIn::SEQUENCE_FINAL)
+                continue;
+            else
+                fFinalized = false;
+    
+            // Do not enforce sequence numbers as a relative lock time
+            // unless we have been instructed to, and a view has been
+            // provided.
+            if (!fEnforceBIP68)
+                continue;
+    
+            // Sequence numbers with the most significant bit set are not
+            // treated as relative lock-times, nor are they given any
+            // consensus-enforced meaning at this point.
+            if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG)
+                continue;
+    
+            if (prevHeights == NULL)
+                continue;
+        
+            int nCoinHeight = (*prevHeights)[txinIndex];
+        
+            if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) {
+            
+                int64_t nCoinTime = block.GetAncestor(std::max(nCoinHeight-1, 0))->GetMedianTimePast();
+            
+                // Time-based relative lock-times are measured from the
+                // smallest allowed timestamp of the block containing the
+                // txout being spent, which is the median time past of the
+                // block prior.
+                nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1);
+            } else {
+                // We subtract 1 from relative lock-times because a lock-
+                // time of 0 has the semantics of "same block," so a lock-
+                // time of 1 should mean "next block," but nLockTime has
+                // the semantics of "last invalid block height."
+                nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1);
+            }
+        }
+    
+        // If all sequence numbers are CTxIn::SEQUENCE_FINAL, the
+        // transaction is considered final and nLockTime constraints
+        // are not enforced.
+        if (fFinalized)
+            return 0;
+
+        if ((int64_t)tx.nLockTime < LOCKTIME_THRESHOLD)
+            nMinHeight = std::max(nMinHeight, (int)tx.nLockTime);
+        else
+            nMinTime = std::max(nMinTime, (int64_t)tx.nLockTime);
+    
+        if (nMinHeight >= block.nHeight)
+            return nMinHeight;
+            
+        if (nMinTime >= nBlockTime)
+            return nMinTime;
+    
+        return 0;
+    }</pre>
+
+Code conditional on the return value of IsFinalTx() / CheckLockTime() has to be updated as well, since the semantics of the return value has been inverted.
+
+==Example: Bidirectional payment channel==
+
+A bidirectional payment channel can be established by two parties funding a single output in the following way: Alice funds a 1 BTC output which is the 2-of-2 multisig of Alice AND Bob, or Alice's key only after a sufficiently long timeout, e.g. 30 days or 4320 blocks. The channel-generating transaction is signed by Alice and broadcast to the network.
+
+Alice desires to send Bob a payment of 0.1 BTC. She does so by constructing a transaction spending the 1 BTC output and sending 0.1 BTC to Bob and 0.9 BTC back to herself. She provides her signature for the 2-of-2 multisig constraint, and sets a relative lock-time using the sequence number field such that the transaction will become valid 24-hours or 144 blocks before the refund timeout. Two more times Alice sends Bob a payment of 0.1 BTC, each time generating and signing her half of a transaction spending the 1btc output and sending 0.2 BTC, then 0.3 BTC to Bob with a relative lock-time of 29 days from creation of the channel.
+
+Bob now desires to send Alice a refund of 0.25 BTC. He does so by constructing a transaction spending the 1btc output and sending 0.95 BTC (= 0.7 BTC + 0.25 BTC) to Alice and 0.05 BTC to himself. Since Bob will still have in his logs the transaction giving him 0.7 BTC 29 days after the creation of the channel, Alice demands that this new transaction have a relative lock-time of 28 days so she has a full day to broadcast it before the next transaction matures.
+
+Alice and Bob continue to make payments to each other, decrementing the relative lock-time by one day each time the channel switches direction, until the present time is reached or either party desires to close out the channel. A close-out is performed by finalizing the input (nSequence = MAX_INT) and both parties signing.
+
+==Implementation==
+
+A reference implementation is provided by the following pull request
+
+https://github.com/bitcoin/bitcoin/pull/6312
+
+==Acknowledgments==
+
+Credit goes to Gregory Maxwell for providing a succinct and clear description of the behavior of this change, which became the basis of this BIP text.
+
+This BIP was edited by BtcDrak, Nicolas Dorier and kinoshitajona.
+
+==Deployment==
+
+This BIP is to be deployed by either version-bits BIP9 or by isSuperMajority(). Exact details TDB.
+
+BIP68 MUST be deployed together with BIP113. It is also recommended to deploy BIP112 at the same time.
+
+==Compatibility==
+
+The only use of sequence numbers by the Bitcoin Core reference client software is to disable checking the nLockTime constraints in a transaction. The semantics of that application are preserved by this BIP.
+
+As can be seen from the specification section, a number of bits are undefined by this BIP to allow for other use cases by setting bit (1 << 31) as the remaining 31 bits have no meaning under this BIP. Additionally, bits (1 << 23) through (1 << 30) inclusive have no meaning at all when bit (1 << 31) is unset.
+
+Additionally, this BIP specifies only 16 bits to actually encode relative lock-time meaning a further 6 are unused (1 << 16 through 1 << 21 inclusive). This allows the possibility to increase granularity by soft-fork, or for increasing the maximum possible relative lock-time in the future.
+
+The most efficient way to calculate sequence number from relative lock-time is with bit masks and shifts:
+
+<pre>
+    // 0 <= nHeight < 65,535 blocks (1.25 years)
+    nSequence = nHeight;
+    nHeight = nSequence & 0x0000ffff;
+    
+    // 0 <= nTime < 33,554,431 seconds (1.06 years)
+    nSequence = (1 << 22) | (nTime >> 9);
+    nTime = (nSequence & 0x0000ffff) << 9;
+</pre>
+
+==References==
+
+Bitcoin mailing list discussion: https://www.mail-archive.com/bitcoin-development@lists.sourceforge.net/msg07864.html
+
+BIP112: https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki
+
+BIP113: https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki
+
+Hashed Timelock Contrats (HTLCs): https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf
+

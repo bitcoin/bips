@@ -1,0 +1,137 @@
+<pre>
+  BIP: 113
+  Title: Median time-past as endpoint for lock-time calculations
+  Author: Thomas Kerin <me@thomaskerin.io>
+          Mark Friedenbach <mark@friedenbach.org>	
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-08-10
+</pre>
+
+
+==Abstract==
+
+This BIP is a proposal to redefine the semantics used in determining a
+time-locked transaction's eligibility for inclusion in a block. The
+median of the last 11 blocks is used instead of the block's timestamp,
+ensuring that it increases monotonically with each block.
+
+
+==Motivation==
+
+At present, transactions are excluded from inclusion in a block if the
+present time or block height is less than or equal to that specified
+in the locktime. Since the consensus rules do not mandate strict
+ordering of block timestamps, this has the unfortunate outcome of
+creating a perverse incentive for miners to lie about the time of
+their blocks in order to collect more fees by including transactions
+that by wall clock determination have not yet matured.
+
+This BIP proposes comparing the locktime against the median of the
+past 11 block's timestamps, rather than the timestamp of the block
+including the transaction. Existing consensus rules guarantee this
+value to monotonically advance, thereby removing the capability for
+miners to claim more transaction fees by lying about the timestamps of
+their block.
+
+This proposal seeks to ensure reliable behaviour in locktime calculations as 
+required by BIP65 (CHECKLOCKTIMEVERIFY), BIP68 (sequence numbers), and BIP112 (CHECKSEQUENCEVERIFY).
+
+
+==Specification==
+
+The values for transaction locktime remain unchanged. The difference is only in 
+the calculation determining whether a transaction can be included. Instead of 
+an unreliable timestamp, the following function is used to determine the current 
+block time for the purpose of checking lock-time constraints:
+
+    enum { nMedianTimeSpan=11 };
+    
+    int64_t GetMedianTimePast(const CBlockIndex* pindex)
+    {
+        int64_t pmedian[nMedianTimeSpan];
+        int64_t* pbegin = &pmedian[nMedianTimeSpan];
+        int64_t* pend = &pmedian[nMedianTimeSpan];
+        for (int i = 0; i < nMedianTimeSpan && pindex; i++, pindex = pindex->pprev)
+             *(--pbegin) = pindex->GetBlockTime();
+        std::sort(pbegin, pend);
+        return pbegin[(pend - pbegin)/2];
+    }
+
+Lock-time constraints are checked by the consensus method IsFinalTx(),
+or LockTime() under BIP68. These methods take the block time as one
+parameter. This BIP proposes that after activation calls to
+IsFinalTx() or LockTime() within consensus code use the return value
+of `GetMedianTimePast(pindexPrev)` instead.
+
+A reference implementation of this proposal is provided by the
+following pull request:
+
+https://github.com/bitcoin/bitcoin/pull/6566
+
+
+==Deployment==
+
+We reuse the double-threshold switchover mechanism from BIPs 34 and
+66, with the same thresholds, but for nVersion = 8. The new rules are
+in effect for every block (at height H) with nVersion = 8 and at least
+750 out of 1000 blocks preceding it (with heights H-1000..H-1) also
+have nVersion = 8. Furthermore, when 950 out of the 1000 blocks
+preceding a block do have nVersion = 8, nVersion = 3 blocks become
+invalid, and all further blocks enforce the new rules.
+
+When assessing the block version as mask of ~0x20000007 must be applied
+to work around the complications caused by
+[http://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-August/010396.html BIP101's premature use]
+of the [https://gist.github.com/sipa/bf69659f43e763540550 undecided version bits proposal].
+
+By applying ~0x20000007 with nVersion = 8, the thresholds should be tested
+comparing block nVersion >= 4 as this will save a bit for future use.
+
+It is recommended that this soft-fork deployment trigger include other related 
+proposals for improving Bitcoin's lock-time capabilities, including:
+
+[https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP 65]: 
+CHECKLOCKTIMEVERIFY, 
+
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP 68]: 
+Consensus-enforced transaction replacement signalled via sequence numbers,
+
+and [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP 112]: 
+CHECKSEQUENCEVERIFY.
+
+
+==Acknowledgements==
+
+Mark Friedenbach for designing and authoring the reference
+implementation of this BIP.
+
+Thanks go to Gregory Maxwell who came up with the original idea,
+in #bitcoin-wizards on 2013-07-16.
+
+Thomas Kerin authored this BIP document.
+
+
+==Compatibility==
+
+Transactions generated using time-based lock-time will take
+approximately an hour longer to confirm than would be expected under
+the old rules. This is not known to introduce any compatibility
+concerns with existing protocols.
+
+
+==References==
+[https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP65: OP_CHECKLOCKTIMEVERIFY]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP68: Consensus-enforced transaction replacement signaled via sequence numbers]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP112: CHECKSEQUENCEVERIFY]
+
+[http://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-August/010396.html Softfork deployment considerations]
+
+[https://gist.github.com/sipa/bf69659f43e763540550 Version bits]
+
+
+==Copyright==
+
+This document is placed in the public domain.
