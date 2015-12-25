@@ -16,8 +16,7 @@ This BIP defines new messages and serialization formats for propagation of trans
 
 ==Specification==
 
-=== Serializations ===
-
+=== Serialization ===
 A new serialization format for tx messages is added to the peer-to-peer protocol.
 
 The serialization has the following structure:
@@ -63,7 +62,7 @@ The serialization has the following structure:
 | txouts[]
 | A list of one or more transaction outputs
 |-
-| 
+| 1+
 | txin_witness
 | txin_witness
 | Transaction input witness
@@ -85,10 +84,7 @@ Witness objects can potentially be extended to contain other kinds of witness da
 A script witness is a vector of byte vectors (nominally: the input stack to the program, no longer
 encoded as a scriptSig, but just the resulting stack directly).
 
-as a valid transaction (even if parsing succeeds, it means it's
-interpreted as a transaction with no inputs and 1 output). If all
-witnesses are empty, the old serialization format is used.
-- Rationale for not having an independent CWitnessTransaction with
+- Rationale for not having an independent message type with
 its own serialization: this would require separate "tx" and "block"
 messages, and all RPC calls operating on raw transactions would need
 to be duplicated, or need inefficinent or nondeterministic guesswork
@@ -100,28 +96,26 @@ used in some tests) to be interpreted as new serialized data.
 easily add more extra non-committed data to transactions (like txouts
 being spent, ...). It can be interpreted as a bitvector.
 
-* A new message 'havewitness' is sent after receiving 'verack' to
+=== Handshake ===
+A new message 'havewitness' is sent after receiving 'verack' to
 indicate that a node can provide witness if requested (similar to
-'sendheaders')
+'sendheaders') (Note: it might be better to signal this with a services bit in the version message)
 
-* New inv types MSG_WITNESS_TX and MSG_WITNESS_BLOCK are added, only
+=== Relay ===
+New inv types MSG_WITNESS_TX and MSG_WITNESS_BLOCK are added, only
 for use in getdata. Inv itself still use just MSG_TX and MSG_BLOCK,
 similar to MSG_FILTERED_BLOCK.
+
 - Rationale for not advertizing witnessness in invs: we don't always
 use invs anymore (with 'sendheaders' BIP 130), plus it's not useful:
 implicitly, every transaction and block have a witness, old ones just
 have empty ones.
 
-* Transactions' GetHash is always computed on the old non-witness
-serialization. A new CTransaction::GetWitnessHash is added which is
+=== Hashes ===
+Transaction hashes used in the transaction merkle tree and txin outpoints is always computed on the old non-witness
+serialization. A new hash including the witness data is added that is
 computed from the witness-serialization (this means that transactions
 with an empty witness have witness hash equal to normal hash).
-
-== Synchronization ==
-
-=== Initial Blockchain Download ===
-
-=== Message Propagation ===
 
 == Credits ==
 Special thanks to Gregory Maxwell for originating many of the ideas in this BIP and Luke-Jr for figuring out how to deploy this as a soft fork.
