@@ -7,16 +7,18 @@
   Created: 2015-12-24
 </pre>
 
-==Abstract==
+== Abstract ==
 
 This BIP describes 2 new types of Bitcoin address to support native Segregated Witness (segwit) transactions. The first type resembles the original P2PKH base-58 address. The second type is a z-base-32 representation of a witness program with Damm algorithm checksum, which supports arbitrarily complex transactions, and is forward compatible to new version witness programs in the future.
 
-==Motivation==
+== Motivation ==
 
 To define standard payment addresses for native segwit transactions to promote early adoption of the more efficient transaction method.
 
 == Specification ==
+
 === P2PKH segwit address ===
+
 The first new Bitcoin address format defined is specific to pay-to-public-key-hash segwit transaction. The scriptPubKey is a single push of version-0 witness program in this form,
   <0x0076A914{20-byte-hash-value}88AC>
 The new address is encoded exactly in the same way as the original pay-to-public-key-hash address:
@@ -26,7 +28,8 @@ Version byte is 0x19 for a main-network address, 0x41 for a testnet address. The
 All addresses generated with this scheme will a constant length of 34 characters, with a "B" prefix for main-network and "T" prefix for testnet.
 
 === General segwit address ===
-The second new bitcoin address format defined is applicable to any version of witness program with a length of 2 to 33 bytes.
+
+The second new bitcoin address format defined is applicable to witness program of version 0 to 15 with a length of 2 to 32 bytes.
 
 The z-base-32 character set is used:
 {|class="wikitable" style="width:40ex; text-align: center; margin: 0 auto 0 auto;"
@@ -58,23 +61,34 @@ The z-base-32 character set is used:
 
 It is case-insensitive and includes all alphanumeric characters excluding 0, 2, l, v. The order of alphabet is chosen so that less ambiguous alphabet characters will appear more frequently than others.
 
-An address starts with a version digit, which is b<sub>32</sub> for the main-network and t<sub>32</sub> for the testnet.
+An address is a 270-bit string in z-base-32 with the following components:
 
-The next digit is a length digit, which the value is length of the witness program in byte (L) minus 2.
+  5 address version bits
+  5 length bits
+  4 witness program version bits
+  256 witness program bits
 
-The length digit is followed by the witness program. The witness program is padded with leading 0<sub>b</sub> to become 265-bit, and transformed to z-base-32 with 53 digits.
+The address version bits is 00001<sub>b</sub> for the main-network and 11001<sub>b</sub> for the testnet.
 
-The 55-digit raw address is then divided into 11 equal segments. For each segment, a checksum is calculated with Damm algorithm and appended to the end of the segment. This makes the length increases to 66 digits.
+Value of the length bits is the length of the witness program in byte minus 1.
 
-A second round of checksum is calculated by taking the digits in the same position of the 11 segments, and appended to the end of the address. This is the final address with 71 digits.
+Witness program version bits indicates version of the witness program (v0 to v15).
+
+The witness program is padded with leading 0<sub>b</sub> to 256 bits.
+
+The 270-bit string is transformed to z-base-32 with 54 digits.
+
+The 54-digit raw address is then divided into 9 equal segments. For each segment, a checksum is calculated with Damm algorithm and appended to the end of the segment. This makes the length increases to 63 digits.
+
+A second round of checksum is calculated by taking the digits in the same position of the 9 segments, and appended to the end of the address. This is the final address with 69 digits.
 
 
-==Rationale==
+== Rationale ==
 
-The segregated witness soft fork (BIP x) defines 2 ways of encoding "witness program", a data push of 2 to 41 bytes:
+The segregated witness soft fork (BIP x) defines 2 ways of encoding "witness program", a data push of 2 to 32 bytes:
 
-* A native witness program output is a scriptPubKey with a single push of a witness program, and nothing else;
-* A witness program in P2SH is a P2SH redeemScript with a single push of a witness program, while the scriptPubKey looks like a normal P2SH output.
+* A native witness program output is a scriptPubKey with a push of version byte followed by a push of witness program, and nothing else;
+* A witness program in P2SH is a P2SH redeemScript with a push of version byte followed by a push of witness program, while the scriptPubKey looks like a normal P2SH output.
 
 As the P2SH address has been defined in 2012, using witness program in P2SH allows most existing wallets to pay a segwit-compatible wallet without any upgrade. However, this method requires more block space and is less collision-resistance than a native witness program, and is only a short-term solution to make the transition smoother. Eventually, all users are expected to use the more efficient native witness program as the primary payment method.
 
@@ -85,48 +99,59 @@ The drawbacks of Bitcoin addresses have been extensively discussed in BIP13. Sin
 
 However, none of these are as widely adopted as the suboptimal base-58 scriptPubKey template addresses, which is still a standard for the whole eco-system, from wallets, block explorers, merchants, exchanges, to end users. As P2PKH transactions are still dominating the blockchain, the author believes that the proposed P2PKH segwit addresses is the easiest way for wallets and services to adopt native witness program, which is particularly important in the context of scaling the capacity of the blockchain.
 
-The P2PKH segwit addresses only allow simple payment to a single public key. For arbitrarily complex segwit transactions, the general segwit address is used. The use of z-base-32 eliminates case-sensitiveness and simplifies transformation to and from hexadecimals. The Damm algorithm checksum allows detection of all single-digit errors and all adjacent transposition errors. With the excellent upgradability of witness program, this proposal is also forward compatible to new version witness programs that is not longer than 33 bytes.
+The P2PKH segwit addresses only allow simple payment to a single public key. For arbitrarily complex segwit transactions, the general segwit address is used. The use of z-base-32 eliminates case-sensitiveness and simplifies transformation to and from hexadecimals. The Damm algorithm checksum allows detection of all single-digit errors and all adjacent transposition errors. With the excellent upgradability of witness program, this proposal is also forward compatible to new version witness programs that is not longer than 32 bytes.
 
-==Compatibility==
+== Compatibility ==
 
 This proposal is not backward compatible, but it fails gracefully -- if an older implementation is given one of these new Bitcoin addresses, it will report the address as invalid and will refuse to create a transaction.
 
-This proposal is forward compatible to any new version witness program with 2 to 33 bytes.
+This proposal is forward compatible to any new witness program format with version 2 to 15 and length of 2 to 32 bytes.
 
-==Example==
-=== Address for Pay-to-Public-Key-Hash Version 0 Witness Program ===
+== Example ==
+
+=== P2PKH segwit address ===
+
 The following public key,
     0450863AD64A87AE8A2FE83C1AF1A8403CB53F53E486D8511DAD8A04887E5B23522CD470243453A299FA9E77237716103ABC11A1DF38855ED6F2EE187E9C582BA6
 when encoded as a P2PKH template, would become:
     DUP HASH160 <010966776006953D5567439E5E39F86A0D273BEE> EQUALVERIFY CHECKSIG
 And the corresponding version 1 Bitcoin address is
     16UwLL9Risc3QfPqBUvKofHmBQ7wMtjvM
-When the same script is encoded as a version 0 witness program, the scriptPubKey becomes a single push of 
-    <0x0076A914010966776006953D5567439E5E39F86A0D273BEE88AC>
+When the same script is encoded as a version 0 witness program, the scriptPubKey becomes: 
+    OP_0 <0x76A914010966776006953D5567439E5E39F86A0D273BEE88AC>
 Using 0x19 as the address version, the equivalent witness program address is:
     B4YZZ3nMBETWVF9ZSfotSwTxVnqhdkTi7r
 
-=== General witness program address ===
-With the same 26 bytes witness program in the last example:
-    0x0076A914010966776006953D5567439E5E39F86A0D273BEE88AC
-The witness program is transformed to z-base-32 with 53 digits:
-    yyyyyyyyyyyyyq4wteyejc35sybwi8iksqoh6mah9o4oprh767nfc
-Prepending with version digit b<sub>32</sub> and length digit a<sub>32</sub> (24 = 26 - 2)
-    bayyyyyyyyyyyyyq4wteyejc35sybwi8iksqoh6mah9o4oprh767nfc
-Split into 11 equal segments:
-    bayyy -yyyyy -yyyyy -q4wte -yejc3 -5sybw -i8iks -qoh6m -ah9o4 -oprh7 -67nfc
-Calculate the Damm checksum for each segment:
-    For example: Damm(bayyy) = h
-    bayyyh-yyyyyy-yyyyyy-q4wtey-yejc3w-5sybwu-i8iksj-qoh6mr-ah9o4h-oprh7t-67nfcs
-Calculate the Damm checksum for digits in the same position of different segments:
-    For example: Damm(byyqy5iqao6) = d
-    bayyyh-yyyyyy-yyyyyy-q4wtey-yejc3w-5sybwu-i8iksj-qoh6mr-ah9o4h-oprh7t-67nfcs-dmi1t
+=== General segwit address ===
 
-==Reference Implementation==
+With the same 25 bytes version 0 witness program in the last example:
+    OP_0 <0x76A914010966776006953D5567439E5E39F86A0D273BEE88AC>
+The address version bits is 00001<sub>b</sub>
+    00001<sub>b</sub>
+The lengths bits is 11000<sub>b</sub> (24 = 25 - 1)
+    00001-11000<sub>b</sub>
+The witness program version bits is 0000
+    00001-11000-0000<sub>b</sub>
+Appended by the zero-padded witness program
+    00001-11000-0000-0-00000-00000-00000-00000-00000-00000-00000-00000-00000-00000-00000-00000-11101...01100
+The 270-bit string is transformed to z-base-32 with 54 digits and split into 9 equal segments:
+    bayyyy -yyyyyy -yyq4wt -eyejc3 -5sybwi -8iksqo -h6mah9 -o4oprh -767nfc
+Calculate the Damm checksum for each segment:
+    For example: Damm(bayyyy) = 7
+    bayyyy7-yyyyyyy-yyq4wte-eyejc3q-5sybwic-8iksqoo-h6mah9w-o4oprhm-767nfc4
+Calculate the Damm checksum for digits in the same position of different segments:
+    For example: Damm(byye58ho7) = j
+    bayyyy7-yyyyyyy-yyq4wte-eyejc3q-5sybwic-8iksqoo-h6mah9w-o4oprhm-767nfc4-jwk86o
+
+== Implementation ==
+
 From arbitrary witness program to general segwit address: https://gist.github.com/jl2012/760b0f952715b8b6c608
 
-==See Also==
+== References ==
 
 * [[bip-0013.mediawiki|BIP 13: Address Format for pay-to-script-hash]]
 * [[bip-0016.mediawiki|BIP 16: Pay to Script Hash (aka "/P2SH/")]]
 * [[bip-xxxx.mediawiki|BIP x: Segregated Witness]] https://github.com/bitcoin/bips/pull/265
+
+== Copyright ==
+This work is placed in the public domain.
