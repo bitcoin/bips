@@ -1,8 +1,10 @@
 RECENT CHANGES:
 
-* (21 Sep 2015) Correct base58check version byte
+* (18 Dec 2015) Update explanations to resolve FAQs
 
-* (18 Sep 2015) Clarify decoding of notification transactions
+* (12 Oct 2015) Revise blinding method for notification transactions
+
+* (21 Sep 2015) Correct base58check version byte
 
 <pre>
   BIP:     47
@@ -29,9 +31,29 @@ Payment codes add identity information to transactions which is useful in a merc
 
 We define the following 3 levels in BIP32 path:
 
-<pre>
+<code>
 m / purpose' / coin_type' / identity'
-</pre>
+</code>
+
+The child keys derived from an identity are used in different ways:
+
+<code>
+m / purpose' / coin_type' / identity' / 0
+</code>
+
+The 0th (non-hardened) child is the notification key.
+
+<code>
+m / purpose' / coin_type' / identity' / 0 through 2147483647
+</code>
+
+These (non-hardened) keypairs are used for ECDH to generate deposit addresses.
+
+<code>
+m / purpose' / coin_type' / identity' / 0' through 2147483647'
+</code>
+
+These (hardened) keypairs are ephemeral payment codes.
 
 Apostrophe in the path indicates that BIP32 hardened derivation is used.
 
@@ -49,19 +71,31 @@ Hardened derivation is used at this level.
 
 ===Identity===
 
-Identity is a particular extended public/private key pair. The extended public key is a payment code.
+The identity derivation level produces an extended public key and its associated extended private key.
 
-Identities SHOULD have 1:1 correspondence with a BIP44 account, as in each BIP44 account in an HD wallet should be assigned exactly one payment code which shares the same index value.
+When the extended public key at this level is combined with the metadata specified in the Representation section below, the resulting entity is called a "payment code."
+
+This derivation level is equivalent to the Account level in BIP-44. Wallets SHOULD treat payment codes as intrinsically part of the BIP-44 account at the same index and create payment codes and accounts as pairs.
+
+For example, the payment code created represented by (m / 47' / 0' / 0') is part of the account represented by (m / 44' / 0' / 0').
+
+The second account in a wallet consists of the new account/payment code pair created by using an index of 1 in as the account/identity level of both paths.
+
+Incoming payments received via this specification are equivalent to payments received to BIP-44 addresses, and unspent outputs from both types of addresses can be used as inputs in the same outgoing transaction.
 
 Hardened derivation is used at this level.
 
 Except where noted, all keys derived from a payment code use the public derivation method.
 
+==Standard Payment Codes (v1)==
+
+===Representation===
+
 ====Binary Serialization====
 
 A payment code contains the following elements:
 
-* Byte 0: type. required value: 0x01
+* Byte 0: version. required value: 0x01
 * Byte 1: features bit field. All bits must be zero except where specified elsewhere in this specification
 ** Bit 0: Bitmessage notification
 ** Bits 1-7: reserved
@@ -85,7 +119,7 @@ It is assumed that Alice can easily obtain Bob's payment code via a suitable met
 
 ====Definitions====
 
-* Payment code: an extended public key which is associated with a particular identity
+* Payment code: an extended public key and associated metadata which is associated with a particular identity/account
 * Notification address: the P2PKH address associated with the 0<sup>th</sup> public key derived from a payment code
 * Notification transaction: a transaction which sends an output to a notification address which includes an embedded payment code
 
@@ -134,6 +168,17 @@ Bitcoins received via notification transactions require special handling in orde
 # Outputs received to notification addresses MUST NOT be used as inputs for any transaction that involve ECDH calculations using any of the user's payment codes.
 # Outputs received to notification addresses MAY be passed through a mixing service before being added to the user's spendable balance.
 # Outputs received to notification addresses MAY be donated to miners using dust-b-gone or an equivalent procedure.
+
+=====Standard Notification Transaction Scripts=====
+
+Alice SHOULD use an input script in one of the following standard forms to expose a public key, and compliant applications SHOULD recognize all of these forms.
+
+* P2PK (pay to pubkey)
+* P2PKH (pay to pubkey hash)
+* Multisig (bare multisig, without P2SH)
+* a script which spends any of the above script forms via P2SH (pay to script hash)
+
+Compatible wallets MAY provide a method for a user to manually specify the public key associated with a notification transaction in order to recover payment codes sent via non-standard notification transactions.
 
 ====Sending====
 
@@ -194,7 +239,9 @@ When querying a public blockchain explorer, wallets SHOULD connect to the explor
 
 Previously-spendable funds will generally not be lost or become inaccessible after a recovery from a seed, but all information regarding previous outgoing payments will be lost.
 
-The metadata which a wallet must store regarding the state an identity consists of:
+In order to recover received funds from a seed, the wallet must obtain every notification it has ever received to its notification address, including all spent transactions. It then re-establishes its lookahead window for each subchain by scanning every derived address sequentially until it locates a contiguous block of unused addresses of a user-specified length.
+
+The metadata which a wallet must store to properly process outgoing transactions consists of:
 
 # A list of every payment code to which the identity has sent a notification transaction.
 ## This list is lost if a wallet must be recovered from a seed.
@@ -233,7 +280,7 @@ A recipient prefers to receive notifications via Bitmessage indiates this prefer
 
 * Setting bit 0 of the features byte to 1
 * Setting byte 67 of the serialized payment code to the desired Bitmessage address version
-* Setting byte 67 of the serialized payment code to the desired Bitmessage stream number
+* Setting byte 68 of the serialized payment code to the desired Bitmessage stream number
 
 The sender uses this information to construct a valid notification Bitmessage address:
 
