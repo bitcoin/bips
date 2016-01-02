@@ -89,20 +89,19 @@ The new rule is s<sub>v</sub> <= 1 MB.
 
 === Witness program ===
 
-* A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a single push of 2 to 41 bytes gets a new special meaning. The byte vector pushed by it is called the "witness program".
-** In case the scriptPubKey pushes a witness program directly, the scriptSig must be exactly empty.
-** In case the redeemScript pushes a witness program, the scriptSig must be exactly the single push of the redeemScript.
+* A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
+** In case the scriptPubKey pushes a version byte and witness program directly, the scriptSig must be exactly empty.
+** In case the redeemScript pushes a version byte and witness program, the scriptSig must be exactly the single push of the redeemScript.
 
-* The first byte of a witness program is the "version byte", an unsigned integer.
-** If the version byte is 0, the rest of the witness program is the actual script.
+** If the version byte is 0, the WP is the actual script.
 *** The script is executed after normal script evaluation but with data from the witness rather than the scriptSig.
 *** The program must not fail, and result in exactly a single TRUE on the stack.
-** If the version byte is 1, the rest of the witness program must be 32 bytes, as a SHA256 hash of the actual script.
+** If the version byte is 1, the WP must be 32 bytes, as a SHA256 hash of the actual script.
 *** The witness must consist of an input stack to feed to the program, followed by the serialized program.
 *** The serialized program is popped off the initial witness stack. Hash of the serialized program must match the hash pushed in the witness program.
 *** The serialized program is deserialized, and executed after normal script evaluation with the remaining witness stack.
 *** The script must not fail, and result in exactly a single TRUE on the stack.
-** If the witness version byte is 2 or above, no further interpretation of the witness program or witness happens.
+** If the version byte is 2 to 16, no further interpretation of the witness program or witness happens.
 
 === Other consensus critical constraints ===
 
@@ -140,9 +139,9 @@ The following example is a version 0 witness program, equivalent to the existing
 
     witness:      <signature> <pubkey>
     scriptSig:    (empty)
-    scriptPubKey: <0x0076A914{20-byte-hash-value}88AC>
+    scriptPubKey: OP_0 <0x76A914{20-byte-hash-value}88AC>
 
-The version byte 0x00 is removed. The rest of the witness program is deserialized and becomes:
+The OP_0 indicates the following push is a version 0 witness program. The witness program is deserialized and becomes:
 
     DUP HASH160 <20byte-hash-value> EQUALVERIFY CHECKSIG
 
@@ -158,9 +157,9 @@ The following example is an 1-of-2 multi-signature version 1 witness program.
 
     witness:      0 <signature1> <0x5121{33-byte-pubkey1}21{33-byte-pubkey2}52AE>
     scriptSig:    (empty)
-    scriptPubKey: <0x01{32-byte-hash-value}>
+    scriptPubKey: OP_1 <0x{32-byte-hash-value}>
 
-The last item in the witness is popped off, hashed with SHA256, compared against the 32-byte-hash-value in scriptPubKey, and deserialized:
+The OP_1 in scriptPubKey indicates the following push is a version 1 witness program. The last item in the witness is popped off, hashed with SHA256, compared against the 32-byte-hash-value in scriptPubKey, and deserialized:
 
     1 <33-byte-pubkey1> <33-byte-pubkey2> 2 CHECKMULTISIG
 
@@ -168,7 +167,7 @@ The script is executed with the remaining data from witness:
 
     0 <signature1> 1 <33-byte-pubkey1> <33-byte-pubkey2> 2 CHECKMULTISIG
 
-Since the actual program is larger than 40 bytes, it cannot be accommodated in a version 0 witness program. A version 1 witness program allows arbitrarily large script as the 520-byte push limit is bypassed.
+Since the actual program is larger than 32 bytes, it cannot be accommodated in a version 0 witness program. A version 1 witness program allows arbitrarily large script as the 520-byte push limit is bypassed.
 
 The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of P2SH. The increased size improves security against possible collision attacks, as 2^80 work is not infeasible anymore (By the end of 2015, 2^84 hashes have been calculated in Bitcoin mining since the creation of Bitcoin). The spending script is same as the one for an equivalent P2SH output but is moved to witness.
 
@@ -177,12 +176,12 @@ The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of P2SH. The increase
 The following example is the same 1-of-2 multi-signature version 1 witness program, but nested in a P2SH output.
 
     witness:      0 <signature1> <0x5121{33-byte-pubkey1}21{33-byte-pubkey2}52AE>
-    scriptSig:    <0x2101{32-byte-hash-value}>
+    scriptSig:    <0x5120{32-byte-hash-value}>
     scriptPubKey: HASH160 <20-byte-hash-value> EQUAL
 
-The only item in scriptSig is hashed with HASH160, compared against the 20-byte-hash-value in scriptPubKey, and interpreted as a single push of:
+The only item in scriptSig is hashed with HASH160, compared against the 20-byte-hash-value in scriptPubKey, and interpreted as:
 
-    <0x01{32-byte-hash-value}>
+    OP_1 <0x{32-byte-hash-value}>
 
 The version 1 witness program is then executed as described in the last example
 
@@ -210,11 +209,11 @@ In the current Bitcoin protocol, it is possible to generate compact fraud proof 
 It is possible to proof the first 2 types of fraud if a block is committed to a Merkle-sum-tree of the fee, size, and sigop count of each transaction. It is also possible to proof the last type of fraud if a block is committed to a Merkle tree with the originating block height and transaction index of all inputs. These commitments could be included in the extensible witness commitment through a soft fork and will be transparent to nodes that do not understand such new rules.
 
 === New script system ===
-Since all witness programs begin with a version byte, and programs with unknown versions are always considered as anyone-can-spend script, it is possible to introduce any new script system with a soft fork. The witness as a structure is not restricted by any existing script semantics and constraints, the 520-byte push limit in particular, and therefore allows arbitrarily large scripts and signatures.
+Since a version byte is pushed before a witness program, and programs with unknown versions are always considered as anyone-can-spend script, it is possible to introduce any new script system with a soft fork. The witness as a structure is not restricted by any existing script semantics and constraints, the 520-byte push limit in particular, and therefore allows arbitrarily large scripts and signatures.
 
 Examples of new script system include Schnorr signatures which reduce the size of multisig transactions dramatically, Lamport signature which is quantum computing resistance, and Merklized abstract syntax trees which allow very compact witness for conditional scripts with extreme complexity.
 
-The 41-byte limitation for witness programme could be easily extended through a soft fork in case a stronger hash function is needed in the future. The version byte is also expandable by introducing a secondary version byte for some specific primary version values.
+The 32-byte limitation for witness program could be easily extended through a soft fork in case a stronger hash function is needed in the future. The version byte is also expandable through a softfork.
 
 === Per-input lock-time and relative-lock-time ===
 Currently there is only one nLockTime field in a transaction and all inputs must share the same value. BIP68 enables per-input relative-lock-time using the nSequence field, however, with a limited lock-time period and resolution.
@@ -224,11 +223,16 @@ With a soft fork, it is possible to introduce a separate witness structure to al
 == Backward compatibility ==
 As a soft fork, older software will continue to operate without modification.  Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs as anyone-can-spend scripts (except a few edge cases in version 0 witness programs which are provably unspendable with original script semantics). Wallets should always be wary of anyone-can-spend scripts and treat them with suspicion. Non-upgraded nodes are strongly encouraged to upgrade in order to take advantage of the new features.
 
-=== Version 0 witness programs ===
-Witness programs are hashed to 256 bit "redeemscripts" which are then hashed to 160 bit P2SH. This format is fully compatible with currently existing wallets that support P2SH. Upgraded wallets will be able to send and receive to and from older wallets without any problems.
+'''What a non-upgraded wallet can do'''
 
-=== Version 1 witness programs ===
-Witness programs are hashed to a 256 bit output. This format will not be compatible with older wallets but will require less block space and will have better security due to increased collision resistance.
+* Receiving bitcoin from non-upgraded and upgraded wallets
+* Sending bitcoin to non-upgraded wallets
+* Sending bitcoin to upgraded wallets using a P2SH address (a less efficient way to use segregated witness)
+
+'''What a non-upgraded wallet cannot do'''
+
+* Validating segregated witness transaction. It assumes such a transaction is always valid
+* Sending bitcoin to upgraded wallets using a native witness program (a more efficient way to use segregated witness)
 
 == Deployment ==
 
