@@ -20,10 +20,11 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ==Motivation==
 
-The motiviation for defining this extension to the BIP-70 Payment Protocol is to allow 2 parties to exchange payment 
+The motiviation for defining this extension to the BIP70 Payment Protocol is to allow 2 parties to exchange payment 
 information in a permissioned and encrypted way such that wallet address communication can become a more automated process.
 Additionally, this extension allows for the requestor of a PaymentRequest to supply a certificate and signature in order
-to facilitate identification for address release.
+to facilitate identification for address release. This also allows for automated creation of off blockchain transaction 
+logs that are human readable, containing who you transacted with, in addition to the information that it contains today.
 
 ==Definitions==
 {| class="wikitable"
@@ -49,11 +50,12 @@ The InvoiceRequest message allows a Sender to send information to the Receiver s
 <pre>
 message InvoiceRequest {
         required bytes  sender_public_key = 1;              // Sender's EC Public Key
-        optional uint64 amount = 2 [default = 0];           // amount is integer-number-of-satoshis
-        optional string pki_type = 3 [default = "none"];    // none / x509+sha256
-        optional bytes  pki_data = 4;                       // Depends on pki_type
-        optional string notification_url = 5;               // URL to notify on ReturnPaymentRequest ready
-        optional bytes  signature = 6;                      // PKI-dependent signature
+        required uint64 nonce = 2;                          // Microseconds since epoch
+        optional uint64 amount = 3 [default = 0];           // amount is integer-number-of-satoshis
+        optional string pki_type = 4 [default = "none"];    // none / x509+sha256
+        optional bytes  pki_data = 5;                       // Depends on pki_type
+        optional string notification_url = 6;               // URL to notify on ReturnPaymentRequest ready
+        optional bytes  signature = 7;                      // PKI-dependent signature
 }
 </pre>
 
@@ -61,6 +63,8 @@ message InvoiceRequest {
 ! Field Name !! Description
 |-
 | sender_public_key     || Sender's EC Public Key
+|-
+| nonce                 || Microseconds since epoch
 |-
 | amount                || amount is integer-number-of-satoshis (default: 0)
 |-
@@ -81,8 +85,7 @@ The ReturnPaymentRequest message is an encapsulating message that allows the tra
 message ReturnPaymentRequest {
         required bytes encrypted_payment_request = 1;      // Encrypted, Serialized PaymentRequest
         required bytes receiver_public_key = 2;            // Receiver's EC Public Key
-        required bytes ephemeral_public_key = 3;           // Public Key of keypair created with ECDH-derived secret point
-        required bytes payment_request_hash = 4;           // SHA256 of Serialized PaymentRequest
+        required bytes payment_request_hash = 3;           // SHA256 of Serialized PaymentRequest
 }
 </pre>
 {| class="wikitable"
@@ -91,8 +94,6 @@ message ReturnPaymentRequest {
 | encrypted_payment_request || AES-256-CBC Encrypted Serialized PaymentRequest
 |-
 | receiver_public_key       || Receiver's EC Public Key
-|-
-| ephemeral_public_key      || Ephemeral EC Public Key
 |-
 | payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest
 |}
@@ -132,19 +133,21 @@ An invalid or unparsable message or communications error must be communicated to
 should be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
 ===InvoiceRequest Message Creation===
-
 * Create an InvoiceRequest message
-* sender_public_key MUST be set to the public key of an EC keypair.
+* sender_public_key MUST be set to the public key of an EC keypair
+* nonce MUST be set to the current epoch time in microseconds
 * Amount is optional
 * Set notification_url to URL that the Receiver will submit completed ReturnPaymentRequest to
 * If NOT including certificate, set pki_type to "none"
 * If including certificate:
 ** Set pki_type to "x509+sha256"
 ** Set pki_data as it would be set in BIP-0070 (see [https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Certificates Certificates]) section)
-** Sign InvoiceRequest with signature == "" using the X509 Certificate's private key
+** Sign InvoiceRequest with signature = "" using the X509 Certificate's private key
+** Set signature value to the computed signature
 
 ===InvoiceRequest Validation===
 * Validate sender_public_key is a valid EC public key
+* The nonce must not be repeated. The service receiving the InvoiceRequest may use whatever method to make sure that the nonce is never repeated. 
 * Validate notification_url if set, contains characters deemed valid for a URL (avoiding XSS related characters, etc).
 * If pki_type is None, InvoiceRequest is VALID
 * If pki_type is x509+sha256 and signature is valid for the serialized InvoiceRequest where signature is set to "", InvoiceRequest is VALID
@@ -154,11 +157,9 @@ should be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * Create ReturnPaymentRequest message
 * Set encrypted_payment_request to be the encrypted value of the PaymentRequest
 * Set receiver_public_key to the Receiver's EC public key (of which the private key was previously used in ECDH secret point calculation)
-* Set ephemeral_public_key to the public key of an EC keypair created using the secret point's X value.
 * Set payment_request_hash to generated SHA256 hash of the serialized PaymentRequest (without encryption)
 
 ===ReturnPaymentRequest Validation and Decryption===
-* Validate ephemeral_public_key matches public key of an EC keypair created using the secret point's X value.
 * Decrypt the serialized PaymentRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
 * Validate payment_request_hash matches SHA256 of the decrypted, serialized PaymentRequest
 * Deserialize the serialized PaymentRequest
@@ -167,7 +168,7 @@ should be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * Generate the '''secret point''' using [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH] using the local entity's private key and the remote entity's public key as inputs.
 * Initialize [http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf HMAC_DRBG] 
 ** Use '''secret point's''' X value for Entropy
-** Use Sender's public key for Nonce
+** Use the given InvoiceRequest's nonce field for Nonce
 * Initialize AES-256 in CBC Mode
 ** Use HMAC_DRBG.GENERATE(32) as the Encryption Key (256 bits)
 ** Use HMAC_DRBG.GENERATE(16) as the Initialization Vector (IV) (128 bits)
