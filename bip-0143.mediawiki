@@ -1,0 +1,133 @@
+<pre>
+  BIP: 143
+  Title: Transaction signature verification for version 0 and version 1 witness program
+  Author: Johnson Lau <jl2012@xbt.hk>
+          Pieter Wuille <pieter.wuille@gmail.com>
+  Status: Draft
+  Type: Standards Track
+  Created: 2016-01-03
+</pre>
+
+== Abstract ==
+This proposal defines a new transaction digest algorithm for signature verification in version 0 and version 1 witness program, in order to minimize redundant data hashing in verification, and to cover the input value by the signature.
+
+== Motivation ==
+There are 4 ECDSA signature verification codes in the original Bitcoin script system: CHECKSIG, CHECKSIGVERIFY, CHECKMULTISIG, CHECKMULTISIGVERIFY (“sigops”). According to the sighash type (ALL, NONE, SINGLE, ANYONECANPAY), a transaction digest is generated with a double SHA256 of a serialized subset of the transaction, and the signature is verified against this digest with a given public key. The detailed procedure is described in a Bitcoin Wiki article. <ref name=wiki>[https://en.bitcoin.it/wiki/OP_CHECKSIG]</ref>
+
+Unfortunately, there are at least 2 weaknesses in the original transaction digest algorithm:
+
+* For the verification of each signature, the amount of data hashing is proportional to the size of the transaction. Therefore, data hashing grows in O(n<sup>2</sup>) as the number of sigops in a transaction increases. While a 1 MB block would normally take 2 seconds to verify with an average computer in 2015, a 1MB transaction with 5569 sigops may take 25 seconds to verify. This could be fixed by optimizing the digest algorithm by introducing some reusable “midstate”, so the time complexity becomes O(n). <ref>[https://web.nvd.nist.gov/view/vuln/detail?vulnId=CVE-2013-2292 CVE-2013-2292]</ref><ref>[https://bitcointalk.org/?topic=140078 New Bitcoin vulnerability: A transaction that takes at least 3 minutes to verify]</ref><ref>[http://rusty.ozlabs.org/?p=522 The Megatransaction: Why Does It Take 25 Seconds?]</ref>
+* The algorithm does not involve the amount of Bitcoin being spent by the input. This is usually not a problem for online network nodes as they could request for the specified transaction to acquire the output value. For an offline transaction signing device ("cold wallet"), however, the unknowing of input amount makes it impossible to calculate the exact amount being spent and the transaction fee. To cope with this problem a cold wallet must also acquire the full transaction being spent, which could be a big obstacle in the implementation of lightweight, air-gapped wallet. By including the input value of part of the transaction digest, a cold wallet may safely sign a transaction by learning the value from an untrusted source. In the case that a wrong value is provided and signed, the signature would be invalid and no funding might be lost. <ref>[https://bitcointalk.org/index.php?topic=181734.0 SIGHASH_WITHINPUTVALUE: Super-lightweight HW wallets and offline data]</ref>
+
+Deploying the aforementioned fixes in the original script system is not a simple task. That would be either a hardfork, or a softfork for new sigops without the ability to remove or insert stack items. However, the introduction of segregated witness softfork offers an opportunity to define a different set of script semantics without disrupting the original system, as the unupgraded nodes would always consider such a transaction output is spendable by arbitrary signature or no signature at all. <ref>[https://github.com/CodeShark/bips/blob/segwit/bip-codeshark-jl2012-segwit.mediawiki BIPx: Segregated Witness (Consensus layer)]</ref>
+
+== Specification ==
+A new transaction digest algorithm is defined, but only applicable to sigops in version 0 and version 1 witness program:
+  Double SHA256 of the serialization of:
+     1. nVersion of the transaction
+     2. hashPrevouts
+     3. hashSequence
+     4. transaction id and output index of the output spent by this input
+     5. subscript of the input
+     6. value of the output spent by this input
+     7. nSequence of the input
+     8. hashOutputs
+     9. nLocktime of the transaction
+    10. sighash type of the signature
+
+The items 1, 4, 5, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
+
+The item 6 is a 8-byte value of the amount of bitcoin spent in this input.
+
+hashPrevouts:
+*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all transaction ids and output indexes involved in this transaction;
+*Otherwise, hashPrevouts is a uint256 of 0x0000......0000.
+
+hashSequence:
+*If none of the ANYONECANPAY, SINGLE, NONE sighash type is set, hashSequence is the double SHA256 of the serialization of nSequence of all inputs;
+*Otherwise, hashSequence is a uint256 of 0x0000......0000.
+
+hashOutputs:
+*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output scriptPubKey with value;
+*If sighash type is SINGLE and the input index is not greater than the number of outputs, hashOutputs is the double SHA256 of the output scriptPubKey with value of the same index as the input;
+*Otherwise, hashOutputs is a uint256 of 0x0000......0000.
+
+The hashPrevouts, hashSequence, and hashOutputs calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
+
+Refer to the reference implementation, reproduced below, for the precise algorithm:
+
+<source lang="cpp">
+  uint256 hashPrevouts;
+  uint256 hashSequence;
+  uint256 hashOutputs;
+  
+  if (!(nHashType & SIGHASH_ANYONECANPAY)) {
+      CHashWriter ss(SER_GETHASH, 0);
+      for (unsigned int n = 0; n < txTo.vin.size(); n++) {
+          ss << txTo.vin[n].prevout;
+      }
+      hashPrevouts = ss.GetHash();
+  }
+  
+  if (!(nHashType & SIGHASH_ANYONECANPAY) && (nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
+      CHashWriter ss(SER_GETHASH, 0);
+      for (unsigned int n = 0; n < txTo.vin.size(); n++) {
+          ss << txTo.vin[n].nSequence;
+      }
+      hashSequence = ss.GetHash();
+  }
+  
+  if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
+      CHashWriter ss(SER_GETHASH, 0);
+      for (unsigned int n = 0; n < txTo.vout.size(); n++) {
+          ss << txTo.vout[n];
+      }
+      hashOutputs = ss.GetHash();
+  } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
+      CHashWriter ss(SER_GETHASH, 0);
+      ss << txTo.vout[nIn];
+      hashOutputs = ss.GetHash();
+  }
+  
+  CHashWriter ss(SER_GETHASH, 0);
+  // Version
+  ss << txTo.nVersion;
+  // Input prevouts/nSequence (none/all, depending on flags)
+  ss << hashPrevouts;
+  ss << hashSequence;
+  // The input being signed (replacing the scriptSig with scriptCode + amount)
+  // The prevout may already be contained in hashPrevout, and the nSequence
+  // may already be contain in hashSequence.
+  ss << txTo.vin[nIn].prevout;
+  ss << static_cast<const CScriptBase&>(scriptCode);
+  ss << amount;
+  ss << txTo.vin[nIn].nSequence;
+  // Outputs (none/one/all, depending on flags)
+  ss << hashOutputs;
+  // Locktime
+  ss << txTo.nLockTime;
+  // Sighash type
+  ss << nHashType;
+  
+  return ss.GetHash();
+</source>
+
+== Deployment ==
+
+This proposal is deployed with Segregated Witness softfork (BIP x) 
+
+== Backward compatibility ==
+
+As a soft fork, older software will continue to operate without modification. Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs, inculding the redefined sigops, as anyone-can-spend scripts.
+
+== Reference Implementation ==
+
+https://github.com/sipa/bitcoin/commits/segwit
+
+== References ==
+
+<references>
+
+== Copyright ==
+
+This document is placed in the public domain.
