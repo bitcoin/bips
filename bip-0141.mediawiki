@@ -61,18 +61,22 @@ New rules for scriptSig:
 * In case the scriptPubKey pushes a version byte and witness program directly, the scriptSig must be exactly empty.
 * In case the redeemScript pushes a version byte and witness program, the scriptSig must be exactly the single push of the redeemScript.
 
-If the version byte is 0, the witness program is the actual script:
-* The script is executed after normal script evaluation but with data from the witness rather than the scriptSig.
-* The program must not fail and must result in exactly a single TRUE on the stack.
+If the version byte is 0, and the witness program is 20 bytes,
+* It is interpreted as a pay-to-witness-public-key-hash (P2WPKH) program.
+* The witness must consist of exactly 2 items. The first one is a signature, and the second one is a public key.
+* HASH160 of the public key must match the 20-byte witness program.
+* After normal script evaluation, the signature is verified against the public key with CHECKSIG operation. The verification must result in a single TRUE on the stack.
 
-If the version byte is 1, the witness program must be 32 bytes, as a SHA256 hash of the actual script:
-* The witness must consist of an input stack to feed to the program, followed by the serialized program.
-* The serialized program is popped off the initial witness stack. SHA256 of the serialized program must match the hash pushed in the witness program.
-* The serialized program is deserialized, and executed after normal script evaluation with the remaining witness stack.
+If the version byte is 0, and the witness program is 32 bytes,
+* It is interpreted as a pay-to-witness-script-hash (P2WSH) program.
+* The witness must consist of an input stack to feed to the script, followed by a serialized script.
+* The serialized script is popped off the initial witness stack. SHA256 of the serialized script must match the 32-byte witness program.
+* The serialized script is deserialized, and executed after normal script evaluation with the remaining witness stack.
 * The script must not fail, and result in exactly a single TRUE on the stack.
-* If the witness program is between 2 and 31 bytes, the script must fail.
 
-If the version byte is 2 to 16, no further interpretation of the witness program or witness happens.
+If the version byte is 0, but the witness program is neither 20 nor 32 bytes, the script must fail.
+
+If the version byte is 1 to 16, no further interpretation of the witness program or witness happens.
 
 === Other consensus critical limits ===
 
@@ -94,35 +98,33 @@ The new rule is total ''sigop cost'' ≤ 80,000.
 
 == Examples ==
 
-=== Version 0 witness program ===
+=== P2WPKH witness program ===
 
-The following example is a version 0 witness program, equivalent to the existing Pay-to-Pubkey-Hash (P2PKH) output.
+The following example is a version 0 pay-to-witness-public-key-hash (P2WPKH) witness program:
 
     witness:      <signature> <pubkey>
     scriptSig:    (empty)
-    scriptPubKey: 0 <DUP HASH160 <20-byte-hash> EQUALVERIFY CHECKSIG>
-                  (0x001976A914{20-byte-hash}88AC)
+    scriptPubKey: 0 <20-byte-hash>
+                  (0x0014{20-byte-hash})
 
-The '0' indicates the following push is a version 0 witness program. The witness program is deserialized and becomes:
+The '0' in scriptPubKey indicates the following push is a version 0 witness program. The length of the witness program indicates that it is a P2WPKH type. The witness must consist of exactly 2 items. The HASH160 of the pubkey in witness must match the witness program.
 
-    DUP HASH160 <20-byte-hash> EQUALVERIFY CHECKSIG
+The signature is verified as
 
-The script is executed with the data from witness
+    <signature> <pubkey> CHECKSIG
 
-    <signature> <pubkey> DUP HASH160 <20-byte-hash> EQUALVERIFY CHECKSIG
+Comparing with a traditional P2PKH output, the P2WPKH equivalent occupies 3 less bytes in the scriptPubKey, and moves the signature and public key from scriptSig to witness.
 
-Comparing with a P2PKH output, the witness program equivalent occupies 2 more bytes in the scriptPubKey, while moving the signature and public key from scriptSig to witness.
+=== P2WSH witness program ===
 
-=== Version 1 witness program ===
-
-The following example is an 1-of-2 multi-signature version 1 witness program.
+The following example is an 1-of-2 multi-signature version 0 pay-to-witness-script-hash (P2WSH) witness program.
 
     witness:      0 <signature1> <1 <pubkey1> <pubkey2> 2 CHECKMULTISIG>
     scriptSig:    (empty)
-    scriptPubKey: 1 <32-byte-hash>
-                  (0x5120{32-byte-hash})
+    scriptPubKey: 0 <32-byte-hash>
+                  (0x0020{32-byte-hash})
 
-The '1' in scriptPubKey indicates the following push is a version 1 witness program. The last item in the witness is popped off, hashed with SHA256, compared against the 32-byte-hash in scriptPubKey, and deserialized:
+The '0' in scriptPubKey indicates the following push is a version 0 witness program. The length of the witness program indicates that it is a P2WSH type. The last item in the witness is popped off, hashed with SHA256, compared against the 32-byte-hash in scriptPubKey, and deserialized:
 
     1 <pubkey1> <pubkey2> 2 CHECKMULTISIG
 
@@ -130,27 +132,27 @@ The script is executed with the remaining data from witness:
 
     0 <signature1> 1 <pubkey1> <pubkey2> 2 CHECKMULTISIG
 
-Since the actual program is larger than 32 bytes, it cannot be accommodated in a version 0 witness program. A version 1 witness program allows arbitrarily large script as the 520-byte push limit is bypassed.
+A P2WSH witness program allows arbitrarily large script as the 520-byte push limit is bypassed.
 
-The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of P2SH. The increased size improves security against possible collision attacks, as 2<sup>80</sup> work is not infeasible anymore (By the end of 2015, 2<sup>84</sup> hashes have been calculated in Bitcoin mining since the creation of Bitcoin). The spending script is same as the one for an equivalent P2SH output but is moved to witness.
+The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of BIP16 P2SH. The increased size improves security against possible collision attacks, as 2<sup>80</sup> work is not infeasible anymore (By the end of 2015, 2<sup>84</sup> hashes have been calculated in Bitcoin mining since the creation of Bitcoin). The spending script is same as the one for an equivalent BIP16 P2SH output but is moved to witness.
 
-=== Witness program nested in Pay-to-Script-Hash ===
+=== Witness program nested in BIP16 P2SH ===
 
-The following example is the same 1-of-2 multi-signature version 1 witness program, but nested in a P2SH output.
+The following example is the same 1-of-2 multi-signature P2WSH witness program, but nested in a BIP16 P2SH output.
 
     witness:      0 <signature1> <1 <pubkey1> <pubkey2> 2 CHECKMULTISIG>
-    scriptSig:    <1 <32-byte-hash>>
-                  (5120{32-byte-hash})
+    scriptSig:    <0 <32-byte-hash>>
+                  (0x0020{32-byte-hash})
     scriptPubKey: HASH160 <20-byte-hash> EQUAL
-                  (0x76A914{20-byte-hash}88AC)
+                  (0xA914{20-byte-hash}87)
 
 The only item in scriptSig is hashed with HASH160, compared against the 20-byte-hash in scriptPubKey, and interpreted as:
 
-    1 <32-byte-hash>
+    0 <32-byte-hash>
 
-The version 1 witness program is then executed as described in the last example
+The P2WSH witness program is then executed as described in the previous example
 
-Comparing with the last example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig, which is not prunable in transmission. Although a nested witness program is less efficient in many ways, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
+Comparing with the previous example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig, which is not prunable in transmission. Although a nested witness program is less efficient in many ways, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
 
 === Extensible commitment structure ===
 
@@ -160,11 +162,11 @@ The new commitment in coinbase transaction is a hash of the witness root hash an
   
   Double-SHA256(Witness root hash|Hash(new commitment|witness nonce))
 
-:: For backward compatibility, the Hash(new commitment|witness nonce) will go to the coinbase witness, and the witness nonce will be recorded in another location specified by the future softfork. Any number of new commitment could be added in this way.
+For backward compatibility, the Hash(new commitment|witness nonce) will go to the coinbase witness, and the witness nonce will be recorded in another location specified by the future softfork. Any number of new commitment could be added in this way.
 
 * Any commitments that are not consensus-critical to Bitcoin, such as merge-mining, may utilize this witness nonce. However, they must not be committed directly as the nonce, or the external system may be forced to hardfork when Bitcoin introduces more consensus-critical commitments. Instead, they should use the nonce as the root of an extensible commitment tree, and should not make any assumption about the location and depth of their commitments in the tree. For example, in the external system, it may use a flag to indicate the actual location of the commitments with the Merkle paths provided.
 
-The optional data space following the commitment also leaves room for metadata of future softforks.
+The optional data space following the commitment also leaves room for metadata of future softforks, and MUST NOT be used for other purpose.
 
 === Trust-free unconfirmed transaction dependency chain ===
 
@@ -211,7 +213,7 @@ With a soft fork, it is possible to introduce a separate witness structure to al
 
 == Backward compatibility ==
 
-As a soft fork, older software will continue to operate without modification.  Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs as anyone-can-spend scripts (except a few edge cases in version 0 witness programs which are provably unspendable with original script semantics). Wallets should always be wary of anyone-can-spend scripts and treat them with suspicion. Non-upgraded nodes are strongly encouraged to upgrade in order to take advantage of the new features.
+As a soft fork, older software will continue to operate without modification.  Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs as anyone-can-spend scripts (except a few edge cases where the witness programs are equal to 0, which the script must fail). Wallets should always be wary of anyone-can-spend scripts and treat them with suspicion. Non-upgraded nodes are strongly encouraged to upgrade in order to take advantage of the new features.
 
 '''What a non-upgraded wallet can do'''
 
@@ -253,14 +255,14 @@ Special thanks to Gregory Maxwell for originating many of the ideas in this BIP 
 
 == Reference Implementation ==
 
-https://github.com/sipa/bitcoin/commits/segwit2
+https://github.com/sipa/bitcoin/commits/segwit3
 
 == References ==
 
-*[https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki BIP16 Pay to Script Hash]
-*[https://github.com/bitcoin/bips/blob/master/bip-0142.mediawiki BIP142 Address Formats for Witness Program]
-*[https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki BIP143 Transaction signature verification for version 0 and version 1 witness program]
-*[https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki BIP144 Segregated Witness (Peer Services)]
+*[[bip-0016.mediawiki|BIP16 Pay to Script Hash]]
+*[[bip-0142.mediawiki|BIP142 Address Formats for Segregated Witness]]
+*[[bip-0143.mediawiki|BIP143 Transaction Signature Verification for Version 0 Witness Program]]
+*[[bip-0144.mediawiki|BIP144 Segregated Witness (Peer Services)]]
 
 == Copyright ==
 
