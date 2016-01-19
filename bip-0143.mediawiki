@@ -24,35 +24,41 @@ Deploying the aforementioned fixes in the original script system is not a simple
 == Specification ==
 A new transaction digest algorithm is defined, but only applicable to sigops in version 0 witness program:
   Double SHA256 of the serialization of:
-     1. nVersion of the transaction
-     2. hashPrevouts
-     3. hashSequence
-     4. transaction id and output index of the output spent by this input
-     5. subscript of the input
-     6. value of the output spent by this input
-     7. nSequence of the input
-     8. hashOutputs
-     9. nLocktime of the transaction
-    10. sighash type of the signature
+     1. nVersion of the transaction (4-byte little endian)
+     2. hashPrevouts (32-byte hash)
+     3. hashSequence (32-byte hash)
+     4. outpoint (32-byte hash + 4-byte little endian) 
+     5. scriptCode of the input (varInt for the length + script)
+     6. value of the output spent by this input (8-byte little endian)
+     7. nSequence of the input (4-byte little endian)
+     8. hashOutputs (32-byte hash)
+     9. nLocktime of the transaction (4-byte little endian)
+    10. sighash type of the signature (4-byte little endian)
 
-The items 1, 4, 5, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
+The items 1, 4, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
+
+The item 5:
+*For P2WPKH witness program, the scriptCode is <code>0x1976a914{20-byte-pubkey-hash}88ac</code>.
+*For P2WSH witness program,
+**if the <code>witnessScript</code> does not contain any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is a <code>varInt</code> for the length of the <code>witnessScript</code>, followed by the <code>witnessScript</code>.
+**if the <code>witnessScript</code> contains any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is the evaluated script, with all <code>OP_CODESEPARATOR</code> and everything up to the last <code>OP_CODESEPARATOR</code> before the signature checking opcode being executed removed, and prepended by a <code>varInt</code> for the length of the trancated script.
 
 The item 6 is a 8-byte value of the amount of bitcoin spent in this input.
 
-hashPrevouts:
-*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all transaction ids and output indexes involved in this transaction;
-*Otherwise, hashPrevouts is a uint256 of 0x0000......0000.
+<code>hashPrevouts</code>:
+*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all input outpoints;
+*Otherwise, <code>hashPrevouts</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
-hashSequence:
+<code>hashSequence</code>:
 *If none of the ANYONECANPAY, SINGLE, NONE sighash type is set, hashSequence is the double SHA256 of the serialization of nSequence of all inputs;
-*Otherwise, hashSequence is a uint256 of 0x0000......0000.
+*Otherwise, <code>hashSequence</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
-hashOutputs:
-*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output scriptPubKey with value;
-*If sighash type is SINGLE and the input index is not greater than the number of outputs, hashOutputs is the double SHA256 of the output scriptPubKey with value of the same index as the input;
-*Otherwise, hashOutputs is a uint256 of 0x0000......0000.
+<code>hashOutputs</code>:
+*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output value (8-byte little endian) with scriptPubKey (<code>varInt</code> for the length + script);
+*If sighash type is SINGLE and the input index is not greater than the number of outputs, <code>hashOutputs</code> is the double SHA256 of the output value with <code>scriptPubKey</code> of the same index as the input;
+*Otherwise, <code>hashOutputs</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
-The hashPrevouts, hashSequence, and hashOutputs calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
+The <code>hashPrevouts</code>, <code>hashSequence</code>, and <code>hashOutputs</code> calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
 
 Refer to the reference implementation, reproduced below, for the precise algorithm:
 
