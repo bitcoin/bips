@@ -57,9 +57,13 @@ If there are more than one scriptPubKey matching the pattern, the one with highe
 
 A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
 
+Witness verification logic is either
+# triggered by a scriptPubKey that is exactly a push of a version byte, plus a push of a witness program, or
+# triggered when a scriptPubKey is a P2SH script, and the BIP16 redeemScript pushed in the scriptSig is exactly a push of a version byte plus a push of a witness program.
+
 New rules for scriptSig:
-* In case the scriptPubKey pushes a version byte and witness program directly, the scriptSig must be exactly empty.
-* In case the redeemScript pushes a version byte and witness program, the scriptSig must be exactly the single push of the redeemScript.
+* In case 1, the scriptSig must be exactly empty.
+* In case 2, the scriptSig must be exactly a push of the BIP16 redeemScript.
 
 If the version byte is 0, and the witness program is 20 bytes,
 * It is interpreted as a pay-to-witness-public-key-hash (P2WPKH) program.
@@ -69,9 +73,9 @@ If the version byte is 0, and the witness program is 20 bytes,
 
 If the version byte is 0, and the witness program is 32 bytes,
 * It is interpreted as a pay-to-witness-script-hash (P2WSH) program.
-* The witness must consist of an input stack to feed to the script, followed by a serialized script.
-* The serialized script is popped off the initial witness stack. SHA256 of the serialized script must match the 32-byte witness program.
-* The serialized script is deserialized, and executed after normal script evaluation with the remaining witness stack.
+* The witness must consist of an input stack to feed to the script, followed by a serialized script ("witnessScript").
+* The witnessScript is popped off the initial witness stack. SHA256 of the witnessScript must match the 32-byte witness program.
+* The witnessScript is deserialized, and executed after normal script evaluation with the remaining witness stack.
 * The script must not fail, and result in exactly a single TRUE on the stack.
 
 If the version byte is 0, but the witness program is neither 20 nor 32 bytes, the script must fail.
@@ -124,7 +128,7 @@ The following example is an 1-of-2 multi-signature version 0 pay-to-witness-scri
     scriptPubKey: 0 <32-byte-hash>
                   (0x0020{32-byte-hash})
 
-The '0' in scriptPubKey indicates the following push is a version 0 witness program. The length of the witness program indicates that it is a P2WSH type. The last item in the witness is popped off, hashed with SHA256, compared against the 32-byte-hash in scriptPubKey, and deserialized:
+The '0' in scriptPubKey indicates the following push is a version 0 witness program. The length of the witness program indicates that it is a P2WSH type. The last item in the witness (the "witnessScript") is popped off, hashed with SHA256, compared against the 32-byte-hash in scriptPubKey, and deserialized:
 
     1 <pubkey1> <pubkey2> 2 CHECKMULTISIG
 
@@ -150,7 +154,7 @@ The only item in scriptSig is hashed with HASH160, compared against the 20-byte-
 
     0 <32-byte-hash>
 
-The P2WSH witness program is then executed as described in the previous example
+The P2WSH witness program is then executed as described in the previous example.
 
 Comparing with the previous example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig, which is not prunable in transmission. Although a nested witness program is less efficient in many ways, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
 
