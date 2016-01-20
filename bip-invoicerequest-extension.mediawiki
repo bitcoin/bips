@@ -46,15 +46,6 @@ In short we wanted to make bitcoin more human, while at the same time improving 
 | Receiver  || Entity receiving a value transfer
 |}
 
-==Acronyms==
-{| class="wikitable"
-! Acronym !! Expanded !! Description
-|-
-| IR || InvoiceRequest || A request to create and return an encrypted PaymentRequest
-|-
-| RPR || ReturnPaymentRequest  || A message returned based on a submitted InvoiceRequest containing an encrypted PaymentRequest
-|}
-
 ==New Messages==
 
 ===InvoiceRequest===
@@ -85,7 +76,7 @@ message InvoiceRequest {
 |-
 | pki_data              || Depends on pki_type
 |-
-| notification_url      || Secure (usually HTTPS) location where a ReturnPaymentRequest (see below) may be sent when ready
+| notification_url      || Secure (usually HTTPS) location where a ReturnPaymentRequest (see below) SHOULD be sent when ready
 |-
 | signature             || PKI-dependent signature
 |}
@@ -127,29 +118,29 @@ message ReturnPaymentRequest {
 
 This overview flow is illustrated below:
 
-<img src=bip-ir/overview_flow.png></img>
+<img src="bip-ir/overview_flow.png"></img>
 
 ===Message Interaction Details===
 
 ====InvoiceRequest====
-Sender must transmit InvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting InvoiceRequest 
-messages must set appropriate Content-Type headers as specified here:
+Sender MUST transmit InvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting InvoiceRequest 
+messages MUST set appropriate Content-Type headers as specified here:
 <pre>Content-Type: application/bitcoin-invoicerequest</pre>
 
 ====ReturnPaymentRequest====
-Receiver must transmit ReturnPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
-ReturnPaymentRequest messages must set appropriate Content-Type headers as specified here:
+Receiver MUST transmit ReturnPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
+ReturnPaymentRequest messages MUST set appropriate Content-Type headers as specified here:
 <pre>Content-Type: application/bitcoin-returnpaymentrequest</pre>
 
 ====Message or Communication Errors====
-An invalid or unparsable message or communications error must be communicated to the party that initiated the communication. This
-should be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
+An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This
+SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
 ===InvoiceRequest Message Creation===
 * Create an InvoiceRequest message
 * sender_public_key MUST be set to the public key of an EC keypair
 * nonce MUST be set to a non-repeating number. The current epoch time in microseconds SHOULD be used, unless the creating device doesn't have access to a RTC (in the case of a smart card, for example)
-* Amount is optional
+* Amount is optional. If the amount is not specified by the InvoiceRequest, the Receiver MAY specify the amount in the returned PaymentRequest. If an amount is specified by the InvoiceRequest and a PaymentRequest cannot be generated for that amount, the InvoiceRequest SHOULD be rejected with HTTP status code 406.
 * Set notification_url to URL that the Receiver will submit completed ReturnPaymentRequest to
 * If NOT including certificate, set pki_type to "none"
 * If including certificate:
@@ -160,7 +151,7 @@ should be done through standard HTTP Status Code messaging ([https://tools.ietf.
 
 ===InvoiceRequest Validation===
 * Validate sender_public_key is a valid EC public key
-* The nonce must not be repeated. The service receiving the InvoiceRequest may use whatever method to make sure that the nonce is never repeated. 
+* The nonce MUST not be repeated. The service receiving the InvoiceRequest MAY use whatever method to make sure that the nonce is never repeated. 
 * Validate notification_url if set, contains characters deemed valid for a URL (avoiding XSS related characters, etc).
 * If pki_type is None, InvoiceRequest is VALID
 * If pki_type is x509+sha256 and signature is valid for the serialized InvoiceRequest where signature is set to "", InvoiceRequest is VALID
@@ -185,6 +176,21 @@ should be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * Initialize AES-256 in CBC Mode
 ** Use HMAC_DRBG.GENERATE(32) as the Encryption Key (256 bits)
 ** Use HMAC_DRBG.GENERATE(16) as the Initialization Vector (IV) (128 bits)
+
+==Implementation==
+A reference implementation for a Store & Forward server supporting this proposal can be found here: [https://github.com/netkicorp/addressimo Addressimo]
+A reference client implementation can be found in the InvoiceRequest functional testing for Addressimo here: [https://github.com/netkicorp/addressimo/blob/master/functest/functest_ir.py InvoiceRequest Client Reference Implementation]
+
+==BIP70 Extension==
+The following flowchart is borrowed from BIP70 and expanded upon in order to visually describe how this BIP is an extension to BIP70.
+
+<img src="bip-ir/bip70-extension.png"></img>
+
+==Mobile to Mobile Example==
+The following diagram shows a sample flow in which one mobile client is sending value to a second mobile client with the use
+of an InvoiceRequest, a Store & Forward server, and a ReturnPaymentRequest.
+
+<img src="bip-ir/mobile-sf-bip70-extension.png"></img>
 
 ==Reference==
 
