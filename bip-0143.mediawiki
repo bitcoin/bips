@@ -1,4 +1,4 @@
-<pre>
+﻿<pre>
   BIP: 143
   Title: Transaction Signature Verification for Version 0 Witness Program
   Author: Johnson Lau <jl2012@xbt.hk>
@@ -24,35 +24,43 @@ Deploying the aforementioned fixes in the original script system is not a simple
 == Specification ==
 A new transaction digest algorithm is defined, but only applicable to sigops in version 0 witness program:
   Double SHA256 of the serialization of:
-     1. nVersion of the transaction
-     2. hashPrevouts
-     3. hashSequence
-     4. transaction id and output index of the output spent by this input
-     5. subscript of the input
-     6. value of the output spent by this input
-     7. nSequence of the input
-     8. hashOutputs
-     9. nLocktime of the transaction
-    10. sighash type of the signature
+     1. nVersion of the transaction (4-byte little endian)
+     2. hashPrevouts (32-byte hash)
+     3. hashSequence (32-byte hash)
+     4. outpoint (32-byte hash + 4-byte little endian) 
+     5. scriptCode of the input (varInt for the length + script)
+     6. value of the output spent by this input (8-byte little endian)
+     7. nSequence of the input (4-byte little endian)
+     8. hashOutputs (32-byte hash)
+     9. nLocktime of the transaction (4-byte little endian)
+    10. sighash type of the signature (4-byte little endian)
 
-The items 1, 4, 5, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
+All components in the original algorithm, including the behavior <code>OP_CODESEPERATOR</code>, remains unchanged. The only difference is the way of serialization and the inclusion of amount being spent.
+
+The items 1, 4, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
+
+The item 5:
+*For P2WPKH witness program, the scriptCode is <code>0x1976a914{20-byte-pubkey-hash}88ac</code>.
+*For P2WSH witness program,
+**if the <code>witnessScript</code> does not contain any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is a <code>varInt</code> for the length of the <code>witnessScript</code>, followed by the <code>witnessScript</code>.
+**if the <code>witnessScript</code> contains any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is the evaluated script, with all <code>OP_CODESEPARATOR</code> and everything up to the last <code>OP_CODESEPARATOR</code> before the signature checking opcode being executed removed, and prepended by a <code>varInt</code> for the length of the truncated script.
 
 The item 6 is a 8-byte value of the amount of bitcoin spent in this input.
 
-hashPrevouts:
-*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all transaction ids and output indexes involved in this transaction;
-*Otherwise, hashPrevouts is a uint256 of 0x0000......0000.
+<code>hashPrevouts</code>:
+*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all input outpoints;
+*Otherwise, <code>hashPrevouts</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
-hashSequence:
+<code>hashSequence</code>:
 *If none of the ANYONECANPAY, SINGLE, NONE sighash type is set, hashSequence is the double SHA256 of the serialization of nSequence of all inputs;
-*Otherwise, hashSequence is a uint256 of 0x0000......0000.
+*Otherwise, <code>hashSequence</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
-hashOutputs:
-*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output scriptPubKey with value;
-*If sighash type is SINGLE and the input index is not greater than the number of outputs, hashOutputs is the double SHA256 of the output scriptPubKey with value of the same index as the input;
-*Otherwise, hashOutputs is a uint256 of 0x0000......0000.
+<code>hashOutputs</code>:
+*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output value (8-byte little endian) with scriptPubKey (<code>varInt</code> for the length + script);
+*If sighash type is SINGLE and the input index is not greater than the number of outputs, <code>hashOutputs</code> is the double SHA256 of the output value with <code>scriptPubKey</code> of the same index as the input;
+*Otherwise, <code>hashOutputs</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
-The hashPrevouts, hashSequence, and hashOutputs calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
+The <code>hashPrevouts</code>, <code>hashSequence</code>, and <code>hashOutputs</code> calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
 
 Refer to the reference implementation, reproduced below, for the precise algorithm:
 
@@ -112,6 +120,69 @@ Refer to the reference implementation, reproduced below, for the precise algorit
   return ss.GetHash();
 </source>
 
+== Example ==
+
+  
+  The following is an unsigned transaction:
+    0100000002fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f0000000000eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac11000000
+    
+    nVersion:  01000000
+    txin:      02 fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f 00000000 00 eeffffff
+                  ef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a 01000000 00 ffffffff
+    txout:     02 202cb20600000000 1976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac
+                  9093510d00000000 1976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac
+    nLockTime: 11000000
+  
+  The first input comes from an ordinary P2PK:
+    scriptPubKey: 2103c9f4836b9a4f77fc0d81f7bcb01b7f1b35916864b9476c241ce9fc198bd25432ac value: 6.25
+    
+  The second input comes from a P2WPKH witness program:
+    scriptPubKey: 00141d0f172a0ecb48aee1be1f2687d2963ae33f71a1, value: 6
+    
+  To sign it with a nHashType of 1 (SIGHASH_ALL):
+  
+  hashPrevouts:
+    dSHA256(fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f00000000ef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a01000000)
+  = 96b827c8483d4e9b96712b6713a7b68d6e8003a781feba36c31143470b4efd37
+  
+  hashSequence:
+    dSHA256(eeffffffffffffff)
+  = 52b0a642eea2fb7ae638c36f6252b6750293dbe574a806984b8e4d8548339a3b
+  
+  hashOutputs:
+    dSHA256(202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac)
+  = 863ef3e1a92afbfdb97f31ad0fc7683ee943e9abcf2501590ff8f6551f47e5e5
+  
+  hash preimage: 0100000096b827c8483d4e9b96712b6713a7b68d6e8003a781feba36c31143470b4efd3752b0a642eea2fb7ae638c36f6252b6750293dbe574a806984b8e4d8548339a3bef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a010000001976a9141d0f172a0ecb48aee1be1f2687d2963ae33f71a188ac0046c32300000000ffffffff863ef3e1a92afbfdb97f31ad0fc7683ee943e9abcf2501590ff8f6551f47e5e51100000001000000
+  
+    nVersion:     01000000
+    hashPrevouts: 96b827c8483d4e9b96712b6713a7b68d6e8003a781feba36c31143470b4efd37
+    hashSequence: 52b0a642eea2fb7ae638c36f6252b6750293dbe574a806984b8e4d8548339a3b
+    outpoint:     ef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a01000000
+    scriptCode:   1976a9141d0f172a0ecb48aee1be1f2687d2963ae33f71a188ac
+    amount:       0046c32300000000
+    nSequence:    ffffffff
+    hashOutputs:  863ef3e1a92afbfdb97f31ad0fc7683ee943e9abcf2501590ff8f6551f47e5e5
+    nLockTime:    11000000
+    nHashType:    01000000
+    
+  sigHash:      c37af31116d1b27caf68aae9e3ac82f1477929014d5b917657d0eb49478cb670
+  signature:    304402203609e17b84f6a7d30c80bfa610b5b4542f32a8a0d5447a12fb1366d7f01cc44a0220573a954c4518331561406f90300e8f3358f51928d43c212a8caed02de67eebee
+    
+  The serialized signed transaction is: 01000000000102fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f00000000494830450221008b9d1dc26ba6a9cb62127b02742fa9d754cd3bebf337f7a55d114c8e5cdd30be022040529b194ba3f9281a99f2b1c0a19c0489bc22ede944ccf4ecbab4cc618ef3ed01eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac000247304402203609e17b84f6a7d30c80bfa610b5b4542f32a8a0d5447a12fb1366d7f01cc44a0220573a954c4518331561406f90300e8f3358f51928d43c212a8caed02de67eebee0121025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee635711000000
+  
+    nVersion:  01000000
+    marker:    00
+    flag:      01
+    txin:      02 fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f 00000000 494830450221008b9d1dc26ba6a9cb62127b02742fa9d754cd3bebf337f7a55d114c8e5cdd30be022040529b194ba3f9281a99f2b1c0a19c0489bc22ede944ccf4ecbab4cc618ef3ed01 eeffffff
+                  ef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a 01000000 00 ffffffff
+    txout:     02 202cb20600000000 1976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac
+                  9093510d00000000 1976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac
+    witness    00
+               02 47304402203609e17b84f6a7d30c80bfa610b5b4542f32a8a0d5447a12fb1366d7f01cc44a0220573a954c4518331561406f90300e8f3358f51928d43c212a8caed02de67eebee01 21025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357
+    nLockTime: 11000000
+
+The new serialization format is described in BIP144 <ref>[[bip-0144.mediawiki|BIP144: Segregated Witness (Peer Services)]]</ref>
 == Deployment ==
 
 This proposal is deployed with Segregated Witness softfork (BIP 141) 
@@ -122,7 +193,7 @@ As a soft fork, older software will continue to operate without modification. No
 
 == Reference Implementation ==
 
-https://github.com/sipa/bitcoin/commits/segwit3
+https://github.com/sipa/bitcoin/commits/segwit
 
 == References ==
 
