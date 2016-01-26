@@ -61,7 +61,7 @@ Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
 
 ### Italian
 
-Credits: @paoloaga
+Credits: @paoloaga @Polve
 
 Words chosen using the following rules:
 
