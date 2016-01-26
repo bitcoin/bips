@@ -6,6 +6,7 @@
 * [Chinese (Simplified)](chinese_simplified.txt)
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
+* [Italian](italian.txt)
 
 ##Wordlists (Special Considerations)
 
@@ -57,3 +58,26 @@ Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
 15. No words in conflict with the spelling corrections of 1990 (http://goo.gl/Y8DU4z).
 16. No embarrassing words (in a very, very large scope) or belonging to a particular religion.
 17. No identical words with the Spanish wordlist (as Y75QMO wants).
+
+### Italian
+
+Credits: @paoloaga @Polve
+
+Words chosen using the following rules:
+
+1. Simple and common italian words.
+2. Length between 4 and 8 characters.
+3. First 4 letters must be unique between all words.
+4. No accents or special characters.
+5. No complex verb forms.
+6. No plural words.
+7. No words that remind negative/sad/bad things.
+8. If both female/male words are available, choose male version.
+9. No words with double vocals (like: lineetta)
+10. No words already used in other language mnemonic sets.
+11. If 3 of the first 4 letters are already used in the same sequence in another mnemonic word, there must be at least other 3 different letters.
+12. If 3 of the first 4 letters are already used in the same sequence in another mnemonic word, there not must be the same sequence of 3 or more letters.
+
+Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good. 
+
+All the words have been manually selected and automatically checked against the rules.
