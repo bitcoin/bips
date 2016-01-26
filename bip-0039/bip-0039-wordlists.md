@@ -6,6 +6,7 @@
 * [Chinese (Simplified)](chinese_simplified.txt)
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
+* [Italian](italian.txt)
 
 ##Wordlists (Special Considerations)
 
