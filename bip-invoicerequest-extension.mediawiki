@@ -85,8 +85,28 @@ or payment information, only delete encrypted messages.
 
 ==New Messages==
 
+===EncryptedInvoiceRequest===
+The EncryptedInvoiceRequest message allows a Sender to send an encrypted InvoiceRequest to the Receiver such that the details of the InvoiceRequest are kept secret.
+<pre>
+message EncryptedInvoiceRequest {
+    required bytes encrypted_invoice_request = 1;           // Encrypted Serialized InvoiceRequest
+    required bytes sender_public_key = 2;                   // Sender's EC Public Key
+    required bytes invoice_request_hash = 3;                // SHA256 of Serialized InvoiceRequest
+}
+</pre>
+
+{| class="wikitable"
+! Field Name</b> !! Description
+|-
+| encrypted_invoice_request || AES-256-CBC Encrypted Serialized InvoiceRequest
+|-
+| sender_public_key       || Sender's EC Public Key
+|-
+| invoice_request_hash      || SHA256 Hash of Non-Encrypted, Serialized InvoiceRequest
+|}
+
 ===InvoiceRequest===
-The InvoiceRequest message allows a Sender to send information to the Receiver such that they can create and return a ReturnPaymentRequest.
+The InvoiceRequest message allows a Sender to send information to the Receiver such that they can create and return a EncryptedPaymentRequest.
 
 <pre>
 message InvoiceRequest {
@@ -95,7 +115,7 @@ message InvoiceRequest {
         optional uint64 amount = 3 [default = 0];           // amount is integer-number-of-satoshis
         optional string pki_type = 4 [default = "none"];    // none / x509+sha256
         optional bytes  pki_data = 5;                       // Depends on pki_type
-        optional string notification_url = 6;               // URL to notify on ReturnPaymentRequest ready
+        optional string notification_url = 6;               // URL to notify on EncryptedPaymentRequest ready
         optional bytes  signature = 7;                      // PKI-dependent signature
 }
 </pre>
@@ -113,18 +133,18 @@ message InvoiceRequest {
 |-
 | pki_data              || Depends on pki_type
 |-
-| notification_url      || Secure (usually HTTPS) location where a ReturnPaymentRequest (see below) SHOULD be sent when ready
+| notification_url      || Secure (usually HTTPS) location where a EncryptedPaymentRequest (see below) SHOULD be sent when ready
 |-
 | signature             || PKI-dependent signature
 |}
 
-===ReturnPaymentRequest===
+===EncryptedPaymentRequest===
 
-The ReturnPaymentRequest message is an encapsulating message that allows the transmission of an encrypted, serialized PaymentRequest.
+The EncryptedPaymentRequest message is an encapsulating message that allows the transmission of an encrypted, serialized PaymentRequest.
 
 <pre>
-message ReturnPaymentRequest {
-        required bytes encrypted_payment_request = 1;      // Encrypted, Serialized PaymentRequest
+message EncryptedPaymentRequest {
+        required bytes encrypted_payment_request = 1;      // Encrypted Serialized PaymentRequest
         required bytes receiver_public_key = 2;            // Receiver's EC Public Key
         required bytes payment_request_hash = 3;           // SHA256 of Serialized PaymentRequest
 }
@@ -139,18 +159,21 @@ message ReturnPaymentRequest {
 | payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest
 |}
 
-==InvoiceRequest / ReturnPaymentRequest Process==
+==Encrypted InvoiceRequest / PaymentRequest Process==
 
 ===Overview===
 
 # Sender creates InvoiceRequest
-# Sender transmits InvoiceRequest to Receiver
+# Sender encrypts the InvoiceRequest
+# Sender creates EncryptedInvoiceRequest (containing an encrypted InvoiceRequest)
+# Sender transmits EncryptedInvoiceRequest to Receiver
+# Receiver decrypts and validates EncryptedPaymentRequest
 # Receiver validates InvoiceRequest
 # Receiver creates PaymentRequest
 # Receiver encrypts the PaymentRequest
-# Receiver creates ReturnPaymentRequest (containing an encrypted PaymentRequest)
-# Receiver transmits ReturnPaymentRequest to Sender
-# Sender validates ReturnPaymentRequest
+# Receiver creates EncryptedPaymentRequest (containing an encrypted PaymentRequest)
+# Receiver transmits EncryptedPaymentRequest to Sender
+# Sender validates EncryptedPaymentRequest
 # Sender decrypts and validates encrypted PaymentRequest
 
 This overview flow is illustrated below:
@@ -159,15 +182,15 @@ This overview flow is illustrated below:
 
 ===Message Interaction Details===
 
-====InvoiceRequest====
-Sender MUST transmit InvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting InvoiceRequest 
-messages MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-invoicerequest</pre>
+===EncryptedInvoiceRequest===
+Sender MUST transmit EncryptedInvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP, Sending transmitting
+EncryptedInvoiceRequest message MUST set appropriate Content-Type headers as specified here:
+<pre>Content-Type: application/bitcoin-encrypted-invoicerequest</pre>
 
-====ReturnPaymentRequest====
-Receiver MUST transmit ReturnPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
-ReturnPaymentRequest messages MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-returnpaymentrequest</pre>
+====EncryptedPaymentRequest====
+Receiver MUST transmit EncryptedPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
+EncryptedPaymentRequest messages MUST set appropriate Content-Type headers as specified here:
+<pre>Content-Type: application/bitcoin-encrypted-paymentrequest</pre>
 
 ====Message or Communication Errors====
 An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This
@@ -178,13 +201,21 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * sender_public_key MUST be set to the public key of an EC keypair
 * nonce MUST be set to a non-repeating number. The current epoch time in microseconds SHOULD be used, unless the creating device doesn't have access to a RTC (in the case of a smart card, for example)
 * Amount is optional. If the amount is not specified by the InvoiceRequest, the Receiver MAY specify the amount in the returned PaymentRequest. If an amount is specified by the InvoiceRequest and a PaymentRequest cannot be generated for that amount, the InvoiceRequest SHOULD be rejected with HTTP status code 406.
-* Set notification_url to URL that the Receiver will submit completed ReturnPaymentRequest to
+* Set notification_url to URL that the Receiver will submit completed EncryptedPaymentRequest to
 * If NOT including certificate, set pki_type to "none"
 * If including certificate:
 ** Set pki_type to "x509+sha256"
 ** Set pki_data as it would be set in BIP-0070 (see [https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Certificates Certificates]) section)
 ** Sign InvoiceRequest with signature = "" using the X509 Certificate's private key
 ** Set signature value to the computed signature
+
+===EncryptedInvoiceRequest Message Creation===
+* Create an EncryptedInvoiceRequest
+* Retrieve endpoint public key to use in <b>ECDH Point Generation</b> as specified in <b>Initial Public Key Retrieval for InvoiceRequest Encryption</b> (see below)
+* sender_public_key MUST be set to the public key of an EC keypair
+* invoice_request_hash MUST be set to the SHA256 hash of the serialized InvoiceRequest (without encryption)
+* Encrypt the serialized InvoiceRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see blow)</b>
+* encrypted_invoice_Request MUST be set to the encrypted values of the InvoiceRequest
 
 ===InvoiceRequest Validation===
 * Validate sender_public_key is a valid EC public key
@@ -193,14 +224,14 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * If pki_type is None, InvoiceRequest is VALID
 * If pki_type is x509+sha256 and signature is valid for the serialized InvoiceRequest where signature is set to "", InvoiceRequest is VALID
 
-===ReturnPaymentRequest Message Creation and PaymentRequest Encryption===
+===EncryptedPaymentRequest Message Creation and PaymentRequest Encryption===
 * Encrypt the serialized PaymentRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
-* Create ReturnPaymentRequest message
+* Create EncryptedPaymentRequest message
 * Set encrypted_payment_request to be the encrypted value of the PaymentRequest
 * Set receiver_public_key to the Receiver's EC public key (of which the private key was previously used in ECDH secret point calculation)
 * Set payment_request_hash to generated SHA256 hash of the serialized PaymentRequest (without encryption)
 
-===ReturnPaymentRequest Validation and Decryption===
+===EncryptedPaymentRequest Validation and Decryption===
 * Decrypt the serialized PaymentRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
 * Validate payment_request_hash matches SHA256 of the decrypted, serialized PaymentRequest
 * Deserialize the serialized PaymentRequest
@@ -213,6 +244,21 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * Initialize AES-256 in CBC Mode
 ** Use HMAC_DRBG.GENERATE(32) as the Encryption Key (256 bits)
 ** Use HMAC_DRBG.GENERATE(16) as the Initialization Vector (IV) (128 bits)
+
+===Initial Public Key Retrieval for InvoiceRequest Encryption===
+Initial public key retrieval for InvoiceRequest encryption can be done in a number of ways including, but not limited to, the following:
+* Wallet Name public key asset type resolution - DNSSEC-validated name resolution returns Base64 encoded DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
+* Key Server lookup - Key Server looked based on keyserver identifier (i.e., e-mail address) returns Base64 encoded DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
+* QR Code - Use of QR-code to encode DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
+
+==Payment Messages with a Store & Foward Server==
+[https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Payment Payment] messages are used in the same way
+with the following exception:
+
+When a Store & Forward server is in use during the Payment Protocol exchange, a Payment message generated as the result of a 
+received EncryptedPaymentRequest MUST be accepted by a Store & Forward server if the Payment message is appropriately correlated
+to an InvoiceRequest/PaymentRequest exchange. This correlation SHOULD BE done in order to decrease spam requests. The accepted 
+Payment message IS NOT validated as the Store & Forward server does not have access to the original Payment Request.
 
 ==Implementation==
 A reference implementation for a Store & Forward server supporting this proposal can be found here: 
@@ -230,11 +276,11 @@ The following flowchart is borrowed from BIP70 and expanded upon in order to vis
 
 ==Mobile to Mobile Example==
 The following diagram shows a sample flow in which one mobile client is sending value to a second mobile client with the use
-of an InvoiceRequest, a Store & Forward server, and a ReturnPaymentRequest.
+of an InvoiceRequest, a Store & Forward server, and a EncryptedPaymentRequest.
 
 <img src="bip-ir/mobile-sf-bip70-extension.png"></img>
 
-==Reference==
+==References==
 
 * [[bip-0070.mediawiki|BIP70 - Payment Protocol]]
 * [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH]
