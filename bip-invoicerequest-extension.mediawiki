@@ -39,6 +39,13 @@ The motivation for this extension to BIP70 is twofold:
 
 In short we wanted to make bitcoin more human, while at the same time improving transaction privacy.
 
+==Definitions==
+{| class="wikitable"
+| Sender    || Entity wishing to transfer value that they control
+|-
+| Receiver  || Entity receiving a value transfer
+|}
+
 ==Example Use Cases==
 
 1. Address Book
@@ -75,13 +82,6 @@ exchange. This is a common case for mobile and offline wallets.
 With this BIP, returned payment information is encrypted with an ECDH-computed shared key before sending to a Store & Forward 
 service. In this case, a successful attack against a Store & Forward service would not be able to read or modify wallet address 
 or payment information, only delete encrypted messages.
-
-==Definitions==
-{| class="wikitable"
-| Sender    || Entity wishing to transfer value that they control
-|-
-| Receiver  || Entity receiving a value transfer
-|}
 
 ==New Messages==
 
@@ -159,15 +159,13 @@ message EncryptedPaymentRequest {
 | payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest
 |}
 
-==Encrypted InvoiceRequest / PaymentRequest Process==
+==InvoiceRequest / PaymentRequest Process==
+The process overview for using InvoiceRequests and receiving encrypted PaymentRequests is defined below in two sections. 
+Optionally, the Sender MAY choose to encrypt the InvoiceRequest message and therefore MUST follow the <b>Encrypted InvoiceRequest Overview</b> process.
 
-===Overview===
-
+===Non-Encrypted InvoiceRequest Overview===
 # Sender creates InvoiceRequest
-# Sender encrypts the InvoiceRequest
-# Sender creates EncryptedInvoiceRequest (containing an encrypted InvoiceRequest)
-# Sender transmits EncryptedInvoiceRequest to Receiver
-# Receiver decrypts and validates EncryptedPaymentRequest
+# Sender transmits InvoiceRequest to Receiver
 # Receiver validates InvoiceRequest
 # Receiver creates PaymentRequest
 # Receiver encrypts the PaymentRequest
@@ -176,25 +174,49 @@ message EncryptedPaymentRequest {
 # Sender validates EncryptedPaymentRequest
 # Sender decrypts and validates encrypted PaymentRequest
 
-This overview flow is illustrated below:
+<img src="bip-ir/invoice-request-process.png"></img>
 
-<img src="bip-ir/overview_flow.png"></img>
+===Encrypted InvoiceRequest Overview===
+# Sender retrieves Receiver InvoiceRequest Public Key
+# Sender creates InvoiceRequest
+# Sender encrypts the InvoiceRequest
+# Sender creates EncryptedInvoiceRequest (containing an encrypted InvoiceRequest)
+# Sender transmits EncryptedInvoiceRequest to Receiver
+# Receiver decrypts and validates EncryptedInvoiceRequest
+# Receiver validates InvoiceRequest
+# Receiver creates PaymentRequest
+# Receiver encrypts the PaymentRequest
+# Receiver creates EncryptedPaymentRequest (containing an encrypted PaymentRequest)
+# Receiver transmits EncryptedPaymentRequest to Sender
+# Sender validates EncryptedPaymentRequest
+# Sender decrypts and validates encrypted PaymentRequest
 
-===Message Interaction Details===
+<b>NOTE:</b> See section <b>Initial Public Key Retrieval for InvoiceRequest Encryption</b> below for possible options to retrieve Receiver InvoiceRequet public keys.
+
+<img src="bip-ir/encrypted-invoice-request-process.png"></img>
+
+==Message Interaction Details==
 
 ===EncryptedInvoiceRequest===
-Sender MUST transmit EncryptedInvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP, Sender transmitting
+Sender MUST transmit EncryptedInvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting
 EncryptedInvoiceRequest message MUST set appropriate Content-Type headers as specified here:
 <pre>Content-Type: application/bitcoin-encrypted-invoicerequest</pre>
 
-====EncryptedPaymentRequest====
+===InvoiceRequest===
+Sender MUST transmit InvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting
+InvoiceRequest message MUST set appropriate Content-Type headers as specified here:
+<pre>Content-Type: application/bitcoin-invoicerequest</pre>
+
+===EncryptedPaymentRequest===
 Receiver MUST transmit EncryptedPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
 EncryptedPaymentRequest messages MUST set appropriate Content-Type headers as specified here:
 <pre>Content-Type: application/bitcoin-encrypted-paymentrequest</pre>
 
-====Message or Communication Errors====
+===Message or Communication Errors===
 An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This
 SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
+
+==Process Step Details==
 
 ===InvoiceRequest Message Creation===
 * Create an InvoiceRequest message
