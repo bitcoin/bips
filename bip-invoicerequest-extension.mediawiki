@@ -36,7 +36,7 @@ The motivation for this extension to BIP70 is threefold:
 
 # Ensure that the payment details can only be seen by the participants in the transaction, and not by any third party.  
 
-# Enhance the Paument Protocol to allow for store and forward servers in order to allow, for example, mobile wallets to sign and serve Payment Requests.
+# Enhance the Payment Protocol to allow for store and forward servers in order to allow, for example, mobile wallets to sign and serve Payment Requests.
 
 # Allow a sender of funds the option of sharing their identity with the receiver.  This information could then be used to:
 
@@ -52,7 +52,7 @@ In short we wanted to make bitcoin more human, while at the same time improving 
 
 1. Address Book
 
-Let's say a Bitcoin wallet developer would like to offer the ability to store an "address book" of payees, so users could 
+A Bitcoin wallet developer would like to offer the ability to store an "address book" of payees, so users could 
 send multiple payments to known entities without having to request an address every time. Static addresses compromise 
 privacy, and address reuse is considered a security risk. BIP32 X-Pubs allow the generation of unique addresses, but 
 watching an X-Pub chain for each person you wish to receive funds from is too resource-intensive for mobile applications, 
@@ -67,18 +67,14 @@ or destroyed, no communication will be possible, and the sending of funds to a "
 
 2. Individual Permissioned Address Release
 
-Let's say a Bitcoin wallet developer would like to offer the ability for a user to individually release address information 
-to a new potential sending party only if they can confirm the identity of the potential sending party. Currently, BIP70 specifies that 
-the Merchant Server respond to a "pay now" style request with a PaymentRequest, releasing address and X.509 certificate identity 
-information of the potential receiving party.
+A Bitcoin wallet developer would like to allow users to view a potential sending party's identifying information before deciding whether or not to share payment information with them. Currently, BIP70 specifies that the Merchant Server respond to a "pay now" style request with a PaymentRequest, releasing address and X.509 certificate identity information of the potential receiving party.
 
 With this BIP, Bitcoin wallets could prompt a wallet user to release payment information while displaying identity 
-information about the potential sending party via an included certificate. This allows the potential receiving party to 
-make a more informed decision regarding to whom they are releasing payment and identity information.
+information about the potential sending party via an included certificate. This gives the receiving party more control over who receives their payment and identity information, and could be helpful for businesses that need to follow KYC policies or wallets that want to focus on privacy.
 
 3. Using Store & Forward Servers
 
-Let's say a Bitcoin wallet developer would like to use a public Store & Forward service for an asynchronous address 
+A Bitcoin wallet developer would like to use a public Store & Forward service for an asynchronous address 
 exchange. This is a common case for mobile and offline wallets.
 
 With this BIP, returned payment information is encrypted with an ECDH-computed shared key before sending to a Store & Forward 
@@ -92,20 +88,20 @@ or payment information, only delete encrypted messages.
 The EncryptedInvoiceRequest message allows a Sender to send an encrypted InvoiceRequest to the Receiver such that the details of the InvoiceRequest are kept secret.
 <pre>
 message EncryptedInvoiceRequest {
-    required bytes encrypted_invoice_request = 1;           // Encrypted Serialized InvoiceRequest
-    required bytes sender_public_key = 2;                   // Sender's EC Public Key
-    required bytes invoice_request_hash = 3;                // SHA256 of Serialized InvoiceRequest
+    required bytes encrypted_invoice_request = 1;
+    required bytes sender_public_key = 2;
+    required bytes invoice_request_hash = 3;
 }
 </pre>
 
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_invoice_request || AES-256-CBC Encrypted Serialized InvoiceRequest
+| encrypted_invoice_request || AES-256-CBC encrypted, serialized InvoiceRequest
 |-
-| sender_public_key       || Sender's EC Public Key
+| sender_public_key       || Sender's EC public key
 |-
-| invoice_request_hash      || SHA256 Hash of Non-Encrypted, Serialized InvoiceRequest
+| invoice_request_hash      || SHA256 Hash of non-encrypted, serialized InvoiceRequest
 |}
 
 ===InvoiceRequest===
@@ -113,20 +109,20 @@ The InvoiceRequest message allows a Sender to send information to the Receiver s
 
 <pre>
 message InvoiceRequest {
-        required bytes  sender_public_key = 1;              // Sender's EC Public Key
-        required uint64 nonce = 2;                          // Microseconds since epoch
-        optional uint64 amount = 3 [default = 0];           // amount is integer-number-of-satoshis
-        optional string pki_type = 4 [default = "none"];    // none / x509+sha256
-        optional bytes  pki_data = 5;                       // Depends on pki_type
-        optional string notification_url = 6;               // URL to notify on EncryptedPaymentRequest ready
-        optional bytes  signature = 7;                      // PKI-dependent signature
+        required bytes  sender_public_key = 1;
+        required uint64 nonce = 2;
+        optional uint64 amount = 3 [default = 0];
+        optional string pki_type = 4 [default = "none"];
+        optional bytes  pki_data = 5;
+        optional string notification_url = 6;
+        optional bytes  signature = 7;
 }
 </pre>
 
 {| class="wikitable"
 ! Field Name !! Description
 |-
-| sender_public_key     || Sender's EC Public Key
+| sender_public_key     || Sender's EC public key
 |-
 | nonce                 || Microseconds since epoch
 |-
@@ -147,19 +143,61 @@ The EncryptedPaymentRequest message is an encapsulating message that allows the 
 
 <pre>
 message EncryptedPaymentRequest {
-        required bytes encrypted_payment_request = 1;      // Encrypted Serialized PaymentRequest
-        required bytes receiver_public_key = 2;            // Receiver's EC Public Key
-        required bytes payment_request_hash = 3;           // SHA256 of Serialized PaymentRequest
+        required bytes encrypted_payment_request = 1;
+        required bytes receiver_public_key = 2;
+        required bytes payment_request_hash = 3;
 }
 </pre>
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment_request || AES-256-CBC Encrypted Serialized PaymentRequest
+| encrypted_payment_request || AES-256-CBC encrypted, serialized PaymentRequest
 |-
-| receiver_public_key       || Receiver's EC Public Key
+| receiver_public_key       || Receiver's EC public key
 |-
-| payment_request_hash      || SHA256 Hash of Non-Encrypted, Serialized PaymentRequest
+| payment_request_hash      || SHA256 Hash of non-encrypted, serialized PaymentRequest
+|}
+
+===EncryptedPayment===
+
+The EncryptedPayment message allows a BIP70 Payment message to be transmitted through a third party without revealing the details of the transaction. This message allows Store & Forward servers or other third parties to match and authenticate PaymentRequest and Payment messages without revealing the details of the transaction, thereby protecting privacy.
+
+<pre>
+message EncryptedPayment {
+        required bytes encrypted_payment = 1;
+        required bytes payment_request_hash = 2;
+        required bytes signature = 3;
+}
+</pre>
+{| class="wikitable"
+! Field Name</b> !! Description
+|-
+| encrypted_payment         || A standard BIP70 Payment message, serialized and encrypted with the payee's public key
+|-
+| payment_request_hash      || SHA256 Hash of original non-encrypted, serialized PaymentRequest. Some other identifier linking this message to the original request can also be used.
+|-
+| signature                 || A signature of this message, serialized with a value of "" for signature.
+|}
+
+===EncryptedPaymentACK===
+
+An encrypted version of the BIP70 PaymentAck.
+
+<pre>
+message EncryptedPaymentACK {
+        required bytes encrypted_payment_ack = 1;
+        required bytes payment_request_hash = 2;
+        required bytes signature = 3;
+}
+</pre>
+{| class="wikitable"
+! Field Name</b> !! Description
+|-
+| encrypted_payment         || A standard BIP70 PaymentACK message, serialized and encrypted with the payer's public key
+|-
+| payment_request_hash      || The payment_request_hash provided in the EncryptedPayment message.
+|-
+| signature                 || A signature of this message, serialized with a value of "" for signature.
 |}
 
 ==InvoiceRequest / PaymentRequest Process==
@@ -176,6 +214,8 @@ Optionally, the Sender MAY choose to encrypt the InvoiceRequest message and ther
 # Receiver transmits EncryptedPaymentRequest to Sender
 # Sender validates EncryptedPaymentRequest
 # Sender decrypts and validates encrypted PaymentRequest
+# The PaymentRequest is processed according to BIP70, including optional Payment and PaymentACK messages
+
 
 <img src="bip-ir/invoice-request-process.png"></img>
 
@@ -193,8 +233,9 @@ Optionally, the Sender MAY choose to encrypt the InvoiceRequest message and ther
 # Receiver transmits EncryptedPaymentRequest to Sender
 # Sender validates EncryptedPaymentRequest
 # Sender decrypts and validates encrypted PaymentRequest
+# The PaymentRequest is processed according to BIP70, including optional EncryptedPayment and EncryptedPaymentACK messages
 
-<b>NOTE:</b> See section <b>Initial Public Key Retrieval for InvoiceRequest Encryption</b> below for possible options to retrieve Receiver InvoiceRequet public keys.
+<b>NOTE:</b> See section <b>Initial Public Key Retrieval for InvoiceRequest Encryption</b> below for possible options to retrieve Receiver InvoiceRequest public keys.
 
 <img src="bip-ir/encrypted-invoice-request-process.png"></img>
 
@@ -214,6 +255,16 @@ InvoiceRequest message MUST set appropriate Content-Type headers as specified he
 Receiver MUST transmit EncryptedPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
 EncryptedPaymentRequest messages MUST set appropriate Content-Type headers as specified here:
 <pre>Content-Type: application/bitcoin-encrypted-paymentrequest</pre>
+
+===EncryptedPayment===
+Receiver MUST transmit EncryptedPayment to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
+EncryptedPayment messages MUST set appropriate Content-Type headers as specified here:
+<pre>Content-Type: application/bitcoin-encrypted-payment</pre>
+
+===EncryptedPaymentACK===
+Receiver MUST transmit EncryptedPaymentACK to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
+EncryptedPaymentACK messages MUST set appropriate Content-Type headers as specified here:
+<pre>Content-Type: application/bitcoin-encrypted-paymentack</pre>
 
 ===Message or Communication Errors===
 An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This
@@ -277,13 +328,13 @@ Initial public key retrieval for InvoiceRequest encryption can be done in a numb
 * QR Code - Use of QR-code to encode DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
 
 ==Payment Messages with a Store & Foward Server==
-[https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Payment Payment] messages are used in the same way
-with the following exception:
+When a Store & Forward server is in use during the Payment Protocol exchange, an EncryptedPayment message generated as the result of a 
+received EncryptedPaymentRequest MUST be accepted by a Store & Forward server if the EncryptedPayment message is appropriately correlated
+to an InvoiceRequest/PaymentRequest exchange. This correlation SHOULD be done in order to decrease spam requests. The accepted 
+Payment message is NOT validated as the Store & Forward server does not have access to the original PaymentRequest.
 
-When a Store & Forward server is in use during the Payment Protocol exchange, a Payment message generated as the result of a 
-received EncryptedPaymentRequest MUST be accepted by a Store & Forward server if the Payment message is appropriately correlated
-to an InvoiceRequest/PaymentRequest exchange. This correlation SHOULD BE done in order to decrease spam requests. The accepted 
-Payment message IS NOT validated as the Store & Forward server does not have access to the original PaymentRequest.
+Store & Forward servers MAY accept and/or overwrite EncryptedPayment messages until an EncryptedPaymentACK message with matching payment request hash and payee signature is received, after which the server MAY reject all further EncryptedPayment messages matching that payment request hash. This feature SHOULD be used for updating payment request metadata or replacing invalid transactions with valid ones; clients MUST NOT assume payment requests that have not received an ACK will not be broadcast to the Bitcoin network by the payee.
+
 
 ==Implementation==
 A reference implementation for a Store & Forward server supporting this proposal can be found here: 
