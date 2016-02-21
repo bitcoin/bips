@@ -80,9 +80,10 @@ exchange. This is a common case for mobile and offline wallets.
 With this BIP, returned payment information is encrypted with an ECDH-computed shared key before sending to a Store & Forward 
 service. In this case, a successful attack against a Store & Forward service would not be able to read or modify wallet address 
 or payment information, only delete encrypted messages.
-[MATT PLEASE INCLUDE TEXT HERE REGARDING OTHER STORE AND FORWARD MODIFICATIONS]
 
 ==New Messages==
+Updated [/bip-ir/paymentrequest.proto paymentrequest.proto] contains the existing PaymentRequest Protocol Buffer messages as well as
+the messages newly defined in this BIP.
 
 ===EncryptedInvoiceRequest===
 The EncryptedInvoiceRequest message allows a Sender to send an encrypted InvoiceRequest to the Receiver such that the details of the InvoiceRequest are kept secret.
@@ -99,7 +100,7 @@ message EncryptedInvoiceRequest {
 |-
 | encrypted_invoice_request || AES-256-CBC encrypted, serialized InvoiceRequest
 |-
-| sender_public_key       || Sender's EC public key
+| sender_public_key         || Sender's EC public key
 |-
 | invoice_request_hash      || SHA256 Hash of non-encrypted, serialized InvoiceRequest
 |}
@@ -114,8 +115,9 @@ message InvoiceRequest {
         optional uint64 amount = 3 [default = 0];
         optional string pki_type = 4 [default = "none"];
         optional bytes  pki_data = 5;
-        optional string notification_url = 6;
-        optional bytes  signature = 7;
+        optional string memo = 6;
+        optional string notification_url = 7;
+        optional bytes  signature = 8;
 }
 </pre>
 
@@ -132,6 +134,8 @@ message InvoiceRequest {
 |-
 | pki_data              || Depends on pki_type
 |-
+| memo                  || Human-readable description of invoice request for the receiver
+|-
 | notification_url      || Secure (usually HTTPS) location where an EncryptedPaymentRequest (see below) SHOULD be sent when ready
 |-
 | signature             || PKI-dependent signature
@@ -145,7 +149,9 @@ The EncryptedPaymentRequest message is an encapsulating message that allows the 
 message EncryptedPaymentRequest {
         required bytes encrypted_payment_request = 1;
         required bytes receiver_public_key = 2;
-        required bytes payment_request_hash = 3;
+        required bytes ephemeral_public_key = 3;
+        required bytes payment_request_hash = 4;
+        optional bool  requires_payment_message = 5;
 }
 </pre>
 {| class="wikitable"
@@ -155,7 +161,11 @@ message EncryptedPaymentRequest {
 |-
 | receiver_public_key       || Receiver's EC public key
 |-
+| ephemeral_public_key      || Public Key of ECDH-derived keypair
+|-
 | payment_request_hash      || SHA256 Hash of non-encrypted, serialized PaymentRequest
+|-
+| requires_payment_message  || Internal PaymentRequest requires follow-up Payment message
 |}
 
 ===EncryptedPayment===
@@ -172,11 +182,11 @@ message EncryptedPayment {
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment         || A standard BIP70 Payment message, serialized and encrypted with the payee's public key
+| encrypted_payment         || AES-256-CBC encrypted, serialized standard BIP70 Payment message
 |-
 | payment_request_hash      || SHA256 Hash of original non-encrypted, serialized PaymentRequest. Some other identifier linking this message to the original request can also be used.
 |-
-| signature                 || A signature of this message, serialized with a value of "" for signature.
+| signature                 || Signature of this message using the ECDH-derived key calculated for the EncryptedPaymentRequest, serialized with a value of "" for signature.
 |}
 
 ===EncryptedPaymentACK===
@@ -193,11 +203,11 @@ message EncryptedPaymentACK {
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment         || A standard BIP70 PaymentACK message, serialized and encrypted with the payer's public key
+| encrypted_payment_ack         || AES-256-CBC encrypted, serialized standard BIP70 PaymentACK message
 |-
-| payment_request_hash      || The payment_request_hash provided in the EncryptedPayment message.
+| payment_request_hash          || The payment_request_hash provided in the EncryptedPayment message.
 |-
-| signature                 || A signature of this message, serialized with a value of "" for signature.
+| signature                     || A signature of this message using Receiver's EC key, serialized with a value of "" for signature.
 |}
 
 ==InvoiceRequest / PaymentRequest Process==
@@ -241,30 +251,21 @@ Optionally, the Sender MAY choose to encrypt the InvoiceRequest message and ther
 
 ==Message Interaction Details==
 
-===EncryptedInvoiceRequest===
-Sender MUST transmit EncryptedInvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting
-EncryptedInvoiceRequest message MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-encrypted-invoicerequest</pre>
-
-===InvoiceRequest===
-Sender MUST transmit InvoiceRequest to Receiver (or Receiver's agent) via TLS-protected HTTP. Sender transmitting
-InvoiceRequest message MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-invoicerequest</pre>
-
-===EncryptedPaymentRequest===
-Receiver MUST transmit EncryptedPaymentRequest to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
-EncryptedPaymentRequest messages MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-encrypted-paymentrequest</pre>
-
-===EncryptedPayment===
-Receiver MUST transmit EncryptedPayment to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
-EncryptedPayment messages MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-encrypted-payment</pre>
-
-===EncryptedPaymentACK===
-Receiver MUST transmit EncryptedPaymentACK to Sender (or Sender's agent) via TLS-protected HTTP. Receiver transmitting
-EncryptedPaymentACK messages MUST set appropriate Content-Type headers as specified here:
-<pre>Content-Type: application/bitcoin-encrypted-paymentack</pre>
+===New Message Content Types===
+Messages MUST be transmitted via TLS-protected HTTP using the appropriate Content-Type header as defined per message type here:
+{| class="wikitable"
+! Message Type !! Content Type
+|-
+| EncryptedInvoiceRequest           || application/bitcoin-encrypted-invoicerequest
+|-
+| InvoiceRequest                    || application/bitcoin-invoicerequest
+|-
+| EncryptedPaymentRequest           || application/bitcoin-encrypted-paymentrequest
+|-
+| EncryptedPayment                  || application/bitcoin-encrypted-payment
+|-
+| EncryptedPaymentACK               || application/bitcoin-encrypted-paymentack
+|}
 
 ===Message or Communication Errors===
 An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This
@@ -277,6 +278,7 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * sender_public_key MUST be set to the public key of an EC keypair
 * nonce MUST be set to a non-repeating number. The current epoch time in microseconds SHOULD be used, unless the creating device doesn't have access to a RTC (in the case of a smart card, for example)
 * Amount is optional. If the amount is not specified by the InvoiceRequest, the Receiver MAY specify the amount in the returned PaymentRequest. If an amount is specified by the InvoiceRequest and a PaymentRequest cannot be generated for that amount, the InvoiceRequest SHOULD be rejected with HTTP status code 406.
+* Memo is optional. This MAY be set to a human readable description of the InvoiceRequest
 * Set notification_url to URL that the Receiver will submit completed EncryptedPaymentRequest to
 * If NOT including certificate, set pki_type to "none"
 * If including certificate:
@@ -305,6 +307,7 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * Create EncryptedPaymentRequest message
 * Set encrypted_payment_request to be the encrypted value of the PaymentRequest
 * Set receiver_public_key to the Receiver's EC public key (of which the private key was previously used in ECDH secret point calculation)
+* Set ephemeral_public_key to the public key of the previously determined ECDH-derived key
 * Set payment_request_hash to generated SHA256 hash of the serialized PaymentRequest (without encryption)
 
 ===EncryptedPaymentRequest Validation and Decryption===
@@ -327,14 +330,42 @@ Initial public key retrieval for InvoiceRequest encryption can be done in a numb
 * Key Server lookup - Key Server lookup (similar to PGP's pgp.mit.edu) based on key server identifier (i.e., e-mail address) returns Base64 encoded DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
 * QR Code - Use of QR-code to encode DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
 
-==Payment Messages with a Store & Foward Server==
+==EncryptedPayment and EncryptedPaymentACK Details==
+
+===EncryptedPayment Message Creation===
+* Encrypt the serialized Payment using AES-256-CBC using secret key calculated in the <b>EncryptedPaymentRequest Message Creation and PaymentRequest Encryption</b> step (see above)
+* Create EncryptedPayment message
+* Set encrypted_payment to be the encrypted value of the Payment
+* Set payment_request_hash to be the value of the associated, received EncryptedPaymentRequest
+* Set signature to ""
+* Sign the serialized EncryptedPayment message with the previously calculated ECDH-derived key
+* Set signature to the result of the signature operation above
+
+===EncryptedPaymentACK Message Creation===
+* Encrypt the serialized PaymentACK using AES-256-CBC using secret key calculated in the <b>EncryptedPaymentRequest Message Creation and PaymentRequest Encryption</b> step (see above)
+* Create EncryptedPaymentACK message
+* Set encrypted_payment_ack to be the encrypted value of the PaymentACK
+* Set payment_request_hash to be the value of the associated, received EncryptedPaymentRequest
+* Set signature to ""
+* Sign the serialized EncryptedPaymentACK message with the Receiver's EC public key
+* Set signature to the result of the signature operation above
+
+**SIGNATURE NOTE:** The EncryptedPayment message is signed with the ECDH-derived key as both the Sender and Receiver  
+have the ECDH-derived key, however the EncryptedPaymentACK message is signed with the Receiver's EC key because only the 
+Sender has access to it. This prevents both EncryptedPaymentACK spam and EncryptedPaymentACKs from being submitted by the Sender.
+
+==Payment / PaymentACK Messages with a Store & Foward Server==
 When a Store & Forward server is in use during the Payment Protocol exchange, an EncryptedPayment message generated as the result of a 
 received EncryptedPaymentRequest MUST be accepted by a Store & Forward server if the EncryptedPayment message is appropriately correlated
 to an InvoiceRequest/PaymentRequest exchange. This correlation SHOULD be done in order to decrease spam requests. The accepted 
 Payment message is NOT validated as the Store & Forward server does not have access to the original PaymentRequest.
 
-Store & Forward servers MAY accept and/or overwrite EncryptedPayment messages until an EncryptedPaymentACK message with matching payment request hash and payee signature is received, after which the server MAY reject all further EncryptedPayment messages matching that payment request hash. This feature SHOULD be used for updating payment request metadata or replacing invalid transactions with valid ones; clients MUST NOT assume payment requests that have not received an ACK will not be broadcast to the Bitcoin network by the payee.
-
+Store & Forward servers MAY accept and/or overwrite EncryptedPayment messages until an EncryptedPaymentACK message with 
+matching payment request hash and Receiver signature is received, after which the server MAY reject all further EncryptedPayment 
+messages matching that payment request hash. This feature SHOULD be used for updating Payment metadata or replacing 
+invalid transactions with valid ones. Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. 
+If a payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent 
+the Receiver from broadcasting both transactions and getting paid twice.
 
 ==Implementation==
 A reference implementation for a Store & Forward server supporting this proposal can be found here: 
@@ -350,15 +381,32 @@ The following flowchart is borrowed from BIP70 and expanded upon in order to vis
 
 <img src="bip-ir/bip70-extension.png"></img>
 
-==Mobile to Mobile Example==
-The following diagram shows a sample flow in which one mobile client is sending value to a second mobile client with the use
-of an InvoiceRequest, a Store & Forward server, and a EncryptedPaymentRequest.
+==Mobile to Mobile Examples==
 
-<img src="bip-ir/mobile-sf-bip70-extension.png"></img>
+===EncryptedPayment Required===
+The following diagram shows a sample flow in which one mobile client is sending value to a second mobile client with the use
+of an InvoiceRequest, a Store & Forward server, an EncryptedPaymentRequest (with require_payment_message = true), an 
+EncryptedPayment and an EncryptedPaymentACK. In this case, the Receiver submits the transaction to the bitcoin network.
+
+<img src="bip-ir/mobile-sf-ir-with-payment.png"></img>
+
+===No EncryptedPayment Required===
+The following diagram shows a sample flow in which one mobile client is sending value to a second mobile client with the use
+of an InvoiceRequest, a Store & Forward server, and an EncryptedPaymentRequest (with require_payment_message = false). 
+In this case, the Sender submits the transaction to the bitcoin network.
+
+<img src="bip-ir/mobile-sf-ir-without-payment.png"></img>
+
+===Using EncryptedInvoiceRequest Message===
+The following diagram shows a sample flow in which one mobile client is sending value to a second mobile client with the use
+of an EncryptedInvoiceRequest, a Store & Forward server, and an EncryptedPaymentRequest (with require_payment_message = false). 
+In this case, the Sender submits the transaction to the bitcoin network.
+
+<img src="bip-ir/mobile-sf-encrypted-ir-without-payment.png"></img>
 
 ==References==
 
-* [[bip-0070.mediawiki|BIP70 - Payment Protocol]]
+* [bip-0070.mediawiki|BIP70 - Payment Protocol]
 * [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH]
 * [http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf HMAC_DRBG]
 * [https://tools.ietf.org/html/rfc6979 RFC6979]
