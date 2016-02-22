@@ -83,7 +83,9 @@ or payment information, only delete encrypted messages.
 
 ==New Messages==
 Updated [/bip-ir/paymentrequest.proto paymentrequest.proto] contains the existing PaymentRequest Protocol Buffer messages as well as
-the messages newly defined in this BIP. Note: Public keys from both parties must be known to each other in order to facilitate encrypted communication. We assume Store & Forward servers will provide their own method for communicating one or both parties' public keys, so that exchange is outside the scope of this BIP. The protocol does, however, include the option of including the public keys during communication if they are not already known.
+the messages newly defined in this BIP.
+
+Note: Public keys from both parties must be known to each other in order to facilitate encrypted communication. Although including both public keys in every message may get redundant, it provides the most flexibility as each message is completely self-contained.
 
 ===InvoiceRequest===
 The InvoiceRequest message allows a Sender to send information to the Receiver such that they can create and return a PaymentRequest.
@@ -91,13 +93,12 @@ The InvoiceRequest message allows a Sender to send information to the Receiver s
 <pre>
 message InvoiceRequest {
         required bytes  sender_public_key = 1;
-        required uint64 nonce = 2;
-        optional uint64 amount = 3 [default = 0];
-        optional string pki_type = 4 [default = "none"];
-        optional bytes  pki_data = 5;
-        optional string memo = 6;
-        optional string notification_url = 7;
-        optional bytes  signature = 8;
+        optional uint64 amount = 2 [default = 0];
+        optional string pki_type = 3 [default = "none"];
+        optional bytes  pki_data = 4;
+        optional string memo = 5;
+        optional string notification_url = 6;
+        optional bytes  signature = 7;
 }
 </pre>
 
@@ -105,8 +106,6 @@ message InvoiceRequest {
 ! Field Name !! Description
 |-
 | sender_public_key     || Sender's EC public key
-|-
-| nonce                 || Microseconds since epoch
 |-
 | amount                || amount is integer-number-of-satoshis (default: 0)
 |-
@@ -129,9 +128,10 @@ message EncryptedInvoiceRequest {
     required bytes  encrypted_invoice_request = 1;
     required bytes  invoice_request_hash = 2;
     required bytes  sender_public_key = 3;
-    optional bytes  receiver_public_key = 4;
+    required bytes  receiver_public_key = 4;
     required uint64 nonce = 5;
-    optional bytes  identifier = 6;
+    optional bytes  signature = 6;
+    optional bytes  identifier = 7;
     
 }
 </pre>
@@ -149,10 +149,10 @@ message EncryptedInvoiceRequest {
 |-
 | nonce                     || The nonce in use for the CBC encryption
 |-
+| signature                 || A signature of this message using Sender's EC key, serialized with a value of "" for signature. REQUIRED if server requires authentication.
+|-
 | identifier                || A unique key to identify this entire exchange on the server. invoice_request_hash SHOULD be used by default.
 |}
-
-receiver_public_key MAY be omitted if this message is sent directly to the Receiver. receiver_public_key MAY also be omitted if the EncryptedInvoiceRequest is being sent to a Store & Forward server which already understands who the Receiver is. An example of this is a Store & Forward server URL that uniquely identifies the Receiver (and their public key).  
 
 ===EncryptedPaymentRequest===
 
@@ -185,7 +185,7 @@ message EncryptedPaymentRequest {
 |-
 | requires_payment_message  || Internal PaymentRequest requires follow-up Payment message
 |-
-| signature                 || A signature of this message using Receiver's EC key, serialized with a value of "" for signature. REQUIRED if server requires InvoiceRequest reply authentication.
+| signature                 || A signature of this message using Receiver's EC key, serialized with a value of "" for signature. REQUIRED if server requires authentication.
 |-
 | identifier                || MUST use the identifier specified with the InvoiceRequest if the PaymentRequest is in response to an InvoiceRequest. Otherwise, use payment_request_hash or other unique value.
 |}
@@ -198,10 +198,10 @@ The EncryptedPayment message allows a BIP70 Payment message to be transmitted th
 message EncryptedPayment {
         required bytes  encrypted_payment = 1;
         required bytes  payment_hash = 2;
-        required bytes  receiver_public_key = 3;
-        required bytes  sender_public_key = 4;
+        required bytes  sender_public_key = 3;
+        required bytes  receiver_public_key = 4;
         required uint64 nonce = 5;
-        required bytes  signature = 6;
+        optional bytes  signature = 6;
         optional bytes  identifier = 7;
 }
 </pre>
@@ -212,13 +212,13 @@ message EncryptedPayment {
 |-
 | payment_hash              || SHA256 Hash of original non-encrypted, serialized Payment message. MUST be used for verification to prevent oracle attacks.
 |-
-| receiver_public_key       || Receiver's EC public key
-|-
 | sender_public_key         || Sender's EC public key
+|-
+| receiver_public_key       || Receiver's EC public key
 |-
 | nonce                     || The nonce in use for the CBC encryption
 |-
-| signature                 || A signature of this message using Sender's EC key, serialized with a value of "" for signature.
+| signature                 || A signature of this message using Sender's EC key, serialized with a value of "" for signature. REQUIRED if server requires authentication.
 |-
 | identifier                || Use the identifier specified with the EncryptedPaymentRequest, if any.
 |}
@@ -251,7 +251,7 @@ message EncryptedPaymentACK {
 |-
 | nonce                         || The nonce in use for the CBC encryption
 |-
-| signature                     || A signature of this message using Receiver's EC key, serialized with a value of "" for signature.
+| signature                     || A signature of this message using Receiver's EC key, serialized with a value of "" for signature. REQUIRED if server requires authentication.
 |-
 | identifier                    || Use the identifier specified with the EncryptedPayment, if any.
 |}
@@ -319,7 +319,7 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 
 ==Process Step Details==
 
-For the following we assume the Sender already knows the Receiver's public key, and the exchange starts with an EncryptedInvoiceRequest.
+For the following we assume the Sender already knows the Receiver's public key, and the exchange is being facilitated by a Store & Forward server which requires valid signatures for authentication.
 
 Where used, **nonce** MUST be set to a non-repeating number. The current epoch time in microseconds SHOULD be used, unless the creating device doesn't have access to a RTC (in the case of a smart card, for example). The service receiving the message containing the **nonce** MAY use whatever method to make sure that the **nonce** is never repeated.
 
@@ -341,7 +341,7 @@ Where used, **nonce** MUST be set to a non-repeating number. The current epoch t
 * Create an EncryptedInvoiceRequest
 * Retrieve endpoint public key to use in <b>ECDH Point Generation</b> as specified in <b>Initial Public Key Retrieval for InvoiceRequest Encryption</b> (see below)
 * sender_public_key MUST be set to the public key of the Sender's EC keypair
-* receiver_public_key MAY be set to the public key of the Receiver's EC keypair
+* receiver_public_key MUST be set to the public key of the Receiver's EC keypair
 * invoice_request_hash MUST be set to the SHA256 hash of the serialized InvoiceRequest (without encryption)
 * Encrypt the serialized InvoiceRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
 * encrypted_invoice_Request MUST be set to the encrypted values of the InvoiceRequest
