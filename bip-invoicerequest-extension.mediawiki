@@ -83,30 +83,10 @@ or payment information, only delete encrypted messages.
 
 ==New Messages==
 Updated [/bip-ir/paymentrequest.proto paymentrequest.proto] contains the existing PaymentRequest Protocol Buffer messages as well as
-the messages newly defined in this BIP.
-
-===EncryptedInvoiceRequest===
-The EncryptedInvoiceRequest message allows a Sender to send an encrypted InvoiceRequest to the Receiver such that the details of the InvoiceRequest are kept secret.
-<pre>
-message EncryptedInvoiceRequest {
-    required bytes encrypted_invoice_request = 1;
-    required bytes sender_public_key = 2;
-    required bytes invoice_request_hash = 3;
-}
-</pre>
-
-{| class="wikitable"
-! Field Name</b> !! Description
-|-
-| encrypted_invoice_request || AES-256-CBC encrypted, serialized InvoiceRequest
-|-
-| sender_public_key         || Sender's EC public key
-|-
-| invoice_request_hash      || SHA256 Hash of non-encrypted, serialized InvoiceRequest
-|}
+the messages newly defined in this BIP. Note: Public keys from both parties must be known to each other in order to facilitate encrypted communication. We assume Store & Forward servers will provide their own method for communicating one or both parties' public keys, so that exchange is outside the scope of this BIP. The protocol does, however, include the option of including the public keys during communication if they are not already known.
 
 ===InvoiceRequest===
-The InvoiceRequest message allows a Sender to send information to the Receiver such that they can create and return a EncryptedPaymentRequest.
+The InvoiceRequest message allows a Sender to send information to the Receiver such that they can create and return a PaymentRequest.
 
 <pre>
 message InvoiceRequest {
@@ -141,31 +121,71 @@ message InvoiceRequest {
 | signature             || PKI-dependent signature
 |}
 
+
+===EncryptedInvoiceRequest===
+The EncryptedInvoiceRequest message allows a Sender to send an encrypted InvoiceRequest to the Receiver such that the details of the InvoiceRequest are kept secret.
+<pre>
+message EncryptedInvoiceRequest {
+    required bytes  encrypted_invoice_request = 1;
+    required bytes  invoice_request_hash = 2;
+    required bytes  sender_public_key = 3;
+    optional bytes  receiver_public_key = 4;
+    required uint64 nonce = 5;
+    optional bytes  identifier = 6;
+    
+}
+</pre>
+
+{| class="wikitable"
+! Field Name</b> !! Description
+|-
+| encrypted_invoice_request || AES-256-CBC encrypted, serialized InvoiceRequest
+|-
+| invoice_request_hash      || SHA256 Hash of non-encrypted, serialized InvoiceRequest.  MUST be used for verification to prevent oracle attacks.
+|-
+| sender_public_key         || Sender's EC public key
+|-
+| receiver_public_key       || Receiver's EC public key, can be omitted if this message is sent directly to the recipient, or is sent to a Store & Forward server that already understands who the recipient should be (if specified by URI endpoint, for example)
+|-
+| nonce                     || The nonce in use for the CBC encryption
+|-
+| identifier                || A unique key to identify this entire exchange on the server. By default, invoice_request_hash SHOULD be used.
+|}
+
 ===EncryptedPaymentRequest===
 
 The EncryptedPaymentRequest message is an encapsulating message that allows the transmission of an encrypted, serialized PaymentRequest.
 
 <pre>
 message EncryptedPaymentRequest {
-        required bytes encrypted_payment_request = 1;
-        required bytes receiver_public_key = 2;
-        required bytes ephemeral_public_key = 3;
-        required bytes payment_request_hash = 4;
-        optional bool  requires_payment_message = 5;
+        required bytes  encrypted_payment_request = 1;
+        required bytes  payment_request_hash = 2;
+        optional bytes  receiver_public_key = 3;
+        optional bytes  sender_public_key = 4;
+        optional uint64 nonce = 5;
+        optional bool   requires_payment_message = 6;
+        optional bytes  signature = 7;
+        optional bytes  identifier = 6;
 }
 </pre>
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment_request || AES-256-CBC encrypted, serialized PaymentRequest
+| encrypted_payment_request || AES-256-CBC encrypted, serialized BIP70 PaymentRequest
 |-
-| receiver_public_key       || Receiver's EC public key
+| payment_request_hash      || SHA256 Hash of non-encrypted, serialized PaymentRequest.  MUST be used for verification to prevent oracle attacks.
 |-
-| ephemeral_public_key      || Public Key of ECDH-derived keypair
+| receiver_public_key       || Receiver's EC public key, only necessary if not already shared or known (for example, if this message is not in response to an InvoiceRequest)
 |-
-| payment_request_hash      || SHA256 Hash of non-encrypted, serialized PaymentRequest
+| sender_public_key         || Sender's EC public key, can be omitted if this message is sent directly to the recipient, or is sent to a Store & Forward server that already understands who the recipient should be (if specified by URI endpoint, for example)
+|-
+| nonce                     || The nonce in use for the CBC encryption, only necessary if not already shared (for example, if this message is not in response to an InvoiceRequest)
 |-
 | requires_payment_message  || Internal PaymentRequest requires follow-up Payment message
+|-
+| signature                 || A signature of this message using Receiver's EC key, serialized with a value of "" for signature. Only necessary if required by the server to authenticate a reply to an InvoiceRequest.
+|-
+| identifier                || If the PaymentRequest is in response to an InvoiceRequest, use the identifier specified with the InvoiceRequest, if any. Otherwise, use payment_request_hash or other unique value.
 |}
 
 ===EncryptedPayment===
@@ -175,18 +195,21 @@ The EncryptedPayment message allows a BIP70 Payment message to be transmitted th
 <pre>
 message EncryptedPayment {
         required bytes encrypted_payment = 1;
-        required bytes payment_request_hash = 2;
+        required bytes payment_hash = 2;
         required bytes signature = 3;
+        optional bytes identifier = 4;
 }
 </pre>
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment         || AES-256-CBC encrypted, serialized standard BIP70 Payment message
+| encrypted_payment         || AES-256-CBC encrypted, serialized BIP70 Payment message
 |-
-| payment_request_hash      || SHA256 Hash of original non-encrypted, serialized PaymentRequest. Some other identifier linking this message to the original request can also be used.
+| payment_hash              || SHA256 Hash of original non-encrypted, serialized Payment message. MUST be used for verification to prevent oracle attacks.
 |-
-| signature                 || Signature of this message using the ECDH-derived key calculated for the EncryptedPaymentRequest, serialized with a value of "" for signature.
+| signature                 || A signature of this message using Sender's EC key, serialized with a value of "" for signature.
+|-
+| identifier                || Use the identifier specified with the EncryptedPaymentRequest, if any.
 |}
 
 ===EncryptedPaymentACK===
@@ -196,18 +219,21 @@ An encrypted version of the BIP70 PaymentAck.
 <pre>
 message EncryptedPaymentACK {
         required bytes encrypted_payment_ack = 1;
-        required bytes payment_request_hash = 2;
+        required bytes payment_ack_hash = 2;
         required bytes signature = 3;
+        optional bytes identifier = 4;
 }
 </pre>
 {| class="wikitable"
 ! Field Name</b> !! Description
 |-
-| encrypted_payment_ack         || AES-256-CBC encrypted, serialized standard BIP70 PaymentACK message
+| encrypted_payment_ack         || AES-256-CBC encrypted, serialized BIP70 PaymentACK message
 |-
-| payment_request_hash          || The payment_request_hash provided in the EncryptedPayment message.
+| payment_ack_hash              || SHA256 Hash of original non-encrypted, serialized Payment message. MUST be used for verification to prevent oracle attacks.
 |-
 | signature                     || A signature of this message using Receiver's EC key, serialized with a value of "" for signature.
+|-
+| identifier                    || Use the identifier specified with the EncryptedPayment, if any.
 |}
 
 ==InvoiceRequest / PaymentRequest Process==
@@ -256,9 +282,9 @@ Messages MUST be transmitted via TLS-protected HTTP using the appropriate Conten
 {| class="wikitable"
 ! Message Type !! Content Type
 |-
-| EncryptedInvoiceRequest           || application/bitcoin-encrypted-invoicerequest
-|-
 | InvoiceRequest                    || application/bitcoin-invoicerequest
+|-
+| EncryptedInvoiceRequest           || application/bitcoin-encrypted-invoicerequest
 |-
 | EncryptedPaymentRequest           || application/bitcoin-encrypted-paymentrequest
 |-
@@ -269,9 +295,11 @@ Messages MUST be transmitted via TLS-protected HTTP using the appropriate Conten
 
 ===Message or Communication Errors===
 An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This
-SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
+SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]). If the provided hash of each message does not match the contents of the message once decrypted, a general error should be returned to prevent oracle attacks.
 
 ==Process Step Details==
+
+For the following we assume the Sender already knows the Receiver's public key, and the exchange starts with an EncryptedInvoiceRequest.
 
 ===InvoiceRequest Message Creation===
 * Create an InvoiceRequest message
@@ -294,6 +322,7 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * invoice_request_hash MUST be set to the SHA256 hash of the serialized InvoiceRequest (without encryption)
 * Encrypt the serialized InvoiceRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
 * encrypted_invoice_Request MUST be set to the encrypted values of the InvoiceRequest
+* Set identifier to invoice_request_hash
 
 ===InvoiceRequest Validation===
 * Validate sender_public_key is a valid EC public key
@@ -306,9 +335,10 @@ SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.
 * Encrypt the serialized PaymentRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
 * Create EncryptedPaymentRequest message
 * Set encrypted_payment_request to be the encrypted value of the PaymentRequest
-* Set receiver_public_key to the Receiver's EC public key (of which the private key was previously used in ECDH secret point calculation)
-* Set ephemeral_public_key to the public key of the previously determined ECDH-derived key
 * Set payment_request_hash to generated SHA256 hash of the serialized PaymentRequest (without encryption)
+* Set identifier to the value received in EncryptedInvoiceRequest
+* Set signature to ""
+* Sign the serialized EncryptedPayment message with the Receiver's EC public key
 
 ===EncryptedPaymentRequest Validation and Decryption===
 * Decrypt the serialized PaymentRequest using AES-256-CBC setup as described in <b>ECDH Point Generation and AES-256 (CBC Mode) Setup (see below)</b>
@@ -336,37 +366,28 @@ Initial public key retrieval for InvoiceRequest encryption can be done in a numb
 * Encrypt the serialized Payment using AES-256-CBC using secret key calculated in the <b>EncryptedPaymentRequest Message Creation and PaymentRequest Encryption</b> step (see above)
 * Create EncryptedPayment message
 * Set encrypted_payment to be the encrypted value of the Payment
-* Set payment_request_hash to be the value of the associated, received EncryptedPaymentRequest
+* Set identifier to the value received in EncryptedPaymentRequest
+* Set payment_hash to generated SHA256 hash of the serialized Payment (without encryption)
 * Set signature to ""
-* Sign the serialized EncryptedPayment message with the previously calculated ECDH-derived key
+* Sign the serialized EncryptedPayment message with the Sender's EC public key
 * Set signature to the result of the signature operation above
 
 ===EncryptedPaymentACK Message Creation===
 * Encrypt the serialized PaymentACK using AES-256-CBC using secret key calculated in the <b>EncryptedPaymentRequest Message Creation and PaymentRequest Encryption</b> step (see above)
 * Create EncryptedPaymentACK message
 * Set encrypted_payment_ack to be the encrypted value of the PaymentACK
-* Set payment_request_hash to be the value of the associated, received EncryptedPaymentRequest
+* Set payment_ack_hash to generated SHA256 hash of the serialized PaymentACK (without encryption)
 * Set signature to ""
 * Sign the serialized EncryptedPaymentACK message with the Receiver's EC public key
 * Set signature to the result of the signature operation above
 
 
-**SIGNATURE NOTE:** The EncryptedPayment message is signed with the ECDH-derived key as both the Sender and Receiver  
-have the ECDH-derived key, however the EncryptedPaymentACK message is signed with the Receiver's EC key because only the 
-Sender has access to it. This prevents both EncryptedPaymentACK spam and EncryptedPaymentACKs from being submitted by the Sender.
+**SIGNATURE NOTE:** EncryptedPaymentRequest, EncryptedPayment, and EncryptedPaymentACK messages are signed with the public keys of the party transmitting the message. This allows a Store & Forward server or other transmission system to prevent spam or other abuses. For those who are privacy concious and don't want the server to track the interactions between two public keys, the Sender can generate a new public key for each interaction to keep their identity anonymous.
 
 ==Payment / PaymentACK Messages with a Store & Foward Server==
-When a Store & Forward server is in use during the Payment Protocol exchange, an EncryptedPayment message generated as the result of a 
-received EncryptedPaymentRequest MUST be accepted by a Store & Forward server if the EncryptedPayment message is appropriately correlated
-to an InvoiceRequest/PaymentRequest exchange. This correlation SHOULD be done in order to decrease spam requests. The accepted 
-Payment message is NOT validated as the Store & Forward server does not have access to the original PaymentRequest.
+When a Store & Forward server is in use during the Payment Protocol exchange, an EncryptedPayment message generated as the result of a EncryptedPaymentRequest with the requires_payment_message flag set to true MUST be accepted by a Store & Forward server. The accepted Payment message is NOT validated as the Store & Forward server does not have access to encrypted data.
 
-Store & Forward servers MAY accept and/or overwrite EncryptedPayment messages until an EncryptedPaymentACK message with 
-matching payment request hash and Receiver signature is received, after which the server MAY reject all further EncryptedPayment 
-messages matching that payment request hash. This feature SHOULD be used for updating Payment metadata or replacing 
-invalid transactions with valid ones. Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. 
-If a payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent 
-the Receiver from broadcasting both transactions and getting paid twice.
+Store & Forward servers MAY accept and/or overwrite EncryptedPayment messages until an EncryptedPaymentACK message with matching identifier and valid Receiver signature is received, after which the server MAY reject all further EncryptedPayment messages matching that identifier. This feature SHOULD be used for updating Payment metadata or replacing invalid transactions with valid ones. Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. If a payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent the Receiver from broadcasting both transactions and getting paid twice.
 
 ==Implementation==
 A reference implementation for a Store & Forward server supporting this proposal can be found here: 
