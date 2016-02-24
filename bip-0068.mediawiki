@@ -64,21 +64,21 @@ enum {
 /* Setting nSequence to this value for every input in a transaction
  * disables nLockTime. */
 static const uint32_t SEQUENCE_FINAL = 0xffffffff;
-    
+
+/* Below flags apply in the context of BIP 68*/
 /* If this flag set, CTxIn::nSequence is NOT interpreted as a
- * relative lock-time. Setting the most significant bit of a
- * sequence number disabled relative lock-time. */
+ * relative lock-time. */
 static const uint32_t SEQUENCE_LOCKTIME_DISABLE_FLAG = (1 << 31);
-    
+
 /* If CTxIn::nSequence encodes a relative lock-time and this flag
  * is set, the relative lock-time has units of 512 seconds,
  * otherwise it specifies blocks with a granularity of 1. */
 static const uint32_t SEQUENCE_LOCKTIME_TYPE_FLAG = (1 << 22);
-    
+
 /* If CTxIn::nSequence encodes a relative lock-time, this mask is
  * applied to extract that lock-time from the sequence field. */
 static const uint32_t SEQUENCE_LOCKTIME_MASK = 0x0000ffff;
-    
+
 /* In order to use the same number of bits to encode roughly the
  * same wall-clock duration, and because blocks are naturally
  * limited to occur every 600s on average, the minimum granularity
@@ -87,12 +87,12 @@ static const uint32_t SEQUENCE_LOCKTIME_MASK = 0x0000ffff;
  * multiplying by 512 = 2^9, or equivalently shifting up by
  * 9 bits. */
 static const int SEQUENCE_LOCKTIME_GRANULARITY = 9;
-    
+
 /**
- * Calculates the block height and time which the transaction must be later than
- * in order to be considered final in the context of BIP 68.  It also removes
- * from the vector of input heights any entries which did not correspond to sequence
- * locked inputs as they do not affect the calculation.
+ * Calculates the block height and previous block's median time past at
+ * which the transaction will be considered final in the context of BIP 68.
+ * Also removes from the vector of input heights any entries which did not
+ * correspond to sequence locked inputs as they do not affect the calculation.
  */
 static std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags, std::vector<int>* prevHeights, const CBlockIndex& block)
 {
@@ -134,6 +134,14 @@ static std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, in
 
         if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) {
             int64_t nCoinTime = block.GetAncestor(std::max(nCoinHeight-1, 0))->GetMedianTimePast();
+            // NOTE: Subtract 1 to maintain nLockTime semantics
+            // BIP 68 relative lock times have the semantics of calculating
+            // the first block or time at which the transaction would be
+            // valid. When calculating the effective block time or height
+            // for the entire transaction, we switch to using the
+            // semantics of nLockTime which is the last invalid block
+            // time or height.  Thus we subtract 1 from the calculated
+            // time or height.
 
             // Time-based relative lock-times are measured from the
             // smallest allowed timestamp of the block containing the
@@ -141,10 +149,6 @@ static std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, in
             // block prior.
             nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1);
         } else {
-            // We subtract 1 from relative lock-times because a lock-
-            // time of 0 has the semantics of "same block," so a lock-
-            // time of 1 should mean "next block," but nLockTime has
-            // the semantics of "last invalid block height."
             nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1);
         }
     }
@@ -154,7 +158,8 @@ static std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, in
 
 static bool EvaluateSequenceLocks(const CBlockIndex& block, std::pair<int, int64_t> lockPair)
 {
-    int64_t nBlockTime = block.pprev ? block.pprev->GetMedianTimePast() : 0;
+    assert(block.pprev);
+    int64_t nBlockTime = block.pprev->GetMedianTimePast();
     if (lockPair.first >= block.nHeight || lockPair.second >= nBlockTime)
         return false;
 
@@ -169,16 +174,17 @@ bool SequenceLocks(const CTransaction &tx, int flags, std::vector<int>* prevHeig
 bool CheckSequenceLocks(const CTransaction &tx, int flags)
 {
     AssertLockHeld(cs_main);
+    AssertLockHeld(mempool.cs);
 
     CBlockIndex* tip = chainActive.Tip();
     CBlockIndex index;
     index.pprev = tip;
     // CheckSequenceLocks() uses chainActive.Height()+1 to evaluate
     // height based locks because when SequenceLocks() is called within
-    // CBlock::AcceptBlock(), the height of the block *being*
-    // evaluated is what is used. Thus if we want to know if a
-    // transaction can be part of the *next* block, we need to call
-    // SequenceLocks() with one more than chainActive.Height().
+    // ConnectBlock(), the height of the block *being*
+    // evaluated is what is used.
+    // Thus if we want to know if a transaction can be part of the
+    // *next* block, we need to use one more than chainActive.Height()
     index.nHeight = tip->nHeight + 1;
 
     // pcoinsTip contains the UTXO set for chainActive.Tip()
@@ -189,7 +195,7 @@ bool CheckSequenceLocks(const CTransaction &tx, int flags)
         const CTxIn& txin = tx.vin[txinIndex];
         CCoins coins;
         if (!viewMemPool.GetCoins(txin.prevout.hash, coins)) {
-            return  error("%s: Missing input", __func__);
+            return error("%s: Missing input", __func__);
         }
         if (coins.nHeight == MEMPOOL_HEIGHT) {
             // Assume all mempool transaction confirm in the next block
@@ -244,5 +250,5 @@ BIP112: https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki
 
 BIP113: https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki
 
-Hashed Timelock Contrats (HTLCs): https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf
+Hashed Timelock Contracts (HTLCs): https://github.com/ElementsProject/lightning/raw/master/doc/deployable-lightning.pdf
 
