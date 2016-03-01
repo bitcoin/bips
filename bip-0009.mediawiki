@@ -24,140 +24,130 @@ In addition, BIP 34 made the integer comparison (nVersion >= 2) a consensus rule
 
 Each soft fork deployment is specified by the following per-chain parameters (further elaborated below):
 
-# The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation.
-# The '''threshold''' specifies how many blocks within a single retarget period (2016 blocks) must have the bit set before we lock in the deployment.
+# The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
+# The '''threshold''' specifies how many blocks within a single retarget period (2016 blocks) must have the bit set before we lock in the deployment. The recommended value is 1916 (95%) for mainnet and 1512 (75%) for testnets.
 # The '''starttime''' specifies a minimum median time past of a block at which the bit gains its meaning.
 # The '''timeout''' specifies a time at which the deployment is considered failed. If the median time past of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
 
-===Mechanism===
+No two deployments may use the same bit if they have overlapping starttime-timeout periods.
 
-'''Bit flags'''
-We are permitting several independent soft forks to be deployed in parallel. For each, a bit B is chosen from the set {0,1,2,...,28}, which is not currently in use for any other ongoing soft fork. Miners signal intent to enforce the new rules associated with the proposed soft fork by setting bit 1<sup>B</sup> in nVersion to 1 in their blocks.
+The starttime should be set to some date in the future, coordinates with software release date. This is to prevent
+triggers as a result of parties running pre-release software. The timeout should be set a reasonable time after the
+starttime. Setting it to 3 years after the starttime would allow around 9 deployments to be initiated every year.
 
-'''High bits'''
-The highest 3 bits are set to 001, so the range of actually possible nVersion values is [0x20000000...0x3FFFFFFF], inclusive. This leaves two future upgrades for different mechanisms (top bits 010 and 011), while complying to the constraints set by BIP 34 and BIP 66. Having more than 29 available bits for parallel soft forks does not add anything anyway, as the (nVersion >= 3) requirement already makes that impossible.
+====States====
 
-'''States'''
-With every softfork proposal we associate a state BState, which begins
-at ''defined'', and can be ''started'', ''locked-in'', ''activated'',
-or ''failed''.  Transitions are considered after each
-retarget period.
+With each block and soft fork, we associate a deployment state. The possible states are:
 
-'''Soft Fork Support'''
-Software which supports the change should begin by setting B in all blocks
-mined until it is resolved.
+# '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
+# '''STARTED''' for blocks past the starttime.
+# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion.
+# '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
+# '''FAILED''' for one retarget period past the timeout time, if LOCKED_IN was not reached.
+# '''ABANDONED''' for all blocks after the FAILED retarget period.
 
-    if (BState == started || BState == locked-in) {
-        SetBInBlock();
-    }
+====Bit flags====
 
-'''Start time'''
-If a block's median time past is at least the starttime, and it is consider ''started''.
+Blocks in the STARTED state get an nVersion whose bit position bit is set to 1. The top 3 bits of such blocks must be
+001, so the range of actually possible nVersion values is [0x20000000...0x3FFFFFFF], inclusive. This leaves two future
+upgrades for different mechanisms (top bits 010 and 011), while complying to the constraints set by BIP 34 and others.
+Having more than 29 available bits for parallel soft forks does not add anything anyway, as the (nVersion >= 3)
+requirement already makes that impossible. When a block nVersion does not have top bits 001, it is treated as if all
+bits are 0 for the purposes of deployments in the context of this BIP. Miners should continue setting the bit in
+LOCKED_IN phase, so uptake is visible
 
-    if (NextBlockHeight % 2016 == 0) {
-        if (BState == defined && GetMedianTimePast(nextblock) >= starttime) {
-            BState = started;
+====New consensus rules====
+
+The new consensus rules for each soft fork are enforced for each block that has ACTIVE state.
+
+====State transitions====
+
+<img src="bip-0009/states.png" align="middle"></img>
+
+The genesis block has state DEFINED for each deployment, by definition.
+
+    State GetStateForBlock(block) {
+        if (block.height == 0) {
+            return DEFINED;
+        }
+
+All blocks within a retarget period have the same state. This means that if
+floor(block1.height / 2016) = floor(block2.height / 2016), they are guaranteed to have the same state for every
+deployment.
+
+        if ((block.height % 2016) != 0) {
+            return GetStateForBlock(GetParent(block));
+        }
+
+Otherwise, the next state depends on the previous state:
+
+        switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
+
+We remain in the initial state until either we pass the start time or the timeout. GetMedianTimePast in the code below
+refers to the median nTime of the 11 blocks preceeding a given block.
+
+        case DEFINED:
+            if (GetMedianTimePast(block) >= timeout) {
+                return FAILED;
+            }
+            if (GetMedianTimePast(block) >= starttime) {
+                return STARTED;
+            }
+            return DEFINED;
+
+When in STARTED state, we tally the bits set, and can transition to LOCKED_IN if we pass the threshold. Alternatively,
+the timeout can trigger. Note that a block's state never depends on its own nVersion; only on that of its ancestors.
+
+        case STARTED: {
+            int count = 0;
+            walk = block;
+            for (i = 0; i < 2016; i++) {
+                walk = walk.parent;
+                if (walk.nVersion & 0xE0000000 == 0x2000000 && (walk.nVersion >> bit) & 1 == 1) {
+                    count++;
+                }
+            }
+            if (count >= threshold) {
+                return LOCKED_IN;
+            }
+            if (GetMedianTimePast(block) >= timeout) {
+                return FAILED;
+            }
+        }
+
+After a retarget period of LOCKED_IN or FAILED, we automatically transition to ACTIVE and ABANDONED, respectively.
+
+        case LOCKED_IN:
+            return ACTIVE;
+
+        case FAILED:
+            return ABANDONED;
+
+And ACTIVE and ABANDONED are terminal states, which a deployment stays in once they're reached.
+
+        case ACTIVE:
+            return ACTIVE;
+
+        case ABANDONED:
+            return ABANDONED;
         }
     }
-
-'''Success: Lock-in Threshold'''
-If bit B is set in 1916 (1512 on testnet) or
-more of the 2016 blocks within a retarget period, it is considered
-''locked-in''.  Miners should continue setting bit B, so uptake is
-visible.
-
-    if (NextBlockHeight % 2016 == 0) {
-        if (BState == started && Previous2016BlocksCountB() >= threshold) {
-            BState = locked-in;
-            BActiveHeight = NextBlockHeight + 2016;
-        }
-    }
-
-'''Success: Activation Delay'''
-The consensus rules related to ''locked-in'' soft fork will be enforced in
-the second retarget period; ie. there is a one retarget period in
-which the remaining 5% can upgrade.  At the that activation block and
-after, miners should stop setting bit B, which may be reused for a different soft fork.
-
-    if (BState == locked-in && NextBlockHeight == BActiveHeight) {
-        BState = activated;
-        ApplyRulesForBFromNextBlock();
-        /* B can be reused, immediately */
-     }
-
-'''Failure: Timeout'''
-A soft fork proposal should include a ''timeout''.  This is measured
-as the beginning of a calendar year as per this table (suggest
-adding three to the current calendar year when drafting the soft fork proposal):
-
-{|
-! Timeout Year
-! >= Seconds
-! Timeout Year
-! >= Seconds
-|-
-|2018
-|1514764800
-|2026
-|1767225600
-|-
-|2019
-|1546300800
-|2027
-|1798761600
-|-
-|2020
-|1577836800
-|2028
-|1830297600
-|-
-|2021
-|1609459200
-|2029
-|1861920000
-|-
-|2022
-|1640995200
-|2030
-|1893456000
-|-
-|2023
-|1672531200
-|2031
-|1924992000
-|-
-|2024
-|1704067200
-|2032
-|1956528000
-|-
-|2025
-|1735689600
-|2033
-|1988150400
-|}
-
-If the soft fork still not ''locked-in'' and the
-GetMedianTimePast() of a block following a retarget period is at or
-past this timeout, miners should cease setting this bit.
-
-    if (NextBlockHeight % 2016 == 0) {
-        if (BState == started && GetMedianTimePast(nextblock) >= BFinalYear) {
-             BState = failed;
-        }
-    }
-
-After another retarget period (to allow detection of buggy miners),
-the bit may be reused.
-
-'''Warning system'''
-To support upgrade warnings, an extra "unknown upgrade" is tracked, using the "implicit bit" mask = (block.nVersion & ~expectedVersion) != 0. Mask will be non-zero whenever an unexpected bit is set in nVersion.  Whenever lock-in for the unknown upgrade is detected, the software should warn loudly about the upcoming soft fork.  It should warn even more loudly after the next retarget period.
 
 '''Forks'''
 It should be noted that the states are maintained along block chain
 branches, but may need recomputation when a reorganization happens.
 
-===Support for future changes===
+'''Implementation'''
+Given that the state for a specific block/deployment combination is completely determined by its ancestry before the
+current retarget period (i.e. up to and including its ancestor with height block.height - 1 - (block.height % 2016)),
+it is possible to implement the mechanism above efficiently by caching the resulting state of every multiple-of-2016
+block, indexed by its parent.
+
+====Warning mechanism====
+
+To support upgrade warnings, an extra "unknown upgrade" is tracked, using the "implicit bit" mask = (block.nVersion & ~expectedVersion) != 0. Mask will be non-zero whenever an unexpected bit is set in nVersion.  Whenever LOCKED_IN for the unknown upgrade is detected, the software should warn loudly about the upcoming soft fork. It should warn even more loudly after the next retarget period (when the unknown upgrade is in the ACTIVE state).
+
+==Support for future changes==
 
 The mechanism described above is very generic, and variations are possible for future soft forks. Here are some ideas that can be taken into account.
 
