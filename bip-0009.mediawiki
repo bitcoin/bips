@@ -22,11 +22,12 @@ In addition, BIP 34 made the integer comparison (nVersion >= 2) a consensus rule
 
 ==Specification==
 
-Each soft fork deployment is specified by the following parameters (further elaborated below):
+Each soft fork deployment is specified by the following per-chain parameters (further elaborated below):
 
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation.
 # The '''threshold''' specifies how many blocks within a single retarget period (2016 blocks) must have the bit set before we lock in the deployment.
-# The '''timeout''' specifies a time at which the deployment is considered failed. If the median time of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
+# The '''starttime''' specifies a minimum median time past of a block at which the bit gains its meaning.
+# The '''timeout''' specifies a time at which the deployment is considered failed. If the median time past of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
 
 ===Mechanism===
 
@@ -38,7 +39,7 @@ The highest 3 bits are set to 001, so the range of actually possible nVersion va
 
 '''States'''
 With every softfork proposal we associate a state BState, which begins
-at ''defined'', and can be ''locked-in'', ''activated'',
+at ''defined'', and can be ''started'', ''locked-in'', ''activated'',
 or ''failed''.  Transitions are considered after each
 retarget period.
 
@@ -46,8 +47,17 @@ retarget period.
 Software which supports the change should begin by setting B in all blocks
 mined until it is resolved.
 
-    if (BState != activated && BState != failed) {
+    if (BState == started || BState == locked-in) {
         SetBInBlock();
+    }
+
+'''Start time'''
+If a block's median time past is at least the starttime, and it is consider ''started''.
+
+    if (NextBlockHeight % 2016 == 0) {
+        if (BState == defined && GetMedianTimePast(nextblock) >= starttime) {
+            BState = started;
+        }
     }
 
 '''Success: Lock-in Threshold'''
@@ -57,7 +67,7 @@ more of the 2016 blocks within a retarget period, it is considered
 visible.
 
     if (NextBlockHeight % 2016 == 0) {
-        if (BState == defined && Previous2016BlocksCountB() >= 1916) {
+        if (BState == started && Previous2016BlocksCountB() >= threshold) {
             BState = locked-in;
             BActiveHeight = NextBlockHeight + 2016;
         }
@@ -132,7 +142,7 @@ GetMedianTimePast() of a block following a retarget period is at or
 past this timeout, miners should cease setting this bit.
 
     if (NextBlockHeight % 2016 == 0) {
-        if (BState == defined && GetMedianTimePast(nextblock) >= BFinalYear) {
+        if (BState == started && GetMedianTimePast(nextblock) >= BFinalYear) {
              BState = failed;
         }
     }
