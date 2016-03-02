@@ -25,15 +25,15 @@ In addition, BIP 34 made the integer comparison (nVersion >= 2) a consensus rule
 Each soft fork deployment is specified by the following per-chain parameters (further elaborated below):
 
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
-# The '''threshold''' specifies how many blocks within a single retarget period (2016 blocks) must have the bit set before we lock in the deployment. The recommended value is 1916 (95%) for mainnet and 1512 (75%) for testnets.
 # The '''starttime''' specifies a minimum median time past of a block at which the bit gains its meaning.
 # The '''timeout''' specifies a time at which the deployment is considered failed. If the median time past of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
 
 The starttime should be set to some date in the future, coordinates with software release date. This is to prevent
 triggers as a result of parties running pre-release software. The timeout should be set a reasonable time after the
-starttime. A later deployment using the same bit is possible as long as its starttime is after the previous one's
-timeout. This means that by setting it to 3 years after the starttime would allow around 9 deployments to be initiated
-every year.
+starttime. A later deployment using the same bit is possible as long as the first one its starttime is after the previous one's
+timeout or activation, though it is recommended to have a pause in between to detect buggy software.
+
+Setting the timeout to 3 years after the starttime allows at least 9 new deployments per year.
 
 ====States====
 
@@ -48,12 +48,16 @@ With each block and soft fork, we associate a deployment state. The possible sta
 ====Bit flags====
 
 Blocks in the STARTED state get an nVersion whose bit position bit is set to 1. The top 3 bits of such blocks must be
-001, so the range of actually possible nVersion values is [0x20000000...0x3FFFFFFF], inclusive. This leaves two future
-upgrades for different mechanisms (top bits 010 and 011), while complying to the constraints set by BIP 34 and others.
-Having more than 29 available bits for parallel soft forks does not add anything anyway, as the (nVersion >= 3)
-requirement already makes that impossible. When a block nVersion does not have top bits 001, it is treated as if all
-bits are 0 for the purposes of deployments in the context of this BIP. Miners should continue setting the bit in
-LOCKED_IN phase, so uptake is visible
+001, so the range of actually possible nVersion values is [0x20000000...0x3FFFFFFF], inclusive.
+
+Due to the constraints set by BIP 34, BIP 66 and BIP 65, we only have 0x7FFFFFFB possible nVersion values available.
+This restricts us to at most 30 independent deployments. By restricting the top 3 bits to 001 we get 29 out of those
+for the purposes of this proposal, and support two future upgrades for different mechanisms (top bits 010 and 011).
+When a block nVersion does not have top bits 001, it is treated as if all
+bits are 0 for the purposes of deployments.
+
+Miners should continue setting the bit in LOCKED_IN phase so uptake is visible, though this has no effect on
+consensus rules.
 
 ====New consensus rules====
 
@@ -75,7 +79,7 @@ floor(block1.height / 2016) = floor(block2.height / 2016), they are guaranteed t
 deployment.
 
         if ((block.height % 2016) != 0) {
-            return GetStateForBlock(GetParent(block));
+            return GetStateForBlock(block.parent);
         }
 
 Otherwise, the next state depends on the previous state:
@@ -83,25 +87,29 @@ Otherwise, the next state depends on the previous state:
         switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
 
 We remain in the initial state until either we pass the start time or the timeout. GetMedianTimePast in the code below
-refers to the median nTime of the 11 blocks preceeding a given block (referred to as MTP in the diagram above).
+refers to the median nTime of a block and its 10 predecessors. The expression GetMedianTimePast(block.parent) is
+referred to as MTP in the diagram above, and is treated as a monotonic clock defined by the chain.
 
         case DEFINED:
-            if (GetMedianTimePast(block) >= timeout) {
+            if (GetMedianTimePast(block.parent) >= timeout) {
                 return FAILED;
             }
-            if (GetMedianTimePast(block) >= starttime) {
+            if (GetMedianTimePast(block.parent) >= starttime) {
                 return STARTED;
             }
             return DEFINED;
 
 After a period in the STARTED state, if we're past the timeout, we switch to FAILED. If not, we tally the bits set,
-and transition to LOCKED_IN if we pass the threshold. The transaction to FAILED takes precendence, as otherwise there
-could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN and the other
-to STARTED, which would mean both would demand setting the bit. Note that a block's state never depends on its own
-nVersion; only on that of its ancestors.
+and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
+version numbers. The threshold is 1915 blocks (95% of 2016), or 1512 for testnet (75% of 2016).
+The transition to FAILED takes precendence, as otherwise an ambiguity can arise.
+There could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN while the
+other one simultaneously transitions to STARTED, which would mean both would demand setting the bit.
+
+Note that a block's state never depends on its own nVersion; only on that of its ancestors.
 
         case STARTED: {
-            if (GetMedianTimePast(block) >= timeout) {
+            if (GetMedianTimePast(block.parent) >= timeout) {
                 return FAILED;
             }
             int count = 0;
@@ -132,14 +140,13 @@ And ACTIVE and FAILED are terminal states, which a deployment stays in once they
         }
     }
 
-'''Forks'''
+'''Implementation'''
 It should be noted that the states are maintained along block chain
 branches, but may need recomputation when a reorganization happens.
 
-'''Implementation'''
 Given that the state for a specific block/deployment combination is completely determined by its ancestry before the
 current retarget period (i.e. up to and including its ancestor with height block.height - 1 - (block.height % 2016)),
-it is possible to implement the mechanism above efficiently by caching the resulting state of every multiple-of-2016
+it is possible to implement the mechanism above efficiently and safely by caching the resulting state of every multiple-of-2016
 block, indexed by its parent.
 
 ====Warning mechanism====
@@ -151,7 +158,7 @@ To support upgrade warnings, an extra "unknown upgrade" is tracked, using the "i
 The mechanism described above is very generic, and variations are possible for future soft forks. Here are some ideas that can be taken into account.
 
 '''Modified thresholds'''
-The 95% threshold (based on in BIP 34) does not have to be maintained for eternity, but changes should take the effect on the warning system into account. In particular, having a lock-in threshold that is incompatible with the one used for the warning system may have long-term effects, as the warning system cannot rely on a permanently detectable condition anymore.
+The 1915 threshold (based on in BIP 34's 95%) does not have to be maintained for eternity, but changes should take the effect on the warning system into account. In particular, having a lock-in threshold that is incompatible with the one used for the warning system may have long-term effects, as the warning system cannot rely on a permanently detectable condition anymore.
 
 '''Conflicting soft forks'''
 At some point, two mutually exclusive soft forks may be proposed. The naive way to deal with this is to never create software that implements both, but that is making a bet that at least one side is guaranteed to lose. Better would be to encode "soft fork X cannot be locked-in" as consensus rule for the conflicting soft fork - allowing software that supports both, but can never trigger conflicting changes.
