@@ -29,11 +29,11 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 # The '''starttime''' specifies a minimum median time past of a block at which the bit gains its meaning.
 # The '''timeout''' specifies a time at which the deployment is considered failed. If the median time past of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
 
-No two deployments may use the same bit if they have overlapping starttime-timeout periods.
-
 The starttime should be set to some date in the future, coordinates with software release date. This is to prevent
 triggers as a result of parties running pre-release software. The timeout should be set a reasonable time after the
-starttime. Setting it to 3 years after the starttime would allow around 9 deployments to be initiated every year.
+starttime. A later deployment using the same bit is possible as long as its starttime is after the previous one's
+timeout. This means that by setting it to 3 years after the starttime would allow around 9 deployments to be initiated
+every year.
 
 ====States====
 
@@ -44,7 +44,6 @@ With each block and soft fork, we associate a deployment state. The possible sta
 # '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion.
 # '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
 # '''FAILED''' for one retarget period past the timeout time, if LOCKED_IN was not reached.
-# '''ABANDONED''' for all blocks after the FAILED retarget period.
 
 ====Bit flags====
 
@@ -84,7 +83,7 @@ Otherwise, the next state depends on the previous state:
         switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
 
 We remain in the initial state until either we pass the start time or the timeout. GetMedianTimePast in the code below
-refers to the median nTime of the 11 blocks preceeding a given block.
+refers to the median nTime of the 11 blocks preceeding a given block (referred to as MTP in the diagram above).
 
         case DEFINED:
             if (GetMedianTimePast(block) >= timeout) {
@@ -95,10 +94,16 @@ refers to the median nTime of the 11 blocks preceeding a given block.
             }
             return DEFINED;
 
-When in STARTED state, we tally the bits set, and can transition to LOCKED_IN if we pass the threshold. Alternatively,
-the timeout can trigger. Note that a block's state never depends on its own nVersion; only on that of its ancestors.
+After a period in the STARTED state, if we're past the timeout, we switch to FAILED. If not, we tally the bits set,
+and transition to LOCKED_IN if we pass the threshold. The transaction to FAILED takes precendence, as otherwise there
+could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN and the other
+to STARTED, which would mean both would demand setting the bit. Note that a block's state never depends on its own
+nVersion; only on that of its ancestors.
 
         case STARTED: {
+            if (GetMedianTimePast(block) >= timeout) {
+                return FAILED;
+            }
             int count = 0;
             walk = block;
             for (i = 0; i < 2016; i++) {
@@ -110,26 +115,20 @@ the timeout can trigger. Note that a block's state never depends on its own nVer
             if (count >= threshold) {
                 return LOCKED_IN;
             }
-            if (GetMedianTimePast(block) >= timeout) {
-                return FAILED;
-            }
         }
 
-After a retarget period of LOCKED_IN or FAILED, we automatically transition to ACTIVE and ABANDONED, respectively.
+After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
 
         case LOCKED_IN:
             return ACTIVE;
 
-        case FAILED:
-            return ABANDONED;
-
-And ACTIVE and ABANDONED are terminal states, which a deployment stays in once they're reached.
+And ACTIVE and FAILED are terminal states, which a deployment stays in once they're reached.
 
         case ACTIVE:
             return ACTIVE;
 
-        case ABANDONED:
-            return ABANDONED;
+        case FAILED:
+            return FAILED;
         }
     }
 
