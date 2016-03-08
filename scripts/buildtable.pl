@@ -91,7 +91,7 @@ my %AllowedPD = map { $_ => undef } qw(
 	105 107 109
 	111 112 113
 	122 124 125
-	130 131 132
+	130 131 132 133
 	140 141 142 143 144
 );
 # Never add to this list, and try to resolve getting these licensed!
