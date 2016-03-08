@@ -8,6 +8,8 @@ my %RequiredFields = (
 	BIP => undef,
 	Title => undef,
 	Author => undef,
+	'Comments-Summary' => undef,
+	'Comments-URI' => undef,
 	Status => undef,
 	Type => undef,
 	Created => undef,
@@ -15,6 +17,8 @@ my %RequiredFields = (
 );
 my %MayHaveMulti = (
 	Author => undef,
+	'Comments-Summary' => undef,
+	'Comments-URI' => undef,
 	License => undef,
 	'Post-History' => undef,
 );
@@ -28,7 +32,6 @@ my %EmailField = (
 my %MiscField = (
 	'Post-History' => undef,
 	'Comments-Summary' => undef,
-	'Comments-URI' => undef,
 );
 
 my %ValidLayer = (
@@ -118,6 +121,7 @@ while (++$bipnum <= $topbip) {
 	if (exists $AllowedNoLicense{$bipnum}) {
 		$found{License} = 1;
 	}
+	my $FoundRequiredCommentsURI;
 	my ($title, $author, $status, $type);
 	my ($field, $val);
 	while (<$F>) {
@@ -173,6 +177,15 @@ while (++$bipnum <= $topbip) {
 			} else {
 				die "Invalid license $val in $fn"
 			}
+		} elsif ($field eq 'Comments-URI') {
+			if ($val =~ m[^(.*)https\:\/\/en\.bitcoin\.it\/wiki\/BIP\_Comments\:BIP\_(\d+)(.*)$]) {
+				if ($2 != $bipnum) {
+					die "Wrong BIP number in Comments-URI (in $fn)";
+				}
+				if ($1 eq '' and $3 eq '' and $2 eq sprintf '%04u', $bipnum) {
+					$FoundRequiredCommentsURI = 1;
+				}
+			}
 		} elsif (exists $DateField{$field}) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
@@ -184,6 +197,7 @@ while (++$bipnum <= $topbip) {
 	for my $field (keys %RequiredFields) {
 		die "Missing $field in $fn" unless $found{$field};
 	}
+	die "Missing required Comments-URI in $fn" unless $FoundRequiredCommentsURI;
 	print "|-";
 	if (defined $ValidStatus{$status}) {
 		print " style=\"" . $ValidStatus{$status} . "\"";
