@@ -27,6 +27,8 @@ my %EmailField = (
 );
 my %MiscField = (
 	'Post-History' => undef,
+	'Comments-Summary' => undef,
+	'Comments-URI' => undef,
 );
 
 my %ValidLayer = (
