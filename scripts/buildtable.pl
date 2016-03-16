@@ -8,12 +8,18 @@ my %RequiredFields = (
 	BIP => undef,
 	Title => undef,
 	Author => undef,
+	'Comments-Summary' => undef,
+	'Comments-URI' => undef,
 	Status => undef,
 	Type => undef,
 	Created => undef,
+	License => undef,
 );
 my %MayHaveMulti = (
 	Author => undef,
+	'Comments-Summary' => undef,
+	'Comments-URI' => undef,
+	License => undef,
 	'Post-History' => undef,
 );
 my %DateField = (
@@ -25,6 +31,7 @@ my %EmailField = (
 );
 my %MiscField = (
 	'Post-History' => undef,
+	'Comments-Summary' => undef,
 );
 
 my %ValidLayer = (
@@ -45,6 +52,60 @@ my %ValidType = (
 	'Informational' => undef,
 	'Process' => undef,
 );
+my %ValidLicense = (
+	'BSD-2-Clause' => undef,
+	'BSD-3-Clause' => undef,
+	'CC0-1.0' => undef,
+	'GNU-All-Permissive' => undef,
+	
+	'Apache-2.0' => undef,
+	'BSL-1.0' => undef,
+	'CC-BY-4.0' => undef,
+	'CC-BY-SA-4.0' => undef,
+	'MIT' => undef,
+	'AGPL-3.0' => undef,
+	'AGPL-3.0+' => undef,
+	'FDL-1.3' => undef,
+	'GPL-2.0' => undef,
+	'GPL-2.0+' => undef,
+	'GPL-3.0' => undef,
+	'GPL-3.0+' => undef,
+	'LGPL-2.1' => undef,
+	'LGPL-2.1+' => undef,
+	'LGPL-3.0' => undef,
+	'LGPL-3.0+' => undef,
+	'OPL' => undef,
+	
+	'Complex' => undef,
+);
+# Grandfathered-in license predating BIP 2 only
+my %AllowedPD = map { $_ => undef } qw(
+	1 9
+	36 37 38
+	42
+	50
+	60 65 69
+	74
+	80 81
+	99
+	105 107 109
+	111 112 113
+	122 124 125
+	130 131 132 133
+	140 141 142 143 144
+);
+# Never add to this list, and try to resolve getting these licensed!
+my %AllowedNoLicense = map { $_ => undef } qw(
+	10 11 12 13 14 15 16
+	21
+	30 31 32 33 34 35 39
+	43 44 45 47
+	61 62 64 66 67 68
+	70 71 72 73
+	83
+	101 102 103 106
+	120 121 123
+);
 
 my %emails;
 
@@ -57,6 +118,10 @@ while (++$bipnum <= $topbip) {
 			die "No <pre> in $fn" if eof $F;
 	}
 	my %found;
+	if (exists $AllowedNoLicense{$bipnum}) {
+		$found{License} = 1;
+	}
+	my $FoundRequiredCommentsURI;
 	my ($title, $author, $status, $type);
 	my ($field, $val);
 	while (<$F>) {
@@ -104,6 +169,23 @@ while (++$bipnum <= $topbip) {
 			}
 		} elsif ($field eq 'Layer') {  # BIP 123
 			die "Invalid layer $val in $fn" unless exists $ValidLayer{$val};
+		} elsif ($field eq 'License') {
+			if (exists $ValidLicense{$val}) {
+				# ok
+			} elsif ($val eq 'PD' and exists $AllowedPD{$bipnum}) {
+				# also ok
+			} else {
+				die "Invalid license $val in $fn"
+			}
+		} elsif ($field eq 'Comments-URI') {
+			if ($val =~ m[^(.*)https\:\/\/en\.bitcoin\.it\/wiki\/BIP\_Comments\:BIP\_(\d+)(.*)$]) {
+				if ($2 != $bipnum) {
+					die "Wrong BIP number in Comments-URI (in $fn)";
+				}
+				if ($1 eq '' and $3 eq '' and $2 eq sprintf '%04u', $bipnum) {
+					$FoundRequiredCommentsURI = 1;
+				}
+			}
 		} elsif (exists $DateField{$field}) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
@@ -115,6 +197,7 @@ while (++$bipnum <= $topbip) {
 	for my $field (keys %RequiredFields) {
 		die "Missing $field in $fn" unless $found{$field};
 	}
+	die "Missing required Comments-URI in $fn" unless $FoundRequiredCommentsURI;
 	print "|-";
 	if (defined $ValidStatus{$status}) {
 		print " style=\"" . $ValidStatus{$status} . "\"";
