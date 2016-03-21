@@ -1,0 +1,93 @@
+﻿<pre>
+  BIP: ###
+  Title: Maximum Block Size Consensus Rule Based On Median Block Size
+  Author: Stephen Pair <stephen@bitpay.com>, Chris Kleeschulte <chrisk@bitpay.com>
+  Status: Draft
+  Type: Standards Track
+  Created: 2016-02-25
+</pre>
+
+
+==Abstract==
+
+
+We propose a dynamic limit to the block size based on the median block size over the last 12,960 blocks (about three months) multiplied by 2 and calculated when a block is connected to the blockchain.
+
+
+==Motivation==
+
+
+The purpose of this consensus rule change is to allow the maximum block size to increase or decrease based on actual network usage. A block size limit, as discussed here, prevents certain types of denial of service attacks on the Bitcoin network, however a fixed limit does not allow the capacity of the network to increase as advancements in scaling are realized.  By adjusting the limit based on the sizes of blocks in the recent past, the throughput of the network can adjust to changes in user demand and scaling related technology advancements while still being protected from denial of service attacks.
+
+
+This is a chain-based signaling mechanism that will allow miners to have certainty that the blocks they build will be accepted by the rest of the network. With this BIP in place, future hard forks related to block size should be unnecessary.
+
+
+Please note that this proposal DOES NOT propose a [blended cost metric](https://gist.github.com/gavinandresen/54f6e24b830781aae1f4) for transactions and blocks used for miner transaction selection. Consensus rules regarding maximum signature operations per block and maximum standard transaction signature operations should be considered separately from this consensus rule change. A recommendation would be to adaptively adjust those limits in a manner similar to this proposal.
+
+
+==Specification==
+
+
+* This is implemented as a hard fork using [[https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki|version bits]] for activation.
+* After 75% of livenet nodes (and 51% of testnet) begin using this BIP's version bits:
+** The new maximum block size calculation will take place at the end of ConnectBlock(), so enforcement of the new maximum block size consensus rule will take place on the next block received.
+*** the last 12,960 block's sizes (about three months of blocks) are sorted
+*** median = ((blocksizes[6480] + blocksizes[6479]) / 2)
+*** median * 2 (2 is the growth multiplier)
+*** if the median is less than 0.5MB, then 1MB is used as the maximum block size until next calculation.
+** A new miner option called “blockmaxpercentage” will be available (not yet in implementation). This option will deprecate “blockmaxsize”. If blockmaxpercentage is used, then miners can designate blocks to be from 0-100% of the calculated maximum block consensus rule. Example, if bitcoind is started with -blockmaxpercentage=99, then whatever the maximum block size was calculated to be when the last block was connected, then the new block will be 99% of this value (if memory pool conditions exist). If only the blockmaxsize option is specified, it will be used to compute a percentage relative to the current 1MB limit. The default blockmaxpercentage is 75.
+
+
+===Activation===
+Activation: 75% hash power trigger (livenet), 51% hash power (testnet)
+
+
+Miners express their support for this BIP by setting the fifth-highest-bit in the block's 32-bit version number (0x08000000 in hex). The “IsSuperMajority()” static method will be used to decide when to trigger this BIP. This is the same method of invocation used by BIP66 and BIP65. Should the “IsSuperMajority()” method return true, this will trigger the recalculation of maximum block size, maximum block signature operations, and maximum standard transaction signature operations.
+Backward compatibility
+
+Fully validating older clients are not compatible with this change. The first block exceeding the old limits on block size will partition older clients off the new network.
+
+SPV (simple payment validation) wallets are compatible with this change.
+
+==Rationale==
+
+
+By having a maximum block size that adjusts based on the median block size of the past blocks, the degree to which a single miner can influence the decision over what the maximum block size is directly proportional to their own mining hash rate on the network. The only way a single miner can make a unilateral decision on block size would be if they had greater than 50% of the mining power. In this case, Bitcoin has existential problems beyond the scope of this BIP. Using the median block size multiplied by 2 achieves predictable growth in the max block size over time. See Figure 1.
+
+
+ Screenshot 2016-03-16 17.37.01.png 
+
+Figure 1. Visualization of the increase in the block size limit since the point in time when the limit starts to exceed 1mb
+Figure 1 shows an overall rise in the maximum block size over time (orange line). This shows how the maximum block size consensus rule would have changed over time had this BIP been in place, but miners chose to not to exceed the current maximum block size consensus rule.
+
+
+Choosing the median block size versus using an arithmetic mean is an important design decision. Using the moving average over the look back period to calculate the maximum block size consensus rule would allow individual miners to influence this consensus rule in a way that is not proportional to their historical hash rate on the network. In other words, a single miner could have a disproportionately large influence over the block size limit by building very large or very small blocks.
+
+
+===Supporting Analysis===
+In preparation for this proposal, we looked at a number of block size growth functions. If you would like to see some of this analysis, please check out [these graphs](http://bitpay.github.io/blockchain-data).
+We decided that a look back of 12,960 blocks (about three months) and a multiple of 2 worked well to react as quickly as possible to market forces while not being overly volatile.  Except in extremity, other choices for a look back period would work just as well. By calculating the maximum block size with each block (rather than on some interval), the limit adjusts more smoothly.
+
+
+===Projected Future Block Size Increases===
+In essence, the purpose of this change to the consensus rules is to give the miners more choice in the size of the blocks created. Some miners will see the benefit in building larger blocks to minimize transaction confirmation times while other miners will choose to be more conservative. 
+
+
+===Worst Case Growth Scenarios===
+The maximum rate of growth is capped at the growth multiplier, which is 2. So, worst case scenario can occur if every block is mined to capacity continuously over time. In this case, the absolute fastest growth rate is a doubling of maximum block size every 6480 blocks (45 days). Miners wish to maximize the sum of transaction fees paid for blocks they mine, while at the same time keep individual transaction fees as low as possible to allow Bitcoin to be more competitive as a payment network.
+
+
+===SPV Mining Ramifications===
+We don’t expect this consensus rule change to impact miners who choose to mine from block headers before the full block is transferred, validated and connected to the active chain. The same behavior will be observed before and after this change. Since this consensus rule will be calculated as a precondition to ConnectBlock(), the maximum block size rule for the next block will not be known until after the last block is connected to the main chain.
+
+
+Should the growth rate of the block size limit exceed the actual capacity of the Bitcoin network, there should be an increase in the number of empty blocks as a result of SPV mining.  The effect of which would be to reduce the median block size and therefore reduce the block size limit.  To the extent miners engage in SPV mining, it should have an automatic, self correcting effect on the block size limit.
+
+
+==Implementation==
+https://github.com/bitpay/bitcoin/tree/adaptive-block-size
+
+
+==Copyright==
+This work is placed in the public domain.
