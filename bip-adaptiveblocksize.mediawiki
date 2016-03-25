@@ -1,4 +1,4 @@
-﻿<pre>
+<pre>
   BIP: XXX
   Title: Maximum Block Size Consensus Rule Based On Median Block Size
   Author: Stephen Pair <stephen@bitpay.com>, Chris Kleeschulte <chrisk@bitpay.com>
@@ -30,13 +30,29 @@ Please note that this proposal DOES NOT propose a [[https://gist.github.com/gavi
 
 
 * This is implemented as a hard fork using [[https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki|version bits]] for activation.
+
 * After 75% of livenet nodes (and 51% of testnet) begin using this BIP's version bits:
 ** The new maximum block size calculation will take place at the end of ConnectBlock(), so enforcement of the new maximum block size consensus rule will take place on the next block received.
-*** the last 12,960 block's sizes (about three months of blocks) are sorted
-*** median = ((blocksizes[6480] + blocksizes[6479]) / 2)
-*** median * 2 (2 is the growth multiplier)
-*** if the median is less than 0.5MB, then 1MB is used as the maximum block size until next calculation.
-** A new miner option called “blockmaxpercentage” will be available (not yet in implementation). This option will deprecate “blockmaxsize”. If blockmaxpercentage is used, then miners can designate blocks to be from 0-100% of the calculated maximum block consensus rule. Example, if bitcoind is started with -blockmaxpercentage=99, then whatever the maximum block size was calculated to be when the last block was connected, then the new block will be 99% of this value (if memory pool conditions exist). If only the blockmaxsize option is specified, it will be used to compute a percentage relative to the current 1MB limit. The default blockmaxpercentage is 75.
+** Using a pre-sorted list of the last 12,960 blocks' sizes (about three months of blocks)
+** median * 2 (2 is the growth multiplier)
+** If the median is less than 500,000 bytes, then 1,000,000 bytes is used as the maximum block size until next calculation. Note: the current maximum block size consensus rule is 1,000,000 bytes. 
+** A new miner option called “blockmaxpercentage” will be available (not yet in implementation). This option will deprecate “blockmaxsize”. If blockmaxpercentage is used, then miners can designate blocks to be from 0-100% of the calculated maximum block consensus rule. Example, if bitcoind is started with -blockmaxpercentage=99, then whatever the maximum block size was calculated to be when the last block was connected, then the new block will be 99% of this value (if memory pool conditions exist). If only the blockmaxsize option is specified, it will be used to compute a percentage relative to the current 1,000,000 bytes limit. The default blockmaxpercentage is 75.
+** It is our intention to be unambiguous about how a median is found in a list of block sizes. An example implementation in C++ of the retreiving the median block size:
+<source lang="c++" collapse="true" first-line="2" highlight="[4,6]" title="median_size_calc">
+unsigned int vsize = blocksizes.size(); //blocksizes is std::vector<unsigned int>
+if (vsize == pastblocks) {
+  double median = 0;
+  if ((vsize % 2) == 0) {
+    median = (blocksizes[vsize / 2] + blocksizes[(vsize / 2) - 1]) / 2.0;
+  } else {
+    median = blocksizes[vsize / 2];
+  }
+  return static_cast<unsigned int>(floor(median));
+} else {
+  return 0; 
+}
+</source>
+
 
 
 ===Activation===
@@ -82,6 +98,28 @@ We don’t expect this consensus rule change to impact miners who choose to mine
 
 Should the growth rate of the block size limit exceed the actual capacity of the Bitcoin network, there should be an increase in the number of empty blocks as a result of SPV mining.  The effect of which would be to reduce the median block size and therefore reduce the block size limit.  To the extent miners engage in SPV mining, it should have an automatic, self correcting effect on the block size limit.
 
+===FAQ===
+
+# Will this proposal result in constant growth of the maximum block size at the maximum rate (Worst Case Scenario)?
+## This is unlikely because of the limitations of technology. A miner can try and transmit larger and larger blocks up until he starts feeling the pinch of orphaned blocks, which should start happening as it begins taking longer for other miners to validate blocks. As they see increased orphan rates, a miner would dial back their own max block size.
+# Is it possible for the maximum block size consensus rule to drop below the current rule of 1,000,000 bytes under this proposal?
+## No, this proposal states that the maximum block size consensus rule will never drop below 1,000,000 bytes. Miners can build any size blocks they want, but the rule states that the maximum block size will not be lower than 1,000,000 bytes.
+# Why should the maximum block size consensus rule be computed every time a block is connected to the active chain? Why not every 144 blocks or 2016 blocks, etc.?
+## Quite simply, the decision to calculate the maximum block size after each block was the least arbitrary of the all options available to us. In other words, we considered the choice of calculating the maximum block size at alternate intervals to be more arbitrary than every block for no gain.
+# How would this proposal affect miners' behavior? More specifically, how does this affect miners that begin hashing using the last reported successfully mined block header only?
+## We don't think that SPV miners will be affected by this proposal. This proposal posits that block size increases will happen in response to the need to process transactions on the Bitcoin payment network but be moderated by limitations of current technology. Example, miner A builds a large block and propagates it. Miner B has very limited hardware and/or network capabilities. Miner B chooses to mine from miner A's block header only and actually finds the next block (this happens at the present time). Miner B does not have the ability to add any transactions from their memory pool for fear they appeared in the last block. So, miner B mines a block with only the coinbase transaction. This very small block will then be a factor in lowering the maximum block size consensus rule in the immediate future.
+# Will this proposal lead to a change in incentives for miners? If so, how?
+## This was one of our main concerns in developing this proposal. We don't think miner incentives will change at all. The chances of a miner (or pool) building the next valid block is directly portional to their percentage of hashing power on the network. Similarly, the degree to which a miner (or pool) can influence what the maximum block size consensus rule is also directly proportional to their hashing power on the network.
+# Can this proposal be triggered with a minority of miner support due to the way you are suggesting activation?
+## This proposal will become active when 750 of the last 1000 blocks contain the block version bit of this proposal. We think this approach provides a great deal of confidence that a majority of the hashing power have specifically adopted this proposal.  A higher percentage risks giving a single large miner a veto over the rule change.  Additionally, the fact that a miner says it supports a change doesn’t mean they actually will.  It is only a signaling mechanism that allows miners to indicate to each other when it is reasonably safe to adopt the new rule.  If the network doesn’t actually support the new rule, the first miner to produce a block that forks the chain will end up with an orphaned block.  They will quickly revert to the old rules upon observing the lack of support.
+# What about "weak blocks"; could the development of this technology invalidate the assumption that larger blocks have a higher orphan risk?
+## While validation and propagation times might be significantly improved by weak blocks, adding transactions to a block has a cost and will always have a cost. The orphan risk might not come directly from the cost of block validation, but from miners choosing a different block to build upon. Imagine you're a miner and two blocks arrive at close to the same time and one block has a lot of transactions and another block has very few.  You may rationally choose to build on the smaller block not because of validation cost, but because it would allow you to claim some of the transaction fees that the larger block has claimed. # What about consideration of systems used in other cryptocurrencies like Meni Rosenfeld's flexcap system in Monero?
+## The simplicity of using the multiple of median block size over a look back range was very attractive to us.  Some of those flexcap proposals allow the block size to momentarily surge in response to high demand.  We believe this is a mistake.  The network cannot magically conjure up additional capacity in response to surges in demand.  We believe the proper mechanism to address surges in demand is higher transaction fees during the period of the surge.
+# Why did you choose the lookback period of 3 months and the multiple of 2?
+## We had the goal of being as reactive as possible, while not being excessively volatile. We felt that a ~3 month look back period was the maximum amount of time to allow sufficient adaptability, while at the same time preventing excessive variability in the block size limit.
+# What about other consensus rules that are, currently, directly derived from maximum block size such as maximum signature operations per block and maximum standard transaction signature operations? How does this proposal affect those consensus rules with respect to current rules?
+## It doesn't. This proposal does not address other block limitations because we believe they should have independent limits.  However, we do believe that you could employ a very similar, if not identical, approach to those limits.  A combined cost metric (based a transaction’s percentage consumption of each limit) could be devised that would facilitate miner transaction selection (as well as relay policies on the mesh network).  It was noted by a reviewer of this BIP that this is a manifestation of the multidimensional knapsack problem.
+
 
 ==Implementation==
 https://github.com/bitpay/bitcoin/tree/adaptive-block-size
@@ -89,3 +127,5 @@ https://github.com/bitpay/bitcoin/tree/adaptive-block-size
 
 ==Copyright==
 This work is placed in the public domain.
+
+
