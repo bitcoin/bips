@@ -101,7 +101,7 @@ message InvoiceRequest {
 |-
 | memo                  || Human-readable description of invoice request for the receiver
 |-
-| notification_url      || Secure (usually HTTPS) location where an [[#EncryptedPaymentRequest|EncryptedPaymentRequest]] (see below) SHOULD be sent when ready
+| notification_url      || Secure (usually TLS-protected HTTP) location where an [[#EncryptedPaymentRequest|EncryptedPaymentRequest]] (see below) SHOULD be sent when ready
 |-
 | signature             || PKI-dependent signature
 |}
@@ -242,6 +242,19 @@ message EncryptedPaymentACK {
 | identifier                    || Use the identifier specified with the EncryptedPayment, if any.
 |}
 
+==Updated Messages==
+The BIP70 PaymentRequest, Payment and PaymentACK messages have been updated by this BIP to contain Payment Protocol error communication. The following two extension fields have been added to each of the aforementioned messages:
+
+<pre>
+{
+...
+    optional uint32 status_code = 1000;     // Payment Protocol status code
+    optional string status_message = 1001;  // Human-readable status message
+}
+</pre>
+
+status_code and/or status_message MUST be set to communicate a Payment Protocol error to the message receiver. The message consumer MUST handle status_code and status_message if either field is present.
+
 ==InvoiceRequest / PaymentRequest Process==
 The process overview for using InvoiceRequests and receiving encrypted PaymentRequests is defined below in two sections. Optionally, the Sender MAY choose to encrypt the InvoiceRequest message and therefore MUST follow the '''Encrypted InvoiceRequest Overview''' process below.
 
@@ -282,8 +295,8 @@ The process overview for using InvoiceRequests and receiving encrypted PaymentRe
 
 ==Message Interaction Details==
 
-===New Message Content Types===
-Messages MUST be transmitted via TLS-protected HTTP using the appropriate Content-Type header as defined per message type here:
+===New Message HTTP Content Types===
+When communicated via HTTP, these messages MUST be transmitted via TLS-protected HTTP using the appropriate Content-Type header as defined per message type here:
 {| class="wikitable"
 ! Message Type !! Content Type
 |-
@@ -298,8 +311,43 @@ Messages MUST be transmitted via TLS-protected HTTP using the appropriate Conten
 | EncryptedPaymentACK               || application/bitcoin-encrypted-paymentack
 |}
 
-===Message or Communication Errors===
-An invalid or unparsable message or communications error MUST be communicated to the party that initiated the communication. This SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]). If the provided hash of each message does not match the contents of the message once decrypted, a general error should be returned to prevent oracle attacks.
+===Payment Protocol Errors===
+
+Payment Protocol errors MUST be communicated to the party that initiated the communication via the status_code and status_message extension fields present in the PaymentRequest, Payment and PaymentACK messages. For example, if the provided hash of each message does not match the contents of the message once decrypted, a general error MUST be returned to prevent oracle attacks.
+
+====Payment Protocol Status Codes====
+{| class="wikitable"
+! Status Code !! Description
+|-
+| 1     || General / Unknown Error
+|-
+| 2     || Authentication Failed
+|-
+| 3     || Encrypted Message Required
+|-
+| 100   || Amount Too High
+|-
+| 101   || Amount Too Low
+|-
+| 102   || Amount Invalid
+|-
+| 103   || Payment Does Not Meet PaymentRequest Requirements
+|-
+| 200   || Certificate Required
+|-
+| 201   || Certificate Expired
+|-
+| 202   || Certificate Invalid for Transaction
+|-
+| 203   || Certificate Revoked
+|-
+| 204   || Certificate Not Well Rooted
+|-
+|}
+
+===Communication Errors===
+
+Communications errors MUST be communicated to the party that initiated the communication via the communication layer's existing error messaging faciltiies. In the case of TLS-protected HTTP, this SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
 ==Process Step Details==
 
@@ -311,7 +359,7 @@ Where used, '''nonce''' MUST be set to a non-repeating number AND MUST be chosen
 * Create an InvoiceRequest message
 * sender_public_key MUST be set to the public key of an EC keypair
 * nonce MUST be set according to the requirement above.
-* Amount is optional. If the amount is not specified by the InvoiceRequest, the Receiver MAY specify the amount in the returned PaymentRequest. If an amount is specified by the InvoiceRequest and a PaymentRequest cannot be generated for that amount, the InvoiceRequest SHOULD be rejected with HTTP status code 406.
+* Amount is optional. If the amount is not specified by the InvoiceRequest, the Receiver MAY specify the amount in the returned PaymentRequest. If an amount is specified by the InvoiceRequest and a PaymentRequest cannot be generated for that amount, the InvoiceRequest SHOULD return a PaymentRequest with the status_code and status_message fields set appropriately.
 * Memo is optional. This MAY be set to a human readable description of the InvoiceRequest
 * Set notification_url to URL that the Receiver will submit completed EncryptedPaymentRequest to
 * If NOT including certificate, set pki_type to "none"
