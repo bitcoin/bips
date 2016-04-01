@@ -1,0 +1,192 @@
+<pre>
+  BIP: ?
+  Title: Merkelized Abstract Syntax Tree
+  Author: Johnson Lau <jl2012@xbt.hk>
+  Status: Draft
+  Type: Standards Track
+  Created: 2016-04-02
+</pre>
+
+==Abstract==
+This BIP defines a new witness program type that uses a Merkle tree to encode mutually exclusive branches in a script. This enables complicated redemption conditions that are currently not possible, improves privacy by hiding unexecuted scripts, and allows inclusion of non-consensus enforced data with very low or no additional cost.
+
+==Motivation==
+===Evolution of Bitcoin script system===
+Bitcoin uses a script system to specify the conditions for redemption of transaction outputs. In its original design, the conditions for redemption are directly recorded in the scriptPubKey by the sender of the funds. This model has several drawbacks, particularly for complicated scripts:
+# It could be difficult for the receiver to specify the conditions;
+# Large scripts take up more UTXO space;
+# The sender will pay for the additional block space;
+# To prevent DoS attack, scripts are limited to 10,000 bytes and 201 op codes;
+# Any unexecuted branches and non-consensus enforced data in the script are visible to the public, consuming block space while damaging privacy.
+
+The [[bip-0016.mediawiki|BIP16]] (Pay-to-script-hash, "P2SH") fixes the first 3 problems by using a fixed-length 20-byte script hash in the scriptPubKey, and moving the responsibility for supplying the script to the redeemer. However, due to the data push size limit in script, a P2SH script may not be bigger than 520 bytes. Also, P2SH still requires the redeemer to publish all unexecuted branches of the script.
+
+The [[bip-0141.mediawiki|BIP141]] defines 2 new types of scripts that support segregated witness. The pay-to-witness-script-hash (P2WSH) is similar to P2SH is many ways. By supplying the script in witness, P2WSH restores the original 10,000 byte script limit. However, it still requires publishing of unexecuted branches.
+
+===Merkelized Abstract Syntax Tree===
+The idea of Merkelized Abstract Syntax Tree (MAST) is to use a Merkle tree to encode mutually exclusive branches in a script. When spending, the redeemer may provide only the branch they are executing, and hashes that connect the branch to the fixed size Merkel root. This reduces the size of redemption stack from O(n) to O(log n) (n as the number of mutually exclusive branches). This enables complicated redemption conditions that is currently not possible due to the script size and op code limit, improves privacy by hiding unexecuted branches, and allows inclusion of non-consensus enforced data with very low or no additional cost.
+
+==Specification==
+In [[bip-0141.mediawiki|BIP141]], witness programs with a version byte of 1 or larger are considered to be anyone-can-spend scripts. The following new validation rules are applied if the witness program version byte is 1 and the program size is 32 bytes. The witness program is the <code>MAST Root</code>.
+
+To redeem an output of this kind, the witness must consist of an input stack to feed to the script, followed by a <code>Postion</code> value, a serialized Merkle path (<code>Path</code>), and a serialized script (<code>MAST Script</code>).
+
+The <code>Position</code>, <code>Path</code>, and <code>MAST Script</code> are popped off the initial witness stack.
+
+The double-SHA256 of the MAST Script (≤ TBD bytes) must be correctly connected to the <code>MAST Root</code> with the <code>ComputeMerkleRootFromBranch</code> function, with the specified <code>Path</code> and <code>Position</code>.
+
+<code>Path</code> is the serialized Merkle path for the <code>MAST Script</code>. Size of <code>Path</code> must be a multiple of 32 bytes, and not more than 1024 bytes (which allows 32 levels). If the size of <code>Path</code> is zero, the double-SHA256 of the <code>MAST Script</code> must match the <code>MAST Root</code>.
+
+<code>Position</code> indicates the location of the <code>MAST Script</code> in the Merkle tree, with zero means the leftmost position. It is an unsigned little-endian integer with not more than 4 bytes. It must be encoded in the most parsimonious way possible, with no leading zero and not larger than the maximum number of items allowed by the depth of the tree (as implied by the size of <code>Path</code>).
+
+The <code>MAST Script</code> is then deserialized, and executed after normal script evaluation with the remaining witness stack (≤ TBD bytes for each stack item). The script must not fail, and result in exactly a single TRUE on the stack.
+
+Sigops in MAST program are counted to the block sigop limit in the same way as the version 0 witness program (see BIP141).
+
+If the version byte is 1, but the witness program is not 32 bytes, the script must fail.
+
+== Examples ==
+=== Calculation of MAST Root ===
+To calculate the MAST Root for 4 branches, the double-SHA256 of each branch is first calculated:
+    <1> EQUAL (0x5187), HASH256=3b647cb856a965fa6feffb4621eb2a4f4c2453693b2f64e021383ccbd80a1abb
+    <2> EQUAL (0x5287), HASH256=37772654bdce9b3d59e1169ea16ddbaa8a2ae8ee265db64863d0b76f02c882fa
+    <3> EQUAL (0x5387), HASH256=2e972642436151cd96e4b0868077b6362ffb5eb30b420a6f1c5e1c6fff02bc33
+    <4> EQUAL (0x5487), HASH256=4c954fc1e635ce8417341465f85b59d700806f6e57bb96b2a25bec5ca3f9f154
+
+Serialize the hashes of the first pair and calculate the hash. Same for the other pair:
+    HASH256(HASH256(5187)|HASH256(5287)) = 64fbdfc0a82ecc3b33434bfea63440e9a5275fa5e533200d2eaf18281e8b28b6
+    HASH256(HASH256(5387)|HASH256(5487)) = aeadea837d5e640a1444208f7aca3be63bc8ab3c6b28a19878a00cc9c631ac31
+
+Serialize the 2 hashes from the previous step and calculate the hash, which is the <code>MAST Root</code>:
+    MAST Root = 6746003b5c9d342b2c210d406802c351e7eb5943412dcfc4718be625a8a59c0e
+
+The scriptPubKey with native witness program is:
+    <1> <0x6746003b5c9d342b2c210d406802c351e7eb5943412dcfc4718be625a8a59c0e>
+    (0x51206746003b5c9d342b2c210d406802c351e7eb5943412dcfc4718be625a8a59c0e)
+
+To redeem with the <code><4> EQUAL</code> branch, the witness is
+    04 (Stack for evaluation)
+    03 (Position)
+    2e972642436151cd96e4b0868077b6362ffb5eb30b420a6f1c5e1c6fff02bc3364fbdfc0a82ecc3b33434bfea63440e9a5275fa5e533200d2eaf18281e8b28b6 (Path)
+    5487 (MAST Script)
+
+=== Imbalance MAST ===
+When constructing a MAST, if the user believes that some of the branches are more likely to be executed, they may put them closer to the <code>MAST Root</code>. It will save some witness space when the preferred branches are actually executed.
+
+=== Escrow with Timeout ===
+The following is the "Escrow with Timeout" example in [[bip-0112.mediawiki|BIP112]]:
+    IF
+        2 <Alice's pubkey> <Bob's pubkey> <Escrow's pubkey> 3 CHECKMULTISIGVERIFY
+    ELSE
+        "30d" CHECKSEQUENCEVERIFY DROP
+        <Alice's pubkey> CHECKSIGVERIFY
+    ENDIF
+
+Using compressed public key, the size of this script is 150 bytes.
+
+With MAST, this script could be broken down into 2 mutually exclusive branches:
+    2 <Alice's pubkey> <Bob's pubkey> <Escrow's pubkey> 3 CHECKMULTISIGVERIFY (105 bytes)
+    "30d" CHECKSEQUENCEVERIFY DROP <Alice's pubkey> CHECKSIGVERIFY (42 bytes)
+
+With 2 branches, the <code>Path</code> will be 32 bytes (as the hash of the unexecuted branch), and the <code>Position</code> will be 1 byte as either 0 or 1. Since only one branch will be published, it is more difficult for a blockchain analyst to determine the details of the escrow.
+
+=== Hashed Time-Lock Contract ===
+The following is the "Hashed TIme-Lock Contract" example in [[bip-0112.mediawiki|BIP112]]:
+    HASH160 DUP <R-HASH> EQUAL
+    IF
+        "24h" CHECKSEQUENCEVERIFY
+        2DROP
+        <Alice key hash>
+    ELSE
+        <Commit-Revocation-Hash> EQUAL
+        NOTIF
+            "Timestamp" CHECKLOCKTIMEVERIFY DROP
+        ENDIF
+        <Bob key hash>
+    ENDIF
+    CHECKSIG
+
+To create a MAST Root, it is flattened to 3 mutually exclusive branches:
+    HASH160 <R-HASH> EQUALVERIFY "24h" CHECKSEQUENCEVERIFY DROP <Alice key hash> CHECKSIG
+    HASH160 <Commit-Revocation-Hash> EQUALVERIFY <Bob key hash> CHECKSIG
+    "Timestamp" CHECKLOCKTIMEVERIFY DROP <Bob key hash> CHECKSIG
+
+which significantly improves readability and reduces the witness size when it is redeemed.
+
+=== Large multi-signature constructs ===
+The current CHECKMULTISIG supports up to 20 public keys. Although it is possible to extend it beyond 20 keys by using multiple CHECKSIGs and IF/ELSE conditions, the construction could be very complicated and soon use up the 10,000 bytes and 201 op codes limit.
+
+With MAST, large and complex multi-signature constructs could be flattened to many simple CHECKMULTISIG conditions. For example, a 3-of-2000 multi-signature scheme could be expressed as 1,331,334,000 3-of-3 CHECKMULTISIGs, which forms a 31-level MAST. The scriptPubKey still maintains a fixed size of 34 bytes, and the redemption witness will be very compact, with less than 1,500 bytes.
+
+=== Commitment of non-consensus enforced data ===
+Currently, committing non-consensus enforced data in the scriptPubKey requires the use of OP_RETURN which occupies additional block space. With MAST, users may commit such data as a branch. Depends on the number of executable branches, inclusion of such a commitment may incur no extra witness space, or 32 bytes at most.
+
+An useful case would be specifying "message-signing keys", which are not valid for spending, but allow users to sign any message without touching the cold storage "funding key".
+
+== Backward compatibility ==
+As a soft fork, older software will continue to operate without modification. Non-upgraded nodes, however, will consider MAST programs as anyone-can-spend scripts. Wallets should always be wary of anyone-can-spend scripts and treat them with suspicion.
+
+== Deployment ==
+This BIP depends on [[bip-0141.mediawiki|BIP141]] and will be deployed by version-bits [[bip-0009.mediawiki|BIP9]] after BIP141 is enforced. Exact details TBD.
+
+== Credits ==
+The idea of MAST originates from Russell O’Connor, Pieter Wuille, and [https://bitcointalk.org/index.php?topic=255145.msg2757327#msg2757327 Peter Todd].
+
+== Reference Implementation ==
+https://github.com/jl2012/bitcoin/commit/f335cab76eb95d4f7754a718df201216a4975d8c
+
+<source lang=cpp>
+if (witversion == 1) {
+    if (program.size() == 32) {
+        if (witness.stack.size() < 3)
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+        //Script: the last witness stack item
+        scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
+        uint256 hashScriptPubKey;
+        CHash256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
+
+        //Path: the second last witness stack item; size = 32N, 0 <= N < 33
+        std::vector<unsigned char> pathdata = witness.stack.at(witness.stack.size() - 2);
+        if (pathdata.size() & 0x1F)
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        unsigned int depth = pathdata.size() >> 5;
+        if (depth > 32)
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        std::vector<uint256> path;
+        path.resize(depth);
+        for (unsigned int i = 0; i < depth; i++)
+            memcpy(path[i].begin(), &pathdata[32 * i], 32);
+
+        //Position: the third last witness stack item; unsigned int with smallest possible value and no leading zero
+        std::vector<unsigned char> positiondata = witness.stack.at(witness.stack.size() - 3);
+        if (positiondata.size() > 4)
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        uint32_t position = 0;
+        if (positiondata.size() > 0) {
+            if (positiondata.back() == 0x00)
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            for (size_t i = 0; i != positiondata.size(); ++i)
+                position |= static_cast<uint32_t>(positiondata[i]) << 8 * i;
+        }
+        if (depth < 32) {
+            if (position >= (1U << depth))
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        uint256 root = ComputeMerkleRootFromBranch(hashScriptPubKey, path, position);
+        if (memcmp(root.begin(), &program[0], 32))
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+        stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 3);
+    } else {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
+    }
+}
+</source>
+
+== References ==
+*[[bip-0141.mediawiki|BIP141 Segregated Witness (Consensus layer)]]
+
+== Copyright ==
+This document is placed in the public domain.
