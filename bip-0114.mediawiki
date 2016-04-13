@@ -133,24 +133,33 @@ This BIP depends on [[bip-0141.mediawiki|BIP141]] and will be deployed by versio
 The idea of MAST originates from Russell O’Connor, Pieter Wuille, and [https://bitcointalk.org/index.php?topic=255145.msg2757327#msg2757327 Peter Todd].
 
 == Reference Implementation ==
-https://github.com/jl2012/bitcoin/commit/f335cab76eb95d4f7754a718df201216a4975d8c
+https://github.com/jl2012/bitcoin/tree/segwit_mast
 
 <source lang="cpp">
+//New rules apply if version byte is 1 and witness program size is 32 bytes
 if (witversion == 1) {
     if (program.size() == 32) {
+
+        //Witness stack must have at least 3 items
         if (witness.stack.size() < 3)
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
 
-        //Script: the last witness stack item
+        //Script is the last witness stack item
         scriptPubKey = CScript(witness.stack.back().begin(), witness.stack.back().end());
         uint256 hashScriptPubKey;
         CHash256().Write(&scriptPubKey[0], scriptPubKey.size()).Finalize(hashScriptPubKey.begin());
 
-        //Path: the second last witness stack item; size = 32N, 0 <= N < 33
+        //Path is the second last witness stack item
         std::vector<unsigned char> pathdata = witness.stack.at(witness.stack.size() - 2);
+
+        // Size of Path must be a multiple of 32 bytes (0 byte is allowed)
         if (pathdata.size() & 0x1F)
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+        // Depth of the tree is size of Path divided by 32
         unsigned int depth = pathdata.size() >> 5;
+
+        // Maximum allowed depth is 32
         if (depth > 32)
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         std::vector<uint256> path;
@@ -158,32 +167,61 @@ if (witversion == 1) {
         for (unsigned int i = 0; i < depth; i++)
             memcpy(path[i].begin(), &pathdata[32 * i], 32);
 
-        //Position: the third last witness stack item; unsigned int with smallest possible value and no leading zero
+        //Position is the third last witness stack item
         std::vector<unsigned char> positiondata = witness.stack.at(witness.stack.size() - 3);
+
+        //Position may have 4 bytes at most
         if (positiondata.size() > 4)
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
         uint32_t position = 0;
+
+        //Position is an unsigned little-endian integer with no leading zero byte
         if (positiondata.size() > 0) {
             if (positiondata.back() == 0x00)
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
             for (size_t i = 0; i != positiondata.size(); ++i)
                 position |= static_cast<uint32_t>(positiondata[i]) << 8 * i;
         }
+
+        //Position must not be larger than the maximum number of items allowed by the depth of tree
         if (depth < 32) {
             if (position >= (1U << depth))
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         }
 
+        //Calculate the Merkle Root and compare with the witness program
         uint256 root = ComputeMerkleRootFromBranch(hashScriptPubKey, path, position);
         if (memcmp(root.begin(), &program[0], 32))
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
 
+        //Remaining stack items used for evaluation
         stack = std::vector<std::vector<unsigned char> >(witness.stack.begin(), witness.stack.end() - 3);
-    } else {
+    }
+
+    else {
+        //Invalid if version byte is 1 but witness program size is not 32 bytes
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
     }
 }
 </source>
+
+Copying from <code>src/consensus/merkle.cpp</code>:
+<source lang="cpp">
+uint256 ComputeMerkleRootFromBranch(const uint256& leaf, const std::vector<uint256>& vMerkleBranch, uint32_t nIndex) {
+    uint256 hash = leaf;
+    for (std::vector<uint256>::const_iterator it = vMerkleBranch.begin(); it != vMerkleBranch.end(); ++it) {
+        if (nIndex & 1) {
+            hash = Hash(BEGIN(*it), END(*it), BEGIN(hash), END(hash));
+        } else {
+            hash = Hash(BEGIN(hash), END(hash), BEGIN(*it), END(*it));
+        }
+        nIndex >>= 1;
+    }
+    return hash;
+}
+</source>
+
 
 == References ==
 *[[bip-0141.mediawiki|BIP141 Segregated Witness (Consensus layer)]]
