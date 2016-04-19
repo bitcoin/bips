@@ -1,7 +1,7 @@
 RECENT CHANGES:
+* (19 Apr 2016) Define version 2 payment codes
 * (17 Apr 2016) Clarify usage of outpoints in notification transactions
 * (18 Dec 2015) Update explanations to resolve FAQs
-* (12 Oct 2015) Revise blinding method for notification transactions
 
 <pre>
   BIP: 47
@@ -95,6 +95,14 @@ Currently specified versions:
 * Version 1
 ** Address type: P2PKH
 ** Notification type: address
+* Version 2
+** Address type: P2PKH
+** Notification type: bloom-multisig
+
+===Recommended Versions===
+
+* Wallets which have bloom filtering capabilities SHOULD create version 2 payment codes instead of version 1 payment codes.
+* Version 1 payment codes are only recommended for wallets which lack access to bloom filtering capability.
 
 ==Version 1==
 
@@ -318,6 +326,41 @@ The sender uses this information to construct a valid notification Bitmessage ad
 The sender transmits their payment code in base58 form to the calculated Bitmessage address.
 
 In order to use Bitmessage notification, the recipient must have a Bitmessage client which listens at the address which the senders will derive and is capable of relaying received payment codes to the Bitcoin wallet.
+
+==Version 2==
+
+Version 2 payment codes behave identifically to version 1 payment codes, except as modified below.
+
+===Representation===
+
+====Binary Serialization====
+
+* Byte 0: version. required value: 0x02
+
+===Protocol===
+
+====Definitions====
+
+* Notification change output: the change output from a notification transaction which which resides in the sender's wallet, but can be automatically located by the intended recipient
+* Payment code identifier: a 33 byte representation of a payment code constructed by prepending 0x02 to the SHA256 hash of the binary serialization of the payment code
+
+====Notification Transaction====
+
+Note: this procedure is used if Bob uses a version 2 payment code (regardless of the the version of Alice's payment code). If Bob's payment code is not version 2, see the appropriate section in this specification.
+
+# Construct a notification transaction as per the version 1 instructions, except do not create the output to Bob's notification address
+# Create a notification change address as follows:
+## Obtain the pubkey corresponding to the next change address
+## Construct a multisig output in the form:
+<pre>OP_1 <Bob's payment code identifier> <change address pubkey> OP_2 OP_CHECKMULTISIG</pre>
+
+The relative ordering of the payment code identifier and change address pubkey in the above script MAY be randomized
+
+Bob detects notification transactions by adding his payment code identifier to his bloom filter.
+
+# When the filter returns a notification transaction, the sender's payment code is unblinded using the same procedure as for version 1 notification transactions.
+
+Alice's wallet should spend the notification change output at the next appropriate opportunity.
 
 ==Test Vectors==
 
