@@ -1,4 +1,4 @@
-﻿<pre>
+<pre>
   BIP: 143
   Title: Transaction Signature Verification for Version 0 Witness Program
   Author: Johnson Lau <jl2012@xbt.hk>
@@ -14,7 +14,7 @@ This proposal defines a new transaction digest algorithm for signature verificat
 == Motivation ==
 There are 4 ECDSA signature verification codes in the original Bitcoin script system: CHECKSIG, CHECKSIGVERIFY, CHECKMULTISIG, CHECKMULTISIGVERIFY (“sigops”). According to the sighash type (ALL, NONE, SINGLE, ANYONECANPAY), a transaction digest is generated with a double SHA256 of a serialized subset of the transaction, and the signature is verified against this digest with a given public key. The detailed procedure is described in a Bitcoin Wiki article. <ref name=wiki>[https://en.bitcoin.it/wiki/OP_CHECKSIG]</ref>
 
-Unfortunately, there are at least 2 weaknesses in the original transaction digest algorithm:
+Unfortunately, there are at least 2 weaknesses in the original SignatureHash transaction digest algorithm:
 
 * For the verification of each signature, the amount of data hashing is proportional to the size of the transaction. Therefore, data hashing grows in O(n<sup>2</sup>) as the number of sigops in a transaction increases. While a 1 MB block would normally take 2 seconds to verify with an average computer in 2015, a 1MB transaction with 5569 sigops may take 25 seconds to verify. This could be fixed by optimizing the digest algorithm by introducing some reusable “midstate”, so the time complexity becomes O(n). <ref>[https://web.nvd.nist.gov/view/vuln/detail?vulnId=CVE-2013-2292 CVE-2013-2292]</ref><ref>[https://bitcointalk.org/?topic=140078 New Bitcoin vulnerability: A transaction that takes at least 3 minutes to verify]</ref><ref>[http://rusty.ozlabs.org/?p=522 The Megatransaction: Why Does It Take 25 Seconds?]</ref>
 * The algorithm does not involve the amount of Bitcoin being spent by the input. This is usually not a problem for online network nodes as they could request for the specified transaction to acquire the output value. For an offline transaction signing device ("cold wallet"), however, the unknowing of input amount makes it impossible to calculate the exact amount being spent and the transaction fee. To cope with this problem a cold wallet must also acquire the full transaction being spent, which could be a big obstacle in the implementation of lightweight, air-gapped wallet. By including the input value of part of the transaction digest, a cold wallet may safely sign a transaction by learning the value from an untrusted source. In the case that a wrong value is provided and signed, the signature would be invalid and no funding might be lost. <ref>[https://bitcointalk.org/index.php?topic=181734.0 SIGHASH_WITHINPUTVALUE: Super-lightweight HW wallets and offline data]</ref>
@@ -28,37 +28,41 @@ A new transaction digest algorithm is defined, but only applicable to sigops in 
      2. hashPrevouts (32-byte hash)
      3. hashSequence (32-byte hash)
      4. outpoint (32-byte hash + 4-byte little endian) 
-     5. scriptCode of the input (varInt for the length + script)
+     5. scriptCode of the input (serialized as scripts inside CTxOuts)
      6. value of the output spent by this input (8-byte little endian)
      7. nSequence of the input (4-byte little endian)
      8. hashOutputs (32-byte hash)
      9. nLocktime of the transaction (4-byte little endian)
     10. sighash type of the signature (4-byte little endian)
 
-All components in the original algorithm, including the behavior <code>OP_CODESEPERATOR</code>, remains unchanged. The only difference is the way of serialization and the inclusion of amount being spent.
+Semantics of the original sighash types remain unchanged, except the followings:
+# The way of serialization is changed;
+# All sighash types commit to the amount being spent by the signed input;
+# <code>FindAndDelete</code> of the signature is not applied to the <code>scriptCode</code>;
+# <code>SINGLE</code> does not commit to the input index. When <code>ANYONECANPAY</code> is not set, the semantics are unchanged since <code>hashPrevouts</code> and <code>outpoint</code> together implictly commit to the input index. When <code>SINGLE</code> is used with <code>ANYONECANPAY</code>, omission of the index commitment allows permutation of the input-output pairs, as long as each pair is located at an equivalent index.
 
 The items 1, 4, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
 
 The item 5:
 *For P2WPKH witness program, the scriptCode is <code>0x1976a914{20-byte-pubkey-hash}88ac</code>.
 *For P2WSH witness program,
-**if the <code>witnessScript</code> does not contain any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is a <code>varInt</code> for the length of the <code>witnessScript</code>, followed by the <code>witnessScript</code>.
-**if the <code>witnessScript</code> contains any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is the evaluated script, with all <code>OP_CODESEPARATOR</code> and everything up to the last <code>OP_CODESEPARATOR</code> before the signature checking opcode being executed removed, and prepended by a <code>varInt</code> for the length of the truncated script.
+**if the <code>witnessScript</code> does not contain any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is the <code>witnessScript</code> serialized as scripts inside CTxOuts.
+**if the <code>witnessScript</code> contains any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is the evaluated script, with all <code>OP_CODESEPARATOR</code> and everything up to the last <code>OP_CODESEPARATOR</code> before the signature checking opcode being executed removed, serialized as scripts inside CTxOuts.
 
 The item 6 is a 8-byte value of the amount of bitcoin spent in this input.
 
 <code>hashPrevouts</code>:
-*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all input outpoints;
+*If the <code>ANYONECANPAY</code> flag is not set, <code>hashPrevouts</code> is the double SHA256 of the serialization of all input outpoints;
 *Otherwise, <code>hashPrevouts</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
 <code>hashSequence</code>:
-*If none of the ANYONECANPAY, SINGLE, NONE sighash type is set, hashSequence is the double SHA256 of the serialization of nSequence of all inputs;
+*If none of the <code>ANYONECANPAY</code>, <code>SINGLE</code>, <code>NONE</code> sighash type is set, <code>hashSequence</code> is the double SHA256 of the serialization of <code>nSequence</code> of all inputs;
 *Otherwise, <code>hashSequence</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
 <code>hashOutputs</code>:
-*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output value (8-byte little endian) with scriptPubKey (<code>varInt</code> for the length + script);
-*If sighash type is SINGLE and the input index is not greater than the number of outputs, <code>hashOutputs</code> is the double SHA256 of the output value with <code>scriptPubKey</code> of the same index as the input;
-*Otherwise, <code>hashOutputs</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
+*If the sighash type is neither <code>SINGLE</code> nor <code>NONE</code>, <code>hashOutputs</code> is the double SHA256 of the serialization of all output value (8-byte little endian) with <code>scriptPubKey</code> (serialized as scripts inside CTxOuts);
+*If sighash type is <code>SINGLE</code> and the input index is not greater than the number of outputs, <code>hashOutputs</code> is the double SHA256 of the output value with <code>scriptPubKey</code> of the same index as the input;
+*Otherwise, <code>hashOutputs</code> is a <code>uint256</code> of <code>0x0000......0000</code>.<ref>In the original algorithm, a <code>uint256</code> of <code>0x0000......0001</code> is commited if the input index for a <code>SINGLE</code> signature is greater than the number of outputs. In this BIP a <code>0x0000......0000</code> is commited, without changing the semantics.</ref>
 
 The <code>hashPrevouts</code>, <code>hashSequence</code>, and <code>hashOutputs</code> calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
 
@@ -191,11 +195,11 @@ This proposal is deployed with Segregated Witness softfork (BIP 141)
 
 == Backward compatibility ==
 
-As a soft fork, older software will continue to operate without modification. Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs, inculding the redefined sigops, as anyone-can-spend scripts.
+As a soft fork, older software will continue to operate without modification. Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs, including the redefined sigops, as anyone-can-spend scripts.
 
 == Reference Implementation ==
 
-https://github.com/sipa/bitcoin/commits/segwit
+https://github.com/bitcoin/bitcoin/pull/7910
 
 == References ==
 
