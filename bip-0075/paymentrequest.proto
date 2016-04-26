@@ -23,9 +23,6 @@ message PaymentDetails {
         optional string memo = 5;                   // Human-readable description of request for the customer
         optional string payment_url = 6;            // URL to send Payment and get PaymentACK
         optional bytes  merchant_data = 7;          // Arbitrary data to include in the Payment message
-        optional uint64 subtractable_fee = 1000;    // How many Satoshis can be subtracted from the requested amount and instead applied towards the fee
-        optional uint64 fee_per_kb = 1001;          // Minimum transaction fee that must be included with the transaction in order for it to be accepted with zero confirmations.
-        optional bool replace_by_fee = 1002;        // Indicates the sender can enable the Replace By Fee flag for this transaction and the receiver will still consider it accepted with zero confirmations. Otherwise, RBF transactions will not be accepted by the receiver until they are confirmed.
 }
 message PaymentRequest {
         optional uint32 payment_details_version = 1 [default = 1];
@@ -33,8 +30,6 @@ message PaymentRequest {
         optional bytes pki_data = 3;                      // depends on pki_type
         required bytes serialized_payment_details = 4;    // PaymentDetails
         optional bytes signature = 5;                     // pki-dependent signature
-        optional uint32 status_code = 1000;               // Payment Protocol status code
-        optional string status_message = 1001;            // Human-readable Payment Protocol status message
 }
 message X509Certificates {
         repeated bytes certificate = 1;    // DER-encoded X.509 certificate chain
@@ -44,20 +39,15 @@ message Payment {
         repeated bytes transactions = 2;        // Signed transactions that satisfy PaymentDetails.outputs
         repeated Output refund_to = 3;          // Where to send refunds, if a refund is necessary
         optional string memo = 4;               // Human-readable message for the merchant
-        optional uint32 status_code = 1000;     // Payment Protocol status code
-        optional string status_message = 1001;  // Human-readable Payment Protocol status message
 }
 message PaymentACK {
         required Payment payment = 1;           // Payment message that triggered this ACK
         optional string memo = 2;               // Human-readable message for customer
-        optional uint32 status_code = 1000;     // Payment Protocol status code
-        optional string status_message = 1001;  // Human-readable Payment Protocol status message
 }
 
 // BIP-IR Extensions
-
 message InvoiceRequest {
-        required bytes  sender_public_key = 1;              // Sender's EC Public Key
+        required bytes  sender_public_key = 1;              // Sender's DER-Encoded EC Public Key
         optional uint64 amount = 3 [default = 0];           // amount is integer-number-of-satoshis
         optional string pki_type = 4 [default = "none"];    // none / x509+sha256
         optional bytes  pki_data = 5;                       // Depends on pki_type
@@ -66,43 +56,29 @@ message InvoiceRequest {
         optional bytes  signature = 8;                      // PKI-dependent signature
 }
 
-message EncryptedInvoiceRequest {
-        required bytes  encrypted_invoice_request = 1;      // AES-256-CBC Encrypted InvoiceRequest as defined in InvoiceRequest Spec
-        required bytes  invoice_request_hash = 2;           // SHA256 Hash of Non-Encrypted, Serialized InvoiceRequest (used for authentication)
-        required bytes  sender_public_key = 3;              // Sender's EC Public Key
-        required bytes  receiver_public_key = 4;            // Receiver's EC Public Key
-        required uint64 nonce = 5;                          // Microseconds since epoch
-        optional bytes  identifier = 6;                     // Unique key to identify this entire exchange on the server. invoice_request_hash SHOULD be used by default
-        optional bytes  signature = 7;                      // Signature of this message using Sender's EC key
+enum ProtocolMessageType {
+    INVOICE_REQUEST = 0;
+    PAYMENT_REQUEST = 1;
+    PAYMENT = 2;
+    PAYMENT_ACK =  3;
 }
 
-message EncryptedPaymentRequest {
-        required bytes  encrypted_payment_request = 1;                   // AES-256-CBC Encrypted PaymentRequest as defined in InvoiceRequest Spec
-        required bytes  payment_request_hash = 2;                        // SHA256 Hash of Non-Encrypted, Serialized PaymentRequest (used for authentication)
-        required bytes  receiver_public_key = 3;                         // Receiver's EC Public Key
-        required bytes  sender_public_key = 4;                           // Sender's EC Public Key
-        required uint64 nonce = 5;                                       // Microseconds since epoch
-        optional bool   requires_payment_message = 6 [default = false];  // Requires Payment/PaymentACK message exchange
-        optional bytes  signature = 7;                                   // Signature of this message using Receiver's EC key
-        optional bytes  identifier = 8;                                  // MUST use the identifier specified with the InvoiceRequest if the PaymentRequest is in response to an InvoiceRequest. Otherwise, use payment_request_hash or other unique value.
+message ProtocolMessage {
+    required ProtocolMessageType message_type = 1;  // Message Type of serialized_message
+    required bytes serialized_message = 2;          // Serialized Payment Protocol Message
+    optional uint64 status_code = 3;                // Payment Protocol Status Code
+    optional string status_message = 4;             // Human-readable Payment Protocol status message
+    optional bytes identifier = 5;                  // Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
 }
 
-message EncryptedPayment {
-        required bytes  encrypted_payment = 1;           // AES-256-CBC Encrypted BIP70 Payment as defined in InvoiceRequest Spec
-        required bytes  payment_hash = 2;                // SHA256 Hash of Non-Encrypted, Serialized BIP70 Payment
-        required bytes  sender_public_key = 3;           // Sender's EC Public Key
-        required bytes  receiver_public_key = 4;         // Receiver's EC Public Key
-        required uint64 nonce = 5;                       // Microseconds since epoch
-        required bytes  signature = 6;                   // Signature over EncryptedPayment with Sender's EC Key
-        optional bytes  identifier = 7;                  // Use the identifier specified with the EncryptedPaymentRequest, if any.
-}
-
-message EncryptedPaymentACK {
-        required bytes  encrypted_payment_ack = 1;       // AES-256-CBC Encrypted BIP70 PaymentACK as defined in InvoiceRequest Spec
-        required bytes  payment_ack_hash = 2;            // SHA256 Hash of Non-Encrypted, Serialized BIP70 PaymentACK
-        required bytes  receiver_public_key = 3;         // Receiver's EC Public Key
-        required bytes  sender_public_key = 4;           // Sender's EC Public Key
-        required uint64 nonce = 5;                       // Microseconds since epoch
-        required bytes  signature = 6;                   // Signature over EncryptedPaymentACK with Receiver's EC Key
-        optional bytes  identifier = 7;                  // Use the identifier specified with the EncryptedPaymentRequest, if any.
+message EncryptedProtocolMessage {
+    required ProtocolMessageType message_type = 1;  // Message Type of Decrypted encrypted_message
+    required bytes encrypted_message = 2;           // AES-256-GCM Encrypted (as defined in BIP75) Payment Protocol Message
+    required bytes receiver_public_key = 3;         // Receiver's DER-encoded EC Public Key
+    required bytes sender_public_key = 4;           // Sender's DER-encoded EC Public Key
+    required uint64 nonce = 5;                      // Microseconds since epoch
+    optional bytes signature = 6;                   // Signature over the full EncryptedProtocolMessage with EC Key Belonging to Sender / Receiver, respectively
+    optional bytes identifier = 7;                  // Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
+    optional uint64 status_code = 8;                // Payment Protocol Status Code
+    optional string status_message = 9;            // Human-readable Payment Protocol status message
 }
