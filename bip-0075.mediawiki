@@ -101,7 +101,7 @@ message InvoiceRequest {
 |-
 | memo                  || Human-readable description of invoice request for the receiver
 |-
-| notification_url      || Secure (usually TLS-protected HTTP) location where an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] (see below) SHOULD be sent when ready
+| notification_url      || Secure (usually TLS-protected HTTP) location where an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] SHOULD be sent when ready
 |-
 | signature             || PKI-dependent signature
 |}
@@ -181,8 +181,12 @@ message EncryptedProtocolMessage {
 |}
 
 ==Payment Protocol Process with InvoiceRequests==
-The full process overview for using '''InvoiceRequests''' in the Payment Protocol is defined below. All Payment Protocol messages MUST be encapsulated in either a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProcotolMessage|EncryptedProtocolMessage]. Once the process begins using [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] messages, all subsequent communications MUST use [[#EncryptedProtocolMessage|EncryptedProtocolMessages]]. All Payment Protocol messages SHOULD be communicated using [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] encapsulating messages with the exception that an [[#InvoiceRequest|InvoiceRequest]] MAY be communicated using the [[#ProtocolMessage|ProtocolMessage]] if the receiver's public key is unknown.
-
+The full process overview for using '''InvoiceRequests''' in the Payment Protocol is defined below. 
+<br/>
+All Payment Protocol messages MUST be encapsulated in either a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProcotolMessage|EncryptedProtocolMessage]]. Once the process begins using [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] messages, all subsequent communications MUST use [[#EncryptedProtocolMessage|EncryptedProtocolMessages]]. 
+<br/>
+All Payment Protocol messages SHOULD be communicated using [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] encapsulating messages with the exception that an [[#InvoiceRequest|InvoiceRequest]] MAY be communicated using the [[#ProtocolMessage|ProtocolMessage]] if the receiver's public key is unknown.
+<br/>
 The process of communicating using encrypted Payment Protocol messages is enumerated in [[#Sending_Encrypted_Payment_Protocol_Messages_using_EncryptedProtocolMessages|Sending Encrypted Payment Protocol Messages using EncryptedProtocolMessages]] and [[#Validating_and_Decrypting_Payment_Protocol_Messages_using_EncryptedProtocolMessages|Validating and Decrypting Payment Protocol Messages using EncryptedProtocolMessages]].
 
 # Sender creates InvoiceRequest
@@ -195,7 +199,7 @@ The process of communicating using encrypted Payment Protocol messages is enumer
 # Sender validates PaymentRequest retrieved from the EncryptedProtocolMessage
 # The PaymentRequest is processed according to [[bip-0070.mediawiki|BIP70]], including optional Payment and PaymentACK messages encapsulated in EncryptedProtocolMessage messages.
 
-'''NOTE:''' See section [[#Initial_Public_Key_Retrieval_for_InvoiceRequest_Encryption|Initial Public Key Retrieval for InvoiceRequest Encryption]] for possible options to retrieve Receiver's public key.
+'''NOTE:''' See [[#Initial_Public_Key_Retrieval_for_InvoiceRequest_Encryption|Initial Public Key Retrieval for InvoiceRequest Encryption]] for possible options to retrieve Receiver's public key.
  
 <img src="bip-0075/encrypted-invoice-request-process.png" alt="Flow diagram of Encrypted InvoiceRequest">
 
@@ -203,6 +207,7 @@ The process of communicating using encrypted Payment Protocol messages is enumer
 
 ===HTTP Content Types for New Message Types===
 When communicated via '''HTTP''', the listed messages MUST be transmitted via TLS-protected HTTP using the appropriate Content-Type header as defined here per message:
+<br/>
 {| class="wikitable"
 ! Message Type !! Content Type
 |-
@@ -213,8 +218,8 @@ When communicated via '''HTTP''', the listed messages MUST be transmitted via TL
 
 ===Payment Protocol Status Communication===
 
-In the case of an error that causes the Payment Protocol process to be stopped or requires that message be retried, a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] MUST be sent by the party generating the error. The content of the message MUST contain the same '''serialized_message''' or '''encrypted_message''' and identifier (if present) and MUST have the status_code set appropriately. 
-
+In the case of an error that causes the Payment Protocol process to be stopped or requires that message be retried, a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] MUST be returned by the party generating the error status_code. The content of the message MUST contain the same '''serialized_message''' or '''encrypted_message''' and identifier (if present) and MUST have the status_code set appropriately. 
+<br/>
 The status_message value SHOULD be set with a human readable explanation of the status code. For example, if in an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]], the AES-256-GCM decryption fails to authenticate, an Authentication Failed (102) '''status_code''' MUST be returned to prevent oracle attacks.
 
 ====Payment Protocol Status Codes====
@@ -253,7 +258,7 @@ The status_message value SHOULD be set with a human readable explanation of the 
 
 Communications errors MUST be communicated to the party that initiated the communication via the communication layer's existing error messaging faciltiies. In the case of TLS-protected HTTP, this SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
-==New Process Details==
+==Extended Payment Protocol Process Details==
 This BIP extends the Payment Protocol as defined in [[bip-0070.mediawiki|BIP70]].
 
 For the following we assume the Sender already knows the Receiver's public key, and the exchange is being facilitated by a Store & Forward server which requires valid signatures for authentication.
@@ -265,11 +270,11 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * '''sender_public_key''' MUST be set to the public key of an EC keypair
 * '''amount''' is optional. If the amount is not specified by the [[#InvoiceRequest|InvoiceRequest]], the Receiver MAY specify the amount in the returned PaymentRequest. If an amount is specified by the [[#InvoiceRequest|InvoiceRequest]] and a PaymentRequest cannot be generated for that amount, the [[#InvoiceRequest|InvoiceRequest]] SHOULD return the same [[#InvoiceRequest|InvoiceRequest]] in a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] with the status_code and status_message fields set appropriately.
 * '''memo''' is optional. This MAY be set to a human readable description of the InvoiceRequest
-* Set '''notification_url''' to URL that the Receiver will submit completed PaymentRequest (encapsulated in an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] to
+* Set '''notification_url''' to URL that the Receiver will submit completed PaymentRequest (encapsulated in an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]]) to
 * If NOT including certificate, set '''pki_type''' to "none"
 * If including certificate:
 ** Set '''pki_type''' to "x509+sha256"
-** Set '''pki_data''' as it would be set in BIP-0070 (see [https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Certificates Certificates]) section)
+** Set '''pki_data''' as it would be set in BIP-0070 ([https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki#Certificates Certificates])
 ** Sign [[#InvoiceRequest|InvoiceRequest]] with signature = "" using the X509 Certificate's private key
 ** Set '''signature''' value to the computed signature
 
@@ -280,7 +285,7 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * If '''pki_type''' is x509+sha256 and '''signature''' is valid for the serialized [[#InvoiceRequest|InvoiceRequest]] where signature is set to "", [[#InvoiceRequest|InvoiceRequest]] is VALID
 
 ===Sending Encrypted Payment Protocol Messages using EncryptedProtocolMessages===
-* Encrypt the serialized Payment Protocol message using AES-256-CBC setup as described in [[#ECDH_Point_Generation_and_AES256_GCM_Mode_Setup|ECDH Point Generation and AES-256 (GCM Mode) Setup]] (see below)
+* Encrypt the serialized Payment Protocol message using AES-256-CBC setup as described in [[#ECDH_Point_Generation_and_AES256_GCM_Mode_Setup|ECDH Point Generation and AES-256 (GCM Mode) Setup]]
 * Create [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] message
 * Set '''encrypted_message''' to be the encrypted value of the Payment Protocol message
 * '''sender_public_key''' MUST be set to the public key of the Sender's EC keypair
@@ -288,7 +293,7 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * '''nonce''' MUST be set to the nonce used in the AES-256-CBC encryption operation
 * Set '''identifier''' to the identifier value received in the originating InvoiceRequest's ProtocolMessage or EncryptedProtocolMessage wrapper message
 * Set '''signature''' to ""
-* Sign the serialized [#EncryptedProtocolMessage|EncryptedProtocolMessage]] message with the communicating party's EC public key
+* Sign the serialized [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] message with the communicating party's EC public key
 * Set '''signature''' to the result of the signature operation above
 
 '''SIGNATURE NOTE:''' [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] messages are signed with the public keys of the party transmitting the message. This allows a Store & Forward server or other transmission system to prevent spam or other abuses. For those who are privacy conscious and don't want the server to track the interactions between two public keys, the Sender can generate a new public key for each interaction to keep their identity anonymous.
@@ -317,9 +322,9 @@ Initial public key retrieval for [[#InvoiceRequest|InvoiceRequest]] encryption v
 
 ==Payment / PaymentACK Messages with a HTTP Store & Forward Server==
 A Store & Forward server SHOULD store PaymentRequest messages until either a timeout expires the message or a Payment message for the PaymentRequest message has been received. The timeout SHOULD be greater than 24 hours.
-
+<br/>
 When a Store & Forward server is used for a Payment Protocol exchange, a Payment message generated as the result of a PaymentRequest MUST be accepted by a Store & Forward server if the associated PaymentRequest message exists on the Store & Forward server, otherwise an HTTP 404 Not Found message should be returned. The accepted Payment message is NOT validated as the Store & Forward server does not have access to encrypted data.
-
+<br/>
 Store & Forward servers MAY accept and/or overwrite Payment messages until an PaymentACK message with matching identifier and valid Receiver signature is received, after which the server MAY reject all further Payment messages matching that identifier. This feature SHOULD be used for updating Payment metadata or replacing invalid transactions with valid ones. Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. If a payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent the Receiver from broadcasting both transactions and getting paid twice.
 
 ==Public Key & Signature Encoding==
