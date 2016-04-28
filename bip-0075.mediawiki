@@ -187,7 +187,10 @@ All Payment Protocol messages MUST be encapsulated in either a [[#ProtocolMessag
 <br/><br/>
 All Payment Protocol messages SHOULD be communicated using [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] encapsulating messages with the exception that an [[#InvoiceRequest|InvoiceRequest]] MAY be communicated using the [[#ProtocolMessage|ProtocolMessage]] if the receiver's public key is unknown.
 <br/><br/>
-The process of communicating using encrypted Payment Protocol messages is enumerated in [[#Sending_Encrypted_Payment_Protocol_Messages_using_EncryptedProtocolMessages|Sending Encrypted Payment Protocol Messages using EncryptedProtocolMessages]] and [[#Validating_and_Decrypting_Payment_Protocol_Messages_using_EncryptedProtocolMessages|Validating and Decrypting Payment Protocol Messages using EncryptedProtocolMessages]].
+
+The process of creating encrypted Payment Protocol messages is enumerated in [[#Sending_Encrypted_Payment_Protocol_Messages_using_EncryptedProtocolMessages|Sending Encrypted Payment Protocol Messages using EncryptedProtocolMessages]], and the process of decrypting encrypted messages can be found under [[#Validating_and_Decrypting_Payment_Protocol_Messages_using_EncryptedProtocolMessages|Validating and Decrypting Payment Protocol Messages using EncryptedProtocolMessages]].
+
+A standard exchange from start to finish would look like the following:
 
 # Sender creates InvoiceRequest
 # Sender encapsulates InvoiceRequest in (Encrypted)ProtocolMessage
@@ -256,7 +259,7 @@ The status_message value SHOULD be set with a human readable explanation of the 
 
 ===Transport Layer Communication Errors===
 
-Communications errors MUST be communicated to the party that initiated the communication via the communication layer's existing error messaging faciltiies. In the case of TLS-protected HTTP, this SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
+Communication errors MUST be communicated to the party that initiated the communication via the communication layer's existing error messaging faciltiies. In the case of TLS-protected HTTP, this SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
 ==Extended Payment Protocol Process Details==
 This BIP extends the Payment Protocol as defined in [[bip-0070.mediawiki|BIP70]].
@@ -327,11 +330,14 @@ Initial public key retrieval for [[#InvoiceRequest|InvoiceRequest]] encryption v
 # Address Service Public Key Exposure
 
 ==Payment / PaymentACK Messages with a HTTP Store & Forward Server==
-A Store & Forward server SHOULD store PaymentRequest messages until either a timeout expires the message or a Payment message for the PaymentRequest message has been received. The timeout SHOULD be greater than 24 hours.
+If a Store & Forward server wishes to protect themselves from spam or abuse, they MAY enact whatever rules they deem fit, such as the following:
+
+* Once an InvoiceRequest or PaymentRequest is received, all subsequent messages using the same identifier must use the same Sender and Receiver public keys.
+* For each unique identifier, only one message each of type InvoiceRequest, PaymentRequest, and PaymentACK may be submitted. Payment messages may be submitted/overwritten multiple times. All messages submitted after a PaymentACK is received will be rejected.
+* Specific messages are only saved until they have been verifiably received by the intended recipient or a certain amount of time has passed, whichever comes first.
+
 <br/><br/>
-When a Store & Forward server is used for a Payment Protocol exchange, a Payment message generated as the result of a PaymentRequest MUST be accepted by a Store & Forward server if the associated PaymentRequest message exists on the Store & Forward server, otherwise an HTTP 404 Not Found message should be returned. The accepted Payment message is NOT validated as the Store & Forward server does not have access to encrypted data.
-<br/><br/>
-Store & Forward servers MAY accept and/or overwrite Payment messages until an PaymentACK message with matching identifier and valid Receiver signature is received, after which the server MAY reject all further Payment messages matching that identifier. This feature SHOULD be used for updating Payment metadata or replacing invalid transactions with valid ones. Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. If a payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent the Receiver from broadcasting both transactions and getting paid twice.
+Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. If a Payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent the Receiver from broadcasting both transactions and getting paid twice.
 
 ==Public Key & Signature Encoding==
 * All EC public keys ('''sender_public_key''', '''receiver_public_key''') included in any message defined in this BIP MUST be DER [ITU.X690.1994] encoded.
