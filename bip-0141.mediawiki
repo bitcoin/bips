@@ -60,30 +60,30 @@ A non-witness program (defined hereinafter) txin MUST be associated with an empt
 
 A new block rule is added which requires a commitment to the <code>wtxid</code>. The <code>wtxid</code> of coinbase transaction is assumed to be <code>0x0000....0000</code>.
 
-A witness root hash is calculated with all those <code>wtxid</code> as leaves, in a way similar to the hashMerkleRoot in the block header.
+A <code>witness root hash</code> is calculated with all those <code>wtxid</code> as leaves, in a way similar to the <code>hashMerkleRoot</code> in the block header.
 
-The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of <code>0x6a24aa21a9ed</code>, that is:
+The commitment is recorded in a <code>scriptPubKey</code> of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of <code>0x6a24aa21a9ed</code>, that is:
   
    1-byte - OP_RETURN (0x6a)
    1-byte - Push the following 36 bytes (0x24)
    4-byte - Commitment header (0xaa21a9ed)
-  32-byte - Commitment hash: Double-SHA256(witness root hash|witness nonce)
+  32-byte - Commitment hash: Double-SHA256(witness root hash|witness reserved value)
   
   39th byte onwards: Optional data with no consensus meaning
   
-and the coinbase's input's witness must consist of a single 32-byte array for the witness nonce.
+and the coinbase's input's witness must consist of a single 32-byte array for the <code>witness reserved value</code>.
 
-If there are more than one scriptPubKey matching the pattern, the one with highest output index is assumed to be the commitment.
+If there are more than one <code>scriptPubKey</code> matching the pattern, the one with highest output index is assumed to be the commitment.
 
 If all transactions in a block do not have witness data, the commitment is optional.
 
 === Witness program ===
 
-A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
+A <code>scriptPubKey</code> (or <code>redeemScript</code> as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
 
 There are two cases in which witness validation logic are triggered. Each case determines the location of the witness version byte and program, as well as the form of the scriptSig:
-# Triggered by a scriptPubKey that is exactly a push of a version byte, plus a push of a witness program. The scriptSig must be exactly empty or validation fails. (''"native witness program"'')
-# Triggered when a scriptPubKey is a P2SH script, and the BIP16 redeemScript pushed in the scriptSig is exactly a push of a version byte plus a push of a witness program. The scriptSig must be exactly a push of the BIP16 redeemScript or validation fails. (''"P2SH witness program"'')
+# Triggered by a <code>scriptPubKey</code> that is exactly a push of a version byte, plus a push of a witness program. The scriptSig must be exactly empty or validation fails. (''"native witness program"'')
+# Triggered when a <code>scriptPubKey</code> is a P2SH script, and the BIP16 <code>redeemScript</code> pushed in the <code>scriptSig</code> is exactly a push of a version byte plus a push of a witness program. The <code>scriptSig</code> must be exactly a push of the BIP16 <code>redeemScript</code> or validation fails. (''"P2SH witness program"'')
 
 If the version byte is 0, and the witness program is 20 bytes:
 * It is interpreted as a pay-to-witness-public-key-hash (P2WPKH) program.
@@ -93,9 +93,9 @@ If the version byte is 0, and the witness program is 20 bytes:
 
 If the version byte is 0, and the witness program is 32 bytes:
 * It is interpreted as a pay-to-witness-script-hash (P2WSH) program.
-* The witness must consist of an input stack to feed to the script, followed by a serialized script ("witnessScript").
-* The witnessScript (≤ 10,000 bytes) is popped off the initial witness stack. SHA256 of the witnessScript must match the 32-byte witness program.
-* The witnessScript is deserialized, and executed after normal script evaluation with the remaining witness stack (≤ 520 bytes for each stack item).
+* The witness must consist of an input stack to feed to the script, followed by a serialized script (<code>witnessScript</code>).
+* The <code>witnessScript</code> (≤ 10,000 bytes) is popped off the initial witness stack. SHA256 of the <code>witnessScript</code> must match the 32-byte witness program.
+* The <code>witnessScript</code> is deserialized, and executed after normal script evaluation with the remaining witness stack (≤ 520 bytes for each stack item).
 * The script must not fail, and result in exactly a single TRUE on the stack.
 
 If the version byte is 0, but the witness program is neither 20 nor 32 bytes, the script must fail.
@@ -108,7 +108,7 @@ If the version byte is 1 to 16, no further interpretation of the witness program
 
 Blocks are currently limited to 1,000,000 bytes (1MB) total size. We change this restriction as follows:
 
-''Block cost'' is defined as ''Base size'' * 3 + ''Total size''.
+''Block cost'' is defined as ''Base size'' * 3 + ''Total size''. (rationale<ref>Rationale of using a single composite constraint, instead of two separate limits such as 1MB base data and 3MB witness data: Using two separate limits would make mining and fee estimation nearly impossible. Miners would need to solve a complex non-linear optimization problem to find the set of transactions that maximize fees given both constraints, and wallets would not be able to know what to pay as it depends on which of the two conditions is most constrained by the time miners try to produce blocks with their transactions in. Another problem with such an approach is freeloading. Once a set of transactions hit the base data 1MB constraint, up to 3MB extra data could be added to the witness by just minimally increasing the fee. The marginal cost for extra witness space effectively becomes zero in that case.</ref>)
 
 ''Base size'' is the block size in bytes with the original transaction serialization without any witness-related data, as seen by a non-upgraded node.
 
@@ -204,14 +204,13 @@ Comparing with the previous example, the scriptPubKey is 11 bytes smaller (with 
 
 === Extensible commitment structure ===
 
-The new commitment in coinbase transaction is a hash of the witness root hash and a witness nonce. The nonce currently has no consensus meaning, but in the future allows new commitment values for future softforks. For example, if a new consensus-critical commitment is required in the future, the commitment in
-coinbase becomes:
+The new commitment in coinbase transaction is a hash of the <code>witness root hash</code> and a <code>witness reserved value</code>. The <code>witness reserved value</code> currently has no consensus meaning, but in the future allows new commitment values for future softforks. For example, if a new consensus-critical commitment is required in the future, the commitment in coinbase becomes:
 
-  Double-SHA256(Witness root hash|Hash(new commitment|witness nonce))
+  Double-SHA256(Witness root hash|Hash(new commitment|witness reserved value))
 
-For backward compatibility, the Hash(new commitment|witness nonce) will go to the coinbase witness, and the witness nonce will be recorded in another location specified by the future softfork. Any number of new commitment could be added in this way.
+For backward compatibility, the <code>Hash(new commitment|witness reserved value)</code> will go to the coinbase witness, and the <code>witness reserved value</code> will be recorded in another location specified by the future softfork. Any number of new commitment could be added in this way.
 
-Any commitments that are not consensus-critical to Bitcoin, such as merge-mining, MUST NOT use the witness nonce to preserve the ability to do upgrades of the Bitcoin consensus protocol.
+Any commitments that are not consensus-critical to Bitcoin, such as merge-mining, MUST NOT use the <code>witness reserved value</code> to preserve the ability to do upgrades of the Bitcoin consensus protocol.
 
 The optional data space following the commitment also leaves room for metadata of future softforks, and MUST NOT be used for other purpose.
 
@@ -275,19 +274,23 @@ As a soft fork, older software will continue to operate without modification.  N
 
 == Deployment ==
 
-This BIP will be deployed by "version bits" BIP9 with the name "segwit" and using bit TBD.
+This BIP will be deployed by "version bits" BIP9 with the name "segwit" and using bit 1.
 
 For Bitcoin mainnet, the BIP9 starttime will be midnight TBD UTC (Epoch timestamp TBD) and BIP9 timeout will be midnight TBD UTC (Epoch timestamp TBD).
 
-For Bitcoin testnet, the BIP9 starttime will be midnight TBD UTC (Epoch timestamp TBD) and BIP9 timeout will be midnight TBD UTC (Epoch timestamp TBD).
+For Bitcoin testnet, the BIP9 starttime will be midnight 1 May 2016 UTC (Epoch timestamp 1462060800) and BIP9 timeout will be midnight 1 May 2017 UTC (Epoch timestamp 1493596800).
 
 == Credits ==
 
 Special thanks to Gregory Maxwell for originating many of the ideas in this BIP and Luke-Jr for figuring out how to deploy this as a soft fork.
 
+== Footnotes ==
+
+<references />
+
 == Reference Implementation ==
 
-https://github.com/sipa/bitcoin/commits/segwit
+https://github.com/bitcoin/bitcoin/pull/7910
 
 == References ==
 
