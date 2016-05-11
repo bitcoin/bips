@@ -1,7 +1,7 @@
 RECENT CHANGES:
+* (19 Apr 2016) Define version 2 payment codes
+* (17 Apr 2016) Clarify usage of outpoints in notification transactions
 * (18 Dec 2015) Update explanations to resolve FAQs
-* (12 Oct 2015) Revise blinding method for notification transactions
-* (21 Sep 2015) Correct base58check version byte
 
 <pre>
   BIP: 47
@@ -84,7 +84,27 @@ Hardened derivation is used at this level.
 
 Except where noted, all keys derived from a payment code use the public derivation method.
 
-==Standard Payment Codes (v1)==
+==Versions==
+
+Payment codes contain a version byte which identifies a specific set of behavior.
+
+Unless otherwise specified, payment codes of different versions are interoperable. If Alice uses a version x payment code, and Bob uses a version y payment code, they can still send and receive transactions between each other.
+
+Currently specified versions:
+
+* Version 1
+** Address type: P2PKH
+** Notification type: address
+* Version 2
+** Address type: P2PKH
+** Notification type: bloom-multisig
+
+===Recommended Versions===
+
+* Wallets which have bloom filtering capabilities SHOULD create version 2 payment codes instead of version 1 payment codes.
+* Version 1 payment codes are only recommended for wallets which lack access to bloom filtering capability.
+
+==Version 1==
 
 ===Representation===
 
@@ -119,20 +139,25 @@ It is assumed that Alice can easily obtain Bob's payment code via a suitable met
 * Payment code: an extended public key and associated metadata which is associated with a particular identity/account
 * Notification address: the P2PKH address associated with the 0<sup>th</sup> public key derived from a payment code
 * Notification transaction: a transaction which sends an output to a notification address which includes an embedded payment code
+* Designated input: the first input in the notification transaction which exposes an secp256k1 pubkey in either its signature script, or in the redeem script or pubkey script of the output being spent
+* Designated pubkey: the first secp256k1 pubkey pushed to the stack during script execution for the designated input
+* Outpoint: the specific output of a previous transaction which is being spent. See the Reference section for the binary serialization
 
 ====Notification Transaction====
 
 Prior to the first time Alice initiates a transaction to Bob, Alice MUST inform Bob of her payment code via the following procedure:
 
+Note: this procedure is used if Bob uses a version 1 payment code (regardless of the the version of Alice's payment code). If Bob's payment code is not version 1, see the appropriate section in this specification.
+
 # Alice constructs a transaction which sends a small quantity of bitcoins to Bob's notification address (notification transaction)
 ## The inputs selected for this transaction MUST NOT be easily associated with Alice's notification address
 # Alice derives a unique shared secret using ECDH:
-## Alice selects the private key corresponding to the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>a</pre>
+## Alice selects the private key corresponding to the designated pubkey: <pre>a</pre>
 ## Alice selects the public key associated with Bob's notification address: <pre>B, where B = bG</pre>
 ## Alice calculates a secret point: <pre>S = aB</pre>
 ## Alice calculates a 64 byte blinding factor: <pre>s = HMAC-SHA512(x, o)</pre>
 ### "x" is the x value of the secret point
-### "o" is the outpoint being spent by the first pubkey-exposing input of the transaction.
+### "o" is the outpoint being spent by the designated input
 # Alice serializes her payment code in binary form.
 # Alice renders her payment code (P) unreadable to anyone except Bob:
 ## Replace the x value with x': <pre>x' = x XOR (first 32 bytes of s)</pre>
@@ -143,12 +168,12 @@ Prior to the first time Alice initiates a transaction to Bob, Alice MUST inform 
 # Bob watches for any transactions which create an output at his notification address.
 # When a transaction is received, the client examines it to determine if it contains a standard OP_RETURN output with an 80 byte payload (notification transactions).
 # If the first byte of the payload in a notification transaction is 0x01:
-## Bob selects the first exposed public key, of the first pubkey-exposing input, of the transaction: <pre>A, where A = aG</pre>
+## Bob selects the designated pubkey: <pre>A, where A = aG</pre>
 ## Bob selects the private key associated with his notification address: <pre>b</pre>
 ## Bob calculates a secret point: <pre>S = bA</pre>
 ## Bob calculates the binding factor: <pre>s = HMAC-SHA512(x, o)</pre>
 ### "x" is the x value of the secret point
-### "o" is the outpoint being spent by the first pubkey-exposing input of the transaction.
+### "o" is the outpoint being spent by the designated input.
 ## Bob interprets the 80 byte payload as a payment code, except:
 ### Replace the x value with x': <pre>x' = x XOR (first 32 bytes of s)</pre>
 ### Replace the chain code with c': <pre>c' = c XOR (last 32 bytes of s)</pre>
@@ -176,6 +201,17 @@ Alice SHOULD use an input script in one of the following standard forms to expos
 * a script which spends any of the above script forms via P2SH (pay to script hash)
 
 Compatible wallets MAY provide a method for a user to manually specify the public key associated with a notification transaction in order to recover payment codes sent via non-standard notification transactions.
+
+=====Post-Notification Privacy Considerations=====
+
+Incautious handling of change outputs from notification transactions may cause unintended loss of privacy.
+
+The recipient of a transaction which spends a change output from a prior notification transaction will learn about the potential connection between the sender and the recipient of the notification transaction.
+
+The following actions are recommended to reduce this risk:
+
+* Wallets which support mixing SHOULD mix change outputs from notification transactions prior to spending them
+* Wallets which do not support mixing MAY simulate mixing by creating a transaction which spends the change output to the next external BIP44 address
 
 ====Sending====
 
@@ -291,6 +327,41 @@ The sender transmits their payment code in base58 form to the calculated Bitmess
 
 In order to use Bitmessage notification, the recipient must have a Bitmessage client which listens at the address which the senders will derive and is capable of relaying received payment codes to the Bitcoin wallet.
 
+==Version 2==
+
+Version 2 payment codes behave identifically to version 1 payment codes, except as modified below.
+
+===Representation===
+
+====Binary Serialization====
+
+* Byte 0: version. required value: 0x02
+
+===Protocol===
+
+====Definitions====
+
+* Notification change output: the change output from a notification transaction which which resides in the sender's wallet, but can be automatically located by the intended recipient
+* Payment code identifier: a 33 byte representation of a payment code constructed by prepending 0x02 to the SHA256 hash of the binary serialization of the payment code
+
+====Notification Transaction====
+
+Note: this procedure is used if Bob uses a version 2 payment code (regardless of the the version of Alice's payment code). If Bob's payment code is not version 2, see the appropriate section in this specification.
+
+# Construct a notification transaction as per the version 1 instructions, except do not create the output to Bob's notification address
+# Create a notification change address as follows:
+## Obtain the pubkey corresponding to the next change address
+## Construct a multisig output in the form:
+<pre>OP_1 <Bob's payment code identifier> <change address pubkey> OP_2 OP_CHECKMULTISIG</pre>
+
+The relative ordering of the payment code identifier and change address pubkey in the above script MAY be randomized
+
+Bob detects notification transactions by adding his payment code identifier to his bloom filter.
+
+# When the filter returns a notification transaction, the sender's payment code is unblinded using the same procedure as for version 1 notification transactions.
+
+Alice's wallet should spend the notification change output at the next appropriate opportunity.
+
 ==Test Vectors==
 
 * [[https://gist.github.com/SamouraiDev/6aad669604c5930864bd|BIP47 Reusable Payment Codes Test Vectors]]
@@ -300,7 +371,7 @@ In order to use Bitmessage notification, the recipient must have a Bitmessage cl
 * [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
 * [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
 * [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
-* [[https://bitcoin.org/en/glossary/outpoint|Outpoint]]
+* [[https://bitcoin.org/en/developer-reference#outpoint|Outpoint]]
 * [[https://github.com/petertodd/dust-b-gone|dust-b-gone]]
 * [[https://en.bitcoin.it/wiki/Base58Check_encoding|Base58Check encoding]]
 * [[https://bitmessage.org/bitmessage.pdf|Bitmessage]]
