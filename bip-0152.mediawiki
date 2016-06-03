@@ -162,11 +162,32 @@ A new inv type (MSG_CMPCT_BLOCK == 4) and several new protocol messages are adde
 There have been many proposals to save wire bytes when relaying blocks. Many of them have a two-fold goal of reducing block relay time and thus rely on the use of significant processing power in order to avoid introducing additional worst-case RTTs. Because this work is not focused primarily on reducing block relay time, its design is much simpler (ie does not rely on set reconciliation protocols). Still, in testing at the time of writing, nodes are able to relay blocks without the extra getblocktxn/blocktxn RTT around 90% of the time. With a smart compact-block-announcement policy, it is thus expected that this work might allow blocks to be relayed between nodes in 0.5*RTT instead of 1.5*RTT at least 75% of the time.
 
 ====Short transaction ID calculation====
-The short transaction ID calculation is designed to take absolutely minimal processing time during block compaction to avoid introducing serious DoS vulnerabilities such as those introduced by the bloom-filtering in BIP 37. As such, it is possible for a node to construct one compact-block representation of a block for relay to multiple peers. Additionally, only one cryptographic hash (2 SHA rounds) is used when calculating the short transaction IDs for an entire block.
 
-SipHash-2-4 is used for calculating short transaction IDs primarily because it is fast and is reasonably able to limit the ability of an attacker who does not know the block hash or nonce to cause collisions in short transaction IDs. If an attacker were able to cause such collisions, filling mempools (and, thus, blocks) with them would cause poor network propagation of new (or non-attacker, in the case of a miner) blocks. As SipHash was designed, in part, to be used as a key selector for hash maps with malicious data, it should work very well for our use.
+There are several design goals for the Short ID calculation:
+* '''Performance''' The sender needs to compute short IDs for all block transactions, and the receiver for all mempool transactions they are being compared to. As we're easily talking about several 1000 transactions, sub-microsecond processing per-transactions is needed.
+* '''Space''' cmpctblock messages are never optional in this protocol, and contain a short ID for each non-prefilled transaction in the block. Thus, the size of short IDs is directly proportional to the maximum bandwidth savings possible.
+* '''Collision resistance''' It should be hard for network participants to create transactions that cause collisions. If an attacker were able to cause such collisions, filling mempools (and, thus, blocks) with them would cause poor network propagation of new (or non-attacker, in the case of a miner) blocks.
 
-The 8-byte nonce in short transaction ID calculation is used to introduce additional entropy on a per-node level. While the use of 8 bytes is sufficient for an attacker to maliciously cause short transaction ID collisions in their own block relay, this would have less of an effect than if such an attacker were relaying headers/invs and not responding to requests for the full block.
+SipHash is secure, fast, and simple 64-bit MAC designed for network traffic authentication and collision-resistant hash tables containing malicious data. We truncate the output from SipHash-2-4 to 48 bits (see next section) in order to minimize space. The resulting 48-bit hash is certainly not large enough to avoid intentionally created individual collisons, but by using the block hash as a key to SipHash, an attacker cannot predict what keys will be used once their transactions are actually included in a relayed block. We mix in a per-connection 64-bit nonce to obtain independent short IDs on every connection, so that random collisions will only ever affect a small number of connections at any given time. The mixing is done using SHA256(block_header || nonce), which is slow compared to SipHash, but only done once per block. This does mean that every node in the network gets the ability to maliciously grind its chosen nonce to cause collisions, but on their own connections, they can already cause more problems by simply refusing to relay blocks. We're only trying to prevent network-wide misbehaviour here.
+
+====Random collision probabilty====
+
+Thanks to the block-header-based SipHash keys, we can assume that the only collisions on links between honest nodes are random ones.
+
+For each of the ''t'' block transactions, the receiver will compare its received short ID with that of a set of ''m'' mempool transactions. We assume that each of those ''t'' has a chance ''r'' to be included in that set of ''m''. If we use ''B'' bits short IDs, for each comparison between a received short ID and a mempool transaction, there is a chance of ''P = 1 - 1 / 2^B'' that a mismatch is detected as such.
+
+When comparing a given block transaction to the whole set of mempool transactions, there are 5 cases to distinguish:
+# The receiver has exactly one match, which is the correct one. This has chance ''r * P^(m - 1)''.
+# The receiver has no matches. This has chance ''(1 - r) * P^m''.
+# The receiver has at least two matches, one of which is correct. This has chance ''r * (1 - P^(m - 1))''.
+# The receiver has at least two matches, both of which are incorrect. This has chance ''(1 - r) * (1 - P^m - m * (1 - P) * P^(m - 1)''.
+# The receiver has exactly one match, but an incorrect one. This has chance ''(1 - r) * m * (1 - P) * P^(m - 1)''.
+
+(note that these 5 numbers always add up to 100%)
+
+In case 1, we're good. In cases 2, 3, or 4, we request the full transaction because we know we're uncertain. Only in case 5, we fail to reconstruct. The chance that case 5 does not occur in any of the ''t'' transactions in a block is ''(1 - (1 - r) * m * (1 - P) * P^(m - 1))^t''. This expression is well approximated by ''1 - m * t * r / 2^B''. Thus, if we want only one in F block transmissions between honest nodes to fail, we need ''log2(F * m * t)'' bits hash functions.
+
+This means that ''B = 48'' bits short IDs suffice blocks with up to ''t = 10000'' transactions, mempools up to ''m = 100000'' transactions, with failure to reconstruct up to once every ''F = 281474'' blocks. Since failure to reconstruct just means we fall back to normal inv/header based relay, it isn't necessary to avoid such failure completely. It just needs to be sufficiently rare they have a lower impact than random transmission failures (for example, network disconnection, node overloaded, ...).
 
 ==Backward compatibility==
 
