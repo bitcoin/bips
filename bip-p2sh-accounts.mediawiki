@@ -1,0 +1,95 @@
+<pre>
+  BIP: <p2sh-accounts>
+  Title: Derivation scheme for P2WPKH-nested-in-P2SH based accounts
+  Author: Daniel Weigl <Daniel.Weigl@mycelium.com>
+  Status: Draft
+  Type: Informational
+  Created: 2016-05-19
+</pre>
+
+==Abstract==
+
+This BIP defines the derivation scheme for HD wallets using the P2WPKH-nested-in-P2SH ([[bip-0141.mediawiki|BIP 141]]) serialization format for segregated witness transactions.
+
+==Motivation==
+
+With the usage of P2WPKH-nested-in-P2SH ([[bip-0141.mediawiki#p2wpkh-nested-in-bip16-p2sh|BIP 141]]) transactions it is necessary to have a common derivation scheme.
+It allows the user to use different HD wallets with the same masterseed and/or a single account seamlessly.
+
+Thus the user needs to create a dedicated segregate witness accounts, which ensures that only wallets compatible with this BIP
+will detect the account and handle them appropriately.
+
+===Considerations===
+Two generally different approaches are possible for current BIP44 capable wallets:
+
+    1) Allow the user to use the same account(s) that they already uses, but add segregated witness encoded addresses to it
+    1.1) Use the same public keys as defined in BIP44, but in addition to the normal P2PKH address also derive the P2SH address from it.
+    1.2) Use the same account root, but branch off and derive different external and internal chain roots to derive dedicated public keys for the segregated witness addresses.
+
+    2) Create dedicated accounts only used for segregated witness addresses.
+
+The solutions from point 1 have a common disadvantage: if a user imports/recovers a BIP<ThisBipNumber>-compatible wallet masterseed into/in a non-BIP<ThisBipNumber>-compatible wallet, the account might show up but also it might miss some UTXOs.
+Thus this BIP uses solution 2, which fails in a more visible way. Either the account shows up or not at all. The user does not have to check his balance after using the same seed in different wallets.
+
+
+==Specifications==
+
+This BIP defines the two needed steps to derive multiple deterministic addresses based on a [[bip-0032.mediawiki|BIP 32]]
+root account.
+
+===Public key derivation===
+
+To derive a public key from the root account, this BIP uses the same account-structure as defined in
+[[bip-0044.mediawiki|BIP 44]], but only uses a different purpose value to indicate the different transaction
+serialization method.
+
+<pre>
+m / purpose' / coin_type' / account' / change / address_index
+</pre>
+
+For the `purpose`-path level it uses <ThisBipNumber>'. The rest of the levels are used as defined in BIP44
+
+
+===Address derivation===
+
+To derive the P2SH address from the above calculated public key, we use the encapsulation defined in [[bip-0141.mediawiki#p2wpkh-nested-in-bip16-p2sh|BIP 141]]:
+
+    witness:      <signature> <pubkey>
+    scriptSig:    <0 <20-byte-key-hash>>
+                  (0x160014{20-byte-key-hash})
+    scriptPubKey: HASH160 <20-byte-script-hash> EQUAL
+                  (0xA914{20-byte-script-hash}87)
+
+
+==Test vectors==
+
+(tbd. when we have the actual bip number)
+<pre>
+  masterseedWords = abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+  masterseed = <hex...>
+
+  // Account 0, root = m/<ThisBipNumber>'/0'/0'
+  account0Xpriv = <hex>
+
+  // Account 0, first receiving private key = m/<ThisBipNumber>'/0'/0'/0/0
+  account0recvPrivateKey = <hex>
+  account0recvPublickKey = <hex>
+
+  // Address derivation
+  keyhash = HASH160(account0recvPublickKey) = <hex>
+  scriptSig = <0 <keyhash>> = <hex>
+  addressBytes = HASH160(scriptSig) = <hex>
+
+  // addressBytes base58check encoded for testnet
+  address = base58check(prefix | addressBytes) = 1xyz....
+</pre>
+
+...
+
+==Reference==
+
+* [[bip-0016.mediawiki|BIP16 - Pay to Script Hash]]
+* [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
+* [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
+* [[bip-0043.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
+* [[bip-0141.mediawiki|BIP141 - Segregated Witness (Consensus layer)]]
