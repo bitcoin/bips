@@ -36,17 +36,22 @@ Encryption initialization must happen before sending any other messages to the r
 
 === Symmetric Encryption Cipher Keys ===
 
-The symmetric encryption cipher keys will be calculated with ECDH by sharing the pubkeys of a ephemeral key. Once the ECDH secret is calculated on each side, the symmetric encryption cipher keys must be calculated with <code>HMAC_SHA512(key=ecdh_secret|cipher-type,msg="encryption key")</code>.
+The symmetric encryption cipher keys will be calculated with ECDH/HKDF by sharing the pubkeys of a ephemeral key. Once the ECDH secret is calculated on each side, the symmetric encryption cipher keys must be derived with HKDF [2] after the following specification:
 
-<code>K_1</code> must be the left 32bytes of the <code>HMAC_SHA512</code> hash.
+1. HKDF extraction
+<code>PRK = HKDF_EXTRACT(hash=SHA256, salt="bitcoinechd", ikm=ecdh_secret|cipher-type)</code>.
 
-<code>K_2</code> must be the right 32bytes of the <code>HMAC_SHA512</code> hash.
+2. Derive Key1
+<code>K_1 = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinK1", L=32)</code>
 
-It is important to include the cipher-type into the symmetric cipher key to avoid weak-cipher-attacks.
+3. Derive Key2
+<code>K_2 = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinK2", L=32)</code>
+
+It is important to include the cipher-type into the symmetric cipher key derivation to avoid weak-cipher-attacks.
 
 === Session ID ===
 
-Both sides must also calculate the 256bit session-id using <code>HMAC_SHA256(key=ecdh_secret,msg="session id")</code>. The session-id can be used for linking the encryption-session to an identity check.
+Both sides must also calculate the 256bit session-id using <code>SID = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinSessionID", L=32)</code>. The session-id can be used for linking the encryption-session to an identity check.
 
 === The <code>encinit</code> message type ===
 
@@ -69,19 +74,19 @@ Possible symmetric key ciphers types
 
 === ChaCha20-Poly1305 Cipher Suite ===
 
-ChaCha20 is a stream cipher designed by Daniel Bernstein [2]. It operates by permuting 128 fixed bits, 128 or 256 bits of key,
+ChaCha20 is a stream cipher designed by Daniel Bernstein [3]. It operates by permuting 128 fixed bits, 128 or 256 bits of key,
 a 64 bit nonce and a 64 bit counter into 64 bytes of output. This output is used as a keystream, with any unused bytes simply discarded.
 
-Poly1305, also by Daniel Bernstein [3], is a one-time Carter-Wegman MAC that computes a 128 bit integrity tag given a message and a single-use
+Poly1305, also by Daniel Bernstein [4], is a one-time Carter-Wegman MAC that computes a 128 bit integrity tag given a message and a single-use
 256 bit secret key.
 
-The chacha20-poly1305@openssh.com specified and defined by openssh [4] combines these two primitives into an authenticated encryption mode. The construction used is based on that proposed for TLS by Adam Langley [5], but differs in the layout of data passed to the MAC and in the addition of encyption of the packet lengths.
+The chacha20-poly1305@openssh.com specified and defined by openssh [5] combines these two primitives into an authenticated encryption mode. The construction used is based on that proposed for TLS by Adam Langley [6], but differs in the layout of data passed to the MAC and in the addition of encyption of the packet lengths.
 
 <code>K_1</code> must be used to only encrypt the payload size of the encrypted message to avoid leaking information by revealing the message size.
 
 <code>K_2</code> must be used in conjunction with poly1305 to build an AEAD.
 
-Optimized implementations of ChaCha20-Poly1305 are very fast in general, therefore it is very likely that encrypted messages require less CPU cycles per bytes then the current unencrypted p2p message format. A quick analysis by Pieter Wuille of the current ''standard implementations'' has shown that SHA256 requires more CPU cycles per byte then ChaCha20 & Poly1304 [5].
+Optimized implementations of ChaCha20-Poly1305 are very fast in general, therefore it is very likely that encrypted messages require less CPU cycles per bytes then the current unencrypted p2p message format. A quick analysis by Pieter Wuille of the current ''standard implementations'' has shown that SHA256 requires more CPU cycles per byte then ChaCha20 & Poly1304.
 
 === The <code>encack</code> message type ===
 
@@ -164,10 +169,11 @@ This proposal is backward compatible. Non-supporting peers will ignore the <code
 == References ==
 
 * [1] http://e-collection.library.ethz.ch/eserv/eth:48205/eth-48205-01.pdf
-* [2] ChaCha20 http://cr.yp.to/chacha/chacha-20080128.pdf
-* [3] Poly1305 http://cr.yp.to/mac/poly1305-20050329.pdf
-* [4] https://github.com/openssh/openssh-portable/blob/05855bf2ce7d5cd0a6db18bc0b4214ed5ef7516d/PROTOCOL.chacha20poly1305
-* [5] "ChaCha20 and Poly1305 based Cipher Suites for TLS", Adam Langley http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-03
+* [2] HKDF (RFC 5869) https://tools.ietf.org/html/rfc5869
+* [3] ChaCha20 http://cr.yp.to/chacha/chacha-20080128.pdf
+* [4] Poly1305 http://cr.yp.to/mac/poly1305-20050329.pdf
+* [5] https://github.com/openssh/openssh-portable/blob/05855bf2ce7d5cd0a6db18bc0b4214ed5ef7516d/PROTOCOL.chacha20poly1305
+* [6] "ChaCha20 and Poly1305 based Cipher Suites for TLS", Adam Langley http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-03
 
 == Acknowledgements ==
 * Pieter Wuille and Gregory Maxwell for most of the ideas in this BIP.
