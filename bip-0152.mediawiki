@@ -21,7 +21,7 @@ Thus, decreasing the bandwidth used during block relay is very useful for many i
 
 While the goal of this work is explicitly not to reduce block transfer latency, it does, as a side effect reduce block transfer latencies in some rather significant ways. Additionally, this work forms a foundation for future work explicitly targeting low-latency block transfer.
 
-==Specification==
+==Specification for version 1==
 
 ===Intended Protocol Flow===
 <img src=bip-0152/protocol-flow.png></img>
@@ -45,7 +45,7 @@ A PrefilledTransaction structure is used in HeaderAndShortIDs to provide a list 
 |-
 |index||CompactSize||1, 3 bytes||Compact Size, differentially encoded since the last PrefilledTransaction in a list||The index into the block at which this transaction is
 |-
-|tx||Transaction||variable||As encoded in "tx" messages||The transaction which is in the block at index index.
+|tx||Transaction||variable||As encoded in "tx" messages sent in response to getdata MSG_TX||The transaction which is in the block at index index.
 |}
 
 ====HeaderAndShortIDs====
@@ -90,7 +90,7 @@ A BlockTransactions structure is used to provide some of the transactions in a b
 |-
 |transactions_length||CompactSize||1 or 3 bytes||As used to encode array lengths elsewhere||||The number of transactions provided
 |-
-|transactions||List of Transactions||variable||As encoded in "tx" messages||The transactions provided
+|transactions||List of Transactions||variable||As encoded in "tx" messages in response to getdata MSG_TX||The transactions provided
 |}
 
 ====Short transaction IDs====
@@ -111,6 +111,7 @@ A new inv type (MSG_CMPCT_BLOCK == 4) and several new protocol messages are adde
 # Upon receipt of a "sendcmpct" message with the second integer set to something other than 1, nodes MUST treat the peer as if they had not received the message (as it indicates the peer will provide an unexpected encoding in cmpctblock, and/or other, messages). This allows future versions to send duplicate sendcmpct messages with different versions as a part of a version handshake for future versions.
 # Nodes SHOULD check for a protocol version of >= 70014 before sending sendcmpct messages.
 # Nodes MUST NOT send a request for a MSG_CMPCT_BLOCK object to a peer before having received a sendcmpct message from that peer.
+# Nodes MUST NOT request a MSG_CMPCT_BLOCK object before having sent a sendcmpct message to that peer, as the peer cannot know what version protocol to use in the response.
 
 ====MSG_CMPCT_BLOCK====
 # getdata messages may now contain requests for MSG_CMPCT_BLOCK objects.
@@ -136,7 +137,17 @@ A new inv type (MSG_CMPCT_BLOCK == 4) and several new protocol messages are adde
 ## For each short transaction ID from the original cmpctblock, in order, find the corresponding transaction either from the blocktxn message or from other sources and place it in the first available position in the block.
 # Once the block has been reconstructed, it shall be processed as normal, keeping in mind that short transaction IDs are expected to occasionally collide, and that nodes MUST NOT be penalized for such collisions, wherever they appear.
 
-===Implementation Notes===
+==Specification for version 2==
+Compact blocks version 2 is almost identical to version 1, but supports segregated witness transactions (BIP 141 and BIP 144). The changes are:
+
+# The version number inside sendcmpct is 2 instead of 1.
+# Transactions inside cmpctblock messages (both those used as direct announcement and those in response to getdata) and in blocktxn should include witness data, using the same format as responses to getdata MSG_WITNESS_TX, specified in BIP144.
+# Short transaction IDs sent to us in cmpctblock messages, and sent by us in getblocktxn messages, are computed using the same process as in version 1, but using the wtxid as defined in BIP 141 instead of the txid.
+
+Nodes that support segwit MAY choose to support both version 1 and 2 compact blocks. To do so, two sendcmpct messages SHOULD be sent at startup: the first one for version 1 and a second one for version 2.
+When receiving multiple sendcmpct messages, the last received one that is compatible with the receiver's software MUST be used.
+
+==Implementation Notes==
 # For nodes which have sufficient inbound bandwidth, sending a sendcmpct message with the first integer set to 1 to up to 3 peers is RECOMMENDED. If possible, it is RECOMMENDED that those peers be selected based on their past performance in providing blocks quickly (eg the three peers which provided the highest number of the recent N blocks the quickest), allowing nodes to receive blocks which come from those peers in only 0.5*RTT.
 
 # Nodes MUST NOT send such sendcmpct messages to more than three peers, as it encourages wasting outbound bandwidth across the network.
@@ -153,7 +164,7 @@ A new inv type (MSG_CMPCT_BLOCK == 4) and several new protocol messages are adde
 
 # Note that the MSG_CMPCT_BLOCK section does not require that nodes respond to MSG_CMPCT_BLOCK getdata requests for blocks which they did not recently announce. This allows nodes to calculate cmpctblock messages at announce-time instead of at request-time. Blocks which are requested with a MSG_CMPCT_BLOCK getdata, but which are not responded to with a cmpctblock message MUST be responded to with a block message, allowing nodes to request all blocks using MSG_CMPCT_BLOCK getdatas and rely on their peer to pick an appropriate response.
 
-# While the current version sends transactions with the same encodings as is used in tx messages and elsewhere in the protocol, the version field in sendcmpct is intended to allow this to change in the future. For this reason, it is recommended that the code used to decode PrefilledTransaction and BlockTransactions messages be prepared to take a different transaction encoding, if and when the version field in sendcmpct changes in a future BIP.
+# While the current version sends transactions with the same encodings as are used in tx messages and elsewhere in the protocol, the version field in sendcmpct is intended to allow this to change in the future. For this reason, it is recommended that the code used to decode PrefilledTransaction and BlockTransactions messages be prepared to take a different transaction encoding, if and when the version field in sendcmpct changes in a future BIP.
 
 # Any undefined behavior in this spec may cause failure to transfer block to, peer disconnection by, or self-destruction by the receiving node. A node receiving non-minimally-encoded CompactSize encodings should make a best-effort to eat the sender's cat.
 
@@ -190,13 +201,26 @@ In case 1, we're good. In cases 2, 3, or 4, we request the full transaction beca
 
 This means that ''B = 48'' bits short IDs suffice for blocks with up to ''t = 10000'' transactions, mempools up to ''m = 100000'' transactions, with failure to reconstruct at most one in ''F = 281474'' blocks. Since failure to reconstruct just means we fall back to normal inv/header based relay, it isn't necessary to avoid such failure completely. It just needs to be sufficiently rare they have a lower impact than random transmission failures (for example, network disconnection, node overloaded, ...).
 
+====Separate version for segregated witness====
+
+The changes to transaction and block relay in BIP 144 introduce separate MSG_FILTERED_ versions of messages in getdata,
+allowing a receiver to choose individually where witness data is wanted.
+
+This method is not useful for compact blocks because `cmpctblock` blocks can be sent unsolicitedly in high-bandwidth
+mode, so we need to negotiate at least whether those should include witness data up front. There is little use for a
+validating node that only sometimes processes witness data, so we may as well use that negotiation for everything and
+turn it into a separate protocol version. We also need a means to distinguish different versions of the same transaction
+with different witnesses for correct reconstruction, so this also forces us to use wtxids instead of txids for short IDs
+everywhere in that case.
+
 ==Backward compatibility==
 
 Older clients remain fully compatible and interoperable after this change.
 
 ==Implementation==
 
-https://github.com/bitcoin/bitcoin/pull/8068
+https://github.com/bitcoin/bitcoin/pull/8068 for version 1.
+https://github.com/bitcoin/bitcoin/pull/8393 for version 2.
 
 ==Acknowledgements==
 
