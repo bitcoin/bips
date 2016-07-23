@@ -108,13 +108,13 @@ If the version byte is 1 to 16, no further interpretation of the witness program
 
 Blocks are currently limited to 1,000,000 bytes (1MB) total size. We change this restriction as follows:
 
-''Block cost'' is defined as ''Base size'' * 3 + ''Total size''. (rationale<ref>Rationale of using a single composite constraint, instead of two separate limits such as 1MB base data and 3MB witness data: Using two separate limits would make mining and fee estimation nearly impossible. Miners would need to solve a complex non-linear optimization problem to find the set of transactions that maximize fees given both constraints, and wallets would not be able to know what to pay as it depends on which of the two conditions is most constrained by the time miners try to produce blocks with their transactions in. Another problem with such an approach is freeloading. Once a set of transactions hit the base data 1MB constraint, up to 3MB extra data could be added to the witness by just minimally increasing the fee. The marginal cost for extra witness space effectively becomes zero in that case.</ref>)
+''Block weight'' is defined as ''Base size'' * 3 + ''Total size''. (rationale<ref>Rationale of using a single composite constraint, instead of two separate limits such as 1MB base data and 3MB witness data: Using two separate limits would make mining and fee estimation nearly impossible. Miners would need to solve a complex non-linear optimization problem to find the set of transactions that maximize fees given both constraints, and wallets would not be able to know what to pay as it depends on which of the two conditions is most constrained by the time miners try to produce blocks with their transactions in. Another problem with such an approach is freeloading. Once a set of transactions hit the base data 1MB constraint, up to 3MB extra data could be added to the witness by just minimally increasing the fee. The marginal cost for extra witness space effectively becomes zero in that case.</ref>)
 
 ''Base size'' is the block size in bytes with the original transaction serialization without any witness-related data, as seen by a non-upgraded node.
 
 ''Total size'' is the block size in bytes with transactions serialized as described in [[bip-0144.mediawiki|BIP144]], including base data and witness data.
 
-The new rule is ''block cost'' ≤ 4,000,000.
+The new rule is ''block weight'' ≤ 4,000,000.
 
 ==== Sigops ====
 
@@ -123,14 +123,13 @@ Sigops per block is currently limited to 20,000. We change this restriction as f
 Sigops in the current pubkey script, signature script, and P2SH check script are counted at 4 times their previous value.
 The sigop limit is likewise quadrupled to ≤ 80,000.
 
-In addition, opcodes within the witness program are counted identical to as previously within the P2SH check script.
-That is, CHECKSIG in a witness program is counted as only 1 sigop, and CHECKMULTISIG in a witness program is counted as 1 to 20 sigops according to the arguments. This rule applies to both native witness program and P2SH witness program.
+Each P2WPKH input is counted as 1 sigop. In addition, opcodes within a P2WSH <code>witnessScript</code> are counted identically as previously within the P2SH <code>redeemScript</code>. That is, CHECKSIG is counted as only 1 sigop, and CHECKMULTISIG is counted as 1 to 20 sigops according to the arguments. This rule applies to both native witness program and P2SH witness program.
 
 == Examples ==
 
-=== P2WPKH witness program ===
+=== P2WPKH ===
 
-The following example is a version 0 pay-to-witness-public-key-hash (P2WPKH) witness program:
+The following example is a version 0 pay-to-witness-public-key-hash (P2WPKH):
 
     witness:      <signature> <pubkey>
     scriptSig:    (empty)
@@ -147,7 +146,7 @@ Comparing with a traditional P2PKH output, the P2WPKH equivalent occupies 3 less
 
 === P2WPKH nested in BIP16 P2SH ===
 
-The following example is the same P2WPKH witness program, but nested in a BIP16 P2SH output.
+The following example is the same P2WPKH, but nested in a BIP16 P2SH output.
 
     witness:      <signature> <pubkey>
     scriptSig:    <0 <20-byte-key-hash>>
@@ -159,13 +158,13 @@ The only item in scriptSig is hashed with HASH160, compared against the 20-byte-
 
     0 <20-byte-key-hash>
 
-The P2WPKH witness program is then executed as described in the previous example.
+The public key and signature are then verified as described in the previous example.
 
 Comparing with the previous example, the scriptPubKey is 1 byte bigger and the scriptSig is 23 bytes bigger. Although a nested witness program is less efficient, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
 
-=== P2WSH witness program ===
+=== P2WSH ===
 
-The following example is an 1-of-2 multi-signature version 0 pay-to-witness-script-hash (P2WSH) witness program.
+The following example is an 1-of-2 multi-signature version 0 pay-to-witness-script-hash (P2WSH).
 
     witness:      0 <signature1> <1 <pubkey1> <pubkey2> 2 CHECKMULTISIG>
     scriptSig:    (empty)
@@ -180,13 +179,13 @@ The script is executed with the remaining data from witness:
 
     0 <signature1> 1 <pubkey1> <pubkey2> 2 CHECKMULTISIG
 
-A P2WSH witness program allows arbitrarily large script as the 520-byte push limit is bypassed.
+P2WSH allows maximum script size of 10,000 bytes, as the 520-byte push limit is bypassed.
 
 The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of BIP16 P2SH. The increased size improves security against possible collision attacks, as 2<sup>80</sup> work is not infeasible anymore (By the end of 2015, 2<sup>84</sup> hashes have been calculated in Bitcoin mining since the creation of Bitcoin). The spending script is same as the one for an equivalent BIP16 P2SH output but is moved to witness.
 
 === P2WSH nested in BIP16 P2SH ===
 
-The following example is the same 1-of-2 multi-signature P2WSH witness program, but nested in a BIP16 P2SH output.
+The following example is the same 1-of-2 multi-signature P2WSH script, but nested in a BIP16 P2SH output.
 
     witness:      0 <signature1> <1 <pubkey1> <pubkey2> 2 CHECKMULTISIG>
     scriptSig:    <0 <32-byte-hash>>
@@ -198,7 +197,7 @@ The only item in scriptSig is hashed with HASH160, compared against the 20-byte-
 
     0 <32-byte-hash>
 
-The P2WSH witness program is then executed as described in the previous example.
+The P2WSH witnessScript is then executed as described in the previous example.
 
 Comparing with the previous example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig.
 
@@ -248,8 +247,6 @@ These commitments could be included in the extensible commitment structure throu
 Since a version byte is pushed before a witness program, and programs with unknown versions are always considered as anyone-can-spend script, it is possible to introduce any new script system with a soft fork. The witness as a structure is not restricted by any existing script semantics and constraints, the 520-byte push limit in particular, and therefore allows arbitrarily large scripts and signatures.
 
 Examples of new script system include Schnorr signatures which reduce the size of multisig transactions dramatically, Lamport signature which is quantum computing resistance, and Merklized abstract syntax trees which allow very compact witness for conditional scripts with extreme complexity.
-
-The 32-byte limitation for witness program could be easily extended through a soft fork in case a stronger hash function is needed in the future. The version byte is also expandable through a softfork.
 
 === Per-input lock-time and relative-lock-time ===
 
