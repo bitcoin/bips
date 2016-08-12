@@ -7,6 +7,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Russian](russian.txt)
 
 ##Wordlists (Special Considerations)
 
@@ -81,3 +82,23 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good. 
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Russian
+
+Credits: @status-im @farazdagi
+([The pull request](https://github.com/bitcoin/bips/issues/432))
+
+Words chosen using the following rules:
+
+1. Simple and common words.
+2. Length between 4 and 8 characters.
+3. Mostly nouns, some hand-picked infinitive verbs, and adjectives.
+4. First 4 letters are unique between all words.
+5. No complex verb forms.
+6. No plural words.
+7. No negative/offensive/sad/bad words.
+8. No words already used in other language mnemonic sets.
+9. Levenstein distance of all (except some dozen words) is below 0.9. Those with higher ratio are manually checked (and
+   shouldn't pose any troubles for native speakers)
+
+All the words have been semi-manually filtered (manually + some scripts to double-check) from a bigger lists.
