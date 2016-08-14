@@ -98,7 +98,6 @@ Words chosen using the following rules:
 6. No plural words.
 7. No negative/offensive/sad/bad words.
 8. No words already used in other language mnemonic sets.
-9. Levenstein distance of all (except some dozen words) is below 0.9. Those with higher ratio are manually checked (and
-   shouldn't pose any troubles for native speakers)
+9. Levenshtein distance between all words is **at most** 0.87 (lower values rejected due to diminishing returns).
 
-All the words have been semi-manually filtered (manually + some scripts to double-check) from a bigger lists.
+All the words have been manually filtered + double-checked using scripts.
