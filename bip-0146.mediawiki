@@ -1,0 +1,60 @@
+<pre>
+  BIP: 146
+  Title: Low S values signatures
+  Author: Pieter Wuille <pieter.wuille@gmail.com>
+          Johnson Lau <jl2012@xbt.hk>
+  Status: Draft
+  Type: Standards Track
+  Created: 2016-08-16
+</pre>
+
+==Abstract==
+
+This document specifies proposed changes to the Bitcoin transaction validity rules to restrict signatures to using low S values.
+
+
+==Motivation==
+
+ECDSA signatures are inherently malleable as taking the negative of the number S inside (modulo the curve order) does not invalidate it. This is a nuisance malleability vector as any relay node on the network may transform the signature, with no access to the relevant private keys required. For non-segregated witness transactions, this malleability will change the <code>txid</code> and invalidate any unconfirmed child transactions. Although the <code>txid</code> of segregated witness ([https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) transactions is not third party malleable, this malleability vector will change the <code>wtxid</code> and may reduce the efficiency of compact block relay ([https://github.com/bitcoin/bips/blob/master/bip-0152.mediawiki BIP152]).
+
+To fix this malleability, we require that the S value inside ECDSA signatures is at most the curve order divided by 2 (essentially restricting this value to its lower half range). The value S in signatures must be between <code>0x1</code> and <code>0x7FFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF 5D576E73 57A4501D DFE92F46 681B20A0</code> (inclusive). If S is too high, simply replace it by <code>S' = 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141 - S</code>.
+
+
+==Specification==
+
+Every signature passed to <code>OP_CHECKSIG</code><ref>Including pay-to-witness-public-key-hash (P2WPKH) described in BIP141</ref>, <code>OP_CHECKSIGVERIFY</code>, <code>OP_CHECKMULTISIG</code>, or <code>OP_CHECKMULTISIGVERIFY</code>, to which ECDSA verification is applied, MUST use a S value between <code>0x1</code> and <code>0x7FFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF 5D576E73 57A4501D DFE92F46 681B20A0</code> (inclusive) with strict DER encoding (see [https://github.com/bitcoin/bips/blob/master/bip-0066.mediawiki BIP66]).
+
+These operators all perform ECDSA verifications on pubkey/signature pairs, iterating from the top of the stack backwards. For each such verification, if the signature does not pass the Low S value check, the entire script evaluates to false immediately. If the signature is valid DER with low S value, but does not pass ECDSA verification, opcode execution continues as it used to, causing opcode execution to stop and push false on the stack (but not immediately fail the script) in some cases, which potentially skips further signatures (and thus does not subject them to Low S value check).
+
+
+==Deployment==
+
+This BIP will be deployed by "version bits" [https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki BIP9] using the same parameters for BIP141 and BIP143, with the name "segwit" and using bit 1.
+
+For Bitcoin mainnet, the BIP9 starttime will be midnight TBD UTC (Epoch timestamp TBD) and BIP9 timeout will be midnight TBD UTC (Epoch timestamp TBD).
+
+For Bitcoin testnet, the BIP9 starttime will be midnight 1 May 2016 UTC (Epoch timestamp 1462060800) and BIP9 timeout will be midnight 1 May 2017 UTC (Epoch timestamp 1493596800).
+
+
+==Compatibility==
+
+The reference client has produced compatible signatures since v0.9.0, and the requirement to have low S value signatures has been enforced as a relay policy by the reference client since v0.11.1. As of August 2016, very few transactions violating the requirement are being added to the chain. In addition, every non-compliant signature can trivially be converted into a compliant one, so there is no loss of functionality by this requirement. This proposal has the added benefit of reducing transaction malleability.
+
+
+==Implementation==
+
+An implementation for the reference client is available at https://github.com/bitcoin/bitcoin/pull/8514
+
+
+==Footnotes==
+<references />
+
+
+==Acknowledgements==
+
+This document is extracted from the previous [https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki BIP62] proposal which had input from various people.
+
+
+==Copyright==
+
+This document is placed in the public domain.
