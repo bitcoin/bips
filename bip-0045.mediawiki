@@ -36,7 +36,7 @@ This BIP will allow interoperability between various HDPM wallet implementations
 We define the following levels in BIP32 path:
 
 <code>
-m / purpose' / cosigner_index / change / address_index
+m / purpose' / account_index' / cosigner_index / change / address_index
 </code>
 
 Apostrophe in the path indicates that BIP32 hardened derivation is used.
@@ -54,6 +54,11 @@ m / 45' / *
 
 Hardened derivation is used at this level.
 
+===Account Index===
+
+This level splits the key space into independent user identities, so the wallet never mixes the coins across different accounts, and follows the BIP44 recommendation. It can be different for each party creating a P2SH multisig address. This allows for multiple multisig accounts to be controlled under the same master key. 
+
+Hardened derivation is used at this level.
 
 ===Cosigner Index===
 
@@ -64,23 +69,23 @@ even though they have independent extended master public key, as explained
 in the "Address generation" section.
 
 Note that the master public key is not shared amongst the cosigners. Only the
-hardened purpose extended public key is shared, and this is what is used to
+hardened account_index extended public key is shared, and this is what is used to
 derive child extended public keys.
 
 Software should only use indices corresponding to each of the N cosigners
 sequentially. For example, for a 2-of-3 HDPM wallet, having the following
-purpose public keys:
+account_index public keys:
 <pre>
 03a473275a750a20b7b71ebeadfec83130c014da4b53f1c4743fcf342af6589a38
 039863fb5f07b667d9b1ca68773c6e6cdbcac0088ffba9af46f6f6acd153d44463
 03f76588e06c0d688617ef365d1e58a7f1aa84daa3801380b1e7f12acc9a69cd13
 </pre>
 
-it should use `m / 45 ' / 0 / *` for 
+it should use `m / 45 ' / account_index ' / 0 / *` for 
 `039863fb5f07b667d9b1ca68773c6e6cdbcac0088ffba9af46f6f6acd153d44463`, 
-`m / 45 ' / 1 / *` for
+`m / 45 ' / account_index ' / 1 / *` for
 `03a473275a750a20b7b71ebeadfec83130c014da4b53f1c4743fcf342af6589a38`,
-and `m / 45 ' / 2 / *` for
+and `m / 45 ' / account_index ' / 2 / *` for
 `03f76588e06c0d688617ef365d1e58a7f1aa84daa3801380b1e7f12acc9a69cd13`,
 as dictated by their lexicographical order.
 
@@ -99,7 +104,7 @@ chain is used for addresses which are not meant to be visible outside of the
 wallet and is used for return transaction change.
 
 For example, if cosigner 2 wants to generate a change address, he would use
-`m / 45 ' / 2 / 1 / *`, and `m / 45 ' / 2 / 0 / *` for a receive
+`m / 45 ' / account_index ' / 2 / 1 / *`, and `m / 45 ' / account_index ' / 2 / 0 / *` for a receive
 address.
 
 Non-hardened derivation is used at this level.
@@ -134,7 +139,7 @@ others using the next index, and calculate the needed script for the address.
 
 Example: Cosigner #2 wants to receive a payment to the shared wallet. His last
 used index on his own branch is 4. Then, the path for the next receive
-address is `m/45'/2/0/5`. He uses this same path in all of the cosigners
+address is `m/45'/account_index'/2/0/5`. He uses this same path in all of the cosigners
 trees to generate a public key for each one, and from that he gets the new
 p2sh address.
 ====Change address case====
@@ -145,7 +150,7 @@ using a separate index to track the used change addresses.
 
 Example: Cosigner #5 wants to send a payment from the shared wallet, for which
 he'll need a change address. His last used change index on his own branch is
-11. Then, the path for the next change address is `m/45'/5/1/12`. He uses
+11. Then, the path for the next change address is `m/45'/account_index'/5/1/12`. He uses
 this same path in all of the cosigners trees to generate a public key for each
 one, and from that he gets the new p2sh address.
 
@@ -168,8 +173,8 @@ When the master seed is imported from an external source the software should
 start to discover the addresses in the following manner:
 
 # for each cosigner:
-# derive the cosigner's node (`m / 45' / cosigner_index`)
-# for both the external and internal chains on this node (`m / 45' / cosigner_index / 0` and `m / 45' / cosigner_index / 1`):
+# derive the cosigner's node (`m / 45' / account_index ' / cosigner_index`)
+# for both the external and internal chains on this node (`m / 45' / account_index ' / cosigner_index / 0` and `m / 45' / account_index ' / cosigner_index / 1`):
 # scan addresses of the chain; respect the gap limit described below
 
 Please note that the algorithm uses the transaction history, not address
@@ -200,50 +205,54 @@ requested by the corresponding cosigner.
 ==Examples==
 
 {|
+!account_index
 !cosigner_index
 !change
 !address_index
 !path
 |-
 |first
+|first
 |receive
 |first
-| m / 45' / 0 / 0 / 0
+| m / 45' / 0' / 0 / 0 / 0
 |-
+|first
 |first
 |receive
 |second
-| m / 45' / 0 / 0 / 1
+| m / 45' / 0' / 0 / 0 / 1
 |-
+|first
 |first
 |receive
 |fifth
-| m / 45' / 0 / 0 / 4
+| m / 45' / 0' / 0 / 0 / 4
 |-
+|first
 |first
 |change
 |first
-| m / 45' / 0 / 1 / 0
+| m / 45' / 0' / 0 / 1 / 0
 |-
+|first
 |first
 |change
 |second
-| m / 45' / 0 / 1 / 1
+| m / 45' / 0' / 0 / 1 / 1
 |-
+|third
 |second
 |receive
 |first
-| m / 45' / 1 / 0 / 0
+| m / 45' / 2' / 1 / 0 / 0
 |-
+|fifth
 |third
 |change
 |tenth
-| m / 45' / 2 / 1 / 9
+| m / 45' / 4' / 2 / 1 / 9
 |}
-
-==Compatible walets==
-
-* [[https://copay.io|Copay wallet]] ([[https://github.com/bitpay/copay|source]])
 
 ==Reference==
 
