@@ -136,45 +136,58 @@ enum ProtocolMessageType {
 The '''ProtocolMessage''' message is an encapsulating wrapper for any Payment Protocol message. It allows two-way, non-encrypted communication of Payment Protocol messages. The message also includes a status code and a status message that is used for error communication such that the protocol does not rely on transport-layer error handling.
 <pre>
 message ProtocolMessage {
-    required ProtocolMessageType message_type = 1;
-    required bytes serialized_message = 2;
-    optional uint64 status_code = 3;
-    optional string status_message = 4;
-    optional bytes identifier = 5;
+    required uint64 version = 1
+    required uint64 status_code = 2;
+    required ProtocolMessageType message_type = 3;
+    required bytes serialized_message = 4;
+    optional string status_message = 5;
+    optional bytes identifier = 6;
 }
 </pre>
 
 {| class="wikitable"
 ! Field Name !! Description
 |-
+|version                    || Protocol version number (Currently 1)
+|-
+|status_code                || Payment Protocol Status Code
+|-
 |message_type               || Message Type of serialized_message
 |-
 |serialized_message         || Serialized Payment Protocol Message
-|-
-|status_code                || Payment Protocol Status Code
 |-
 |status_message             || Human-readable Payment Protocol status message
 |-
 |identifier                 || Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
 |}
 
+===Versioning===
+This BIP introduces version 1 of this protocol. All messages sent using these base requirements MUST use a value of 1 for the version number. Any future BIPs that modify this protocol (encryption schemes, etc) MUST each increment the version number by 1.
+
+When initiating communication, the version field of the first message SHOULD be set to the highest verison number the sender understands. All clients MUST be able to understand all version numbers less than the highest number they support. If a client receives a message with a version number higher than they understand, they MUST send the message back to the sender with a status code of 101 ("version too high") and the version field set to the highest version number the recipient understands. The sender must then resend the original message using the same version number returned by the recipient or abort.
+
 ===EncryptedProtocolMessage===
 The '''EncryptedProtocolMessage''' message is an encapsualting wrapper for any Payment Protocol message. It allows two-way, authenticated and encrypted communication of Payment Protocol messages in order to keep their contents secret. The message also includes a status code and status message that is used for error communication such that the protocol does not rely on transport-layer error handling.
 <pre>
 message EncryptedProtocolMessage {
-    required ProtocolMessageType message_type = 1;
-    required bytes encrypted_message = 2;
-    required bytes receiver_public_key = 3;
-    required bytes sender_public_key = 4;
-    required uint64 nonce = 5;
-    optional bytes signature = 6;
-    optional bytes identifier = 7;
-    optional uint64 status_code = 8;
+    required uint64 version = 1 [default = 1];
+    required uint64 status_code = 2 [default = 1];
+    required ProtocolMessageType message_type = 3;
+    required bytes encrypted_message = 4;
+    required bytes receiver_public_key = 5;
+    required bytes sender_public_key = 6;
+    required uint64 nonce = 7;
+    optional bytes identifier = 8;
     optional string status_message = 9;
+    optional bytes signature = 10;
 }
 </pre>
 {| class="wikitable"
 ! Field Name   !!  Description
+|-
+| version               || Protocol version number
+|-
+| status_code           || Payment Protocol Status Code
 |-
 | message_type          || Message Type of Decrypted encrypted_message
 |-
@@ -186,13 +199,11 @@ message EncryptedProtocolMessage {
 |-
 | nonce                 || Microseconds since epoch
 |-
-| signature             || DER-encoded Signature over the full EncryptedProtocolMessage with EC Key Belonging to Sender / Receiver, respectively
-|-
 | identifier            || Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
 |-
-| status_code           || Payment Protocol Status Code
-|-
 | status_message        || Human-readable Payment Protocol status message
+|-
+| signature             || DER-encoded Signature over the full EncryptedProtocolMessage with EC Key Belonging to Sender / Receiver, respectively
 |}
 
 ==Payment Protocol Process with InvoiceRequests==
@@ -236,9 +247,9 @@ When communicated via '''HTTP''', the listed messages MUST be transmitted via TL
 
 ===Payment Protocol Status Communication===
 
-In the case of an error that causes the Payment Protocol process to be stopped or requires that message be retried, a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] MUST be returned by the party generating the error status_code. The content of the message MUST contain the same '''serialized_message''' or '''encrypted_message''' and identifier (if present) and MUST have the status_code set appropriately. 
+Every [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] MUST include a status code which conveys information about the last message received, if any (for the first message sent, use a status of 1 "OK" even though there was no previous message). In the case of an error that causes the Payment Protocol process to be stopped or requires that message be retried, a ProtocolMessage or EncryptedProtocolMessage SHOULD be returned by the party generating the error. The content of the message MUST contain the same '''serialized_message''' or '''encrypted_message''' and identifier (if present) and MUST have the status_code set appropriately. 
 <br/><br/>
-The status_message value SHOULD be set with a human readable explanation of the status code. For example, if in an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]], the AES-256-GCM decryption fails to authenticate, an Authentication Failed (102) '''status_code''' MUST be returned to prevent oracle attacks.
+The status_message value SHOULD be set with a human readable explanation of the status code.
 
 ====Payment Protocol Status Codes====
 {| class="wikitable"
@@ -246,11 +257,15 @@ The status_message value SHOULD be set with a human readable explanation of the 
 |- 
 | 1     || OK
 |-
+| 2     || Cancel
+|-
 | 100   || General / Unknown Error
+|-
+| 101   || Version Too High
 |-
 | 102   || Authentication Failed
 |-
-| 102   || Encrypted Message Required
+| 103   || Encrypted Message Required
 |-
 | 200   || Amount Too High
 |-
@@ -272,8 +287,10 @@ The status_message value SHOULD be set with a human readable explanation of the 
 |-
 |}
 
-===Transport Layer Communication Errors===
++==Canceling A Message==+
+If a participant to a transaction would like to inform the other party that a previous message should be canceled, they can send the same message with a status code of 2 ("Cancel") and, where applicable, an updated nonce. How recipients make use of the "Cancel" message is up to developers. For example, wallet developers may want to offer users the ability to cancel payment requests they have sent to other users, and have that change reflected in the recipient's UI. Developers using the non-encrypted ProtocolMessage may want to ignore "Cancel" messages, as it may be difficult to authenticate that the message originated from the same user.
 
+===Transport Layer Communication Errors===
 Communication errors MUST be communicated to the party that initiated the communication via the communication layer's existing error messaging faciltiies. In the case of TLS-protected HTTP, this SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
 ==Extended Payment Protocol Process Details==
@@ -306,6 +323,7 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * Encrypt the serialized Payment Protocol message using AES-256-CBC setup as described in [[#ECDH_Point_Generation_and_AES256_GCM_Mode_Setup|ECDH Point Generation and AES-256 (GCM Mode) Setup]]
 * Create [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] message
 * Set '''encrypted_message''' to be the encrypted value of the Payment Protocol message
+* '''version''' SHOULD be set to the highest version number the client understands (currently 1)
 * '''sender_public_key''' MUST be set to the public key of the Sender's EC keypair
 * '''receiver_public_key''' MUST be set to the public key of the Receiver's EC keypair
 * '''nonce''' MUST be set to the nonce used in the AES-256-CBC encryption operation
@@ -327,7 +345,7 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * Generate the '''secret point''' using [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH] using the local entity's private key and the remote entity's public key as inputs
 * Initialize [http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf HMAC_DRBG]
 ** Use '''SHA512(secret point's X value in Big-Endian bytes)''' for Entropy
-** Use the given message's '''nonce''' field for Nonce
+** Use the given message's '''nonce''' field for Nonce, converted to byte string (Big Endian)
 
 * Initialize AES-256 in GCM Mode
 ** Initialize HMAC_DRBG with Security Strength of 256 bits
