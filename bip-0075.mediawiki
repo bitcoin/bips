@@ -30,7 +30,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ==Motivation==
 
-The motivation for defining this extension to the [[bip-0070.mediawiki|BIP70]] Payment Protocol is to allow 2 parties to exchange payment information in a permissioned and encrypted way such that wallet address communication can become a more automated process. Additionally, this extension allows for the requester of a PaymentRequest to supply a certificate and signature in order to facilitate identification for address release. This also allows for automated creation of off blockchain transaction logs that are human readable, containing who you transacted with, in addition to the information that it contains today.
+The motivation for defining this extension to the [[bip-0070.mediawiki|BIP70]] Payment Protocol is to allow two parties to exchange payment information in a permissioned and encrypted way, such that wallet address communication can become a more automated process. This extension also expands the types of PKI (public-key infrastructure) data that is supported, and allows it to be shared by both parties (with [[bip-0070.mediawiki|BIP70]], only the receiver could provide PKI information). This allows for automated creation of off-blockchain transaction logs that are human readable, now including information about the sender and not just the recipient.
 
 The motivation for this extension to [[bip-0070.mediawiki|BIP70]] is threefold:
 
@@ -38,12 +38,11 @@ The motivation for this extension to [[bip-0070.mediawiki|BIP70]] is threefold:
 
 # Enhance the Payment Protocol to allow for store and forward servers in order to allow, for example, mobile wallets to sign and serve Payment Requests.
 
-# Allow a sender of funds the option of sharing their identity with the receiver.  This information could then be used to:
+# Allow a sender of funds the option of sharing their identity with the receiver. This information could then be used to:
 
-#* Make Bitcoin logs more human readable
-#* Give the user the ability to decide who to release payment details to
-#* Allow an entity such as a political campaign to ensure donors match regulatory and legal requirements
-#* Allow for an open standards based way for regulated financial entities to meet regulatory requirements
+#* Make Bitcoin logs (wallet transaction history) more human readable
+#* Give the user the ability to decide whether or not they share their Bitcoin address and other payment details when requested
+#* Allow for an open standards based way for businesses to keep verifiable records of their financial transactions, to better meet the needs of accounting practices or other reporting and statutory requirements
 #* Automate the active exchange of payment addresses, so static addresses and BIP32 X-Pubs can be avoided to maintain privacy and convenience
 
 In short we wanted to make Bitcoin more human, while at the same time improving transaction privacy.
@@ -58,15 +57,30 @@ With this BIP, Bitcoin wallets could maintain an "address book" that only needs 
 
 2. Individual Permissioned Address Release
 
-A Bitcoin wallet developer would like to allow users to view a potential sending party's identifying information before deciding whether or not to share payment information with them. Currently, [[bip-0070.mediawiki|BIP70]] specifies that the Merchant Server respond to a "pay now" style request with a PaymentRequest, releasing address and X.509 certificate identity information of the potential receiving party.
+A Bitcoin wallet developer would like to allow users to view a potential sending party's identifying information before deciding whether or not to share payment information with them. Currently, [[bip-0070.mediawiki|BIP70]] shares the receiver’s payment address and identity information with anyone who requests it.
 
-With this BIP, Bitcoin wallets could prompt a wallet user to release payment information while displaying identity information about the potential sending party via an included certificate. This gives the receiving party more control over who receives their payment and identity information, and could be helpful for businesses that need to follow KYC policies or wallets that want to focus on privacy.
+With this BIP, Bitcoin wallets could use the sender’s identifying information to make a determination of whether or not to share their own information. This gives the receiving party more control over who receives their payment and identity information. Additionally, this could be used to automatically provide new payment addresses to whitelisted senders, or to protect users’ privacy from unsolicited payment requests.
 
 3. Using Store & Forward Servers
 
 A Bitcoin wallet developer would like to use a public Store & Forward service for an asynchronous address exchange. This is a common case for mobile and offline wallets.
 
 With this BIP, returned payment information is encrypted with an ECDH-computed shared key before sending to a Store & Forward service. In this case, a successful attack against a Store & Forward service would not be able to read or modify wallet address or payment information, only delete encrypted messages.
+
+==Modifying BIP70 pki_type==
+This BIP adds additional possible values for the pki_type variable in the PaymentRequest message. The complete list is now as follows:
+
+{| class="wikitable"
+! pki_type !! Description
+|-
+| x509+sha256           || A x.509 certificate, as described in BIP70
+|-
+| pgp+sha256            || An [[https://en.wikipedia.org/wiki/Pretty_Good_Privacy#OpenPGP|OpenPGP]] certificate
+|-
+| ecdsa+sha256          || A [[https://en.bitcoin.it/wiki/Secp256k1|secp256k1]] [[https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm|ECDSA]] public key
+|}
+
+'''NOTE''': Although SHA1 was supported in BIP70, it has been deprecated and BIP75 only supports SHA256. The hashing algorithm is still specified in the values listed above for forward and backwards compatibility.
 
 ==New Messages==
 Updated [/bip-0075/paymentrequest.proto paymentrequest.proto] contains the existing PaymentRequest Protocol Buffer messages as well as the messages newly defined in this BIP.
@@ -95,7 +109,7 @@ message InvoiceRequest {
 |-
 | amount                || amount is integer-number-of-satoshis (default: 0)
 |-
-| pki_type              || none / x509+sha256 (default: "none")
+| pki_type              || none / x509+sha256 / pgp+sha256 / ecdsa+sha256 (default: "none")
 |-
 | pki_data              || Depends on pki_type
 |-
@@ -110,10 +124,11 @@ message InvoiceRequest {
 This enum is used in the newly defined [[#ProtocolMessage|ProtocolMessage]] and [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] messages to define the serialized message type. The '''ProtocolMessageType''' enum is defined in an extensible way to allow for new message type additions to the Payment Protocol.
 <pre>
 enum ProtocolMessageType {
-    INVOICE_REQUEST = 0;
-    PAYMENT_REQUEST = 1;
-    PAYMENT = 2;
-    PAYMENT_ACK =  3;
+    UNKNOWN_MESSAGE_TYPE = 0;
+    INVOICE_REQUEST = 1;
+    PAYMENT_REQUEST = 2;
+    PAYMENT = 3;
+    PAYMENT_ACK = 4;
 }
 </pre>
 
@@ -121,45 +136,58 @@ enum ProtocolMessageType {
 The '''ProtocolMessage''' message is an encapsulating wrapper for any Payment Protocol message. It allows two-way, non-encrypted communication of Payment Protocol messages. The message also includes a status code and a status message that is used for error communication such that the protocol does not rely on transport-layer error handling.
 <pre>
 message ProtocolMessage {
-    required ProtocolMessageType message_type = 1;
-    required bytes serialized_message = 2;
-    optional uint64 status_code = 3;
-    optional string status_message = 4;
-    optional bytes identifier = 5;
+    required uint64 version = 1
+    required uint64 status_code = 2;
+    required ProtocolMessageType message_type = 3;
+    required bytes serialized_message = 4;
+    optional string status_message = 5;
+    optional bytes identifier = 6;
 }
 </pre>
 
 {| class="wikitable"
 ! Field Name !! Description
 |-
+|version                    || Protocol version number (Currently 1)
+|-
+|status_code                || Payment Protocol Status Code
+|-
 |message_type               || Message Type of serialized_message
 |-
 |serialized_message         || Serialized Payment Protocol Message
-|-
-|status_code                || Payment Protocol Status Code
 |-
 |status_message             || Human-readable Payment Protocol status message
 |-
 |identifier                 || Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
 |}
 
+===Versioning===
+This BIP introduces version 1 of this protocol. All messages sent using these base requirements MUST use a value of 1 for the version number. Any future BIPs that modify this protocol (encryption schemes, etc) MUST each increment the version number by 1.
+
+When initiating communication, the version field of the first message SHOULD be set to the highest verison number the sender understands. All clients MUST be able to understand all version numbers less than the highest number they support. If a client receives a message with a version number higher than they understand, they MUST send the message back to the sender with a status code of 101 ("version too high") and the version field set to the highest version number the recipient understands. The sender must then resend the original message using the same version number returned by the recipient or abort.
+
 ===EncryptedProtocolMessage===
 The '''EncryptedProtocolMessage''' message is an encapsualting wrapper for any Payment Protocol message. It allows two-way, authenticated and encrypted communication of Payment Protocol messages in order to keep their contents secret. The message also includes a status code and status message that is used for error communication such that the protocol does not rely on transport-layer error handling.
 <pre>
 message EncryptedProtocolMessage {
-    required ProtocolMessageType message_type = 1;
-    required bytes encrypted_message = 2;
-    required bytes receiver_public_key = 3;
-    required bytes sender_public_key = 4;
-    required uint64 nonce = 5;
-    optional bytes signature = 6;
-    optional bytes identifier = 7;
-    optional uint64 status_code = 8;
+    required uint64 version = 1 [default = 1];
+    required uint64 status_code = 2 [default = 1];
+    required ProtocolMessageType message_type = 3;
+    required bytes encrypted_message = 4;
+    required bytes receiver_public_key = 5;
+    required bytes sender_public_key = 6;
+    required uint64 nonce = 7;
+    optional bytes identifier = 8;
     optional string status_message = 9;
+    optional bytes signature = 10;
 }
 </pre>
 {| class="wikitable"
 ! Field Name   !!  Description
+|-
+| version               || Protocol version number
+|-
+| status_code           || Payment Protocol Status Code
 |-
 | message_type          || Message Type of Decrypted encrypted_message
 |-
@@ -171,13 +199,11 @@ message EncryptedProtocolMessage {
 |-
 | nonce                 || Microseconds since epoch
 |-
-| signature             || DER-encoded Signature over the full EncryptedProtocolMessage with EC Key Belonging to Sender / Receiver, respectively
-|-
 | identifier            || Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
 |-
-| status_code           || Payment Protocol Status Code
-|-
 | status_message        || Human-readable Payment Protocol status message
+|-
+| signature             || DER-encoded Signature over the full EncryptedProtocolMessage with EC Key Belonging to Sender / Receiver, respectively
 |}
 
 ==Payment Protocol Process with InvoiceRequests==
@@ -221,9 +247,9 @@ When communicated via '''HTTP''', the listed messages MUST be transmitted via TL
 
 ===Payment Protocol Status Communication===
 
-In the case of an error that causes the Payment Protocol process to be stopped or requires that message be retried, a [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] MUST be returned by the party generating the error status_code. The content of the message MUST contain the same '''serialized_message''' or '''encrypted_message''' and identifier (if present) and MUST have the status_code set appropriately. 
+Every [[#ProtocolMessage|ProtocolMessage]] or [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] MUST include a status code which conveys information about the last message received, if any (for the first message sent, use a status of 1 "OK" even though there was no previous message). In the case of an error that causes the Payment Protocol process to be stopped or requires that message be retried, a ProtocolMessage or EncryptedProtocolMessage SHOULD be returned by the party generating the error. The content of the message MUST contain the same '''serialized_message''' or '''encrypted_message''' and identifier (if present) and MUST have the status_code set appropriately. 
 <br/><br/>
-The status_message value SHOULD be set with a human readable explanation of the status code. For example, if in an [[#EncryptedProtocolMessage|EncryptedProtocolMessage]], the AES-256-GCM decryption fails to authenticate, an Authentication Failed (102) '''status_code''' MUST be returned to prevent oracle attacks.
+The status_message value SHOULD be set with a human readable explanation of the status code.
 
 ====Payment Protocol Status Codes====
 {| class="wikitable"
@@ -231,11 +257,15 @@ The status_message value SHOULD be set with a human readable explanation of the 
 |- 
 | 1     || OK
 |-
+| 2     || Cancel
+|-
 | 100   || General / Unknown Error
+|-
+| 101   || Version Too High
 |-
 | 102   || Authentication Failed
 |-
-| 102   || Encrypted Message Required
+| 103   || Encrypted Message Required
 |-
 | 200   || Amount Too High
 |-
@@ -257,8 +287,10 @@ The status_message value SHOULD be set with a human readable explanation of the 
 |-
 |}
 
-===Transport Layer Communication Errors===
++==Canceling A Message==+
+If a participant to a transaction would like to inform the other party that a previous message should be canceled, they can send the same message with a status code of 2 ("Cancel") and, where applicable, an updated nonce. How recipients make use of the "Cancel" message is up to developers. For example, wallet developers may want to offer users the ability to cancel payment requests they have sent to other users, and have that change reflected in the recipient's UI. Developers using the non-encrypted ProtocolMessage may want to ignore "Cancel" messages, as it may be difficult to authenticate that the message originated from the same user.
 
+===Transport Layer Communication Errors===
 Communication errors MUST be communicated to the party that initiated the communication via the communication layer's existing error messaging faciltiies. In the case of TLS-protected HTTP, this SHOULD be done through standard HTTP Status Code messaging ([https://tools.ietf.org/html/rfc7231 RFC 7231 Section 6]).
 
 ==Extended Payment Protocol Process Details==
@@ -291,6 +323,7 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * Encrypt the serialized Payment Protocol message using AES-256-CBC setup as described in [[#ECDH_Point_Generation_and_AES256_GCM_Mode_Setup|ECDH Point Generation and AES-256 (GCM Mode) Setup]]
 * Create [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] message
 * Set '''encrypted_message''' to be the encrypted value of the Payment Protocol message
+* '''version''' SHOULD be set to the highest version number the client understands (currently 1)
 * '''sender_public_key''' MUST be set to the public key of the Sender's EC keypair
 * '''receiver_public_key''' MUST be set to the public key of the Receiver's EC keypair
 * '''nonce''' MUST be set to the nonce used in the AES-256-CBC encryption operation
@@ -312,7 +345,7 @@ For the following we assume the Sender already knows the Receiver's public key, 
 * Generate the '''secret point''' using [https://en.wikipedia.org/wiki/Elliptic_curve_Diffie–Hellman ECDH] using the local entity's private key and the remote entity's public key as inputs
 * Initialize [http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf HMAC_DRBG]
 ** Use '''SHA512(secret point's X value in Big-Endian bytes)''' for Entropy
-** Use the given message's '''nonce''' field for Nonce
+** Use the given message's '''nonce''' field for Nonce, converted to byte string (Big Endian)
 
 * Initialize AES-256 in GCM Mode
 ** Initialize HMAC_DRBG with Security Strength of 256 bits
@@ -343,8 +376,9 @@ If a Store & Forward server wishes to protect themselves from spam or abuse, the
 Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. If a Payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent the Receiver from broadcasting both transactions and getting paid twice.
 
 ==Public Key & Signature Encoding==
-* All EC public keys ('''sender_public_key''', '''receiver_public_key''') included in any message defined in this BIP MUST be DER [ITU.X690.1994] encoded.
+* All EC public keys ('''sender_public_key''', '''receiver_public_key''') or x.509 certificates included in any message defined in this BIP MUST be DER [ITU.X690.1994] encoded.
 * All ECC signatures included in any message defined in this BIP MUST use the SHA-256 hashing algorithm and MUST be DER [ITU.X690.1994] encoded.
+* All OpenPGP certificates must follow [[https://tools.ietf.org/html/rfc4880|RFC4880]], sections 5.5 and 12.1.
 
 ==Implementation==
 A reference implementation for a Store & Forward server supporting this proposal can be found here:
