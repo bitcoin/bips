@@ -7,6 +7,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Ukrainian](ukrainian.txt)
 
 ##Wordlists (Special Considerations)
 
