@@ -108,10 +108,10 @@ A new inv type (MSG_CMPCT_BLOCK == 4) and several new protocol messages are adde
 # The second integer SHALL be interpreted as a little-endian version number. Nodes sending a sendcmpct message MUST currently set this value to 1.
 # Upon receipt of a "sendcmpct" message with the first and second integers set to 1, the node SHOULD announce new blocks by sending a cmpctblock message.
 # Upon receipt of a "sendcmpct" message with the first integer set to 0, the node SHOULD NOT announce new blocks by sending a cmpctblock message, but SHOULD announce new blocks by sending invs or headers, as defined by BIP130.
-# Upon receipt of a "sendcmpct" message with the second integer set to something other than 1, nodes MUST treat the peer as if they had not received the message (as it indicates the peer will provide an unexpected encoding in cmpctblock, and/or other, messages). This allows future versions to send duplicate sendcmpct messages with different versions as a part of a version handshake for future versions.
+# Upon receipt of a "sendcmpct" message with the second integer set to something other than 1, nodes MUST treat the peer as if they had not received the message (as it indicates the peer will provide an unexpected encoding in cmpctblock, and/or other, messages). This allows future versions to send duplicate sendcmpct messages with different versions as a part of a version handshake for future versions. See Protocol Versioning section, below, for more info on the specifics of the version-negotiation mechanics.
 # Nodes SHOULD check for a protocol version of >= 70014 before sending sendcmpct messages.
 # Nodes MUST NOT send a request for a MSG_CMPCT_BLOCK object to a peer before having received a sendcmpct message from that peer.
-# Nodes MUST NOT request a MSG_CMPCT_BLOCK object before having sent a sendcmpct message to that peer, as the peer cannot know what version protocol to use in the response.
+# Nodes MUST NOT request a MSG_CMPCT_BLOCK object before having sent all sendcmpct messages to that peer which they intend to send, as the peer cannot know what version protocol to use in the response.
 
 ====MSG_CMPCT_BLOCK====
 # getdata messages may now contain requests for MSG_CMPCT_BLOCK objects.
@@ -137,15 +137,21 @@ A new inv type (MSG_CMPCT_BLOCK == 4) and several new protocol messages are adde
 ## For each short transaction ID from the original cmpctblock, in order, find the corresponding transaction either from the blocktxn message or from other sources and place it in the first available position in the block.
 # Once the block has been reconstructed, it shall be processed as normal, keeping in mind that short transaction IDs are expected to occasionally collide, and that nodes MUST NOT be penalized for such collisions, wherever they appear.
 
+==Protocol Versioning==
+# The protocol version negotiation allows two nodes to agree on the version of compact blocks which they will exchange. As it is only in a single field, it does not allow a node to support a specific version in only one direction (sending or receiving).
+# Upon connection establishment, a node SHOULD send a burst of sendcmpct messages containing every version of compact block encodings for which they are willing to support sending cmpctblock and blocktxn messages, and receiving getblocktxn messages. These messages SHOULD be ordered in the order of the priority which the node wishes to receive cmpctblock/blocktxn messages, with the highest-priority version sendcmpct message sent last.
+# The encoding version used to send a cmpctblock or blocktxn message or to receive a getblocktxn message MUST be the second integer (version number) in the most recent sendcmpct message received for which a sendcmpct message with the same version number was sent.
+# Nodes MUST NOT send a sendcmpct message which contains a version number other than the version number which has been negotiated for receiving cmpctblock/blocktxn messages after sending a request for a MSG_CMPCT_BLOCK object, sending a cmpctblock, getblocktxn, blocktxn, or pong message.
+# Nodes MUST NOT set the first integer (boolean) value in sendcmpct messages to 1 in any sendcmpct message prior to the last sendcmpct message which contains a novel second integer (version number).
+# As a node must send all sendcmpct messages which contain a novel version announcement before any other compact block-related messages, it is possible to determine which version of compact blocks will be used for each object received. It is, however, not possible to know which version will be used to encode the response to a request for a compact block object before any MSG_CMPCT_BLOCK-containing inv, cmpctblock, getblocktxn, blocktxn, or ping messages have been exchanged.
+# Thus, if a node wishes to determine exactly which version of compact blocks will be used before requesting a compact block object, it must send all of its sendcmpct version announcements, followed by a ping, and wait for the pong response to ensure it has received all sendcmpctblock version announcement messages from the remote peer. Nodes can, obviously, however, determine that the version used will be at least a certain version (in their priority order) after having received a sendcmpct message from the remote peer containing that version as the second integer.
+
 ==Specification for version 2==
 Compact blocks version 2 is almost identical to version 1, but supports segregated witness transactions (BIP 141 and BIP 144). The changes are:
 
-# The version number inside sendcmpct is 2 instead of 1.
+# The second integer (version number) inside sendcmpct is 2 instead of 1 (see Protocol Versioning section, above).
 # Transactions inside cmpctblock messages (both those used as direct announcement and those in response to getdata) and in blocktxn should include witness data, using the same format as responses to getdata MSG_WITNESS_TX, specified in BIP144.
 # Short transaction IDs sent to us in cmpctblock messages, and sent by us in getblocktxn messages, are computed using the same process as in version 1, but using the wtxid as defined in BIP 141 instead of the txid.
-
-Nodes that support segwit MAY choose to support both version 1 and 2 compact blocks. To do so, two sendcmpct messages SHOULD be sent at startup: the first one for version 1 and a second one for version 2.
-When receiving multiple sendcmpct messages, the last received one that is compatible with the receiver's software MUST be used.
 
 ==Implementation Notes==
 # For nodes which have sufficient inbound bandwidth, sending a sendcmpct message with the first integer set to 1 to up to 3 peers is RECOMMENDED. If possible, it is RECOMMENDED that those peers be selected based on their past performance in providing blocks quickly (eg the three peers which provided the highest number of the recent N blocks the quickest), allowing nodes to receive blocks which come from those peers in only 0.5*RTT.
