@@ -24,7 +24,11 @@ my %EmailField = (
 	Editor => undef,
 );
 my %MiscField = (
+	'Discussions-To' => undef,
 	'Post-History' => undef,
+	'Replaces' => undef,
+	'Superseded-By' => undef,
+	'Resolution' => undef,
 );
 
 my %ValidLayer = (
