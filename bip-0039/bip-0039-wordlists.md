@@ -66,7 +66,7 @@ Credits: @paoloaga @Polve
 Words chosen using the following rules:
 
 1. Simple and common italian words.
-2. Length between 4 and 8 characters.
+2. Length between 4 and 9 characters.
 3. First 4 letters must be unique between all words.
 4. No accents or special characters.
 5. No complex verb forms.
