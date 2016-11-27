@@ -1,0 +1,104 @@
+<pre>
+  BIP: 49
+  Title: Derivation scheme for P2WPKH-nested-in-P2SH based accounts
+  Author: Daniel Weigl <Daniel.Weigl@mycelium.com>
+  Status: Draft
+  Type: Informational
+  Created: 2016-05-19
+</pre>
+
+==Abstract==
+
+This BIP defines the derivation scheme for HD wallets using the P2WPKH-nested-in-P2SH ([[bip-0141.mediawiki|BIP 141]]) serialization format for segregated witness transactions.
+
+==Motivation==
+
+With the usage of P2WPKH-nested-in-P2SH ([[bip-0141.mediawiki#p2wpkh-nested-in-bip16-p2sh|BIP 141]]) transactions it is necessary to have a common derivation scheme.
+It allows the user to use different HD wallets with the same masterseed and/or a single account seamlessly.
+
+Thus the user needs to create a dedicated segregate witness accounts, which ensures that only wallets compatible with this BIP
+will detect the account and handle them appropriately.
+
+===Considerations===
+Two generally different approaches are possible for current BIP44 capable wallets:
+
+1) Allow the user to use the same account(s) that they already uses, but add segregated witness encoded addresses to it
+
+1.1) Use the same public keys as defined in BIP44, but in addition to the normal P2PKH address also derive the P2SH address from it.
+
+1.2) Use the same account root, but branch off and derive different external and internal chain roots to derive dedicated public keys for the segregated witness addresses.
+
+2) Create dedicated accounts only used for segregated witness addresses.
+
+The solutions from point 1 have a common disadvantage: if a user imports/recovers a BIP49-compatible wallet masterseed into/in a non-BIP49-compatible wallet, the account might show up but also it might miss some UTXOs.
+
+Therefore this BIP uses solution 2, which fails in a more visible way. Either the account shows up or not at all. The user does not have to check his balance after using the same seed in different wallets.
+
+
+==Specifications==
+
+This BIP defines the two needed steps to derive multiple deterministic addresses based on a [[bip-0032.mediawiki|BIP 32]] root account.
+
+===Public key derivation===
+
+To derive a public key from the root account, this BIP uses the same account-structure as defined in
+[[bip-0044.mediawiki|BIP 44]], but only uses a different purpose value to indicate the different transaction
+serialization method.
+
+<pre>
+m / purpose' / coin_type' / account' / change / address_index
+</pre>
+
+For the `purpose`-path level it uses `49'`. The rest of the levels are used as defined in BIP44
+
+
+===Address derivation===
+
+To derive the P2SH address from the above calculated public key, we use the encapsulation defined in [[bip-0141.mediawiki#p2wpkh-nested-in-bip16-p2sh|BIP 141]]:
+
+    witness:      <signature> <pubkey>
+    scriptSig:    <0 <20-byte-key-hash>>
+                  (0x160014{20-byte-key-hash})
+    scriptPubKey: HASH160 <20-byte-script-hash> EQUAL
+                  (0xA914{20-byte-script-hash}87)
+
+==Backwards Compatibility==
+
+This BIP is not backwards compatible by design as described under [#considerations]. A not compatible wallet will not discover accounts at all and the user will notice that something is wrong.
+
+
+==Test vectors==
+
+<pre>
+  masterseedWords = abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+  masterseed = tprv8ZgxMBicQKsPe5YMU9gHen4Ez3ApihUfykaqUorj9t6FDqy3nP6eoXiAo2ssvpAjoLroQxHqr3R5nE3a5dU3DHTjTgJDd7zrbniJr6nrCzd (testnet)
+
+  // Account 0, root = m/49'/1'/0'
+  account0Xpriv = tprv8gRrNu65W2Msef2BdBSUgFdRTGzC8EwVXnV7UGS3faeXtuMVtGfEdidVeGbThs4ELEoayCAzZQ4uUji9DUiAs7erdVskqju7hrBcDvDsdbY (testnet)
+
+  // Account 0, first receiving private key = m/49'/1'/0'/0/0
+  account0recvPrivateKey = cULrpoZGXiuC19Uhvykx7NugygA3k86b3hmdCeyvHYQZSxojGyXJ
+  account0recvPrivateKeyHex = 0xc9bdb49cfbaedca21c4b1f3a7803c34636b1d7dc55a717132443fc3f4c5867e8
+  account0recvPublickKeyHex = 0x03a1af804ac108a8a51782198c2d034b28bf90c8803f5a53f76276fa69a4eae77f
+
+  // Address derivation
+  keyhash = HASH160(account0recvPublickKeyHex) = 0x38971f73930f6c141d977ac4fd4a727c854935b3
+  scriptSig = <0 <keyhash>> = 0x001438971f73930f6c141d977ac4fd4a727c854935b3
+  addressBytes = HASH160(scriptSig) = 0x336caa13e08b96080a32b5d818d59b4ab3b36742
+
+  // addressBytes base58check encoded for testnet
+  address = base58check(prefix | addressBytes) = 2Mww8dCYPUpKHofjgcXcBCEGmniw9CoaiD2 (testnet)
+</pre>
+
+
+==Reference==
+
+* [[bip-0016.mediawiki|BIP16 - Pay to Script Hash]]
+* [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
+* [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
+* [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
+* [[bip-0141.mediawiki|BIP141 - Segregated Witness (Consensus layer)]]
+
+== Copyright ==
+
+This document is placed in the public domain.
