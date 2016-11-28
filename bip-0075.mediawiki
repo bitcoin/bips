@@ -105,7 +105,7 @@ message InvoiceRequest {
 {| class="wikitable"
 ! Field Name !! Description
 |-
-| sender_public_key     || Sender's EC public key
+| sender_public_key     || Sender's SEC-encoded EC public key
 |-
 | amount                || amount is integer-number-of-satoshis (default: 0)
 |-
@@ -141,7 +141,7 @@ message ProtocolMessage {
     required ProtocolMessageType message_type = 3;
     required bytes serialized_message = 4;
     optional string status_message = 5;
-    optional bytes identifier = 6;
+    required bytes identifier = 6;
 }
 </pre>
 
@@ -158,7 +158,7 @@ message ProtocolMessage {
 |-
 |status_message             || Human-readable Payment Protocol status message
 |-
-|identifier                 || Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
+|identifier                 || Unique key to identify this entire exchange on the server. Default value SHOULD be SHA256(Serialized Initial InvoiceRequest + Current Epoch Time in Seconds as a String)
 |}
 
 ===Versioning===
@@ -177,7 +177,7 @@ message EncryptedProtocolMessage {
     required bytes receiver_public_key = 5;
     required bytes sender_public_key = 6;
     required uint64 nonce = 7;
-    optional bytes identifier = 8;
+    required bytes identifier = 8;
     optional string status_message = 9;
     optional bytes signature = 10;
 }
@@ -193,13 +193,13 @@ message EncryptedProtocolMessage {
 |-
 | encrypted_message     || AES-256-GCM Encrypted (as defined in BIP75) Payment Protocol Message
 |-
-| receiver_public_key   || Receiver's DER-encoded EC Public Key
+| receiver_public_key   || Receiver's SEC-encoded EC Public Key
 |-
-| sender_public_key     || Sender's DER-encoded EC Public Key
+| sender_public_key     || Sender's SEC-encoded EC Public Key
 |-
 | nonce                 || Microseconds since epoch
 |-
-| identifier            || Unique key to identify this entire exchange on the server. SHA256 of initial serialized InvoiceRequest SHOULD be used by default
+| identifier            || Unique key to identify this entire exchange on the server. Default value SHOULD be SHA256(Serialized Initial InvoiceRequest + Current Epoch Time in Seconds as a String)
 |-
 | status_message        || Human-readable Payment Protocol status message
 |-
@@ -362,7 +362,7 @@ When either '''status_code''' OR '''status_message''' are present, the AES-256 G
 Initial public key retrieval for [[#InvoiceRequest|InvoiceRequest]] encryption via [[#EncryptedProtocolMessage|EncryptedProtocolMessage]] encapsulation can be done in a number of ways including, but not limited to, the following:
 # Wallet Name public key asset type resolution - DNSSEC-validated name resolution returns Base64 encoded DER-formatted EC public key via TXT Record [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
 # Key Server lookup - Key Server lookup (similar to PGP's pgp.mit.edu) based on key server identifier (i.e., e-mail address) returns Base64 encoded DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
-# QR Code - Use of QR-code to encode DER-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
+# QR Code - Use of QR-code to encode SEC-formatted EC public key [https://www.ietf.org/rfc/rfc5480.txt RFC 5480]
 # Address Service Public Key Exposure
 
 ==Payment / PaymentACK Messages with a HTTP Store & Forward Server==
@@ -376,7 +376,8 @@ If a Store & Forward server wishes to protect themselves from spam or abuse, the
 Clients SHOULD keep in mind Receivers can broadcast a transaction without returning an ACK. If a Payment message needs to be updated, it SHOULD include at least one input referenced in the original transaction to prevent the Receiver from broadcasting both transactions and getting paid twice.
 
 ==Public Key & Signature Encoding==
-* All EC public keys ('''sender_public_key''', '''receiver_public_key''') or x.509 certificates included in any message defined in this BIP MUST be DER [ITU.X690.1994] encoded.
+* All x.509 certificates included in any message defined in this BIP MUST be DER [ITU.X690.1994] encoded.
+* All EC public keys ('''sender_public_key''', '''receiver_public_key''') in any message defined in this BIP MUST be [[SECP256k1|http://www.secg.org/sec2-v2.pdf]] ECDSA Public Key ECPoints encoded using [[SEC 2.3.3 Encoding|http://www.secg.org/sec1-v2.pdf]]. Encoding MAY be compressed. 
 * All ECC signatures included in any message defined in this BIP MUST use the SHA-256 hashing algorithm and MUST be DER [ITU.X690.1994] encoded.
 * All OpenPGP certificates must follow [[https://tools.ietf.org/html/rfc4880|RFC4880]], sections 5.5 and 12.1.
 
