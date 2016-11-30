@@ -3,6 +3,7 @@ use strict;
 use warnings;
 
 my $topbip = 9999;
+my $include_layer = 0;
 
 my %RequiredFields = (
 	BIP => undef,
@@ -31,6 +32,13 @@ my %MiscField = (
 	'Resolution' => undef,
 );
 
+my %ValidLayer = (
+	'Consensus (soft fork)' => undef,
+	'Consensus (hard fork)' => undef,
+	'Peer Services' => undef,
+	'API/RPC' => undef,
+	'Applications' => undef,
+);
 my %ValidStatus = (
 	Draft => undef,
 	Deferred => undef,
@@ -58,7 +66,7 @@ while (++$bipnum <= $topbip) {
 			die "No <pre> in $fn" if eof $F;
 	}
 	my %found;
-	my ($title, $author, $status, $type);
+	my ($title, $author, $status, $type, $layer);
 	my ($field, $val);
 	while (<$F>) {
 		m[^</pre>$] && last;
@@ -103,6 +111,9 @@ while (++$bipnum <= $topbip) {
 			} else {
 				$type = $val;
 			}
+		} elsif ($field eq 'Layer') {  # BIP 123
+			die "Invalid layer $val in $fn" unless exists $ValidLayer{$val};
+			$layer = $val;
 		} elsif (exists $DateField{$field}) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
@@ -120,6 +131,13 @@ while (++$bipnum <= $topbip) {
 	}
 	print "\n";
 	print "| [[${fn}|${bipnum}]]\n";
+	if ($include_layer) {
+		if (defined $layer) {
+			print "| ${layer}\n";
+		} else {
+			print "|\n";
+		}
+	}
 	print "| ${title}\n";
 	print "| ${author}\n";
 	print "| ${type}\n";
