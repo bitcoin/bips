@@ -31,9 +31,6 @@ my %MiscField = (
 	'Resolution' => undef,
 );
 
-my %ValidLayer = (
-	Process => undef,
-);
 my %ValidStatus = (
 	Draft => undef,
 	Deferred => undef,
@@ -106,8 +103,6 @@ while (++$bipnum <= $topbip) {
 			} else {
 				$type = $val;
 			}
-		} elsif ($field eq 'Layer') {  # BIP 123
-			die "Invalid layer $val in $fn" unless exists $ValidLayer{$val};
 		} elsif (exists $DateField{$field}) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
