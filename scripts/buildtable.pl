@@ -115,7 +115,6 @@ while (++$bipnum <= $topbip) {
 		} else {
 			die "Bad line in $fn preamble";
 		}
-		++$found{$field};
 		die "Extra spaces in $fn" if $val =~ /^\s/;
 		if ($field eq 'BIP') {
 			die "$fn claims to be BIP $val" if $val ne $bipnum;
@@ -163,6 +162,7 @@ while (++$bipnum <= $topbip) {
 		} elsif (not exists $MiscField{$field}) {
 			die "Unknown field $field in $fn";
 		}
+		++$found{$field};
 	}
 	if (not $found{License}) {
 		die "Missing License in $fn" unless exists $TolerateMissingLicense{$bipnum};
