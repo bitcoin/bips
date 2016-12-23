@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 my $topbip = 9999;
-my $include_layer = 0;
+my $include_layer = 1;
 
 my %RequiredFields = (
 	BIP => undef,
