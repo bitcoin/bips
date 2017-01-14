@@ -107,6 +107,7 @@ while (++$bipnum <= $topbip) {
 			$field = $1;
 			$val = $2;
 			die "Duplicate $field field in $fn" if exists $found{$field};
+			die "Too many spaces in $fn" if $val =~ /^\s/;
 		} elsif (m[^  ( +)(.*\S)$]) {
 			die "Continuation of non-field in $fn" unless defined $field;
 			die "Too many spaces in $fn" if length $1 != 2 + length $field;
