@@ -85,7 +85,7 @@ All the words have been manually selected and automatically checked against the 
 
 ### Czech
 
-Credits: @zizelevak
+Credits: @zizelevak (Jan Lansky zizelevak@gmail.com)
 
 Words chosen using the following rules:
 
