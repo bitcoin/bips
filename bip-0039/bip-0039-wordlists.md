@@ -95,4 +95,5 @@ Words chosen using the following rules:
 4.  Only nouns, werbs and adverbs, no other word types. All words are in basic form.
 5.  No personal names or geografical names.
 6.  No very similar words with 1 letter of difference.
-7.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
+8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
