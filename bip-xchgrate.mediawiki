@@ -1,0 +1,115 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Currency/exchange rate information API
+  Author: Luke Dashjr <luke+bip@dashjr.org>
+  Comments-Summary: No comments yet.
+  Comments-URI: ?
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-03-04
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+A common interface for requesting currency exchange rate information from a server.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Specification==
+
+Four requests are defined, which are all made by a GET request to a common URI with parameters encoded in application/x-www-form-urlencoded format.
+All matching parameters may be specified with multiple comma-separated values, which are to be interpreted as "any of these".
+Each result is always in JSON format, with a line-feed (never a carriage-return) separating multiple results.
+
+To be BIP <FIXME> compatible, servers MUST support at least one currency-pair compared to XBT.
+All inquiries for bitcoin amounts MUST be specified in XBT, even if the presentation to the end user is in another unit.
+(FIXME: or should this be satoshis?)
+
+Currency code(s) used herein are defined as such:
+
+* All ISO 4217 codes are valid currency codes.
+* XBT is defined as 100000000 satoshis (commonly known as 1 BTC).
+* Strings longer than 3 characters may be used for currencies without an applicable code. (If a shorter code is desired despite this, it may be padded with space(s) to the left until it is 4 characters. Software MAY strip these spaces.)
+
+===Enumerating supported currency-pair tokens===
+
+Parameters:
+
+* ''mode'' - Always "list" for this request.
+* ''cc'' - If provided, the server MAY limit the results to only currency-pairs describing a currency with the given currency code(s).
+* ''alt'' - If provided, the server MAY limit the results to only currency-pairs describing currency rates compared to the given currency code(s).
+* ''locale'' - If provided, the server MAY limit the results to only currency-pairs supporting the given locale(s).
+
+There is only one result, which is a JSON Array of Strings, each representing a supported currency-pair.
+These Strings are arbitrarily decided by the server.
+
+===Currency-pair information===
+
+Parameters:
+
+* ''mode'' - Always "info" for this request.
+* ''cp'' - Currency pair(s) for which information is requested.
+
+Each currency-pair will receive a separate result, a JSON Object, with the following information:
+
+* ''cp'' - The currency-pair token.
+* ''cc'' - The currency code for the primary currency, if any.
+* ''symbol'' - An Array of prefix and suffix for the primary currency. Each may be either a fixed String, an Array of two Strings (negative and positive), or null. Any positive or negative symbols must be included in this prefix/suffix; it MUST NOT be implied otherwise.
+* ''digits'' - The type of digits to use for the primary currency's numbers. "arabic" should be used for common 0-9 digits.
+* ''grouping'' - An Array alternating between Numbers representing a series of digits, and Strings used as delimiters. If terminated by a zero, the final grouping is to be repeated continually. For example, the common US locale thousands grouping would be <code>[3, ",", 0]</code>
+* ''fraction_sep'' - A String to be placed between whole numbers and a fractional amount.
+* ''fraction_digits'' - Array of absolute minimum (even for whole numbers) number of fractional digits, minimum fractional digits when a fraction exists, and maximum number of fractional digits when absolute precision is not demanded (below which is to be rounded in an implementation-dependent manner).
+* ''locale'' - If provided, a String with the applicable ISO 15897 locale.
+* ''minpoll'' - A Number of seconds indicating a minimum time between polls to the server. Clients should be prudent about not polling too often, even if this number is low.
+* ''longpoll'' - If provided and true, indicates longpolling is supported by the server.
+* ''history'' - If provided, indicates the server has historical records going back no earlier than the POSIX timestamp provided as a value.
+* ''archive'' - If provided, indicates the server no longer has current rates, and has no historical rates more recent than the POSIX timestamp provided as a value.
+
+===Current exchange rate===
+
+Parameters:
+
+* ''mode'' - Always "rate" for this request.
+* ''cp'' - Currency pair(s) for which rate is requested.
+* ''type'' - Type of exchange rate data being requested. May be "high", "low", "average", "typical", or any other arbitrary name. If omitted, the server may provide any rates it deems appropriate.
+* ''minrate'', ''maxrate'' - If specified, indicates this request is a longpoll. The server should not send a response until the rate(s) fall below or above (respectively) the provided value.
+
+Each currency-pair receives a separate result (a JSON Object) with all requested rate types:
+
+* ''cp'' - The currency-pair token.
+* ''time'' - The time (as a POSIX timestamp) the rate information is applicable to (should be approximately the request time).
+* ''rates'' - A JSON Object with each rate type provided as a key, and a Number as the value specifying the rate.
+
+===Historical exchange rates===
+
+Parameters:
+
+* ''mode'' - Always "history" for this request.
+* ''cp'' - Currency pair(s) for which rate is requested.
+* ''type'' - Type of exchange rate data being requested. May be "high", "low", "average", "typical", or any other arbitrary name. If omitted, the server may provide any rates it deems appropriate.
+* ''from'' - POSIX timestamp the results should begin with.
+* ''to'' - POSIX timestamp the results should end with. If omitted, the present time shall be used.
+* ''ratedelta'', ''timedelta'' - If specified, the server may omit data where the rate or time has not changed since the last provided rate and time. If both are provided, either a significant rate change OR time change should trigger a new record in the results.
+
+A result is provided for each currency-pair and timestamp record, in the same format as the current exchange rate request.
+Records MUST be provided in chronological order, but only within the scope of the applicable currency-pair (ie, it is okay to send the full history for one currency-pair, and then the full history for the next; or to intermix them out of any given order).
+
+==Motivation==
+
+End users often desire to see fiat currency information in their Bitcoin wallet software.
+Due to the nature of Bitcoin, there is inherently no authoritative source for exchange rates.
+There are many independent providers of such information, but they all use different formats for providing it, so wallet software is currently forced to implement dedicated code for each provider.
+
+By providing a standard interface for retrieving this information, wallets (and other software) and service providers can implement it once, and become immediately interoperable with all other compatible implementations.
+
+==Backwards compatibility==
+
+While this new standard is adopted, software and providers can continue to use and provide their current formats until they are no longer needed.
+
+==Reference implementation==
+
+TODO
