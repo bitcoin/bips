@@ -1,0 +1,131 @@
+<pre>
+  BIP: ?
+  Layer: Peer Services
+  Title: Block size/weight fraud proof
+  Author: Luke Dashjr <luke+bip@dashjr.org>
+  Comments-Summary: No comments yet.
+  Comments-URI: ?
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-03-17
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+A fraud proof that enables light clients to detect oversized (or overweight) blocks.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Specification==
+
+===Proof format===
+
+* varint: ceil(log2(number of transactions in block))
+* varint: number of size components in stripped-size proof
+* foreach:
+** varint: number of transactions represented by this size-component
+** if zero:
+*** (this indicates a full tx size proof)
+*** 256-bit: SHA2 midstate up until just before the final SHA2 chunk
+*** varint: total size of tx
+*** uint8: size of final SHA2 chunk (0-55)
+*** 0-55 bytes: final SHA2 chunk
+** if one or more:
+*** (this indicates minimal tx size counting)
+*** 256-bit: SHA2 hash of merkle link
+* varint: number of size components in full-size proof (zero in case of a size-exceeded proof; non-zero for a weight-exceeded proof)
+* foreach: (same as with stripped-size proof)
+
+===Proof verification===
+
+To verify an individual size proof:
+
+#Check that at least one size component is a full tx size proof. (At least one size component MUST be a full tx size proof.)
+#Determine the minimum number of transactions in the block (minTxCount). It is either <code>pow(ceil(log2(txcount)) - 1, 2)</code>, or the position of the last full tx proof (minus one, if using 0-based positions).
+#Calculate the minimum transaction-data size as 60 bytes * minTxCount.
+#For each full tx size proof:
+##Subtract the minimal 60 bytes it is presumed to consume, and add the claimed total size of tx.
+##Take the SHA2 midstate, and update it with the final SHA2 chunk (which needs to be padded, including with the total tx size). The final SHA2 hash is the transaction id.
+#Build the merkle root, and compare it to the block header.
+#Check that if there are any duplicate merkle links, there are no full tx proofs on the right side of them.
+#Add 80 bytes, plus the size of the tx-count varint, to the calculated size.
+#The calculated size is returned as the minimum possible size of the block.
+
+For the full-size proof, each transaction should be assumed to be at a minimum the stripped-size rather than the fixed 60 bytes.
+
+To verify the complete weight proof:
+
+# Verify the stripped-size proof. Save the resulting minimum possible size (call it minStrippedSize).
+# Verify the full-size proof. Save the resulting minimum possible size (call it minFullSize).
+# Calculate minFullSize + (minStrippedSize * 3). This is the minimum possible block weight.
+# Compare the minimum possible block weight to the applicable block weight limit.
+
+===Creation of proofs===
+
+Proofs should ideally use the smallest amount of data required to prove excess of the limit.
+The most obvious mechanism in doing so, would be to include full tx size proofs for the largest transactions until the limit is exceeded.
+However, in some cases, a smaller size may be accomplished by collapsing more merkle links.
+
+Because optimisation of proof size may be complicated, nodes are not required to implement it in any particular manner, so long as the proofs meet the requirements given above in [[#proof-verification|Proof verification]].
+
+===Network protocol===
+
+If a light client detects that one or more of its peers do not consider the block it knows to have the most work as their best block, it should inquire with all those peers for a fraud proof by sending a new message <code>getfraud</code>, with a block locator (between the last common block, and the presumed best tip) as the sole parameter (extra parameters should be ignored).
+
+Compatible nodes will respond with a (new) <code>fraud</code> message, which has 2-3 parameters:
+
+* uint256: The hash of the most recent block in the locator (or a parent thereof) that it has checked. In the event of an invalid block, this should be the exact invalid block's hash (post-invalid blocks should be treated as unchecked, even if the node has independently checked them for some reason).
+* varint: Fraud proof type code
+** 0 = Block is valid
+** 1 = No fraud proof available
+** 2 = Size/weight exceeded
+* (For type 2) the fraud proof
+
+If none of the blocks in the locator are recognised, compatible nodes should send a <code>fraud</code> message with no parameters.
+(To avoid this outcome, clients may include a known-common block in the locator.)
+
+In the event that the peer claims a block earlier than the client's tip is valid, the light client should prepare a new locator between that block and its tip, and rerequest <code>getfraud</code> until it has determined which block the peer rejects and why.
+
+Once a block is proven to be invalid, the light client should never consider any blockchain including it as a candidate for the best chain.
+It should not recheck blocks known to be valid, nor continue proving it from other nodes.
+(To avoid doubt: the user MAY be given the opportunity to override any rejections, but should be warned of the implications of doing so.)
+
+If an invalid fraud proof is provided, the client SHOULD CONSIDER disconnecting and possibly banning the node providing it.
+However, if any change has been made to the size/weight limits, that should be taken into consideration (eg, if the limit increases, an innocent node may prove a size smaller than the limit).
+
+==Motivation==
+
+Recently, there have been proposals for hardforks to increase the block size limit.
+While no consensus has been reached, proponents of these ideas often threaten and attempt to have miners force them through anyway.
+As things presently are, light clients cannot detect invalid blocks at all, and could be fooled into accepting an invalid chain created in such a manner.
+By supporting block size fraud proofs, light clients can protect their users from this form of unconsensual "hardfork" attempt.
+
+==Rationale==
+
+Why must a full tx size proof be included?
+
+* This is necessary to establish that the claimed block transaction count is correct.
+
+Why is the number of transactions in the block represented as a log2?
+
+* To avoid attacks that rely on fooling clients by claiming an amount they cannot verify.
+
+Why does it matter if a full tx size proof is on the right side of a duplicate merkle link?
+
+* We assume full tx size proofs show the number of transactions in the block. This assumption doesn't hold if the proof is provided on the right-hand side of duplicate links.
+
+Why a fraud proof only for oversized/overweight blocks?
+
+* While it is currently believed to be impossible to prove all invalid (or rather, won't-be-part-of-the-main-chain) blocks, there are regularly active proposals of miners attacking with simply oversized blocks in an attempt to force a hardfork. This specific attack can be proven, and reliably so, since the proof cannot be broken without also breaking the attempted hardfork at the same time.
+
+==Backwards compatibility==
+
+These fraud proofs protect only clients which use them.
+In non-attack scenarios, they are unnecessary and clients supporting them will otherwise behave as any other.
+
+==Reference implementation==
+
+TODO
