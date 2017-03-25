@@ -26,7 +26,7 @@ This BIP is licensed under the BSD 2-clause license.
 * varint: ceil(log2(number of transactions in block))
 * varint: number of size components in stripped-size proof
 * foreach:
-** varint: number of transactions represented by this size-component
+** varint: ceil(log2(number of transactions represented by this size-component)) + 1
 ** if zero:
 *** (this indicates a full tx size proof)
 *** 256-bit: SHA2 midstate up until just before the final SHA2 chunk
@@ -44,12 +44,13 @@ This BIP is licensed under the BSD 2-clause license.
 To verify an individual size proof:
 
 #Check that at least one size component is a full tx size proof. (At least one size component MUST be a full tx size proof.)
-#Determine the minimum number of transactions in the block (minTxCount). It is either <code>pow(ceil(log2(txcount)) - 1, 2)</code>, or the position of the last full tx proof (minus one, if using 0-based positions).
+#Determine the minimum number of transactions in the block (minTxCount). It is either <code>pow(ceil(log2(txcount)) - 1, 2)</code>, or the position of the last full tx proof (plus one, if using 0-based positions). Note that the last full tx proof from *either* of the size proofs (stripped-size and full-size) should be used here.
 #Calculate the minimum transaction-data size as 60 bytes * minTxCount.
 #For each full tx size proof:
 ##Subtract the minimal 60 bytes it is presumed to consume, and add the claimed total size of tx.
-##Take the SHA2 midstate, and update it with the final SHA2 chunk (which needs to be padded, including with the total tx size). The final SHA2 hash is the transaction id.
-#Build the merkle root, and compare it to the block header.
+##Take the SHA2 midstate, and update it with the final SHA2 chunk (which needs to be padded, including with the total tx size). The final SHA2 hash is the transaction id (stripped-size proof) or hash (full-size proof).
+#For the full-size proof, replace the 60 byte default with any larger sizes proven from the stripped-size proof.
+#Build the merkle root, and compare it to the block header (stripped-size proof) or witness commitment (full-size proof).
 #Check that if there are any duplicate merkle links, there are no full tx proofs on the right side of them.
 #Add 80 bytes, plus the size of the tx-count varint, to the calculated size.
 #The calculated size is returned as the minimum possible size of the block.
