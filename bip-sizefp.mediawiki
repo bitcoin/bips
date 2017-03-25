@@ -19,6 +19,13 @@ A fraud proof that enables light clients to detect oversized (or overweight) blo
 
 This BIP is licensed under the BSD 2-clause license.
 
+==Definitions==
+
+; full tx size proof : SHA2 midstate and tail data proving the size of the full transaction data being hashed.
+; size component : Either a merkle link and height in the merkle tree thereof, or a full tx size proof.
+; full-size proof : The set of size components proving the lower-bound size of the block.
+; stripped-size proof : The set of size components proving the lower-bound size of the block when stripped of segwit witness data.
+
 ==Specification==
 
 ===Proof format===
@@ -34,7 +41,7 @@ This BIP is licensed under the BSD 2-clause license.
 *** uint8: size of final SHA2 chunk (0-55)
 *** 0-55 bytes: final SHA2 chunk
 ** if one or more:
-*** (this indicates minimal tx size counting)
+*** (this indicates default tx size counting)
 *** 256-bit: SHA2 hash of merkle link
 * varint: number of size components in full-size proof (zero in case of a size-exceeded proof; non-zero for a weight-exceeded proof)
 * foreach: (same as with stripped-size proof)
@@ -44,33 +51,26 @@ This BIP is licensed under the BSD 2-clause license.
 To verify an individual size proof:
 
 #Check that at least one size component is a full tx size proof. (At least one size component MUST be a full tx size proof.)
-#Determine the minimum number of transactions in the block (minTxCount). It is either <code>pow(ceil(log2(txcount)) - 1, 2)</code>, or the position of the last full tx proof (plus one, if using 0-based positions). Note that the last full tx proof from *either* of the size proofs (stripped-size and full-size) should be used here.
-#Calculate the minimum transaction-data size as 60 bytes * minTxCount.
+#Determine the lower-bound number of transactions in the block (lowTxCount). It is either <code>pow(ceil(log2(txcount)) - 1, 2)</code>, or the position of the last full tx proof (plus one, if using 0-based positions). Note that the last full tx proof from *either* of the size proofs (stripped-size and full-size) should be used here.
+#Calculate the lower-bound transaction-data size as the default size * lowTxCount.
 #For each full tx size proof:
-##Subtract the minimal 60 bytes it is presumed to consume, and add the claimed total size of tx.
+##Subtract the default size it was presumed to consume, and add the claimed total size of tx.
 ##Take the SHA2 midstate, and update it with the final SHA2 chunk (which needs to be padded, including with the total tx size). The final SHA2 hash is the transaction id (stripped-size proof) or hash (full-size proof).
 #For the full-size proof, replace the 60 byte default with any larger sizes proven from the stripped-size proof.
 #Build the merkle root, and compare it to the block header (stripped-size proof) or witness commitment (full-size proof).
 #Check that if there are any duplicate merkle links, there are no full tx proofs on the right side of them.
-#Add 80 bytes, plus the size of the tx-count varint, to the calculated size.
-#The calculated size is returned as the minimum possible size of the block.
+#Add 80 bytes, plus the size of the tx-count varint, to the calculated lower-bound size.
+#The calculated size is returned as the lower-bound possible size of the block.
 
-For the full-size proof, each transaction should be assumed to be at a minimum the stripped-size rather than the fixed 60 bytes.
+For the stripped-size proof, the default size of transactions is 60 bytes.
+For the full-size proof, it is the size established by the stripped-size proof.
 
 To verify the complete weight proof:
 
-# Verify the stripped-size proof. Save the resulting minimum possible size (call it minStrippedSize).
-# Verify the full-size proof. Save the resulting minimum possible size (call it minFullSize).
-# Calculate minFullSize + (minStrippedSize * 3). This is the minimum possible block weight.
-# Compare the minimum possible block weight to the applicable block weight limit.
-
-===Creation of proofs===
-
-Proofs should ideally use the smallest amount of data required to prove excess of the limit.
-The most obvious mechanism in doing so, would be to include full tx size proofs for the largest transactions until the limit is exceeded.
-However, in some cases, a smaller size may be accomplished by collapsing more merkle links.
-
-Because optimisation of proof size may be complicated, nodes are not required to implement it in any particular manner, so long as the proofs meet the requirements given above in [[#proof-verification|Proof verification]].
+# Verify the stripped-size proof. Save the resulting lower-bound size (call it lowStrippedSize).
+# Verify the full-size proof. Save the resulting lower-bound size (call it lowFullSize).
+# Calculate minFullSize + (minStrippedSize * 3). This is the lower-bound block weight.
+# Compare the lower-bound block weight to the applicable block weight limit.
 
 ===Network protocol===
 
@@ -91,11 +91,21 @@ If none of the blocks in the locator are recognised, compatible nodes should sen
 In the event that the peer claims a block earlier than the client's tip is valid, the light client should prepare a new locator between that block and its tip, and rerequest <code>getfraud</code> until it has determined which block the peer rejects and why.
 
 Once a block is proven to be invalid, the light client should never consider any blockchain including it as a candidate for the best chain.
-It should not recheck blocks known to be valid, nor continue proving it from other nodes.
+It should not recheck blocks known to be invalid, nor continue proving it from other nodes.
 (To avoid doubt: the user MAY be given the opportunity to override any rejections, but should be warned of the implications of doing so.)
 
 If an invalid fraud proof is provided, the client SHOULD CONSIDER disconnecting and possibly banning the node providing it.
 However, if any change has been made to the size/weight limits, that should be taken into consideration (eg, if the limit increases, an innocent node may prove a size smaller than the limit).
+
+==Information==
+
+===Creation of proofs===
+
+Proofs should ideally use the smallest amount of data required to prove excess of the limit.
+The most obvious mechanism in doing so, would be to include full tx size proofs for the largest transactions until the limit is exceeded.
+However, in some cases, a smaller size may be accomplished by collapsing more merkle links.
+
+Because optimisation of proof size may be complicated, nodes are not required to implement it in any particular manner, so long as the proofs meet the requirements given above in [[#proof-verification|Proof verification]].
 
 ==Motivation==
 
@@ -116,7 +126,7 @@ How does the full tx size proof actually prove the size?
 
 How does this prove the block weight?
 
-* The block weight defined by [[bip-0141.mediawiki|BIP 141]] is the size of the block stripped of its segwit signatures times 3, plus the full size of the block. By proving minimal sizes of both the stripped block and the full block, a minimal weight can also be calculated.
+* The block weight defined by [[bip-0141.mediawiki|BIP 141]] is the size of the block stripped of its segwit signatures times 3, plus the full size of the block. By proving lower-bound sizes of both the stripped block and the full block, a lower-bound weight can also be calculated.
 
 Why is the number of transactions in the block represented as a log2?
 
