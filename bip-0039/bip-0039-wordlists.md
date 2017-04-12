@@ -1,4 +1,4 @@
-#Wordlists
+# Wordlists
 
 * [English](english.txt)
 * [Japanese](japanese.txt)
@@ -8,9 +8,9 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 
-##Wordlists (Special Considerations)
+## Wordlists (Special Considerations)
 
-###Japanese
+### Japanese
 
 1. **Developers implementing phrase generation or checksum verification must separate words using ideographic spaces / accommodate users inputting ideographic spaces.**  
 (UTF-8 bytes: **0xE38080**; C/C+/Java: **"\u3000"**; Python: **u"\u3000"**)  
@@ -23,7 +23,7 @@ separated phrase or tries to split the phrase input by the user, dealing with AS
 ideographic spaces may be a necessary step. As a long word split in two could be mistaken easily  
 for two smaller words (This would be a problem with any of the 3 character sets in Japanese)
 
-###Spanish
+### Spanish
 
 1. Words can be uniquely determined typing the first 4 characters (sometimes less).
 
@@ -31,12 +31,12 @@ for two smaller words (This would be a problem with any of the 3 character sets 
 
 3. There are no words in common between the Spanish wordlist and any other language wordlist, therefore it is possible to detect the language with just one word.
 
-###Chinese
+### Chinese
 
 1. Chinese text typically does not use any spaces as word separators. For the sake of
 uniformity, we propose to use normal ASCII spaces (0x20) to separate words as per standard.
 
-###French
+### French
 
 Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
 ([The pull request](https://github.com/bitcoin/bips/issues/152))
