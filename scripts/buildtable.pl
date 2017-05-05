@@ -9,7 +9,6 @@ my %RequiredFields = (
 	BIP => undef,
 	Title => undef,
 	Author => undef,
-	'Comments-Summary' => undef,
 	'Comments-URI' => undef,
 	Status => undef,
 	Type => undef,
