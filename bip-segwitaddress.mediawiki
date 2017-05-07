@@ -1,0 +1,97 @@
+<pre>
+  BIP: x
+  Title: Address Format for Witness Program
+  Author: Johnson Lau <jl2012@xbt.hk>
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-12-24
+</pre>
+
+==Abstract==
+
+This BIP describes a new type of Bitcoin address to support native Segregated Witness (segwit) transactions. An address encoded under this proposal represents the base-58 encoding of a witness program. It supports arbitrarily complex transactions, and is forward compatible to new version witness programs in the future.
+
+==Motivation==
+
+To define a standard payment address for native segwit transactions, with minimal changes from existing address types, for the promotion of early adoption of the more efficient transaction method.
+
+==Specification==
+
+The new bitcoin address type is constructed in a similar manner of the original pay-to-public-key-hash addresses and pay-to-script-hash addresses (see BIP13):
+
+  base58-encode:
+    [one-byte version]
+    [one-byte program length]
+    [2 to 41-byte witness program]
+    [padding by 0x00 to 43 bytes]
+    [4-byte checksum]
+    (47 bytes in total)
+
+Version byte is 0x15 for a main-network address, 0x37 for a testnet address.
+
+Program length byte indicates the length of witness program (L), from 0x02 to 0x29.
+
+The following 2 to 41 bytes is the actual witness program.
+
+The following (41 minus L) bytes is padded by 0x00.
+
+The 4-byte checksum is the first four bytes of the double SHA256 hash of the version, program length, program, and padding.
+
+All addresses generated with this scheme will have 64 characters, with a "B" prefix for main-network and "T" prefix for testnet.
+
+==Rationale==
+
+The segregated witness soft fork (BIP x) defines 2 ways of encoding "witness program", a data push of 2 to 41 bytes:
+
+* A native witness program output is a scriptPubKey with a single push of a witness program, and nothing else;
+* A witness program in P2SH is a P2SH redeemScript with a single push of a witness program, while the scriptPubKey looks like a normal P2SH output.
+
+As the P2SH address has been defined in 2012, using witness program in P2SH allows most existing wallets to pay a segwit-compatible wallet without any upgrade. However, this method requires more block space and is less collision-resistance than a native witness program, and is only a short-term solution to make the transition smoother. Eventually, all users are expected to use the more efficient native witness program as the primary payment method.
+
+Currently there are 2 payment addresses format in Bitcoin, the original pay-to-public-key-hash addresses and the pay-to-script-hash addresses defined in 2012. All address formats, including the one defined in this BIP, are mutually incompatible. However, due to the excellent upgradability of witness programme, this proposal is likely to be the last address format encoding a scriptPubKey template.
+
+The drawbacks of Bitcoin addresses have been extensively discussed in BIP13. Since then, better payment methods have been proposed or deployed, for example:
+*BIP47 Reusable Payment Codes for Hierarchical Deterministic Wallets
+*BIP63 Stealth Addresses
+*BIP70 Payment protocol
+However, none of these are as widely adopted as the suboptimal base-58 scriptPubKey template addresses, which is still a standard for the whole eco-system, from wallets, block explorers, merchants, exchanges, to end users. The author believes this proposal as the most efficient way to promote early adoption of native witness program, which is particularly important in the context of scaling the capacity of the blockchain.
+
+Following the same rationale of BIP13, and to minimize the changes needed in wallet upgrade, this proposal resembles the original address format, including the checksum algorithm.
+
+==Compatibility==
+
+This proposal is not backward compatible, but it fails gracefully -- if an older implementation is given one of these new Bitcoin addresses, it will report the address as invalid and will refuse to create a transaction.
+
+This proposal is forward compatible to any new version witness program in the future.
+
+==Example==
+
+The following public key,
+    0450863AD64A87AE8A2FE83C1AF1A8403CB53F53E486D8511DAD8A04887E5B23522CD470243453A299FA9E77237716103ABC11A1DF38855ED6F2EE187E9C582BA6
+when encoded as a P2PKH template, would become:
+    DUP HASH160 <010966776006953D5567439E5E39F86A0D273BEE> EQUALVERIFY CHECKSIG
+And the corresponding version 1 Bitcoin address is
+    16UwLL9Risc3QfPqBUvKofHmBQ7wMtjvM
+In the case of using the same P2PKH template as a version 0 witness program, the scriptPubKey becomes a 26-byte single push of:
+    0076A914010966776006953D5567439E5E39F86A0D273BEE88AC
+Prefixing with the address version byte 0x15 and program length 0x1A:
+    151A0076A914010966776006953D5567439E5E39F86A0D273BEE88AC
+Padding with 41 - 26 = 15 0x00:
+    151A0076A914010966776006953D5567439E5E39F86A0D273BEE88AC000000000000000000000000000000
+Perform double SHA-256 hash:
+    1B4A8136E38479EF5F08626D524534E6C94C92B1E77690B727CE8BD30BB3DAA0
+Take the first 4 bytes. This is the address checksum:
+    1B4A8136
+Add the 4 checksum bytes at the end of extended witness program. This is the 47-byte binary witness program address:
+    151A0076A914010966776006953D5567439E5E39F86A0D273BEE88AC0000000000000000000000000000001B4A8136
+Convert the result from a byte string into a base58 string with 64 characters. 
+    BAxHaPmrSLbCt4QjJkW1W7MMXZmMdJkoxFHTEQXKmL9LpMUvDMcLAGgeeuLnkvNR
+
+==Reference Implementation==
+
+==See Also==
+
+* [[bip-0013.mediawiki|BIP 13: Address Format for pay-to-script-hash]]
+* [[bip-0016.mediawiki|BIP 16: Pay to Script Hash (aka "/P2SH/")]]
+* [[bip-xxxx.mediawiki|BIP x: Segregated Witness]]
+
