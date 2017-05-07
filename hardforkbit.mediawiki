@@ -1,0 +1,72 @@
+<pre>
+BIP: ?
+Title: Hardfork bit
+Author: Johnson Lau <jl2012@xbt.hk>
+Status: Draft
+Type: Standard Track
+Created: 2015-07-23
+</pre>
+
+==Abstract==
+
+This document specifies a proposed change to the semantics of the sign bit of the “version” field in Bitcoin block headers, as a mechanism to indicate a hardfork is deployed. It alleviates certain risks related to a hardfork by introducing an explicit “point of no return” in the blockchain. This is a general mechanism which should be employed by any planned hardfork in the future.
+
+==Motivation==
+
+Hardforks in Bitcoin are usually considered as difficult and risky, because:
+
+# Hardforks require not only support of miners, but also, most importantly, supermajority support of the Bitcoin economy. As a result, softfork deployment mechanisms described in [[bip-0034.mediawiki|BIP 34]] or [[bip-0009.mediawiki|BIP 9]] are not enough for introducing hardforks safely.
+# Full nodes and SPV nodes following original consensus rules may not be aware of the deployment of a hardfork. They may stick to an economic-minority fork and unknowingly accept devalued legacy tokens.
+# In the case which the original consensus rules are also valid under the new consensus rules, users following the new chain may unexpectedly reorg back to the original chain if it grows faster than the new one. People may find their confirmed transactions becoming unconfirmed and lose money.
+
+The first issue involves soliciting support for a hardfork proposal, which is more a political topic than a technical one. This proposal aims at alleviating the risks related to the second and third issues. It should be employed by any planned hardfork in the future.
+
+==Definitions==
+
+See [[bip-0099.mediawiki|BIP99]]
+
+
+==Specification==
+
+'''Hardfork bit'''
+The sign bit in nVersion is defined as the hardfork bit. Currently, blocks with this header bit setting to 1 are invalid, since [[bip-0065.mediawiki|BIP65]] interprets nVersion as a signed number and requires it to be ≥ 4. Among the 640 bits in the block header, this is the only one which is fixed and serves no purpose, and therefore the best way to indicate the deployment of a hardfork.
+
+'''Flag block'''
+Any planned hardfork must have one and only one flag block which is the “point of no return”. To ensure monotonicity, flag block should be determined by block height, or as the first block with GetMedianTimePast() greater than a threshold. Other mechanisms could be difficult for SPV nodes to follow. The height/time threshold could be a predetermined value or relative to other events (e.g. 10000 blocks / 100 days after 95% of miner support). The exact mechanism is out of the scope of this BIP. No matter what mechanism is used, the threshold is consensus critical. It must be publicly verifiable with only blockchain data, and preferably SPV-friendly (i.e. verifiable with block headers only, without downloading any transaction).
+
+Flag block is constructed in a way that nodes with the original consensus rules must reject. On the other hand, nodes with the new consensus rules must reject a block if it is not a flag block while it is supposed to be. To achieve these goals, the flag block must
+#have the hardfork bit setting to 1, and
+#follow any other rules required by the hardfork
+If these conditions are not fully satisfied, upgraded nodes shall reject the block.
+
+The hardfork bit must be turned off in the successors of the flag block, until the deployment of the next hardfork.
+
+Although a hardfork is officially deployed when flag block is generated, the exact behavioural change is out of the scope of this BIP. For example, a hardfork may not be fully active until certain time after the flag block.
+
+'''Concurrent hardfork proposals'''
+To avoid confusion and unexpected behaviour, a flag block should normally signify the deployment of only one hardfork. Therefore, a hardfork proposal has to make sure that its flag block threshold is not clashing with other ongoing hardfork proposals.
+
+In the case that the version bits mechanism is used in deploying a hardfork, height of the flag block should take a value of <code>32N + B</code>, where <code>N</code> is a positive integer and <code>B</code> is the position of <code>bit B</code> defined in [[bip-0009.mediawiki#Mechanism|BIP9]]. This guarantees that no clash may happen with another hardfork proposal using BIP9.
+
+'''Uncontroversial subtle hardforks'''
+Hardforks may sometimes be totally uncontroversial and make barely noticeable change ([[bip-0050.mediawiki|BIP50]], for example). In such cases, the use of hardfork bit may not be needed as it may cause unnecessary disruption. The risk and benefit should be evaluated case-by-case.
+
+'''Automatic warning system'''
+When a flag block for an unknown hardfork is found on the network, full nodes and SPV nodes should alert their users and/or stop accepting/sending transactions. It should be noted that the warning system could become a denial-of-service vector if the attacker is willing to give up the block reward. Therefore, the warning may be issued only if a few blocks are built on top of the flag block in a reasonable time frame. This will in turn increase the risk in case of a real planned hardfork so it is up to the wallet programmers to decide the optimal strategy. Human warning system (e.g. the emergency alert system in Bitcoin Core) could fill the gap.
+
+==Compatibility==
+
+As a mechanism to indicate hardfork deployment, this BIP breaks backward compatibility intentionally. However, without further changes in the block header format, full nodes and SPV nodes could still verify the Proof-of-Work of a flag block and its successors.
+
+'''Hardfork involving change in block header format'''
+If a hardfork involves a new block header format, the original format should still be used for the flag block and a reasonable period afterwards, to make sure existing nodes realize that an unknown hardfork has been deployed.
+
+'''Version bits'''
+This proposal is also compatible with the BIP9. The version bits mechanism could be employed to measure miner support towards a hardfork proposal, and to determine the height or time threshold of the flag block. Also, miners of the flag block may still cast votes for other concurrent softfork or hardfork proposals as normal.
+
+'''Point of no return'''
+After the flag block is generated, a miner may support either the original rules or the new rules, but not both. It is not possible for miners in one fork to attack or overtake the other fork without giving up the mining reward of their preferred fork.
+
+==Copyright==
+
+This document is placed in the public domain.
