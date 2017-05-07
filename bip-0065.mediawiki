@@ -163,6 +163,65 @@ The buyer of the data is now making a secure offer with an expiry time. If the
 publisher fails to accept the offer before the expiry time is reached the buyer
 can cancel the offer by spending the output.
 
+By tweaking the previous example just a little bit, the construct may be used to
+provide flexible expiration smart contract offer and acceptance of a specific
+contract. For example, for a seller to acknowledge acceptance of a specific
+offer and claim the value atomically before expiration/withdrawal of the offer
+by the buyer, the scriptPubKey would be:
+
+    IF
+        <Hash160(specific-offer)> EQUALVERIFY
+        <seller pubkey> CHECKSIG
+    ELSE
+        <offer-expires-on-or-after> CHECKLOCKTIMEVERIFY DROP
+        <buyer pubkey> CHECKSIG
+    ENDIF
+
+The seller would claim with scriptSig:
+
+    <Seller's signature> <Hash160(specific-offer)> 1
+
+The buyer would withdraw the offer after expiration with scriptSig:
+
+    <Buyer's signature> 0
+
+
+===Flexible Expiration Smart Contract Offer and Acceptance with Escrow===
+
+It is common in real estate for a buyer to submit to a seller a time-limited
+offer to purchase a property. Often, an earnest money deposit accompanies such
+an offer. If the seller accepts the offer before expiration, then the money goes
+into escrow. If the seller does not accept the offer by the deadline, the buyer
+retains the earnest money. If the seller misses the deadline, yet wishes to
+accept the offer, the buyer has the option to proceed with the original offer.
+
+With CHECKLOCKTIMEVERIFY a buyer can effectively present a specific offer to a
+seller on the blockchain, which expires when the buyer chooses to reclaim his
+CLTV locked output (which cannot happen before the locktime) and that acts as an
+earnest money deposit into escrow when accepted by the seller. Such an offer
+would include at least the buyer's pubkey, the seller's pubkey, an arbitrator's
+pubkey, and expiration time. To accept the offer, the seller would need to know
+at least the tran id and vout of the earnest money output, the earnest money
+redeem script, and a signature from the Buyer which spends the earnest money
+output to the escrow address (using a SIGHASH that ties the signature to the
+specific escrow address). This does assume that CLTV is being used in
+conjunciton with P2SH, which makes the most sense as of now due to transaction
+relay rules.
+
+This use provides nonrepudiation of the contract by either party when accepted.
+The intent of this example is not to exactly mimic existing real estate contract
+processes, but rather present a useful lower cost and lower trust alternative.
+
+Below is the scriptPubKey of the earnest money deposit:
+
+    IF
+        <Hash160(specific-offer)> EQUALVERIFY
+        <seller pubkey> CHECKSIGVERIFY
+    ELSE
+        <offer-expiration> CHECKLOCKTIMEVERIFY DROP
+    ENDIF
+    <buyer pubkey> CHECKSIG
+
 
 ===Proving sacrifice to miners' fees===
 
@@ -309,12 +368,21 @@ Thanks goes to Gregory Maxwell for suggesting that the argument be compared
 against the per-transaction nLockTime, rather than the current block height and
 time.
 
+Thanks to Michael Ruddy for providing the flexible expiration smart contract
+offer and acceptance and fund freezing example usages.
+
 
 ==References==
 
 PayPub - https://github.com/unsystem/paypub
 
 Jeremy Spilman Payment Channels - https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2013-April/002433.html
+
+Smart Contracts:
+
+- http://szabo.best.vwh.net/formalize.html
+
+- https://en.bitcoin.it/wiki/Contracts
 
 
 ==Implementations==
@@ -331,4 +399,5 @@ JavaScript / Node.js / bitcore
 ==Copyright==
 
 This document is placed in the public domain.
+
 
