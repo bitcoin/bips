@@ -63,24 +63,30 @@ bool static IsValidSignatureEncoding(const std::vector<unsigned char> &sig) {
     // Make sure the length covers the entire signature.
     if (sig[1] != sig.size() - 3) return false;
 
+    // Check whether the R element is an integer.
+    if (sig[2] != 0x02) return false;
+
     // Extract the length of the R element.
     unsigned int lenR = sig[3];
 
-    // Make sure the length of the S element is still inside the signature.
+    // Zero-length integers are not allowed for R.
+    if (lenR == 0) return false;
+
+    // Make sure the length of the R element is still inside the signature.
     if (5 + lenR >= sig.size()) return false;
+
+    // Check whether the S element is an integer.
+    if (sig[4 + lenR] != 0x02) return false;
 
     // Extract the length of the S element.
     unsigned int lenS = sig[5 + lenR];
 
+    // Zero-length integers are not allowed for S.
+    if (lenS == 0) return false;
+
     // Verify that the length of the signature matches the sum of the length
     // of the elements.
     if ((size_t)(lenR + lenS + 7) != sig.size()) return false;
- 
-    // Check whether the R element is an integer.
-    if (sig[2] != 0x02) return false;
-
-    // Zero-length integers are not allowed for R.
-    if (lenR == 0) return false;
 
     // Negative numbers are not allowed for R.
     if (sig[4] & 0x80) return false;
@@ -88,12 +94,6 @@ bool static IsValidSignatureEncoding(const std::vector<unsigned char> &sig) {
     // Null bytes at the start of R are not allowed, unless R would
     // otherwise be interpreted as a negative number.
     if (lenR > 1 && (sig[4] == 0x00) && !(sig[5] & 0x80)) return false;
-
-    // Check whether the S element is an integer.
-    if (sig[lenR + 4] != 0x02) return false;
-
-    // Zero-length integers are not allowed for S.
-    if (lenS == 0) return false;
 
     // Negative numbers are not allowed for S.
     if (sig[lenR + 6] & 0x80) return false;
