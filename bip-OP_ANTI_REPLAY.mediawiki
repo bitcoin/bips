@@ -1,0 +1,93 @@
+<pre>
+  BIP: ???
+  Layer: Consensus (soft fork)
+  Title: Opt-in Anti-Replay via Coinbase Generated Outputs (OP_ANTI_REPLAY)
+  Author: Cameron Garnham <da2ce7@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:bip-OP_ANTI_REPLAY
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-03-25
+  License: BSD-3-Clause
+           CC0-1.0
+</pre>
+
+==Abstract==
+
+This document specifies a soft fork that enables users to make transactions with a strong expectation that such transactions cannot be replayed on a different chain.
+
+Important Note: In the case that an adversary hard-fork, the strong guarantee of non-replayabilty via this BIP may not be supported.
+
+==Definitions==
+
+
+
+==Motivation==
+
+In the case of a chain split, it is important to protect users from, potentially significant, loss of funds from transaction replay attacks.
+
+
+==Specification==
+
+Upon activation of the soft-fork (activation methodology undefined in this proposal), the following new rules become activated on the Bitcoin Network.
+
+New ‘anti-replay’ OpCode.  Take an unused NoOp and redefine it as ‘OP_ANTI_REPLAY’.
+
+The script must only have the form:
+
+scriptPubKey: (empty)
+scriptSig: OP_ANTI_REPLAY
+
+OP_ANTI_REPLAY has the following specification:
+
+	• OP_ANTI_REPLAY outputs must only be created in a coinbase transaction.
+	• OP_ANTI_REPLAY coinbase outputs must only have the value of 1 Satoshi.
+	• Transaction must not included more than 1 OP_ANTI_REPLAY input.
+	• If a OP_ANTI_REPLAY input is included in a transaction, the transaction must also be marked as Opt-In-RBF (BIP 125).
+
+The Bitcoin Network should maintain a total of exactly 100 000 OP_ANTI_REPLAY outputs, with the exception of the the first 99 blocks after activation of this soft fork.
+
+Upon activation of this soft fork.  Every blocks coinbase transaction will be required to create exactly 1000 new OP_ANTI_REPLAY outputs, up to the total of 100 000.
+
+If a OP_ANTI_REPLAY is spent in a block, a corresponding new OP_ANTI_REPLAY must be included in the same block.
+
+It is recommend the miners account the size of a OP_ANTI_REPLAY transaction as:  transactions size + size of a OP_ANTI_REPLAY output in coinbase.
+
+In the case of an chain split after this BIP has activated, miners should ‘recycle’ all the OP_ANTI_REPLAY outputs via spending and recreating them in new blocks.  Renewing the protection to the new chain.
+
+
+=== Reference implementation ===
+
+To-Be-Implemented
+
+==Backwards Compatibility==
+
+This deployment is compatible with all existing bitcoin software.
+
+Upon activation, all deployed Bitcoin Full Nodes will enforce the anti-replay projections for Bitcoin Users. (Only upgraded nodes will enforce the other OP_ANTI_REPLAY requirements).
+
+==Rationale==
+
+The only know way of guaranteeing that a transaction cannot be replayed is to include an input that cannot exist, by-definition, on the alternative chain.  Coinbase transactions are the only transaction type that is know to exhibit this property strongly.
+
+This BIP makes it convenient for wallets to automate the inclusion of new coinbase inputs into transactions that spend potentially repayable transactions.  Everything in this BIP could be done manually by close cooperation between the users and miners, however the author thinks that it is preferable to have it well defined and enforced.
+
+On Opt-In-RBF enforcement:  In the case of conflicting spends of OP_ANTI_REPLAY outputs, the higher-fee transaction should take priority.  Wallets may select a random OP_ANTI_REPLAY, then check if the competing transaction has a sufficiently low fee to be replaced.
+
+It is expected that every OP_ANTI_REPLAY output will be in the memory pools waiting to be spend; users must compete for this resource.
+
+==Future Questions==
+
+==Acknowledgments==
+
+Special Thanks to Peter Todd for suggesting this idea on irc some time ago.
+
+==References==
+
+Opt-In-RBF:  https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki
+
+==Copyright==
+
+This document is dual licensed as BSD 3-clause, and Creative Commons CC0 1.0 Universal.
+
+
