@@ -1,0 +1,992 @@
+<pre>
+BIP: ???
+Layer: Peer Services
+Title: Compact Client Side Filtering for Light Clients
+Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+        Alex Akselrod <alex@akselrod.org>
+Comments: ???
+Comments-URI: ???
+Type: Standards Track
+Created: 05-24-2017
+License: PD
+</pre>
+
+== Abstract ==
+
+This BIP describes a new light client node type for Bitcoin as well as the
+modifications to current full-nodes required to support this new type of light
+client. The light client mode described in this BIP is meant to supersede BIP
+37 as it provides a greater degree of privacy, utility, and also reduces the
+resources required for full-nodes to service this new light client mode
+compared to BIP 37. The light client mode described in this BIP can be seen as
+a "reversal"[1] of BIP 37: rather than the light clients sending filters to
+full-nodes, full-nodes send filters to light clients. Unlike BIP 37, we don't
+utilize bloom filters. Instead, we utilize a compact filter (more efficient
+than bloom filters) which leverages Golomb-Rice coding for compression.
+Additionally, blocks are downloaded as a whole (from any source), rather than
+directly from peers as fragments with merkle-branches proving their
+authenticity.
+
+== Motivation ==
+
+Light clients in Bitcoin provide applications with a less resource intensive
+mechanism of validating the work of the most difficult chain and identifying
+entries in the blockchain's log which are relevant to said application. In order
+to accomplish the first, light clients download and verify the connectivity and
+work of ''only'' the block headers of the chain. Block headers are a constant
+80-bytes, resulting in minimal bandwidth even for very long chains. In order to
+efficiently accomplish the second task (ascertaining relevant chain data) light
+clients require a mechanism to learn of relevant data in blocks.
+
+BIP 37 is currently the most widely used light client execution mode within
+Bitcoin. In BIP 37, rather than fetching and fully validating all blocks in the
+chain, the light client instead verifies all headers and sends bloom filters
+containing relevant data to full-nodes. These full-nodes then service the light
+client by querying data within a block against the loaded bloom filter, if a
+transaction matches the filter, a merkle-branch for the matching transaction is
+sent and distinctly the transaction itself is sent.
+
+However, BIP 37 has several downsides. Bloom filtering as widely implemented
+provides virtually ''zero'' privacy to wallets or other applications using this
+mechanism [3][4]. Additionally, applications are forced to carefully manage
+their false positive rates in order to not completely give away their set of
+interested items. Additionally, full-nodes can nearly undetectably lie by
+omission, causing a denial of service which can lead to undesirable failure modes
+in applications whose safety critically relies on responding to certain
+on-chain events. When faithfully servicing BIP 37 light clients, full-nodes may
+incur significant I/O and CPU resource usage due to maliciously crafted bloom
+filters, creating a denial-of-service vector.
+
+== Design Rationale ==
+
+In order to address the drawbacks of BIP 37 raised above, in this document we
+propose an alternative chain filtering mechanism for light clients. Our
+proposal sports a greater degree of privacy than BIP 37 as filtering is now
+done on the client side. Clients download a deterministically generated filter
+for a block and query it locally. If relevant items are found in the filter
+then the ''entire'' block will be fetched. The decoupling of filter querying from
+active communication with full-nodes enables light clients to fetch blocks from
+''any'' source. Extremely privacy conscious light clients may opt to anonymously
+fetch blocks using cryptographic techniques such a Private Information
+Retrieval [5].
+
+In order to reduce the size of the filter, we use a data structure capable of
+probabilistic set membership. We elide the selection of the bloom filter data
+structure in favor of utilising Golomb-Rice coding which allows us to generate
+filters more compact than bloom filters which approach the theoretical minimum
+size for probabilistic data structure.
+
+Light clients operating using the method described in this document are able to
+verify the authenticity of filters received, thereby eliminating the ability
+for full-nodes to lie by omission. Such client side filtering also improves the
+utility of light clients for generic applications beyond simple wallets and
+usage of basic public key templates. 
+
+Finally, full-nodes only need to construct filters ''once'' as they're
+deterministically generated for each block. Once the index is built, no further
+active processing is required to serve light clients. Servicing light clients
+simply entails reading pre-computed filters and headers from disk and sending
+them over the network.
+
+
+== Preliminaries ==
+
+Before we specify the details of our proposal, we'll first go over a few
+preliminaries which will aid in the understanding our proposal.
+
+By <code>[]byte</code> we refer to a slice (or array) of bytes. This value is
+typically expressed in C-like languages as an array of uint_8's.
+
+By <code>Var-Int</code> we refer to the variable length integer encoding used
+widely within the Bitcoin p2p protocol as an efficient way to encode the number
+of items in a repeated series of items. The p2p message extensions in this
+proposal will utilize this variable-length integer encoding in an identical
+manner to the existing Bitcoin p2p messages.
+
+By <code>siphash(k, n)</code> we refer to an invocation of the <code>SipHash</code>
+pseudo-random function with <code>k</code> as the 128-bit key, and <code>n</code>
+as the input to the PRF. We instantiate with the recommended parameters of
+<code>c = 2</code> and <code>d = 4</code>.
+
+We define the concept of an abstract bit stream instantiated by the function:
+<code>new_bit_stream</code> The <code>bit_stream</code> has two functions that
+operate on it, <code>unary_encode(stream, n)</code> and
+<code>write_bits_big_endian(stream, n, k)</code> where <code>unary_encode(steam,
+n)</code> emits n (an integer) to the stream in unary, and
+<code>write_bits_big_endian(stream, n, k)</code> emits the lower <code>k</code>
+bits of n to the stream using a big-endian binary encoding.
+
+== Specification == 
+
+=== Compact Chain Filters === 
+
+In this BIP, we propose that light clients be provided with compact filters
+which succinctly encode the contents of blocks. Instead of bloom filters, we
+instead employ a data structure which is a compressed version of the hashed
+values of the contents of blocks.
+
+In the following sections, borrowing from techniques typically used in image
+and video processing, we describe our chosen encoding for the hash fingerprints
+of the items in our set of relevant items. In order to compress the items of
+the set in a lossy manner (creating data-structure capable of probabilistic set
+membership), we utilize Golomb-Rice codes to encode the ''delta'' between
+successive hash items within our set. This results in a very compact
+probabilistic set-membership structure.
+
+With a goal of building relevant initiation in the minds of the readers of this
+document, we first start from the bottom of the abstraction ladder, describing
+the fundamental components our set encoding relies on.
+
+
+=== Run-Length Encoding ===
+
+Run-Length Encoding (or RLE) is typically used in the video/image processing
+space to losslessly compresses images, or video frames. RLE works by ''omitting''
+the encoding of ''repeated'' values in a data stream. This achieves lossless
+compression as repeated items simply aren't transmitted. Instead, a value which
+represents the ''number of times'' a value repeats is transmitted.
+
+Typically RLE takes the form of encoding repeated values in a ''binary'' stream.
+A simple RLE scheme works as follows:
+* Encode the run length (number of occurrences) of 0's using <code>k</code> bits.
+** <code>k</code> acts as fixed length encoding for the length of a run.
+** This value acts as the maximum encodable run-length.
+* Transmission of runs of 1's is omitted.
+* Two 1's in a row are denoted by a zero-length run of zero.
+
+As an example, consider the following sequence of bits: 
+<pre>
+{0}^14 1 {0}^9 11 {0}^20 1 {0}^30 11 {0}^11
+</pre>
+
+The RLE of the bit stream above would be:  
+
+<pre>
+1110 1001 0000 1111 0101 1111 1111 0000 0000 1011
+</pre>
+
+RLE allows one to efficiently encode a data stream in a lossless manner. Due
+the the encoding of runs, RLE works best when encoding a set with a high degree
+of redundancy. A careful reader will notice that by using a fix-length encoding
+for the size of runs, efficiency is lost. Therefore, rather than using a
+fix-length encoding for the size of a run, we can instead use a ''variable''
+length encoding for the size of a run. This allows us to compress runs of a
+large size. To do so, we'll now turn to Golomb-Rice Coding.
+
+=== Golomb-Rice Coding ===
+
+RLE works well when encoding a data stream that has a high degree of redundancy.
+However, in our case due to the hashing of items within the compact filter,
+we'll be dealing with items that are ''uniformly distributed''. We can use this
+fact to leverage a more efficient encoding scheme based on the distribution of
+the length of a run. The [https://en.wikipedia.org/wiki/Geometric_distribution
+Geometric Distribution] represents the probabilities of a number of failures
+before the first success in a series of Bernoulli trials (yes/no experiments).
+If our values are i.i.d (independent, identically distributed) distributed of
+the run-length <code>r</code> can be represented as [6]:
+<pre>
+P(r = n) = p^n * (1-p)
+</pre>
+Intuitively, this calculates the probability of N zeroes (a run) followed by a
+single 1 (end of a run). Golomb coding takes advantage of this relationship to
+efficiently encode integers using a two-tuple. Given a group size of <code>m</code> one
+can encode an integer as:
+<pre>
+n = (q*m) + r
+  where q is (n / m)
+   and  r is n % m
+</pre>
+
+[https://en.wikipedia.org/wiki/Golomb_coding Golomb Coding] encodes the two
+values (<code>q</code> and <code>m</code> for a given integer <code>n</code> as a two-tuple. The first value
+<code>q</code> is encoded using ''unary'', and the second value <code>r</code> is encoded using a
+fixed-length series of bits. If <code>m = 2^k</code> for some <code>k</code> then this encoding is a
+specialized sub-set of Golomb encoding known as Golomb-Rice encoding. In this
+case, <code>r</code> (the remainder) is the <code>k</code> least-significant-bits of <code>n</code>
+
+In this case "runs", can be seen as the number of multiples of <code>m</code> that divide
+into <code>n</code> If an encoded integer is close to the value of <code>m</code> then few bits (in
+unary) will be used to encode each value.
+
+We will now define simple functions for encoding and decoding integers using
+Golomb-Rice coding. These functions will be used in the next section as a
+primitive in the construction of our compact filters.
+
+<pre>
+golomb_encode(stream, n, k):
+    let q = n >> k
+    unary_encode(stream, q)
+    write_bits_big_endian(stream, n, k)
+</pre>
+
+<pre>
+golomb_decode(stream, k) -> int:
+    let c = stream.read_bit()
+
+    let n = 0
+    while c == 0:
+        n++
+        c = stream.read_bit()
+
+    let r = b.read_bits_big_endian(k)
+
+    where read_bits_big_endian(k) decodes a fixed-length big-endian integer of
+        k-bits 
+
+    c*m + r
+</pre>
+
+To aide in understanding we provide the following examples of using Golomb-Rice
+encoding to code integers given <code>m=5</code>
+<pre>
+n  = (q, r) = c
+0  = (0, 0) = 0 00
+1  = (0, 1) = 0 01
+2  = (0, 2) = 0 10
+3  = (0, 3) = 0 110
+4  = (0, 4) = 0 111
+5  = (1, 0) = 10 00
+6  = (1, 1) = 10 01
+7  = (1, 2) = 10 10
+8  = (1, 3) = 10 110
+9  = (1, 4) = 10 111
+10 = (2, 0) = 110 00
+</pre>
+
+With the two functions above, we're able to efficiently compress a single
+integer using Golomb-Rice coding. In the next section, we'll put everything
+together and use the primitives described above to construct our compact sets.
+
+=== Golomb-Rice Coded Sets ===
+
+Rather than insert items directly into our set, we instead first run the items
+through a PRF. This creates a set of uniformly distributed values. If we then
+sort each of these values, the ''delta'' between each of the values closely
+resembles a ''Geometric Distribution''. We'll again leverage this fact to use
+Golomb-Rice coding to compresses our set by only encoding the ''delta'' between
+two successive elements in the set.
+
+Golomb-Rice coded sets take two parameters: 
+* <code>N</code> the number of items to be inserted into the set
+* <code>P</code> a value which is computed as <code>1/fp</code> where <code>fp</code> is the desired false positive rate. 
+    
+<code>P</code> can also be interpreted as the parameter to our Geometric
+Distribution.  Intuitively, to achieve a false positive rate of 1/32 (1/2^5),
+in a series of queries of items which ''aren't'' in the set, we expect to
+receive a "NO" (false) 32 times, before getting a "YES" (true, our false
+positive). Once again, <code>P</code> MUST be a power of two.
+
+Given these two parameters, we can now construct our set.
+
+==== Set Construction ====
+
+Set construction takes three parameters: <code>N</code>, <code>P</code> and
+<code>L</code>
+* where <code>L</code> is a list of the ''raw'' items we wish to insert into the set
+* the type of <code>L</code> is assumed to be of <code>[]byte</code>
+
+NOTE: <code>P</code> ''must'' be a power of two as we target the specialized case of
+Golomb coding: Golomb-Rice coding.
+
+Using <code>N</code> and <code>P</code> we compute <code>F = N * P</code>
+<code>F</code> constricts the range of the hashed values accordingly in order to
+achieve our desired false positive rate.
+
+In addition, to help optimize the algorithm, we use a fast range algorithm[7],
+multiplying the hashed value by F and taking only the top 64 bits. This fairly
+distributes the values over F without division and can be done with fewer cycles
+cycles on CPUs that have 128-bit registers.
+
+The following routine computes the ''uncompressed'' set given the parameters
+above:
+<pre>
+hashed_set_construct(N, P, raw_items, k): -> []uint64:
+    let F = N * P
+
+    let set_items = []
+    for item in raw_items:
+        let set_value = (siphash(k, item) * F) >> 64
+        set_items.append(set_value)
+
+    set_items.sort()
+
+    set_items
+</pre>
+
+Using the routine above, we can transform our set of (possibly heterogeneous
+items) in to a list of uniformly distributed values. As a final step, these
+values are then sorted.
+
+==== Set Compression ====
+
+Once the set of hashed items has been constructed (and sorted) we then use
+Golomb-Rice coding to ''compress'' the set by encoding the ''delta'' value
+between each successive element within the set. As these values are uniformly
+distributed, the deltas between these values will be Geometrically Distributed,
+meaning that Golomb-Rice coding will be optimal for this use-case [6].
+
+The following routine describes the compression process:
+<pre>
+gcs_compress(sorted_set, fp) -> []byte:
+    let stream = new_bit_stream()
+
+    // P is equivalent to m, the size of a golomb code-word.
+    let P = 1 << fp
+
+    let last_value = 0
+    for value in sorted_set:
+        // Compute the difference between this value and the last value modulo
+        // P.
+        let remainder = (value - last_value) & (P - 1)
+
+        // Compute the difference between this value and the last one, divided
+        // by P. This is our quotient.
+        let quotient = (value - last_value - remainder) >> fp
+
+        // Write out the quotient value in unary into the bit stream.
+        unary_encode(stream, quotient)
+
+        // Finally, write the remainder into the bit stream using fp bits.
+        write_bits_big_endian(stream, remainder, fp)
+
+        // Track this value so we can use it compute the diff between this
+        // value and the last.
+        last_value = value
+
+    stream.bytes()
+</pre>
+
+The routine above computes a ''compressed'' set using Golomb-Rice coding to
+encode the ''delta'' between elements within the set. Unlike a bloom-filter,
+this data-structure cannot be queried in its current form. Instead, one must
+first perform the reverse computation to ''decompress'' the items in the set,
+revealing the true values which can be queried against.
+
+==== Set Querying/Decompression ====
+
+Given a compressed Golomb-Rice coded set, one must first ''decompress'' the set
+itself in order to query items which have been included within the set.
+Decompression of a set follows the reverse procedure of encoding. To decode an
+element, we'll decode the encoded quotient and remainder of encoded delta.
+With the full delta re-constructed, we then ''add'' this value to the prior
+value in order to reconstruct the full value. Following this procedure we can
+incrementally decompress the set lazily without decompressing the entire
+filter.
+
+===== Querying for a Single Item =====
+
+The following routing describes how one queries a compressed set for a ''single''
+item:
+<pre>
+gcs_match(key: [16]byte, compressed_set: []byte, target: []byte, fp, N: int) -> bool:
+    // First we'll map the item into the domain of our encoding.
+    let item = (siphash(key, target) * (N * (1 << fp))) >> 64
+
+    stream = new_bit_stream(compressed_set)
+
+    // We initialize the initial accumulator to a value of zero.
+    let last_value = 0
+
+    // As the values in the set are sorted once the decoded values exceeds the
+    // value we wish to query for, we can terminate our search early.
+    for last_value < item:
+        // Read the delta between this value and the next value which has been
+        // encoded using Golomb-Rice codes.
+        let decoded_value = golomb_decode(stream, fp)
+
+        // With the delta computed, we can now reconstruct the original value.
+        let set_item = last_value + decoded_value
+
+        // If the values match up, then the target item _may_ be in the set, so
+        // we return true.
+        if set_item == item:
+            true
+
+        last_value = set_item
+
+    // If we reach this point, then the item isn't in the set.
+    false
+</pre>
+
+===== Querying Against a Set of Items =====
+
+For most applications, the common case will be attempting to match a ''list'' of
+items to the filter. In this case, we can perform a "zip" search against two
+sorted lists: the step-by-step decompressed values of the set, and the list of
+items we'd like to query.
+
+The following routine will evaluate to ''true'' if ''any'' of the items in a
+target set are ''maybe'' within the original set of items (pre encoding):
+<pre>
+gcs_match_any(key: [16]byte, compressed_set: []byte, targets [][]byte, 
+              fp, N: int) -> bool:
+
+    stream = new_bit_stream(compressed_set)
+
+    // Once again, we'll map our set of target values into the domain our
+    // encoding, sorting as a last step so we can zip through the values.
+    let items = []
+    for t in target:
+        let item = (siphash(key, t) * (N * (1 << fp))) >> 64
+        items.append(item)
+    items.sort()
+
+    // Set up a set of accumulator values that we'll use to zip down the two
+    // filters.
+    let last_set_val, last_target_val = 0, 0 
+    last_target_val = items[0]
+    let = 1
+
+    // We'll keep running until one of the values matches each other. If this
+    // happens, then we have a match!
+    while last_set_val != last_target_val:
+        // Perform a pattern match to decide which filter we'll need to
+        // advance.
+        match:
+            case last_set_val > last_target_val:
+                // If we still have items let, advance the pointer by one.
+                if i < len(items):
+                    last_target_val = items[i]
+                    i++
+
+                // Otherwise, we've ran our items in our target set, which
+                // means nothing matched.
+                false
+
+            case last_target_val > last_set_val:
+                // In this case, we'll advance the filter we're querying
+                // against. This entails decompressing the next element in the
+                // set.
+                let decoded_value = golomb_decode(stream, fp)
+
+                // Accumulate the decoded delta value to the current value in
+                // order to retrieve the current set item.
+                last_set_val += decoded_value
+
+    // If we reach this point, the two items in the set matched!
+    true
+</pre>
+
+
+=== Peer to Peer Network Extensions ===
+
+With the procedures to construct, compress, and query the sets explained, we'll
+now turn to the modifications to Bitcoin's p2p protocol required to support
+this new operating mode.
+
+
+==== Peer to Peer Service Bit ====
+
+To start, we reserve a currently unutilized service bit. This is required as
+light clients will need to ''preferentially'' peer to full-nodes that support
+the features outlined in this BIP.
+
+The 6th service bit will now be dedicated to signaling support for the
+features described within this BIP: 
+* <code>CFNodeCF = 1 << 6</code>
+
+==== Filter Types ====
+
+As this framework for client-side chain filtering is meant to be generic, in
+this document we define two ''filter types''. A filter type denotes both the
+construction/querying for a filter as well as the contents of the filter.
+
+At the time of writing of this BIP, two filter types are defined:
+* Normal (<code>0x00</code>)
+* Extended (<code>0x01</code>)
+
+A <code>Normal</code> filter is intended to contain all the items that a light client
+needs to sync a basic Bitcoin wallet. In order to facilitate this use-case, for
+each transaction, normal filters contain:
+* The outpoints of each input within a transaction.
+* The data-pushes contained within the public key script of each output within the transaction.
+* The <code>txid</code> of the transaction itself.
+
+An <code>Extended</code> filter contains extra data that is meant to facilitate the
+adoption of more advanced smart contracting applications by this BIP. For each
+transaction found in a block, an <code>Extended</code> filter contains:
+* Each item within the witness stack of an input (if the input has a witness).
+* Each data push of the signature script of an input.
+
+Notably, this construction does not currently interpret P2SH scripts or witness
+scripts to extract data pushes from them; however, future filter types may be
+designed to do so.
+
+==== Filter Construction ====
+
+In order to ensure that filters are deterministically generated, we will use
+the ''first'' <code>16-bytes</code> of the <code>block hash</code> of a Bitcoin
+block as the key to our <code>siphash</code> function. Full-nodes that support
+this BIP are to treat the set of filters as an additional index of the
+blockchain. Once a new block arrives, both filter types should be constructed,
+and stored on disk. Full-nodes that update to support this BIP once already
+synced, should upon start-up, re-index the chain, constructing filters for each
+block from genesis to current chain tip.
+
+Given a Bitcoin block, a full-node constructs a <code>Normal</code> compact
+filter as follows:
+<pre>
+construct_normal_gcs_filter(block, fp) -> []byte:
+    let siphash_key = block.hash()[:16]
+
+    let P = 1 << fp
+
+    let raw_items = []
+    for tx in block.transactions:
+        let txid = tx.hash()
+        raw_items.append(txid)
+
+        for output in tx.outputs:
+            let output_bytes = extract_push_datas(output.script)
+            raw_items.append(output_bytes)
+
+        if tx.is_coinbase():
+            continue
+
+        for input in tx.inputs:
+            // Inputs serialized as they are on the wire in transactions.
+            // Input index serialized in little-endian.
+            let input_bytes = input.hash || input.index
+            raw_items.append(input_bytes)
+
+    let N = len(raw_items)
+    let F = N * P
+
+    let hashed_items = []
+    for raw_item in raw_items:
+        let hashed_item = (siphash_key(siphash_key, raw_item) * F) >> 64
+        hashed_items.append(hashed_item)
+
+    hashed_items.sort()
+
+    gcs_compress(hashed_items, fp)
+</pre>
+
+
+Given a Bitcoin block, a full-node construct an <code>Extended</code> compact filter as follows
+<pre>
+construct_extended_gcs_filter(block, fp) -> []byte:
+
+    let siphash_key = block.hash()[:16]
+
+    let P = 1 << fp
+
+    let raw_items = []
+    for tx in block.transactions:
+        if tx.is_coinbase():
+           continue
+
+        for input in tx.inputs:
+            for wit_elem in input.witness:
+                raw_items.append(wit_elem)
+
+            let sig_script_pushes = extract_push_datas(input.sig_script)
+            for push in sig_script_pushes:
+                raw_items.append(push)
+
+    let N = len(raw_items)
+    let F = N * P
+
+    let hashed_items = []
+    for raw_item in raw_items:
+        let hashed_item = (siphash_key(siphash_key, raw_item) * F) >> 64
+        hashed_items.append(hashed_item)
+
+    hashed_items.sort()
+
+    gcs_compress(hashed_items, fp)
+</pre>
+
+==== Filter Capability Querying ====
+
+As it's feasible that in the future, this document is extended to encompass
+additional filter encoding algorithms or filter contents, we define a new p2p
+message that allows light clients to ascertain which filters a node supports.
+
+The <code>getcftypes</code> message is an ''empty message'' whose command string is:
+<code>getcftypes</code>
+
+A full-node that receives a <code>getcftypes</code> message should respond with a
+<code>cftypes</code> message which is defined as follows:
+
+{| class="wikitable"
+! Field Size
+! Description
+! Data Type
+! Comments
+|-
+| Var-Int
+| NumFilters
+| uint64
+| The number of supported filters.
+|-
+| NumFilters
+| SupportedFilters
+| [NumFilterBytes]byte
+| A byte slice with each byte denoting a supported filter type
+|}
+
+
+==== Compact Filter Header Chain ====
+
+As the filters described in this BIP ''are not'' consensus critical, meaning
+each filter is validated by full-nodes and committed into blocks by miners, we
+require an alternative (albeit less-binding) method to allow light clients to
+''identify'' and ''reject'' invalid filters. The purely p2p solution to this
+problem is to obtain a deterministic hash-chain of ''each'' filter. This hash
+chain or "filter header chain" is similar to the regular Bitcoin headers in
+that it allows a light client to verify the ''authenticity'' of a received
+filter.
+
+The filter header chain for a particular filter type is described by the
+following recurrence:
+<pre>
+filter_header(n: uint) -> [32]byte = 
+   let zero_hash [32]byte = {0*32}
+
+   if n == 0:
+       double-sha-256(genesis_block.prevblock || filter(0))
+
+   match filter(n):
+      case Some:
+          double-sha-256(filter_header(n-1) || double-sha-256(filter(n)))
+      case None:
+          double-sha-256(filter_header(n-1) || double-sha-256(zero_hash))
+
+   where filter(n) is the filter for block height n
+</pre>
+
+The filter header for the genesis block uses the hash stored in the prevblock
+field of the genesis block header itself, as there's no prior filter header
+(by definition).
+
+Due to the nature of filter construction, it's possible to construct a block
+such that an "empty" filter will be produced. This is the case of a coinbase
+transaction that has no data pushes in its public key script. In this case, the
+"hash" of said filter is simply "32 zeroes". 
+
+This filter header chain can be utilized by light clients to gain a greater
+degree of security against bamboozling full-nodes during their initial chain
+sync. In addition to fetching all the bitcoin headers, light clients
+implementing this BIP should also fetch all the ''filter headers'' from ''each'' of
+their connected peers. This allows light clients to efficiently detect nodes
+that advertise a conflicting filter chain history (by ensuring all nodes return
+the ''same'' filter header hash for a particular block hash).
+
+Additionally, the filter header chain also allows a light client to efficiently
+verify purported filter authenticity when fetching the next set of headers from
+chain tip. Instead of fetching the filter ''from each peer'' (which wastes
+bandwidth), a light client instead does the following:
+
+<pre>
+verify_from_tip(tip_block_hash: [32]byte):
+    let filter_types = {supported_filter_types...}
+    let connected_peers = {list_of_connected_full_nodes...}
+
+    for filter_type in filter_types:
+
+        let filter_headers = set()
+        for peer in connected_peers:
+            let filter_header = peer.fetch_filter_header(tip_block_hash)
+            filter_headers.insert(filter_header)
+
+        if len(filter_headers) != 1:
+            // Peers have conflicting filters. The light client should fetch
+            // each unique filter from the set of peers AND fetch the block. The
+            // light client can then verify which filter header is correct, and
+            // BAN the offending peers.
+
+        // Otherwise, syncing continues as normal: fetch filter to see if it
+        // matches any relevant items.
+</pre>
+
+Light clients should persistently commit all filter headers to disk, as when
+lazily fetching filters (due to a historical re-scan or chain analysis),
+they're able to verify the authenticity of any fetched filters.
+
+Full-nodes should also persistently compute and persist the filter header chain
+on-disk, just as the regular filters.
+
+We now introduce two new messages to support the fetching and verification of
+the filter header chain by light clients. 
+
+The <code>getcfheaders</code> message is defined as follows:
+
+{| class="wikitable"
+! Field Size
+! Description
+! Data Type
+! Comments
+|-
+| Var-Int
+| NumBlockLocators
+| uint64
+| Number of block locators.
+|-
+| NumBlockLocators * 32
+| BlockLocatorHashes
+| [NumBlockLocators][32]byte
+| Block locator hashes, with the same semantics as in <code>getheaders</code>.
+|-
+| 32
+| HashStop
+| [32]byte
+| Hash to stop at.
+|-
+| 1
+| FilterType
+| byte
+| Type of filter header being requested.
+|}
+
+The <code>BlockLocators</code> within the message are to be interpreted
+identically to the <code>BlockLocators</code> within Bitcoin's
+<code>getheaders</code> and <code>getblocks</code> messages.
+
+The <code>cfheaders</code> message is defined as follows:
+
+{| class="wikitable"
+! Field Size
+! Descriptions
+! Data Type
+! Comments
+|-
+| 32
+| StopHash
+| []byte
+| Block hash for the last filter header returned, for locating the filter headers in the blockchain.
+|-
+| 1
+| FilterType
+| byte
+| Byte identifying the type of filter headers being returned.
+|-
+| Var-Int
+| NumHeaders
+| uint64
+| Hash to stop at.
+|-
+| NumHeaders * 32
+| HeaderHashes
+| [NumHeaders][32]byte
+| Slice of filter headers.
+|}
+
+=== Compact Filters ===
+
+The last set of messages we introduce are for ''fetching'' the compact filters
+themselves. Light clients can use these two messages to request a compact
+filter for a particular block hash.
+
+The <code>getcfilter</code> message is defined as follows:
+
+{| class="wikitable"
+! Field Size
+! Description
+! Data Type
+! Comments
+|-
+| 32
+| BlockHash
+| [32]byte
+| Block hash of the Bitcoin block for which the client wishes to fetch a filter.
+|-
+| 1
+| FilterType
+| byte
+| Byte identifying the type of filter requested.
+|}
+
+The <code>cfilter</code> message is defined as follows:
+{| class="wikitable"
+! Field Size
+! Description
+! Data Type
+! Comments
+|-
+| 32
+| BlockHash
+| [32]byte
+| Block hash of the Bitcoin block for which the filter is being returned.
+|-
+| 1
+| FilterType
+| byte
+| Byte identifying the type of filter being returned.
+|-
+| Var-Int
+| NumFilterBytes
+| uint64
+| A variable length integer encoding the number of bytes of the filter in the following field.
+|-
+| NumFilterBytes
+| FilterBytes
+| [NumFilterBytes]byte
+| The raw compressed compact filter for this block.
+|}
+
+The <code>BlockHash</code> field is included in both messages as this allows
+easily matching requests against responses, as the responses aren't
+self-identifying like block headers are (via own hash).
+
+The parameters <code>N</code> (the number of elements in the filter) and
+<code>P</code> (<code>1 << false_positive_rate</code>) are required by the light
+client in order to properly incrementally decode, query, and validate
+(reconstruct from Bitcoin block) a compact filter. The parameter <code>N</code>
+cannot be known ahead of time, therefore we define the serialization of a
+compact filter of type <code>0x00</code> and <code>0x01</code> as:
+<pre>
+N || raw_filter_bytes
+</pre>
+where <code>N</code> is serialized as a 32-bit big-endian integer.
+
+However, there exists a special case of a <code>null</code> filter. This this
+case an empty byte slice is transmitted rather than consuming
+<code>4-bytes</code> to encode the size of zero.
+
+However, as the parameter <code>P</code> ''must'' be globally agreed upon (for a
+particular filter type), we define this value ''statically'' for filter types:
+<code>0x00</code> and <code>0x01</code>. For the two aforementioned filter types,
+the false positive rate has been chosen to be: <code>20</code>, meaning the
+parameter <code>P</code> is: <code>2^20</code>, meaning <code>fp=20</code>.
+This value was chosen as during simulations it was the value that minimized the
+bandwidth utilized by the expected number of blocks downloaded due to false
+positives, and the bandwidth used to download the filters themselves. The code along with a demo used for the paramter tuning can be found [here]
+
+
+=== Protocol Version Bump ===
+
+As this BIP defines new peer-to-peer behavior, we bump the protocol version by
+one in order to distinguish the newly defined behavior. Full-nodes implementing
+this BIP should advertise a protocol version of: <code>70016</code>.
+
+== New Wallet Capabilities Enabled ==
+
+The new light client mode enables wallet to maintain a very compact client-side
+index of (possibly) the entire chain. Such an index provides a great degree of
+utility for wallets, as they're now able to perform tasks such as private key
+imports and full HD-seed imports without the need of a trusted third-party
+server. Additionally, the compact client-side chain index also opens up the
+door to smart contract applications which require agent action in response to
+on-chain events. Examples of such applications include Lightning.
+
+
+== Implementation Notes ==
+
+Zero-length filters are sent without an <code>N</code> value, allowing us to save
+<code>4-bytes</code>. Clients are able to verify that a filter will be
+<code>null</code> before requesting it (as it will just be the prior filter
+header hashed with zero bytes). Clients can take this fact into account in
+order to save a round trip for <code>null</code> headers.
+
+Light clients implementing this proposal SHOULD utilize the
+<code>sendheaders</code> message. This allow quicker syncing from tip, as rather
+than sending an <code>inv</code> to announce a new blocks, nodes will instead
+directly send the <code>headers</code> message. With this, nodes can save a
+round-trip and immediately request
+<code>cfheaders</code> from each of their connected peers before ultimately
+fetching the filter itself.
+
+Light client syncing MAY be run in reverse, meaning fetching the regular
+Bitcoin and filter headers from the ''end'' of the chain and working backwards.
+This allows a client to nearly ''instantly'' be useable if an application doesn't
+require immediate access to historical filter data.
+
+If fetching blocks directly over the p2p network (rather than via a distinct
+channel), light clients SHOULD fetch blocks from multiple peers in order to
+mitigate transaction intersection analysis.
+
+Full nodes serving the light clients described in this BIP can be implemented
+in a completely ''stateless'' manner. Implementations can also make a
+space/time tradeoff by only holding filters on disk to some particular block
+horizon. If a filter beyond this horizon is requested, then it can be
+reconstructed in real time. This allows nodes to save on disk-space, as it's
+likely the older filters would only be fetched for historical rescans. It is
+also likely that the past few hundred filters will be fetched mostly frequently
+by smaller devices (phones, laptops, etc) periodically coming back online after a
+period of inactivity.
+
+It is possible to implementations of this BIP to serve ''other''
+implementations to a degree. All headers (regular bitcoin, regular, extended)
+can be served, and also any on-disk filters can also be served to other light
+clients.
+
+Key import and rescan: with lazy <code>filters</code> fetching, having a start
+block is VERY important to avoid fetching all <code>cfilters</code> starting
+with block 1 (assume you generate your own filters/headers for the genesis
+block).
+
+== Acknowledgments ==
+
+We would like to thank bfd (from the bitcoin-dev mailing list) for bringing the
+basis of this BIP to our attention, Greg Maxwell for pointing us in the
+direction of Golomb-Rice coding and fast range optimization, Joseph Poon for
+suggesting the filter header chain scheme, and Pedro Martelletto for writing the
+initial indexing code for <code>btcd</code>.
+
+We would also like to thank Dave Collins, JJ Jeffrey, Eric Lombrozo for useful
+discussions.
+
+== Reference Implementation ==
+
+Light client: [https://github.com/lightninglabs/neutrino]
+
+Full-node indexing: https://github.com/Roasbeef/btcd/tree/segwit-cbf
+
+Golomb-Rice Coded sets: https://github.com/Roasbeef/btcutil/tree/gcs/gcs
+
+== Appendix A ==
+
+=== Alternatives ===
+
+A number of alternative set encodings were considered before Golomb-Rice coded
+sets were settled upon. In this appendix section, we'll list a few of the
+alternatives along with our rationale for not pursuing them.
+
+==== Cryptographic Accumulators ====
+
+Cryptographic accumulators [8] are a cryptographic data structure that enables
+(amongst other operations) a one way membership test. One advantage of
+accumulators are that they are ''constant'' size, independent on the number of
+elements inserted into the accumulator. However, current constructions of
+cryptographic accumulators require an initial trusted set up. Additionally,
+accumulators based on the Strong-RSA Assumption require mapping set items to
+prime representatives in the associated group which can be preemptively
+expensive.
+
+==== Matrix Based Probabilistic Set Datastructures ====
+
+There exist data structures based on matrix solving which are even more space
+efficient compared to bloom filters [9]. We instead opted for our GCS-based
+filters as they have a much lower implementation complexity and are easier to
+understand.
+
+== Appendix B ==
+
+=== Test Vectors ===
+
+A set of test vectors using real blocks from Bitcoin's testnet3 can be found
+[https://github.com/Roasbeef/bips/tree/master/gcs_light_client here]. The
+vectors come in the form of CSV files, which for a given testnet height and
+block hash contain the: basic filter header, extended filter header, basic
+filter, and extended filter.
+
+
+== References ==
+1. https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki
+
+2. https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-May/012636.html
+
+3. https://eprint.iacr.org/2014/763.pdf
+
+4. https://jonasnick.github.io/blog/2015/02/12/privacy-in-bitcoinj/
+
+5. https://en.wikipedia.org/wiki/Private_information_retrieval
+
+6. http://urchin.earth.li/~twic/Golombs_Original_Paper/
+
+7. https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
+
+8. https://en.wikipedia.org/wiki/Accumulator_(cryptography)
+
+9. https://arxiv.org/pdf/0804.1845.pdf
