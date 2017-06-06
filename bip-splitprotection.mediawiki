@@ -1,0 +1,105 @@
+<pre>
+  BIP: splitprotection
+  Layer: Consensus (soft fork)
+  Title: User Activated Soft Fork Split Protection
+  Author: James Hilliard <james.hilliard1@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: 
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-05-22
+  License: BSD-3-Clause
+           CC0-1.0
+</pre>
+
+==Abstract==
+
+This document specifies a coordination mechanism for a simple majority of miners to prevent a chain split ahead of BIP148 activation.
+
+==Definitions==
+
+"existing segwit deployment" refer to the BIP9 "segwit" deployment using bit 1, between November 15th 2016 and November 15th 2017 to activate BIP141, BIP143 and BIP147.
+
+==Motivation==
+
+The biggest risk of BIP148 is an extended chain split, this BIP provides a way for a simple majority of miners to eliminate that risk.
+
+This BIP provides a way for a simple majority of miners to coordinate activation of the existing segwit deployment with less than 95% hashpower before BIP148 activation. Due to time constraints unless immediately deployed BIP91 will likely not be able to enforce mandatory signalling of segwit before the Aug 1st activation of BIP148. This BIP provides a method for rapid miner activation of SegWit mandatory signalling ahead of the BIP148 activation date. Since the primary goal of this BIP is to reduce the chance of an extended chain split as much as possible we activate using a simple miner majority of 65% over a 504 block interval rather than a higher percentage. This BIP also allows miners to signal their intention to run BIP148 in order to prevent a chain split.
+
+==Specification==
+
+While this BIP is active, all blocks must set the nVersion header top 3 bits to 001 together with bit field (1<<1) (according to the existing segwit deployment). Blocks that do not signal as required will be rejected.
+
+==Deployment==
+
+This BIP will be deployed by "version bits" with a 65%(this can be adjusted if desired) activation threshold BIP9 with the name "splitprotecion" and using bit 2.
+
+This BIP starts immediately and is a BIP8 style soft fork since mandatory signalling will start on midnight August 1st 2017 (epoch time 1501545600) regardless of whether or not this BIP has reached its own signalling threshold. This BIP will cease to be active when segwit is locked-in.
+
+=== Reference implementation ===
+
+<pre>
+// Check if Segregated Witness is Locked In
+bool IsWitnessLockedIn(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_LOCKED_IN);
+}
+
+// SPLITPROTECTION mandatory segwit signalling.
+if ( VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_SPLITPROTECTION, versionbitscache) == THRESHOLD_LOCKED_IN &&
+     !IsWitnessLockedIn(pindex->pprev, chainparams.GetConsensus()) &&  // Segwit is not locked in
+     !IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus()) ) // and is not active.
+{
+    bool fVersionBits = (pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS;
+    bool fSegbit = (pindex->nVersion & VersionBitsMask(chainparams.GetConsensus(), Consensus::DEPLOYMENT_SEGWIT)) != 0;
+    if (!(fVersionBits && fSegbit)) {
+        return state.DoS(0, error("ConnectBlock(): relayed block must signal for segwit, please upgrade"), REJECT_INVALID, "bad-no-segwit");
+    }
+}
+
+// BIP148 mandatory segwit signalling.
+int64_t nMedianTimePast = pindex->GetMedianTimePast();
+if ( (nMedianTimePast >= 1501545600) &&  // Tue 01 Aug 2017 00:00:00 UTC
+     (nMedianTimePast <= 1510704000) &&  // Wed 15 Nov 2017 00:00:00 UTC
+     (!IsWitnessLockedIn(pindex->pprev, chainparams.GetConsensus()) &&  // Segwit is not locked in
+      !IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus())) )   // and is not active.
+{
+    bool fVersionBits = (pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS;
+    bool fSegbit = (pindex->nVersion & VersionBitsMask(chainparams.GetConsensus(), Consensus::DEPLOYMENT_SEGWIT)) != 0;
+    if (!(fVersionBits && fSegbit)) {
+        return state.DoS(0, error("ConnectBlock(): relayed block must signal for segwit, please upgrade"), REJECT_INVALID, "bad-no-segwit");
+    }
+}
+</pre>
+
+https://github.com/bitcoin/bitcoin/compare/0.14...jameshilliard:splitprotection-v0.14.1
+
+==Backwards Compatibility==
+
+This deployment is compatible with the existing "segwit" bit 1 deployment scheduled between midnight November 15th, 2016 and midnight November 15th, 2017. This deployment is also compatible with the existing BIP148 deployment. This BIP is compatible with BIP91 only if BIP91 activates before it and before BIP148. Miners will need to upgrade their nodes to support splitprotection otherwise they may build on top of an invalid block. While this bip is active users should either upgrade to splitprotection or wait for additional confirmations when accepting payments.
+
+==Rationale==
+
+Historically we have used IsSuperMajority() to activate soft forks such as BIP66 which has a mandatory signalling requirement for miners once activated, this ensures that miners are aware of new rules being enforced. This technique can be leveraged to lower the signalling threshold of a soft fork while it is in the process of being deployed in a backwards compatible way. We also use a BIP8 style timeout to ensure that this BIP is compatible with BIP148 and that BIP148 compatible mandatory signalling activates regardless of miner signalling levels.
+
+By orphaning non-signalling blocks during the BIP9 bit 1 "segwit" deployment, this BIP can cause the existing "segwit" deployment to activate without needing to release a new deployment. As we approach BIP148 activation it may be desirable for a majority of miners to have a method that will ensure that there is no chain split.
+
+==References==
+
+*[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2017-March/013714.html Mailing list discussion]
+*[https://github.com/bitcoin/bitcoin/blob/v0.6.0/src/main.cpp#L1281-L1283 P2SH flag day activation]
+*[[bip-0009.mediawiki|BIP9 Version bits with timeout and delay]]
+*[[bip-0016.mediawiki|BIP16 Pay to Script Hash]]
+*[[bip-0091.mediawiki|BIP91 Reduced threshold Segwit MASF]]
+*[[bip-0141.mediawiki|BIP141 Segregated Witness (Consensus layer)]]
+*[[bip-0143.mediawiki|BIP143 Transaction Signature Verification for Version 0 Witness Program]]
+*[[bip-0147.mediawiki|BIP147 Dealing with dummy stack element malleability]]
+*[[bip-0148.mediawiki|BIP148 Mandatory activation of segwit deployment]]
+*[[bip-0149.mediawiki|BIP149 Segregated Witness (second deployment)]]
+*[https://bitcoincore.org/en/2016/01/26/segwit-benefits/ Segwit benefits]
+
+==Copyright==
+
+This document is dual licensed as BSD 3-clause, and Creative Commons CC0 1.0 Universal.
+
