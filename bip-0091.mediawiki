@@ -28,17 +28,52 @@ This BIP provides a way for a simple majority of miners to coordinate activation
 
 ==Specification==
 
-While this BIP is active, all blocks must set the nVersion header top 3 bits to 001 together with bit field (1<<1) (according to the existing segwit deployment). Blocks that do not signal as required will be rejected.
+While this BIP is active or locked in, all blocks must set the nVersion header top 3 bits to 001 together with bit field (1<<1) (according to the existing segwit deployment). Blocks that do not signal as required will be rejected.
 
 ==Deployment==
 
-This BIP will be deployed by a "version bits" with an 80%(this can be adjusted if desired) activation threshold BIP9 with the name "segsignal" and using bit 4.
+This BIP will be deployed by a "version bits" with an 80%(this can be adjusted if desired) 538 block activation threshold and 672 block confirmation window BIP9 with the name "segsignal" and using bit 4.
 
 This BIP will have a start time of midnight June 1st, 2017 (epoch time 1496275200) and timeout on midnight November 15th 2017 (epoch time 1510704000). This BIP will cease to be active when segwit is locked-in.
 
 === Reference implementation ===
 
 <pre>
+// Deployment of SEGSIGNAL
+consensus.vDeployments[Consensus::DEPLOYMENT_SEGSIGNAL].bit = 4;
+consensus.vDeployments[Consensus::DEPLOYMENT_SEGSIGNAL].nStartTime = 1496275200; // June 1st, 2017.
+consensus.vDeployments[Consensus::DEPLOYMENT_SEGSIGNAL].nTimeout = 1510704000; // November 15th, 2017.
+consensus.vDeployments[Consensus::DEPLOYMENT_SEGSIGNAL].nOverrideMinerConfirmationWindow = 672; // ~4.67 days
+consensus.vDeployments[Consensus::DEPLOYMENT_SEGSIGNAL].nOverrideRuleChangeActivationThreshold = 538; // 80%
+
+class VersionBitsConditionChecker : public AbstractThresholdConditionChecker {
+private:
+    const Consensus::DeploymentPos id;
+
+protected:
+    int64_t BeginTime(const Consensus::Params& params) const { return params.vDeployments[id].nStartTime; }
+    int64_t EndTime(const Consensus::Params& params) const { return params.vDeployments[id].nTimeout; }
+    int Period(const Consensus::Params& params) const {
+        if (params.vDeployments[id].nOverrideMinerConfirmationWindow > 0)
+            return params.vDeployments[id].nOverrideMinerConfirmationWindow;
+        return params.nMinerConfirmationWindow;
+    }
+    int Threshold(const Consensus::Params& params) const {
+        if (params.vDeployments[id].nOverrideRuleChangeActivationThreshold > 0)
+            return params.vDeployments[id].nOverrideRuleChangeActivationThreshold;
+        return params.nRuleChangeActivationThreshold;
+    }
+
+    bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const
+    {
+        return (((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) && (pindex->nVersion & Mask(params)) != 0);
+    }
+
+public:
+    VersionBitsConditionChecker(Consensus::DeploymentPos id_) : id(id_) {}
+    uint32_t Mask(const Consensus::Params& params) const { return ((uint32_t)1) << params.vDeployments[id].bit; }
+};
+
 // Check if Segregated Witness is Locked In
 bool IsWitnessLockedIn(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
@@ -47,7 +82,8 @@ bool IsWitnessLockedIn(const CBlockIndex* pindexPrev, const Consensus::Params& p
 }
 
 // SEGSIGNAL mandatory segwit signalling.
-if ( VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_SEGSIGNAL, versionbitscache) == THRESHOLD_ACTIVE &&
+if ((VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_SEGSIGNAL, versionbitscache) == THRESHOLD_ACTIVE ||
+     VersionBitsState(pindex->pprev, chainparams.GetConsensus(), Consensus::DEPLOYMENT_SEGSIGNAL, versionbitscache) == THRESHOLD_LOCKED_IN) &&
      !IsWitnessLockedIn(pindex->pprev, chainparams.GetConsensus()) &&  // Segwit is not locked in
      !IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus()) ) // and is not active.
 {
