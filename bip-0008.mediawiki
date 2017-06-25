@@ -33,7 +33,7 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 # The '''name''' specifies a very brief description of the soft fork, reasonable for use as an identifier. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
 # The '''start''' specifies the height of the first block at which the bit gains its meaning.
-# The '''timeout''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is either considered failed on all descendants of the block, or, if '''lockinontimeout'' is true, transitions to the '''LOCKED_IN''' state.
+# The '''timeout''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is either considered failed on all descendants of the block (but see the exception during '''FAILING''' state), or, if '''lockinontimeout'' is true, transitions to the '''LOCKED_IN''' state.
 # The '''lockinontimeout''' boolean if set to true, will transition state to '''LOCKED_IN''' at timeout if not already '''LOCKED_IN''' or '''ACTIVE'''.
 
 ===Selection guidelines===
@@ -44,7 +44,7 @@ The following guidelines are suggested for selecting these parameters for a soft
 # '''bit''' should be selected such that no two concurrent softforks use the same bit.
 # '''start''' should be set to some block height in the future, approximately one month after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software, and ensures a reasonable number of full nodes have upgraded prior to activation. It should be rounded up to the next height which begins a retarget period.
 # '''timeout''' should be approximately 1 year after start, and on a block which begins a retarget period. Therefore, '''start''' plus 52416.
-# '''lockinontimeout''' should be set to true for any softfork that isn't exclusively for miner benefit.
+# '''lockinontimeout''' should be set to true for any softfork that is expected or found to have political opposition from a non-negligable percent of miners. (It can be set after the initial deployment, but cannot be cleared once set.)
 
 A later deployment using the same bit is possible as long as the start is after the previous one's
 timeout or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
@@ -57,7 +57,8 @@ With each block and soft fork, we associate a deployment state. The possible sta
 # '''STARTED''' for blocks at or beyond the start height.
 # '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion, or for one retarget period after the timeout when '''lockinontimeout''' is true.
 # '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
-# '''FAILED''' for all blocks after the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
+# '''FAILING''' for one retarget period after the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
+# '''FAILED''' for all blocks after the FAILING retarget period.
 
 ===Bit flags===
 
@@ -106,17 +107,17 @@ We remain in the initial state until either we pass the start height or the time
 
         case DEFINED:
             if (block.height >= timeout) {
-                return (lockinontimeout == true) ? LOCKED_IN : FAILED;
+                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
             }
             if (block.height >= start) {
                 return STARTED;
             }
             return DEFINED;
 
-After a period in the STARTED state, if we're past the timeout, we switch to LOCKED_IN or FAILED. If not, we tally the bits set,
+After a period in the STARTED state, if we're past the timeout, we switch to LOCKED_IN or FAILING. If not, we tally the bits set,
 and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
 version numbers. The threshold is ≥1916 blocks (95% of 2016), or ≥1512 for testnet (75% of 2016).
-The transition to FAILED takes precendence, as otherwise an ambiguity can arise.
+The transition to FAILING takes precendence, as otherwise an ambiguity can arise.
 There could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN while the
 other one simultaneously transitions to STARTED, which would mean both would demand setting the bit.
 
@@ -124,7 +125,7 @@ Note that a block's state never depends on its own nVersion; only on that of its
 
         case STARTED:
             if (block.height >= timeout) {
-                return (lockinontimeout == true) ? LOCKED_IN : FAILED;
+                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
             }
             int count = 0;
             walk = block;
@@ -138,6 +139,18 @@ Note that a block's state never depends on its own nVersion; only on that of its
                 return LOCKED_IN;
             }
             return STARTED;
+
+If the deployment is not LOCKED_IN by the timeout (or '''lockinontimeout'''), it has a single retarget period during which it may still become active, only by unanimous signalling in every block.
+
+        case FAILING:
+            walk = block;
+            for (i = 0; i < 2016; i++) {
+                walk = walk.parent;
+                if (walk.nVersion & 0xE0000000 == 0x20000000 && ((walk.nVersion >> bit) & 1) != 1) {
+                    return FAILED;
+                }
+            }
+            return ACTIVE;
 
 After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
 
@@ -179,6 +192,7 @@ https://github.com/bitcoin/bitcoin/compare/master...shaolinfry:bip-uaversionbits
 
 * The '''lockinontimeout''' flag is added. BIP 9 would only transition to the FAILED state when timeout was reached.
 * Block heights are used for the deployment monotonic clock, rather than median-time-past.
+* The last-ditch effort during a new FAILING state is added.
 
 ==Backwards compatibility==
 
