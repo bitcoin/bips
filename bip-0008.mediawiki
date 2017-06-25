@@ -2,6 +2,7 @@
   BIP: 8
   Title: Version bits 2017
   Author: Shaolin Fry <shaolinfry@protonmail.ch>
+          Luke Dashjr <luke+bip@dashjr.org>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0008
   Status: Draft
@@ -13,11 +14,15 @@
 
 ==Abstract==
 
-This document specifies an alternative to [[bip-0009.mediawiki|BIP9]] that introduces an additional activation parameter to guarantee activation of backward-compatible changes (further called "soft forks").
+This document specifies an alternative to [[bip-0009.mediawiki|BIP9]] that corrects for a number of perceived mistakes.
+Block heights are used for start and timeout rather than POSIX timestamps.
+It additionally introduces an additional activation parameter to guarantee activation of backward-compatible changes (further called "soft forks").
 
 ==Motivation==
 
 BIP9 introduced a mechanism for doing parallel soft forking deployments based on repurposing the block nVersion field. Activation is dependent on near unanimous hashrate signalling which may be impractical and is also subject to veto by a small minority of non-signalling hashrate.
+
+Due to using timestamps rather than block heights, it was found to be a risk that a sudden loss of siginificant hashrate could interfere with a late activation.
 
 This specification provides a way to optionally guarantee lock-in at the end of the [[bip-0009.mediawiki|BIP9]] timeout, and therefore activation, while still allowing a hashrate super majority to trigger activation earlier.
 
@@ -27,8 +32,8 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 
 # The '''name''' specifies a very brief description of the soft fork, reasonable for use as an identifier. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
-# The '''starttime''' specifies a minimum median time past of a block at which the bit gains its meaning.
-# The '''timeout''' specifies a time at which the deployment is considered failed. If the median time past of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
+# The '''start''' specifies the height of the first block at which the bit gains its meaning.
+# The '''timeout''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is either considered failed on all descendants of the block, or, if '''lockinontimeout'' is true, transitions to the '''LOCKED_IN''' state.
 # The '''lockinontimeout''' boolean if set to true, will transition state to '''LOCKED_IN''' at timeout if not already '''LOCKED_IN''' or '''ACTIVE'''.
 
 ===Selection guidelines===
@@ -37,11 +42,11 @@ The following guidelines are suggested for selecting these parameters for a soft
 
 # '''name''' should be selected such that no two softforks, concurrent or otherwise, ever use the same name.
 # '''bit''' should be selected such that no two concurrent softforks use the same bit.
-# '''starttime''' should be set to some date in the future, approximately one month after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software.
-# '''timeout''' should be 1 year (31536000 seconds) after starttime.
+# '''start''' should be set to some block height in the future, approximately one month after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software, and ensures a reasonable number of full nodes have upgraded prior to activation. It should be rounded up to the next height which begins a retarget period.
+# '''timeout''' should be approximately 1 year after start, and on a block which begins a retarget period. Therefore, '''start''' plus 52416.
 # '''lockinontimeout''' should be set to true for any softfork that isn't exclusively for miner benefit.
 
-A later deployment using the same bit is possible as long as the starttime is after the previous one's
+A later deployment using the same bit is possible as long as the start is after the previous one's
 timeout or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
 
 ===States===
@@ -49,10 +54,10 @@ timeout or activation, but it is discouraged until necessary, and even then reco
 With each block and soft fork, we associate a deployment state. The possible states are:
 
 # '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
-# '''STARTED''' for blocks past the starttime.
+# '''STARTED''' for blocks at or beyond the start height.
 # '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion, or for one retarget period after the timeout when '''lockinontimeout''' is true.
 # '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
-# '''FAILED''' for all blocks after the timeout time, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
+# '''FAILED''' for all blocks after the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
 
 ===Bit flags===
 
@@ -97,15 +102,13 @@ Otherwise, the next state depends on the previous state:
 
         switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
 
-We remain in the initial state until either we pass the start time or the timeout. GetMedianTimePast in the code below
-refers to the median nTime of a block and its 10 predecessors. The expression GetMedianTimePast(block.parent) is
-referred to as MTP in the diagram above, and is treated as a monotonic clock defined by the chain.
+We remain in the initial state until either we pass the start height or the timeout.
 
         case DEFINED:
-            if (GetMedianTimePast(block.parent) >= timeout) {
+            if (block.height >= timeout) {
                 return (lockinontimeout == true) ? LOCKED_IN : FAILED;
             }
-            if (GetMedianTimePast(block.parent) >= starttime) {
+            if (block.height >= start) {
                 return STARTED;
             }
             return DEFINED;
@@ -120,7 +123,7 @@ other one simultaneously transitions to STARTED, which would mean both would dem
 Note that a block's state never depends on its own nVersion; only on that of its ancestors.
 
         case STARTED:
-            if (GetMedianTimePast(block.parent) >= timeout) {
+            if (block.height >= timeout) {
                 return (lockinontimeout == true) ? LOCKED_IN : FAILED;
             }
             int count = 0;
@@ -175,6 +178,7 @@ https://github.com/bitcoin/bitcoin/compare/master...shaolinfry:bip-uaversionbits
 ==Contrasted with BIP 9==
 
 * The '''lockinontimeout''' flag is added. BIP 9 would only transition to the FAILED state when timeout was reached.
+* Block heights are used for the deployment monotonic clock, rather than median-time-past.
 
 ==Backwards compatibility==
 
