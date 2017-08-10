@@ -2,6 +2,7 @@
 
 * [English](english.txt)
 * [Japanese](japanese.txt)
+* [Korean](korean.txt)
 * [Spanish](spanish.txt)
 * [Chinese (Simplified)](chinese_simplified.txt)
 * [Chinese (Traditional)](chinese_traditional.txt)
