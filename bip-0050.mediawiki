@@ -2,33 +2,38 @@
   BIP: 50
   Title: March 2013 Chain Fork Post-Mortem
   Author: Gavin Andresen <gavinandresen@gmail.com>
-  Status: Draft
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0050
+  Status: Final
   Type: Informational
   Created: 2013-03-20
+  License: PD
 </pre>
 
 ==What went wrong==
-A block that had a larger number of total transaction inputs than previously seen was mined and broadcasted. Bitcoin 0.8 nodes were able to handle this, but some pre-0.8 Bitcoin nodes rejected it, causing an unexpected hard fork of the chain. The pre-0.8 incompatible chain at that point had around 60% of the hash power ensuring the split did not automatically resolve.
+A block that had a larger number of total transaction inputs than previously seen was mined and broadcasted. Bitcoin 0.8 nodes were able to handle this, but some pre-0.8 Bitcoin nodes rejected it, causing an unexpected fork of the blockchain. The pre-0.8-incompatible chain (from here on, the 0.8 chain) at that point had around 60% of the mining hash power ensuring the split did not automatically resolve (as would have occurred if the pre-0.8 chain outpaced the 0.8 chain in total work, forcing 0.8 nodes to reorganise to the pre-0.8 chain).
 
-In order to restore a canonical chain as soon as possible, BTCGuild and Slush downgraded their Bitcoin 0.8 nodes to 0.7 so their pools would also reject the larger block. This placed majority hashpower on the chain without the larger block.
+In order to restore a canonical chain as soon as possible, BTCGuild and Slush downgraded their Bitcoin 0.8 nodes to 0.7 so their pools would also reject the larger block. This placed majority hashpower on the chain without the larger block, thus eventually causing the 0.8 nodes to reorganise to the pre-0.8 chain.
 
 During this time there was at least [https://bitcointalk.org/index.php?topic=152348.0 one large double spend].  However, it was done by someone experimenting to see if it was possible and was not intended to be malicious.
 
 ==What went right==
 * The split was detected very quickly.
-* The right people were online and available in IRC or could be raised via Skype.
-* Marek Palatinus and Michael Marsee quickly downgraded their nodes to restore a pre-0.8 chain as canonical, despite the fact that this caused them to sacrifice significant amounts of money and they were the ones running the bug-free version.
+* The right people were online and available in IRC or could be contacted directly.
+* Marek Palatinus (Slush) and Michael Marsee (Eleuthria of BTCGuild) quickly downgraded their nodes to restore a pre-0.8 chain as canonical, despite the fact that this caused them to sacrifice significant amounts of money.
 * Deposits to the major exchanges and payments via BitPay were also suspended (and then un-suspended) very quickly.
-* Fortunately, the only attack on a merchant was done by someone who was not intending to actually steal money
+* Fortunately, the only attack on a merchant was done by someone who was not intending to actually steal money.
 
 ==Root cause==
-Bitcoin versions prior to 0.8 configure an insufficient number of Berkeley DB locks to process large but technically valid blocks. Berkeley DB locks have to be manually configured by API users depending on anticipated load. The manual says this:
+Bitcoin versions prior to 0.8 configure an insufficient number of Berkeley DB locks to process large but otherwise valid blocks. Berkeley DB locks have to be manually configured by API users depending on anticipated load. The manual says this:
 
 :The recommended algorithm for selecting the maximum number of locks, lockers, and lock objects is to run the application under stressful conditions and then review the lock system's statistics to determine the maximum number of locks, lockers, and lock objects that were used. Then, double these values for safety.
 
+With the insufficiently high BDB lock configuration, it implicitly had become a network consensus rule determining block validity (albeit an inconsistent and unsafe rule, since the lock usage could vary from node to node).
+
 Because max-sized blocks had been successfully processed on the testnet, it did not occur to anyone that there could be blocks that were smaller but require more locks than were available. Prior to 0.7 unmodified mining nodes self-imposed a maximum block size of 500,000 bytes, which further prevented this case from being triggered. 0.7 made the target size configurable and miners had been encouraged to increase this target in the week prior to the incident.
 
-Bitcoin 0.8 does not use Berkeley DB. It uses LevelDB instead, which does not require this kind of pre-configuration. Therefore it was able to process the forking block successfully.
+Bitcoin 0.8 did not use Berkeley DB. It switched to LevelDB instead, which did not implement the same locking limits as BDB. Therefore it was able to process the forking block successfully.
 
 Note that BDB locks are also required during processing of re-organizations. Versions prior to 0.8 may be unable to process some valid re-orgs.
 
@@ -39,10 +44,10 @@ This would be an issue even if the entire network was running version 0.7.2. It 
 ===Immediately===
 
 '''Done''': Release a version 0.8.1, forked directly from 0.8.0, that, for the next two months has the following new rules:
-# Reject blocks that could cause more than 10,000 locks to be taken.
+# Reject blocks that would probably cause more than 10,000 locks to be taken.
 # Limit the maximum block-size created to 500,000 bytes
-# Release a patch for older versions that implements the same rules, but also increases the maximum number of locks to 120,000
-# Create a web page on bitcoin.org that will urge users to upgrade to 0.8.1, but will tell them how to set DB_CONFIG to 120,000 locks if they absolutely cannot.
+# Release a patch for older versions that implements the same rules, but also increases the maximum number of locks to 537,000
+# Create a web page on bitcoin.org that will urge users to upgrade to 0.8.1, but will tell them how to set DB_CONFIG to 537,000 locks if they absolutely cannot.
 # Over the next 2 months, send a series of alerts to users of older versions, pointing to the web page.
 
 ===Alert system===
@@ -70,3 +75,7 @@ A double spend attack was successful, despite that both sides of the chain heard
 ===Resolution===
 
 On 16 August, 2013 block 252,451 (0x0000000000000024b58eeb1134432f00497a6a860412996e7a260f47126eed07) was accepted by the main network, forking unpatched nodes off the network.
+
+==Copyright==
+
+This document is placed in the public domain.
