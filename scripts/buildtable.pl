@@ -19,6 +19,7 @@ my %MayHaveMulti = (
 	Author => undef,
 	'Comments-URI' => undef,
 	License => undef,
+	'License-Code' => undef,
 	'Post-History' => undef,
 );
 my %DateField = (
@@ -149,9 +150,9 @@ while (++$bipnum <= $topbip) {
 		} elsif ($field eq 'Layer') {  # BIP 123
 			die "Invalid layer $val in $fn" unless exists $ValidLayer{$val};
 			$layer = $val;
-		} elsif ($field eq 'License') {
+		} elsif ($field =~ /^License(?:\-Code)?$/) {
 			die "Undefined license $val in $fn" unless exists $DefinedLicenses{$val};
-			if (not $found{License}) {
+			if (not $found{$field}) {
 				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum});
 			}
 		} elsif ($field eq 'Comments-URI') {
