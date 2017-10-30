@@ -155,6 +155,11 @@ while (++$bipnum <= $topbip) {
 			if (not $found{$field}) {
 				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum});
 			}
+		} elsif ($field eq 'License-Code') {
+			die "Undefined license $val in $fn" unless exists $DefinedLicenses{$val};
+			if (not $found{License}) {
+				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum});
+			}
 		} elsif ($field eq 'Comments-URI') {
 			if (not $found{'Comments-URI'}) {
 				my $first_comments_uri = sprintf('https://github.com/bitcoin/bips/wiki/Comments:BIP-%04d', $bipnum);
