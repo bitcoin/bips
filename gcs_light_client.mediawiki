@@ -18,14 +18,16 @@ modifications to current full-nodes required to support this new type of light
 client. The light client mode described in this BIP is meant to supersede BIP
 37 as it provides a greater degree of privacy, utility, and also reduces the
 resources required for full-nodes to service this new light client mode
-compared to BIP 37. The light client mode described in this BIP can be seen as
-a "reversal"[1] of BIP 37: rather than the light clients sending filters to
-full-nodes, full-nodes send filters to light clients. Unlike BIP 37, we don't
-utilize bloom filters. Instead, we utilize a compact filter (more efficient
-than bloom filters) which leverages Golomb-Rice coding for compression.
-Additionally, blocks are downloaded as a whole (from any source), rather than
-directly from peers as fragments with merkle-branches proving their
-authenticity.
+compared to BIP
+37<ref>https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki</ref>.
+The light client mode described in this BIP can be seen as a "reversal" of BIP
+37<ref><https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-May/012636.html/ref>:
+rather than the light clients sending filters to full-nodes, full-nodes send
+filters to light clients. Unlike BIP 37, we don't utilize bloom filters.
+Instead, we utilize a compact filter (more efficient than bloom filters) which
+leverages Golomb-Rice coding for compression.  Additionally, blocks are
+downloaded as a whole (from any source), rather than directly from peers as
+fragments with merkle-branches proving their authenticity.
 
 == Motivation ==
 
@@ -48,14 +50,16 @@ sent and distinctly the transaction itself is sent.
 
 However, BIP 37 has several downsides. Bloom filtering as widely implemented
 provides virtually ''zero'' privacy to wallets or other applications using this
-mechanism [3][4]. Additionally, applications are forced to carefully manage
-their false positive rates in order to not completely give away their set of
-interested items. Additionally, full-nodes can nearly undetectably lie by
-omission, causing a denial of service which can lead to undesirable failure modes
-in applications whose safety critically relies on responding to certain
-on-chain events. When faithfully servicing BIP 37 light clients, full-nodes may
-incur significant I/O and CPU resource usage due to maliciously crafted bloom
-filters, creating a denial-of-service vector.
+mechanism
+<ref>https://eprint.iacr.org/2014/763.pdf</ref><ref>https://jonasnick.github.io/blog/2015/02/12/privacy-in-bitcoinj/</ref>.
+Additionally, applications are forced to carefully manage their false positive
+rates in order to not completely give away their set of interested items.
+Additionally, full-nodes can nearly undetectably lie by omission, causing a
+denial of service which can lead to undesirable failure modes in applications
+whose safety critically relies on responding to certain on-chain events. When
+faithfully servicing BIP 37 light clients, full-nodes may incur significant I/O
+and CPU resource usage due to maliciously crafted bloom filters, creating a
+denial-of-service vector.
 
 == Design Rationale ==
 
@@ -68,7 +72,7 @@ then the ''entire'' block will be fetched. The decoupling of filter querying fro
 active communication with full-nodes enables light clients to fetch blocks from
 ''any'' source. Extremely privacy conscious light clients may opt to anonymously
 fetch blocks using cryptographic techniques such a Private Information
-Retrieval [5].
+Retrieval <ref>https://en.wikipedia.org/wiki/Private_information_retrieval</ref>.
 
 In order to reduce the size of the filter, we use a data structure capable of
 probabilistic set membership. We elide the selection of the bloom filter data
@@ -292,10 +296,11 @@ Using <code>N</code> and <code>P</code> we compute <code>F = N * P</code>
 <code>F</code> constricts the range of the hashed values accordingly in order to
 achieve our desired false positive rate.
 
-In addition, to help optimize the algorithm, we use a fast range algorithm[7],
+In addition, to help optimize the algorithm, we use a fast range
+algorithm<ref>https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/</ref>,
 multiplying the hashed value by F and taking only the top 64 bits. This fairly
-distributes the values over F without division and can be done with fewer cycles
-cycles on CPUs that have 128-bit registers.
+distributes the values over F without division and can be done with fewer
+cycles cycles on CPUs that have 128-bit registers.
 
 The following routine computes the ''uncompressed'' set given the parameters
 above:
@@ -323,7 +328,8 @@ Once the set of hashed items has been constructed (and sorted) we then use
 Golomb-Rice coding to ''compress'' the set by encoding the ''delta'' value
 between each successive element within the set. As these values are uniformly
 distributed, the deltas between these values will be Geometrically Distributed,
-meaning that Golomb-Rice coding will be optimal for this use-case [6].
+meaning that Golomb-Rice coding will be optimal for this use-case
+<ref>http://urchin.earth.li/~twic/Golombs_Original_Paper/</ref>.
 
 The following routine describes the compression process:
 <pre>
@@ -945,21 +951,23 @@ alternatives along with our rationale for not pursuing them.
 
 ==== Cryptographic Accumulators ====
 
-Cryptographic accumulators [8] are a cryptographic data structure that enables
-(amongst other operations) a one way membership test. One advantage of
-accumulators are that they are ''constant'' size, independent on the number of
-elements inserted into the accumulator. However, current constructions of
-cryptographic accumulators require an initial trusted set up. Additionally,
-accumulators based on the Strong-RSA Assumption require mapping set items to
-prime representatives in the associated group which can be preemptively
-expensive.
+Cryptographic accumulators
+<ref>https://en.wikipedia.org/wiki/Accumulator_(cryptography)</ref>are a
+cryptographic data structure that enables (amongst other operations) a one way
+membership test. One advantage of accumulators are that they are ''constant''
+size, independent on the number of elements inserted into the accumulator.
+However, current constructions of cryptographic accumulators require an initial
+trusted set up. Additionally, accumulators based on the Strong-RSA Assumption
+require mapping set items to prime representatives in the associated group
+which can be preemptively expensive.
 
 ==== Matrix Based Probabilistic Set Datastructures ====
 
 There exist data structures based on matrix solving which are even more space
-efficient compared to bloom filters [9]. We instead opted for our GCS-based
-filters as they have a much lower implementation complexity and are easier to
-understand.
+efficient compared to bloom filters
+<ref>https://arxiv.org/pdf/0804.1845.pdf</ref>. We instead opted for our
+GCS-based filters as they have a much lower implementation complexity and are
+easier to understand.
 
 == Appendix B ==
 
@@ -973,23 +981,8 @@ filter, and extended filter.
 
 
 == References ==
-1. https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki
 
-2. https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-May/012636.html
-
-3. https://eprint.iacr.org/2014/763.pdf
-
-4. https://jonasnick.github.io/blog/2015/02/12/privacy-in-bitcoinj/
-
-5. https://en.wikipedia.org/wiki/Private_information_retrieval
-
-6. http://urchin.earth.li/~twic/Golombs_Original_Paper/
-
-7. https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
-
-8. https://en.wikipedia.org/wiki/Accumulator_(cryptography)
-
-9. https://arxiv.org/pdf/0804.1845.pdf
+<references/>
 
 == Copyright ==
 
