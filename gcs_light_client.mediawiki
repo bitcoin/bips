@@ -781,117 +781,6 @@ server. Additionally, the compact client-side chain index also opens up the
 door to smart contract applications which require agent action in response to
 on-chain events. Examples of such applications include Lightning.
 
-== Mathematical Background == 
-
-In the following sections, borrowing from techniques typically used in image
-and video processing, we describe our chosen encoding for the hash fingerprints
-of the items in our set of relevant items. In order to compress the items of
-the set in a lossy manner (creating data-structure capable of probabilistic set
-membership), we utilize Golomb-Rice codes to encode the ''delta'' between
-successive hash items within our set. This results in a very compact
-probabilistic set-membership structure.
-
-With a goal of building relevant initiation in the minds of the readers of this
-document, we first start from the bottom of the abstraction ladder, describing
-the fundamental components our set encoding relies on.
-
-
-=== Run-Length Encoding ===
-
-Run-Length Encoding (or RLE) is typically used in the video/image processing
-space to losslessly compresses images, or video frames. RLE works by ''omitting''
-the encoding of ''repeated'' values in a data stream. This achieves lossless
-compression as repeated items simply aren't transmitted. Instead, a value which
-represents the ''number of times'' a value repeats is transmitted.
-
-Typically RLE takes the form of encoding repeated values in a ''binary'' stream.
-A simple RLE scheme works as follows:
-* Encode the run length (number of occurrences) of 0's using <code>k</code> bits.
-** <code>k</code> acts as fixed length encoding for the length of a run.
-** This value acts as the maximum encodable run-length.
-* Transmission of runs of 1's is omitted.
-* Two 1's in a row are denoted by a zero-length run of zero.
-
-As an example, consider the following sequence of bits: 
-<pre>
-{0}^14 1 {0}^9 11 {0}^20 1 {0}^30 11 {0}^11
-</pre>
-
-The RLE of the bit stream above would be:  
-
-<pre>
-1110 1001 0000 1111 0101 1111 1111 0000 0000 1011
-</pre>
-
-RLE allows one to efficiently encode a data stream in a lossless manner. Due to
-the encoding of runs, RLE works best when encoding a set with a high degree of
-redundancy. A careful reader will notice that by using a fix-length encoding
-for the size of runs, efficiency is lost. Therefore, rather than using a
-fix-length encoding for the size of a run, we can instead use a ''variable''
-length encoding for the size of a run. This allows us to compress runs of a
-large size. To do so, we'll now turn to Golomb-Rice Coding.
-
-=== Golomb-Rice Coding ===
-
-RLE works well when encoding a data stream that has a high degree of redundancy.
-However, in our case due to the hashing of items within the compact filter,
-we'll be dealing with items that are ''uniformly distributed''. We can use this
-fact to leverage a more efficient encoding scheme based on the distribution of
-the length of a run. The [https://en.wikipedia.org/wiki/Geometric_distribution
-Geometric Distribution] represents the probabilities of a number of failures
-before the first success in a series of Bernoulli trials (yes/no experiments).
-If our values are i.i.d (independent, identically distributed) distributed of
-the run-length <code>r</code> can be represented as [6]:
-<pre>
-P(r = n) = p^n * (1-p)
-</pre>
-Intuitively, this calculates the probability of N zeroes (a run) followed by a
-single 1 (end of a run). Golomb coding takes advantage of this relationship to
-efficiently encode integers using a two-tuple. Given a group size of <code>m</code> one
-can encode an integer as:
-<pre>
-n = (q*m) + r
-  where q is (n / m)
-   and  r is n % m
-</pre>
-
-[https://en.wikipedia.org/wiki/Golomb_coding Golomb Coding] encodes the two
-values (<code>q</code> and <code>r</code> for a given integer <code>n</code> as
-a two-tuple. The first value <code>q</code> is encoded using ''unary'', and the
-second value <code>r</code> is encoded using a fixed-length series of bits. If
-<code>m = 2^k</code> for some <code>k</code> then this encoding is a
-specialized sub-set of Golomb encoding known as Golomb-Rice encoding. In this
-case, <code>r</code> (the remainder) is the <code>k</code>
-least-significant-bits of <code>n</code>
-
-In this case "runs", can be seen as the number of multiples of <code>m</code>
-that divide into <code>n</code> If an encoded integer is close to the value of
-<code>m</code> then few bits (in unary) will be used to encode each value.
-
-To aid in understanding we provide the following examples of using Golomb-Rice
-encoding to code integers given <code>m=5</code>
-<pre>
-n  = (q, r) = c
-0  = (0, 0) = 0 00
-1  = (0, 1) = 0 01
-2  = (0, 2) = 0 10
-3  = (0, 3) = 0 110
-4  = (0, 4) = 0 111
-5  = (1, 0) = 10 00
-6  = (1, 1) = 10 01
-7  = (1, 2) = 10 10
-8  = (1, 3) = 10 110
-9  = (1, 4) = 10 111
-10 = (2, 0) = 110 00
-</pre>
-
-The <code>P</code> value can also be interpreted as the parameter to our
-Geometric Distribution.  Intuitively, to achieve a false positive rate of 1/32
-(1/2^5), in a series of queries of items which ''aren't'' in the set, we expect
-to receive a "NO" (false) 32 times, before getting a "YES" (true, our false
-positive). Once again, <code>P</code> MUST be a power of two.
-
-
 == Backwards Compatability ==
 
 This light client protocl is NOT backwards compatible with BIP 37. Full nodes
@@ -1008,6 +897,119 @@ Golomb-Rice Coded sets: https://github.com/Roasbeef/btcutil/tree/gcs/gcs
 
 == Appendix A ==
 
+== Mathematical Background == 
+
+In the following sections, borrowing from techniques typically used in image
+and video processing, we describe our chosen encoding for the hash fingerprints
+of the items in our set of relevant items. In order to compress the items of
+the set in a lossy manner (creating data-structure capable of probabilistic set
+membership), we utilize Golomb-Rice codes to encode the ''delta'' between
+successive hash items within our set. This results in a very compact
+probabilistic set-membership structure.
+
+With a goal of building relevant initiation in the minds of the readers of this
+document, we first start from the bottom of the abstraction ladder, describing
+the fundamental components our set encoding relies on.
+
+
+=== Run-Length Encoding ===
+
+Run-Length Encoding (or RLE) is typically used in the video/image processing
+space to losslessly compresses images, or video frames. RLE works by ''omitting''
+the encoding of ''repeated'' values in a data stream. This achieves lossless
+compression as repeated items simply aren't transmitted. Instead, a value which
+represents the ''number of times'' a value repeats is transmitted.
+
+Typically RLE takes the form of encoding repeated values in a ''binary'' stream.
+A simple RLE scheme works as follows:
+* Encode the run length (number of occurrences) of 0's using <code>k</code> bits.
+** <code>k</code> acts as fixed length encoding for the length of a run.
+** This value acts as the maximum encodable run-length.
+* Transmission of runs of 1's is omitted.
+* Two 1's in a row are denoted by a zero-length run of zero.
+
+As an example, consider the following sequence of bits: 
+<pre>
+{0}^14 1 {0}^9 11 {0}^20 1 {0}^30 11 {0}^11
+</pre>
+
+The RLE of the bit stream above would be:  
+
+<pre>
+1110 1001 0000 1111 0101 1111 1111 0000 0000 1011
+</pre>
+
+RLE allows one to efficiently encode a data stream in a lossless manner. Due to
+the encoding of runs, RLE works best when encoding a set with a high degree of
+redundancy. A careful reader will notice that by using a fix-length encoding
+for the size of runs, efficiency is lost. Therefore, rather than using a
+fix-length encoding for the size of a run, we can instead use a ''variable''
+length encoding for the size of a run. This allows us to compress runs of a
+large size. To do so, we'll now turn to Golomb-Rice Coding.
+
+=== Golomb-Rice Coding ===
+
+RLE works well when encoding a data stream that has a high degree of redundancy.
+However, in our case due to the hashing of items within the compact filter,
+we'll be dealing with items that are ''uniformly distributed''. We can use this
+fact to leverage a more efficient encoding scheme based on the distribution of
+the length of a run. The [https://en.wikipedia.org/wiki/Geometric_distribution
+Geometric Distribution] represents the probabilities of a number of failures
+before the first success in a series of Bernoulli trials (yes/no experiments).
+If our values are i.i.d (independent, identically distributed) distributed of
+the run-length <code>r</code> can be represented as [6]:
+<pre>
+P(r = n) = p^n * (1-p)
+</pre>
+Intuitively, this calculates the probability of N zeroes (a run) followed by a
+single 1 (end of a run). Golomb coding takes advantage of this relationship to
+efficiently encode integers using a two-tuple. Given a group size of <code>m</code> one
+can encode an integer as:
+<pre>
+n = (q*m) + r
+  where q is (n / m)
+   and  r is n % m
+</pre>
+
+[https://en.wikipedia.org/wiki/Golomb_coding Golomb Coding] encodes the two
+values (<code>q</code> and <code>r</code> for a given integer <code>n</code> as
+a two-tuple. The first value <code>q</code> is encoded using ''unary'', and the
+second value <code>r</code> is encoded using a fixed-length series of bits. If
+<code>m = 2^k</code> for some <code>k</code> then this encoding is a
+specialized sub-set of Golomb encoding known as Golomb-Rice encoding. In this
+case, <code>r</code> (the remainder) is the <code>k</code>
+least-significant-bits of <code>n</code>
+
+In this case "runs", can be seen as the number of multiples of <code>m</code>
+that divide into <code>n</code> If an encoded integer is close to the value of
+<code>m</code> then few bits (in unary) will be used to encode each value.
+
+To aid in understanding we provide the following examples of using Golomb-Rice
+encoding to code integers given <code>m=5</code>
+<pre>
+n  = (q, r) = c
+0  = (0, 0) = 0 00
+1  = (0, 1) = 0 01
+2  = (0, 2) = 0 10
+3  = (0, 3) = 0 110
+4  = (0, 4) = 0 111
+5  = (1, 0) = 10 00
+6  = (1, 1) = 10 01
+7  = (1, 2) = 10 10
+8  = (1, 3) = 10 110
+9  = (1, 4) = 10 111
+10 = (2, 0) = 110 00
+</pre>
+
+The <code>P</code> value can also be interpreted as the parameter to our
+Geometric Distribution.  Intuitively, to achieve a false positive rate of 1/32
+(1/2^5), in a series of queries of items which ''aren't'' in the set, we expect
+to receive a "NO" (false) 32 times, before getting a "YES" (true, our false
+positive). Once again, <code>P</code> MUST be a power of two.
+
+
+== Appendix B ==
+
 === Alternatives ===
 
 A number of alternative set encodings were considered before Golomb-Rice coded
@@ -1034,7 +1036,7 @@ efficient compared to bloom filters
 GCS-based filters as they have a much lower implementation complexity and are
 easier to understand.
 
-== Appendix B ==
+== Appendix C ==
 
 === Test Vectors ===
 
