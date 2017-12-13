@@ -341,52 +341,41 @@ will still need to handle events where keys are duplicated, either duplicated in
 itself or when combining transactions with duplicated fields. If duplicated keys are
 encountered, the software may choose to use any of the values corresponding to that key.
 
-==Usage==
+==Responsibilities==
 
-Using the transaction format involves many different roles. The roles may be combined
-into one entity, but each role has a specific set of things that it must be able to do.
+Using the transaction format involves many different responsibilities. These responsibilities can be handled by a single entity, but each responsibility is specialized in what it should be capable of doing.
 
-===Transaction Creator===
+===Creator===
 
-The transaction creator must be able to accept either a network serialized transaction or a PSBT
-and either produce a PSBT or update the provided PSBT. For all scriptSigs which are not finalized, it must make the
-scriptSig empty and fill in the input fields with information from the scriptSig, if any.
-If it is able to, it should also look for any required redeemScripts and witnesScripts
-and add those to the global data section of the PSBT. The transaction creator
-should also fill in UTXOs that it knows about.
+The Creator must be capable of accepting either a network serialized transaction, or a PSBT.
+The Creator can either produce a new PSBT, or update the provided PSBT.
+For any scriptSigs which are non-final, the Creator will provide an empty scriptSig and input fields with information from the scriptSig, if any.
+If possible,  the Creator should also look for any required redeemScripts and witnesScripts and add those to the global data section of the PSBT.
+The Creator should also provide any related UTXOs that it knows about.
 
-===Transaction Signer===
+===Signer===
 
-The transaction signer must accept a PSBT. It should use the UTXOs provided in the PSBT
-to produce signatures for the inputs that it can sign for. The signer should not need
-access to the UTXO set as all necessary information is provided in the PSBT itself.
-Any and all signatures created should be added as a Partial Signature key-value pair
-to the input for which it corresponds to.
+The Signer must only accept a PSBT.
+The Signer must only use the UTXOs provided in the PSBT to produce signatures for inputs.
+The Signer should not need require any additional data sources, as all necessary information is provided in the PSBT format.
+Any signatures created by the Signer must be added as a "Partial Signature" key-value pair for the respective input it relates to.
 
-The signer should also be able to compute the amount being spent, the amount being
-transacted, the inputs being spent, the transaction fee, and the addresses being
-paid. It can be interactive and ask the user for confirmation of all of the above things.
+The Signer can additionally compute the addresses and values being sent, and the transaction fee,  optionally showing this data to the user as a confirmation of intent and the consequences of signing the PSBT.
 
-===Transaction Combiner===
+===Combiner===
 
-The transaction combiner must be able to accept multiple PSBTs. It should parse each
-PSBT and merge them into one transaction if possible. If the PSBTs correspond to the
-same transaction, then the combiner should create one PSBT which contains all of the
-key-value pairs from the PSBTs. It should also handle duplicated keys and remove the
-duplication according to the specification.
+The Combiner can accept 1 or many PSBTs.
+The Combiner must merge them into one PSBT (if possible), or fail.
+The resulting PSBT must contains all of the key-value pairs from each of the PSBTs.
+The Combined must remove any duplicate key-value pairs, in accordance with the specification.
 
-===Transaction Finalizer===
+===Finalizer===
 
-The transaction finalizer must take a PSBT and build the finalized scriptSigs for each
-input. If an input contains enough signatures for that input to have a complete set of
-signatures, the finalizer should take those signatures, any necessary redeemScripts
-and witnessScripts, and build the complete scriptSig. The scriptSig should then be
-included in the transaction and the input should have all key-value pairs removed.
-The finalizer may remove any global data which is not needed for any other inputs.
+The Finalizer must only accept a PSBT.
+The Finalizer transforms a PSBT into a network serialized transaction.
 
-===Transaction Broadcaster===
-The transaction broadcaster takes a finalized PSBT. It takes the transaction out of the
-PSBT, ensures that the transaction is valid, and broadcasts it to the Bitcoin network.
+For any inputs which are not complete, the Finalizer will emplace an empty scriptSig in the network serialized transaction.
+For any input which has a complete set of signatures, the Finalizer must attempt to build the complete scriptSig and encode it into the network serialized transaction.
 
 ==Extensibility==
 
