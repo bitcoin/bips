@@ -8,6 +8,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Indonesian](indonesian.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -82,3 +83,10 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good.
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Indonesian
+
+1. Selected from most common words (Wikipedia Indonesia corpus).
+2. At least 4 characters long.
+3. Words can be uniquely determined typing the first 4 characters.
+4. Words are not found in the other languages' BIP wordlist, so language detection is easy.
