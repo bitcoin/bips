@@ -1,0 +1,442 @@
+<pre>
+  BIP: 174
+  Layer: Applications
+  Title: Partially Signed Bitcoin Transaction Format
+  Author: Andrew Chow <achow101@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0174
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-07-12
+  License: BSD-2-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a binary transaction format which contains the information
+necessary for a signer to produce signatures for the transaction and holds the
+signatures for an input while the input does not have a complete set of signatures.
+The signer can be offline as all necessary information will be provided in the
+transaction.
+
+===Copyright===
+
+This BIP is licensed under the 2-clause BSD license.
+
+===Motivation===
+
+Creating unsigned or partially signed transactions to be passed around to multiple
+signers is currently implementation dependent, making it hard for people who use
+different wallet software from being able to easily do so. One of the goals of this
+document is to create a standard and extensible format that can be used between clients to allow
+people to pass around the same transaction to sign and combine their signatures. The
+format is also designed to be easily extended for future use which is harder to do
+with existing transaction formats.
+
+Signing transactions also requires users to have access to the UTXOs being spent. This transaction
+format will allow offline signers such as air-gapped wallets and hardware wallets
+to be able to sign transactions without needing direct access to the UTXO set and without
+risk of being defrauded.
+
+==Specification==
+
+The Partially Signed Bitcoin Transaction (PSBT) format consists of key-value maps.
+Each key-value pair must be unique within its scope; duplicates are not allowed.
+Each map consists of a sequence of records, terminated by a <tt>0x00</tt> byte <ref>'''Why
+is the separator here <tt>0x00</tt> instead of <tt>0xff</tt>?'''
+The separator here is used to distinguish between each chunk of data. A separator of 0x00 would mean that
+the unserializer can read it as a key length of 0, which would never occur with actual keys. It can thus
+be used as a separator and allow for easier unserializer implementation.</ref>. The format
+of a record is as follows:
+
+Note: <tt><..></tt> indicates that the data is prefixed by a compact size unsigned integer representing
+the length of that data. <tt>{..}</tt> indicates the raw data itself.
+
+<pre>
+<key>|<value>
+</pre>
+
+{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
+!Name
+!Type
+!Description
+|-
+| Key Length
+| Compact Size Unsigned Integer
+| Specify how long the key is
+|-
+| Key
+| byte[]
+| The key itself with the first byte being the type of the key-value pair
+|-
+| Value Length
+| Compact Size Unsigned Integer
+| Specify how long the value is
+|-
+| Value
+| byte[]
+| The Value itself
+|}
+
+The format of each key-value map is as follows:
+
+<pre>
+{key-value pair}|{key-value pair}|...|{0x00}
+</pre>
+
+{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
+!Field Size
+!Name
+!Type
+!Value
+!Description
+|-
+| 1+
+| Key-value pairs
+| Array of key-value pairs
+| varies
+| The key-value pairs.
+|-
+| 1
+| separator
+| char
+| <tt>0x00</tt>
+| Must be <tt>0x00</tt>.
+|}
+
+The first byte of each key specifies the type of the key-value pair. Some types are
+for global fields and other fields are for each input. The only required type in a
+PSBT is the transaction type, as defined below. The currently defined global types are as follows:
+
+{| class="wikitable" style="width: auto; text-align: center; font-size: smaller;
+table-layout: fixed;"
+!Number
+!Name
+!Key Data
+!Value Data
+!Format Example
+|-
+| <tt>0x00</tt>
+| Transaction
+| None. The key must only contain the 1 byte type.
+| The transaction in network serialization. The scriptSigs and
+witnesses for each input must be empty unless the input is complete. The transaction
+must be in the witness serialization format as defined in BIP 144. A PSBT must have
+a transaction, otherwise it is invalid.
+| Key: 
+<pre>
+{0x00}
+</pre>
+Value:
+<pre>
+{transaction}
+</pre>
+|-
+| <tt>0x01</tt>
+| Redeem Script<ref>'''Why are redeem scripts and witness scripts global''' Redeem
+  scripts and witness scripts are global data to avoid duplication. Instead of specifying
+  a redeems script and witness script multiple times in inputs that need those scripts,
+  they are specified once in the global data.</ref>
+| The hash160 of the redeem script
+| A redeem script that will be needed to sign a Pay-To-Script-Hash input or is spent
+to by an output.<ref>'''Why are outputs' redeem scripts and witness scripts included?'''
+Redeem scripts and witness scripts spent to by an output in this transaction are included
+so that the user can verify that the transaction they are signing is creating the correct
+outputs that have the correct redeem and witness scripts. This is best used when the 
+PSBT creator is not trusted by the signers.</ref>
+| Key: 
+<pre>
+{0x01}|{hash160}
+</pre>
+Value:
+<pre>
+{redeem script}
+</pre>
+|-
+| <tt>0x02</tt>
+| Witness Script
+| The sha256 hash of the witness script
+| A witness script that will be needed to sign a Pay-To-Witness-Script-Hash input or is spent
+to by an output.
+| Key: 
+<pre>
+{0x02}|{sha256}
+</pre>
+Value:
+<pre>
+{witness script}
+</pre>
+|-
+| <tt>0x03</tt>
+| BIP 32 Derivation path, public key, and Master Key fingerprint
+| The public key
+| The master key fingerprint concatenated with the derivation path of the public key. The
+derivation path is represented as 32 bit unsigned integer indexes concatenated
+with each other. This must omit the index of the master key.
+| Key: 
+<pre>
+{0x03}|{public key}
+</pre>
+Value:
+<pre>
+{master key fingerprint}|{32-bit int}|...|{32-bit int}
+</pre>
+|-
+| <tt>0x04</tt>
+| Number of inputs
+| None. The key must only contain the 1 byte type.
+| A compact size unsigned integer representing the number of inputs that this transaction has
+| Key: 
+<pre>
+{0x04}
+</pre>
+Value:
+<pre>
+{number of inputs}
+</pre>
+|}
+
+The currently defined per-input types are defined as follows:
+
+{| class="wikitable" style="width: auto; text-align: center; font-size: smaller;
+table-layout: fixed;"
+!Number
+!Name
+!Key Data
+!Value Data
+!Format Example
+|-
+| <tt>0x00</tt>
+| Non-Witness UTXO
+| None. The key must only contain the 1 byte type.
+| The transaction in network serialization format the current input spends from.
+| Key: 
+<pre>
+{0x00}
+</pre>
+Value:
+<pre>
+{transaction}
+</pre>
+|-
+| <tt>0x01</tt>
+| Witness UTXO
+| None. The key must only contain the 1 byte type.
+| The entire transaction output in network serialization which the current input spends from.
+| Key: 
+<pre>
+{0x01}
+</pre>
+Value:
+<pre>
+{serialized transaction output({output value}|<scriptPubKey>)}
+</pre>
+|-
+| <tt>0x02</tt>
+| Partial Signature
+| The public key which corresponds to this signature.
+| The signature as would be pushed to the stack from a scriptSig or witness.
+| Key: 
+<pre>
+{0x02}|{public key}
+</pre>
+Value:
+<pre>
+{signature}
+</pre>
+|-
+| <tt>0x03</tt>
+| Sighash Type
+| None. The key must only contain the 1 byte type.
+| The 32-bit unsigned integer recommending a sighash type to be used for this input.
+The sighash type is only a recommendation and the signer does not need to use
+the sighash type specified.
+| Key: 
+<pre>
+{0x03}
+</pre>
+Value:
+<pre>
+{sighash type}
+</pre>
+|-
+| <tt>0x04</tt>
+| Input index
+| None. The key must only contain the 1 byte type.
+| A compact size unsigned integer representing the index of this input. This field
+is optional to allow for completed inputs to be skipped without needing a separator byte.
+If one input has this type, then all inputs must have it.
+| Key: 
+<pre>
+{0x04}
+</pre>
+Value:
+<pre>
+{input index}
+</pre>
+|}
+
+The transaction format is specified as follows:
+
+
+<pre>
+    {0x70736274}|{0xff}|{global key-value map}|{input key-value map}|...|{input key-value map}
+</pre>
+
+{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
+!Field Size
+!Name
+!Type
+!Value
+!Description
+|-
+| 4
+| Magic Bytes
+| int32_t
+| <tt>0x70736274</tt>
+| Magic bytes which are ASCII for psbt. <ref>'''Why use 4 bytes for psbt?''' The
+transaction format needed to start with a 5 byte header which uniquely identifies
+it. The first bytes were chosen to be the ASCII for psbt because that stands for
+Partially Signed Bitcoin Transaction. </ref> This integer should be serialized
+in most significant byte order.
+|-
+| 1
+| separator
+| char
+| <tt>0xff</tt>
+| Must be <tt>0xff</tt> <ref>'''Why Use a separator after the magic bytes?''' The separator
+is part of the 5 byte header for PSBT. This byte is a separator of <tt>0xff</tt> because
+this will cause any non-PSBT unserializer to fail to properly unserialize the PSBT
+as a normal transaction. Likewise, since the 5 byte header is fixed, no transaction
+in the non-PSBT format will be able to be unserialized by a PSBT unserializer.</ref>
+|-
+| 1+
+| Global data
+| Key-value Map
+| varies
+| The key-value pairs for all global data.
+|-
+| 1+
+| Inputs
+| Array of key-value maps
+| varies
+| The key-value pairs for each input as described below
+|}
+
+Each block of data between separators can be viewed as a scope, and all separators
+are required<ref>'''Why are all separators required?''' The separators are required
+so that the unserializer knows which input it is unserializing data for.</ref>.
+Types can be skipped when they are unnecessary. For example, if an input is a witness
+input, then it should not have a Non-Witness UTXO key-value pair.
+
+If the signer encounters key-value pairs that it does not understand, it must
+pass those key-value pairs through when re-serializing the transaction.
+
+===Handling Duplicated Keys===
+
+Keys within each scope should never be duplicated; all keys in the format are unique. However implementors
+will still need to handle events where keys are duplicated, either duplicated in the transaction
+itself or when combining transactions with duplicated fields. If duplicated keys are
+encountered, the software may choose to use any of the values corresponding to that key.
+
+==Responsibilities==
+
+Using the transaction format involves many different responsibilities. These responsibilities can be handled by a single entity, but each responsibility is specialized in what it should be capable of doing.
+
+===Creator===
+
+The Creator must be capable of accepting either a network serialized transaction, or a PSBT.
+The Creator can either produce a new PSBT, or update the provided PSBT.
+For any scriptSigs which are non-final, the Creator will provide an empty scriptSig and input fields with information from the scriptSig, if any.
+If possible,  the Creator should also look for any required redeemScripts and witnesScripts and add those to the global data section of the PSBT.
+The Creator should also provide any related UTXOs that it knows about.
+
+===Signer===
+
+The Signer must only accept a PSBT.
+The Signer must only use the UTXOs provided in the PSBT to produce signatures for inputs.
+The Signer should not need require any additional data sources, as all necessary information is provided in the PSBT format.
+Any signatures created by the Signer must be added as a "Partial Signature" key-value pair for the respective input it relates to.
+
+The Signer can additionally compute the addresses and values being sent, and the transaction fee,  optionally showing this data to the user as a confirmation of intent and the consequences of signing the PSBT.
+
+===Combiner===
+
+The Combiner can accept 1 or many PSBTs.
+The Combiner must merge them into one PSBT (if possible), or fail.
+The resulting PSBT must contains all of the key-value pairs from each of the PSBTs.
+The Combined must remove any duplicate key-value pairs, in accordance with the specification.
+
+===Finalizer===
+
+The Finalizer must only accept a PSBT.
+The Finalizer transforms a PSBT into a network serialized transaction.
+
+For any inputs which are not complete, the Finalizer will emplace an empty scriptSig in the network serialized transaction.
+For any input which has a complete set of signatures, the Finalizer must attempt to build the complete scriptSig and encode it into the network serialized transaction.
+
+==Extensibility==
+
+The Partially Signed Transaction format can be extended in the future by adding
+new types for key-value pairs. Backwards compatibilty will still be maintained as those new
+types will be ignored and passed-through by signers which do not know about them.
+
+Additional key-value maps with different types for the key-value pairs can be added on to
+the end of the format. The number of each map that follows must be specified in the globals
+section so that parsers will know when to use different definitions of the data types.
+
+==Compatibility==
+
+This transaction format is designed so that it is unable to be properly unserialized
+by normal transaction unserializers. Likewise, a normal transaction will not be
+able to be unserialized by an unserializer for the PSBT format.
+
+==Examples==
+
+===Manual CoinJoin Workflow===
+
+<img src="bip-0174/coinjoin-workflow.png" align="middle"></img>
+
+===2-of-3 Multisig Workflow===
+
+<img src="bip-0174/multisig-workflow.png" align="middle"></img>
+
+==Test Vector==
+
+TBD
+
+==Rationale==
+
+<references/>
+
+==Reference implementation==
+
+The reference implementation of the PSBT format is available at https://github.com/achow101/bitcoin/tree/psbt.
+
+==Acknowledgements==
+
+Special thanks to Pieter Wuille for suggesting that such a transaction format should be made
+and for coming up with the name and abbreviation of PSBT.
+
+Thanks to Pieter Wuille, Gregory Maxwell, Jonathan Underwood, and Daniel Cousens for additional comments
+and suggestions for improving this proposal.
+
+==Appendix A: Data types and their specifications==
+
+Any data types, their associated scope and BIP number must be defined here
+
+{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
+!Scope
+!Type values
+!BIP Number
+|-
+| Global
+| 0,1,2,3,4
+| BIP 174
+|-
+| Input
+| 0,1,2,3,4
+| BIP 174
+|}
