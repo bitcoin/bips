@@ -207,10 +207,17 @@ format, with lost funds as a result if bitcoins are sent to them.</ref> is a Bec
 be of the same length as the mainnet counterpart (to simplify
 implementations' assumptions about lengths), but still be visually
 distinct.</ref> for testnet.
-* The data-part values:
+* The data-part values (if the first byte is between 0 and 16, inclusive):
 ** 1 value: the witness version
 ** A conversion of the the 2-to-40-byte witness program (as defined by [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) to base32:
 *** Start with the bits of the witness program, most significant bit per byte first.
+*** Re-arrange those bits into groups of 5, and pad with zeroes at the end if needed.
+*** Translate those bits to characters using the table above.
+* The data-part values (if the first byte is 17 or 18):
+** 1 value: the hash format
+** 1 value: the witness version
+** A preimage of the the witness program
+*** Start with the bits of the preimage, most significant bit per byte first.
 *** Re-arrange those bits into groups of 5, and pad with zeroes at the end if needed.
 *** Translate those bits to characters using the table above.
 
@@ -218,17 +225,22 @@ distinct.</ref> for testnet.
 
 Software interpreting a segwit address:
 * MUST verify that the human-readable part is "bc" for mainnet and "tb" for testnet.
-* MUST verify that the first decoded data value (the witness version) is between 0 and 16, inclusive.
-* Convert the rest of the data to bytes:
+* MUST verify that the first decoded data value is between 0 and 18, inclusive.
+* If the first decoded data value is less than 16, consider it the witness version; otherwise, verify that the second decoded data value is between 0 and 16, inclusive, and use that as the witness version (in this case, the first decoded value is the "hash format").
+* Convert the remaining data to bytes:
 ** Translate the values to 5 bits, most significant bit first.
 ** Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or less, MUST be all zeroes, and is discarded.
-** There MUST be between 2 and 40 groups, which are interpreted as the bytes of the witness program.
+* If a hash format is NOT defined:
+** The translated remaining data MUST be between 2 and 40 groups, which are interpreted as the bytes of the witness program.
+* If a hash format is defined:
+** The translated remaining data is to be hashed according to the hash format, and the output hash is interpreted as the bytes of the witness program.
+** For hash format 17, SHA256 is used. For hash format 18, RIPEMD160 is used.
 
 Decoders SHOULD enforce known-length restrictions on witness programs.
 For example, BIP141 specifies ''If the version byte is 0, but the witness
 program is neither 20 nor 32 bytes, the script must fail.''
 
-As a result of the previous rules, addresses are always between 14 and 74 characters long, and their length modulo 8 cannot be 0, 3, or 5.
+As a result of the previous rules, addresses are always between 14 and 75 characters long, and their length modulo 8 cannot be 0, 3, or 5.
 Version 0 witness addresses are always 42 or 62 characters, but implementations MUST allow the use of any version.
 
 Implementations should take special care when converting the address to a
