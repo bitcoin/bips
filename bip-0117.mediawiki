@@ -117,16 +117,17 @@ The possible execution pathways through the script are then enumerated, with con
 The list of possible execution pathways is then put into a Merkle tree, with the flattened policy scripts as the leaves of this tree.
 The final redeem script which funds are sent to is as follows:
 
-  redeemScript: OVER HASH256 <root> 1 MERKLEBRANCHVERIFY 2DROP 2DROP
+  redeemScript: <nowiki><root> 2 MERKLEBRANCHVERIFY 2DROP DROP</nowiki>
   witness: <nowiki><argN> ... <arg1> <policyScript> <proof></nowiki>
 
 Where <code>policyScript</code> is the flattened execution pathway, <code>proof</code> is the serialized Merkle branch and path that proves the policyScript is drawn from the set used to construct the Merkle tree <code>root</code>, and <code>arg1</code> through <code>argN</code> are the arguments required by <code>policyScript</code>.
-The <code>OVER HASH256</code> copies the subscript and performs the double-SHA256 hash necessary to prepare the leaf hash value for MERKLEBRANCHVERIFY, and the <code>2DROP 2DROP</code> is necessary to remove the arguments to MERKLEBRANCHVERIFY from the stack.
+The <code>2</code> indicates that a single leaf (<code>1 << 1</code>) follows, and the leaf value is not pre-hashed.
+The <code>2DROP DROP</code> is necessary to remove the arguments to MERKLEBRANCHVERIFY from the stack.
 
 The above example was designed for clarity, but actually violates the CLEANSTACK rule of segwit v0 script execution.
 Unless the CLEANSTACK rule is dropped or modified in a new segwit output version, this would script would have to be modified to use the alt-stack, as follows:
 
-  redeemScript: <nowiki>[TOALTSTACK]*N OVER HASH256 <root> 1 MERKLEBRANCHVERIFY 2DROP 2DROP</nowiki>
+  redeemScript: <nowiki>[TOALTSTACK]*N <root> 2 MERKLEBRANCHVERIFY 2DROP DROP</nowiki>
   witness: <nowiki><policyScript> <proof> <arg1> ... <argN></nowiki>
 
 Where <code>[TOALTSTACK]*N</code> is the TOALTSTACK opcode repeated N times.
@@ -142,7 +143,7 @@ The following redeem script allows between 1 and 3 witness arguments in addition
                 DEPTH 2 SUB                         // Calculate number of optional elements, ignoring policyScript and proof
                 DUP IF SWAP TOALTSTACK 1SUB ENDIF   // Save 2nd element (optional) to alt-stack, if it is present
                 IF TOALTSTACK ENDIF                 // Save 3rd element (optional) to alt-stack, if it is present; consume counter
-                OVER HASH256 <nowiki><root></nowiki> 1 MERKLEBRANCHVERIFY 2DROP 2DROP
+                <nowiki><root></nowiki> 2 MERKLEBRANCHVERIFY 2DROP DROP
   alt-stack: <nowiki><N+2> <argN> ... <arg1></nowiki>
 
 Because the number of witness elements is pushed onto the alt-stack, this enables policy scripts to verify the number of arguments passed, even though the size of the alt-stack is not usually accessible to script.
