@@ -1,0 +1,108 @@
+<pre>
+  BIP: ??
+  Layer: Consensus
+  Title: P2SH and Version 0 Segwit Script enforcement from genesis
+  Author: Suhas Daftuar <sdaftuar@chaincode.com>
+  Comments-Summary: ??
+  Comments-URI: ??
+  Status: Draft
+  Type: Informational
+  Created: 2017-09-12
+  License: MIT
+</pre>
+
+==Abstract==
+
+The Pay to Script Hash (P2SH, BIP 16) script rules and the Version 0 Witness
+Program script rules (BIP 143/141) can be enforced from the genesis block with
+only one historical exception.  Doing so simplifies consensus rules and allows
+protocol implementers to avoid writing and testing code paths that are no
+longer relevant.
+
+==Motivation==
+
+Historically, Bitcoin has implemented new features via soft-fork, where new
+consensus rules are added in a way that is compatible with the prior history,
+to avoid potentially splitting the network.  Generally this has been done by
+enforcing the new consensus rule after some block height, with various schemes
+having been used in the past to coordinate the block height of the change (see,
+for example, BIP 9, BIP 16, BIP 34, and BIP 90 for examples and discussion, as
+well as BIP 91 and BIP 148 for alternative consensus rules designed to be
+compatible with BIP 141).
+
+Once a new rule has activated, maintaining a different consensus ruleset before
+and after the change, and implementing whatever rules were used to coordinate
+the activation, is mere technical debt.  For rules where no (or few) prior
+blocks in the chain violated the new consensus rule, we can simplify the
+protocol and the burden on maintaining implementations by moving the activation
+back to the genesis block, as though the rule were always in place.  The "Pay
+to Script Hash" and "Version 0 Witness Program" script rules are both good
+candidates for this kind of simplification, because there is only one mainnet
+exception to the P2SH rules, and no mainnet script violations of the version 0
+witness program rules, on the Bitcoin blockchain.
+
+==Background==
+
+The script rules for BIP 16 have been in effect on all blocks with time stamp after
+April 1, 2012, which corresponds to block height 173,805 on mainnet.  Only one block
+prior to that height (block 170,060, with hash 0x00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22)
+contains transactions that violate the BIP 16 script rule.
+
+The script rules for validating transactions which spend version 0 witness
+outputs went into effect starting with block 481,824 on mainnet (August 2017).
+No blocks on the current mainnet chain contain transactions that would fail
+validation when enforcing these rules.
+
+Note that the full specification for the script rules relating to spending
+version 0 witness outputs is split between BIP 141 and BIP 143.
+
+==Considerations==
+
+Always enforcing a consensus rule, versus selective enforcement on certain
+chains that meet some other criteria, can simplify the testing needed for an
+implementation.  For instance, while the reference implementation of BIP
+141/143 introduces many tests to cover segwit activation, continuing to
+maintain tests for hypothetical conditions where segwit is not active (eg on
+chain forks where segwit did not activate) may no longer be useful.  
+
+Similarly, BIP 16 has been active for such a long time that testing an
+implementation for "correct" (different) behavior before and after its activation
+may also be unnecessary.
+
+The likelihood of a consensus split between software that implement this
+proposal and existing software is remote, because this proposal only affects
+the validity of blocks that are now long buried in the Bitcoin mainnet chain.
+Consequently this is considered to be an optional proposal that implementers
+may choose to adopt or reject without significant concern of a network fork.
+
+Note that the script verification rules from BIP 143 require BIP 16, so BIP 16
+must be active on any blocks that BIP 143 would be active on.
+
+Like mainnet, testnet3 also only has one historical block that violates the
+P2SH rules.
+
+==Implementation==
+
+https://github.com/bitcoin/bitcoin/pull/11739
+
+==References==
+
+[https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki BIP9 Version bits with timeout and delay]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki BIP16 Pay to Script Hash]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki BIP34 Block v2, Height in Coinbase] 
+
+[https://github.com/bitcoin/bips/blob/master/bip-0090.mediawiki BIP90 Buried Deloyments]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0091.mediawiki BIP91 Reduced threshold Segwit MASF]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141 Segregated Witness (Consensus layer)]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki BIP143 Transaction Signature Verification for Version 0 Witness Program ]
+
+[https://github.com/bitcoin/bips/blob/master/bip-0148.mediawiki BIP148 Mandatory activation of segwit deployment ]
+
+==Acknowledgements==
+
+Thanks to Alex Morcos and Greg Maxwell for suggesting this approach.
