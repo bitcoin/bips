@@ -19,7 +19,7 @@
 ==Abstract==
 
 
-Blind Merged Mining (BMM) is a way of mining special extension blocks, ie "sidechains". It produces strong guarantees that the block is valid, for *any* arbitrary set of rules; and yet it does so without requiring miners to actually do any validation on the block whatsoever.
+Blind Merged Mining (BMM) is a way of mining optional extension blocks, ie "asymmetric sidechains". It produces strong guarantees that the block is valid, for *any* arbitrary set of rules; and yet it does so without requiring miners to actually do any validation on the block whatsoever.
 
 BMM actually is a process that spans two or more chains. For an explanation of the "whole picture", please see [this post](http://www.truthcoin.info/blog/blind-merged-mining/). Here we focus on the modifications to mainchain Bitcoin.
 
@@ -54,10 +54,12 @@ As stated above, we have two goals: [1] create and monitor an alt-chain (defined
 Specifically, per side:block per side:chain, we track the following 35 bytes of information:
 
     1-byte   - ChainIndex (known as "Account Number" in hashrate-escrows.md , or as "Sidechain Number")
-    32-bytes - sideHeaderHash (also known as "h*" / hashCritical, the hash of the sidechain block)
-    2-bytes  - prevBlockRef (an index which points to this side:block's parent side:block)
+    32-bytes - sideHeaderHash (also known as "h*" / hashCritical, the hash of the blockheader of the sidechain in question)
+    2-bytes  - prevBlockRef (an index which points to this side:blockheader's parent side:blockheader)
 
-The **ChainIndex** indicates which sidechain this critical data is relevant to. As we may eventually have more than one sidechain, this serves as an identifier similar to the Bitcoin network's magic bytes (0xF9BEB4D9). Drivechains however only need to use 1 byte for the identifier (there is a hard limit of 256 sidechains identified as 0-255). The **sideHeaderHash** is the hash of a side:block which will receive PoW via BMM. It serves a similar function to Bitcoin's "hashMerkleRoot", in that it contains the data for its blockchain. The **prevBlockRef** forms the set of headers into a blockchain structure by making each headers refer to one parent header. It is most similar to Bitcoin's hashPrevBlock.
+The **ChainIndex** indicates which sidechain this critical data is relevant to. As we may eventually have more than one sidechain, this serves as an identifier similar to the Bitcoin network's magic bytes (0xF9BEB4D9). Drivechains however only need to use 1 byte for the identifier (there is a hard limit of 256 sidechains identified as 0-255). The **sideHeaderHash** is the hash of a side:blockheader which will receive PoW via BMM. It serves a similar function to Bitcoin's "hashMerkleRoot", in that it contains the data for its blockchain. The **prevBlockRef** forms the set of headers into a blockchain structure by making each headers refer to one parent header. It is most similar to Bitcoin's hashPrevBlock.
+
+This data is "critical" in the sense that it is the minimum amount of data required to define a sidechain.
 
 Where does this data come from, and how does it get around?
 
@@ -138,7 +140,7 @@ To efficiently keep track of the above data, without having to constantly load a
 
 This section introduces a new type of transaction, which allows sidechain block creators to request, and pay for, a critical hash to be included in a specific block by mainchain miners. See [the Blind Merged Mining spec](http://www.truthcoin.info/blog/blind-merged-mining/). This txn allows miners to "sell" the act of mining a sidechain block. By taking advantage of this option, miners earn tx fees for mining sidechains...truly "for free". They do not even need to run sidechain nodes, and the tx-fees they earn are in mainchain BTC. As a result, sidechains affect all miners equally and do not affect the mining ecosystem.
 
-M8 will ultimately come in two versions. The second version will be specialized for use in the Lightning Network and must use the full 32-byte prevBlockHash (ironically, this larger transaction is cheaper for the Bitcoin network to process, as it is completely off-chain). The first version of M8, in contrast, cannot be used inside the Lightning Network, but is slightly more space-efficient (using the 2 prevBlockRef bytes to maintain chain order). It is important to make both options available to the user, because some side:nodes may be unwilling or unable to open a payment channels with each main:miner. However, in the long run we expect the lightning version to be preferred.
+M8 will ultimately come in two versions. The second version will be specialized for use in the Lightning Network and must use the full 32-byte prevBlockHash (ironically, this larger transaction is cheaper for the Bitcoin network to process, as it is completely off-chain). The first version of M8, in contrast, cannot be used inside the Lightning Network, but is slightly more space-efficient (using the 2 prevBlockRef bytes to maintain chain order). It is important to make both options available to the user, because some side:nodes may be unwilling or unable to open a LN connection with each main:miner. However, in the long run we expect the lightning version to be preferred.
 
 ==== Setup ====
 
@@ -290,6 +292,13 @@ From here, if the h\* side:block in question is BMMed, they can proceed to (III)
 Although, if Simon proceeds immediately, he removes the protection of the 'ratchet'. Ie, Simon removes Mary's incentive to care about blocks being built on this side:block. If Simon's side:block is orphaned, he loses his 7 BTC. Simon can either play it safe, and wait the full 100 side:blocks before moving on (ie, moving on to the third LN txn, above); or else Simon can take the risk if he feels comfortable with it.
 
 If the h\* side:block is not found, then (II) and (III) are basically equivalent to each other. Simon and Mary could jointly reconstruct (I) and go back there, or they could proceed to a new version of II (with a different h\*, trying again with new side:block in the next main:block).
+
+
+==Backward compatibility==
+
+As a soft fork, older software will continue to operate without modification. As stated above, BMM asks nodes to track a set of ordered hashes, and to allow miners to "sell" the act of finding a sidechain block. Non-upgraded nodes will notice that this activity (specifically: data in coinbases, and new txns that have OP Returns and interesting message headers) is now taking place, but they will not understand any of it. Much like P2SH or a new OP Code, these old users will not be directly affected by the fork, as they will have no expectations of receiving payments of this kind.
+
+(As a matter of fact, the only people receiving money here all happen to be miners. So there is less reason than ever to expect compatibility problems.)
 
 
 
