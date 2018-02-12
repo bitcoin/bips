@@ -40,6 +40,7 @@ my %MiscField = (
 my %ValidLayer = (
 	'Consensus (soft fork)' => undef,
 	'Consensus (hard fork)' => undef,
+	'Consensus (buried deployment)' => undef,
 	'Peer Services' => undef,
 	'API/RPC' => undef,
 	'Applications' => undef,
