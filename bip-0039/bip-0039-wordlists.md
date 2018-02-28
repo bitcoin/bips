@@ -8,6 +8,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Portuguese (Brazilian)](portuguese_brazilian.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -82,3 +83,11 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good.
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Portuguese (Brazilian)
+
+Credits: @kuthullu
+
+Simple and common words as used in Brazil were chosen, with length between 4 and 8 characters, without person names, with the first 4 letters of every word unique, without accents, number or gender flexing.
+
+Every word was manually checked and should not be offensive for anyone.
