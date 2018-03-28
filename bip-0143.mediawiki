@@ -1,20 +1,24 @@
-﻿<pre>
+<pre>
   BIP: 143
+  Layer: Consensus (soft fork)
   Title: Transaction Signature Verification for Version 0 Witness Program
   Author: Johnson Lau <jl2012@xbt.hk>
           Pieter Wuille <pieter.wuille@gmail.com>
-  Status: Draft
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0143
+  Status: Final
   Type: Standards Track
   Created: 2016-01-03
+  License: PD
 </pre>
 
 == Abstract ==
 This proposal defines a new transaction digest algorithm for signature verification in version 0 witness program, in order to minimize redundant data hashing in verification, and to cover the input value by the signature.
 
 == Motivation ==
-There are 4 ECDSA signature verification codes in the original Bitcoin script system: CHECKSIG, CHECKSIGVERIFY, CHECKMULTISIG, CHECKMULTISIGVERIFY (“sigops”). According to the sighash type (ALL, NONE, SINGLE, ANYONECANPAY), a transaction digest is generated with a double SHA256 of a serialized subset of the transaction, and the signature is verified against this digest with a given public key. The detailed procedure is described in a Bitcoin Wiki article. <ref name=wiki>[https://en.bitcoin.it/wiki/OP_CHECKSIG]</ref>
+There are 4 ECDSA signature verification codes in the original Bitcoin script system: <code>CHECKSIG</code>, <code>CHECKSIGVERIFY</code>, <code>CHECKMULTISIG</code>, <code>CHECKMULTISIGVERIFY</code> (“sigops”). According to the sighash type (<code>ALL</code>, <code>NONE</code>, <code>SINGLE</code>, <code>ANYONECANPAY</code>), a transaction digest is generated with a double SHA256 of a serialized subset of the transaction, and the signature is verified against this digest with a given public key. The detailed procedure is described in a Bitcoin Wiki article. <ref name=wiki>[https://en.bitcoin.it/wiki/OP_CHECKSIG]</ref>
 
-Unfortunately, there are at least 2 weaknesses in the original transaction digest algorithm:
+Unfortunately, there are at least 2 weaknesses in the original SignatureHash transaction digest algorithm:
 
 * For the verification of each signature, the amount of data hashing is proportional to the size of the transaction. Therefore, data hashing grows in O(n<sup>2</sup>) as the number of sigops in a transaction increases. While a 1 MB block would normally take 2 seconds to verify with an average computer in 2015, a 1MB transaction with 5569 sigops may take 25 seconds to verify. This could be fixed by optimizing the digest algorithm by introducing some reusable “midstate”, so the time complexity becomes O(n). <ref>[https://web.nvd.nist.gov/view/vuln/detail?vulnId=CVE-2013-2292 CVE-2013-2292]</ref><ref>[https://bitcointalk.org/?topic=140078 New Bitcoin vulnerability: A transaction that takes at least 3 minutes to verify]</ref><ref>[http://rusty.ozlabs.org/?p=522 The Megatransaction: Why Does It Take 25 Seconds?]</ref>
 * The algorithm does not involve the amount of Bitcoin being spent by the input. This is usually not a problem for online network nodes as they could request for the specified transaction to acquire the output value. For an offline transaction signing device ("cold wallet"), however, the unknowing of input amount makes it impossible to calculate the exact amount being spent and the transaction fee. To cope with this problem a cold wallet must also acquire the full transaction being spent, which could be a big obstacle in the implementation of lightweight, air-gapped wallet. By including the input value of part of the transaction digest, a cold wallet may safely sign a transaction by learning the value from an untrusted source. In the case that a wrong value is provided and signed, the signature would be invalid and no funding might be lost. <ref>[https://bitcointalk.org/index.php?topic=181734.0 SIGHASH_WITHINPUTVALUE: Super-lightweight HW wallets and offline data]</ref>
@@ -28,37 +32,42 @@ A new transaction digest algorithm is defined, but only applicable to sigops in 
      2. hashPrevouts (32-byte hash)
      3. hashSequence (32-byte hash)
      4. outpoint (32-byte hash + 4-byte little endian) 
-     5. scriptCode of the input (varInt for the length + script)
+     5. scriptCode of the input (serialized as scripts inside CTxOuts)
      6. value of the output spent by this input (8-byte little endian)
      7. nSequence of the input (4-byte little endian)
      8. hashOutputs (32-byte hash)
      9. nLocktime of the transaction (4-byte little endian)
     10. sighash type of the signature (4-byte little endian)
 
-All components in the original algorithm, including the behavior <code>OP_CODESEPERATOR</code>, remains unchanged. The only difference is the way of serialization and the inclusion of amount being spent.
+Semantics of the original sighash types remain unchanged, except the followings:
+# The way of serialization is changed;
+# All sighash types commit to the amount being spent by the signed input;
+# <code>FindAndDelete</code> of the signature is not applied to the <code>scriptCode</code>;
+# <code>OP_CODESEPARATOR</code>(s) after the last executed <code>OP_CODESEPARATOR</code> are not removed from the <code>scriptCode</code> (the last executed <code>OP_CODESEPARATOR</code> and any script before it are always removed);
+# <code>SINGLE</code> does not commit to the input index. When <code>ANYONECANPAY</code> is not set, the semantics are unchanged since <code>hashPrevouts</code> and <code>outpoint</code> together implictly commit to the input index. When <code>SINGLE</code> is used with <code>ANYONECANPAY</code>, omission of the index commitment allows permutation of the input-output pairs, as long as each pair is located at an equivalent index.
 
 The items 1, 4, 7, 9, 10 have the same meaning as the original algorithm. <ref name=wiki></ref>
 
 The item 5:
-*For P2WPKH witness program, the scriptCode is <code>0x1976a914{20-byte-pubkey-hash}88ac</code>.
-*For P2WSH witness program,
-**if the <code>witnessScript</code> does not contain any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is a <code>varInt</code> for the length of the <code>witnessScript</code>, followed by the <code>witnessScript</code>.
-**if the <code>witnessScript</code> contains any <code>OP_CODESEPERATOR</code>, the <code>scriptCode</code> is the evaluated script, with all <code>OP_CODESEPARATOR</code> and everything up to the last <code>OP_CODESEPARATOR</code> before the signature checking opcode being executed removed, and prepended by a <code>varInt</code> for the length of the truncated script.
+*For <code>P2WPKH</code> witness program, the <code>scriptCode</code> is <code>0x1976a914{20-byte-pubkey-hash}88ac</code>.
+*For <code>P2WSH</code> witness program,
+**if the <code>witnessScript</code> does not contain any <code>OP_CODESEPARATOR</code>, the <code>scriptCode</code> is the <code>witnessScript</code> serialized as scripts inside <code>CTxOut</code>.
+**if the <code>witnessScript</code> contains any <code>OP_CODESEPARATOR</code>, the <code>scriptCode</code> is the <code>witnessScript</code> but removing everything up to and including the last executed <code>OP_CODESEPARATOR</code> before the signature checking opcode being executed, serialized as scripts inside <code>CTxOut</code>. (The exact semantics is demonstrated in the examples below)
 
 The item 6 is a 8-byte value of the amount of bitcoin spent in this input.
 
 <code>hashPrevouts</code>:
-*If the ANYONECANPAY flag is not set, hashPrevouts is the double SHA256 of the serialization of all input outpoints;
+*If the <code>ANYONECANPAY</code> flag is not set, <code>hashPrevouts</code> is the double SHA256 of the serialization of all input outpoints;
 *Otherwise, <code>hashPrevouts</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
 <code>hashSequence</code>:
-*If none of the ANYONECANPAY, SINGLE, NONE sighash type is set, hashSequence is the double SHA256 of the serialization of nSequence of all inputs;
+*If none of the <code>ANYONECANPAY</code>, <code>SINGLE</code>, <code>NONE</code> sighash type is set, <code>hashSequence</code> is the double SHA256 of the serialization of <code>nSequence</code> of all inputs;
 *Otherwise, <code>hashSequence</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
 
 <code>hashOutputs</code>:
-*If the sighash type is neither SINGLE nor NONE, hashOutputs is the double SHA256 of the serialization of all output value (8-byte little endian) with scriptPubKey (<code>varInt</code> for the length + script);
-*If sighash type is SINGLE and the input index is not greater than the number of outputs, <code>hashOutputs</code> is the double SHA256 of the output value with <code>scriptPubKey</code> of the same index as the input;
-*Otherwise, <code>hashOutputs</code> is a <code>uint256</code> of <code>0x0000......0000</code>.
+*If the sighash type is neither <code>SINGLE</code> nor <code>NONE</code>, <code>hashOutputs</code> is the double SHA256 of the serialization of all output amount (8-byte little endian) with <code>scriptPubKey</code> (serialized as scripts inside CTxOuts);
+*If sighash type is <code>SINGLE</code> and the input index is smaller than the number of outputs, <code>hashOutputs</code> is the double SHA256 of the output amount with <code>scriptPubKey</code> of the same index as the input;
+*Otherwise, <code>hashOutputs</code> is a <code>uint256</code> of <code>0x0000......0000</code>.<ref>In the original algorithm, a <code>uint256</code> of <code>0x0000......0001</code> is committed if the input index for a <code>SINGLE</code> signature is greater than or equal to the number of outputs. In this BIP a <code>0x0000......0000</code> is commited, without changing the semantics.</ref>
 
 The <code>hashPrevouts</code>, <code>hashSequence</code>, and <code>hashOutputs</code> calculated in an earlier verification may be reused in other inputs of the same transaction, so that the time complexity of the whole hashing process reduces from O(n<sup>2</sup>) to O(n).
 
@@ -120,8 +129,16 @@ Refer to the reference implementation, reproduced below, for the precise algorit
   return ss.GetHash();
 </source>
 
+== Restrictions on public key type ==
+As a default policy, only compressed public keys are accepted in <code>P2WPKH</code> and <code>P2WSH</code>. Each public key passed to a sigop inside version 0 witness program must be a compressed key: the first byte MUST be either <code>0x02</code> or <code>0x03</code>, and the size MUST be 33 bytes. Transactions that break this rule will not be relayed or mined by default.
+
+Since this policy is preparation for a future softfork proposal, to avoid potential future funds loss, users MUST NOT use uncompressed keys in version 0 witness programs.
+
 == Example ==
 
+To ensure consistency in consensus-critical behaviour, developers should test their implementations against all the tests below. More tests related to this proposal could be found under https://github.com/bitcoin/bitcoin/tree/master/src/test/data .
+
+=== Native P2WPKH ===
   
   The following is an unsigned transaction:
     0100000002fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f0000000000eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac11000000
@@ -134,10 +151,13 @@ Refer to the reference implementation, reproduced below, for the precise algorit
     nLockTime: 11000000
   
   The first input comes from an ordinary P2PK:
-    scriptPubKey: 2103c9f4836b9a4f77fc0d81f7bcb01b7f1b35916864b9476c241ce9fc198bd25432ac value: 6.25
+    scriptPubKey : 2103c9f4836b9a4f77fc0d81f7bcb01b7f1b35916864b9476c241ce9fc198bd25432ac value: 6.25
+    private key  : bbc27228ddcb9209d7fd6f36b02f7dfa6252af40bb2f1cbc7a557da8027ff866
     
   The second input comes from a P2WPKH witness program:
-    scriptPubKey: 00141d0f172a0ecb48aee1be1f2687d2963ae33f71a1, value: 6
+    scriptPubKey : 00141d0f172a0ecb48aee1be1f2687d2963ae33f71a1, value: 6
+    private key  : 619c335025c7f4012e556c2a58b2506e30b8511b53ade95ea316fd8c3286feb9
+    public key   : 025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357
     
   To sign it with a nHashType of 1 (SIGHASH_ALL):
   
@@ -182,22 +202,435 @@ Refer to the reference implementation, reproduced below, for the precise algorit
                02 47304402203609e17b84f6a7d30c80bfa610b5b4542f32a8a0d5447a12fb1366d7f01cc44a0220573a954c4518331561406f90300e8f3358f51928d43c212a8caed02de67eebee01 21025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee6357
     nLockTime: 11000000
 
+=== P2SH-P2WPKH ===
+  
+  
+  The following is an unsigned transaction: 0100000001db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a54770100000000feffffff02b8b4eb0b000000001976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac0008af2f000000001976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac92040000
+  
+    nVersion:  01000000
+    txin:      01 db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a5477 01000000 00 feffffff
+    txout:     02 b8b4eb0b00000000 1976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac
+                  0008af2f00000000 1976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac
+    nLockTime: 92040000
+  
+  The input comes from a P2SH-P2WPKH witness program:
+    scriptPubKey : a9144733f37cf4db86fbc2efed2500b4f4e49f31202387, value: 10
+    redeemScript : 001479091972186c449eb1ded22b78e40d009bdf0089
+    private key  : eb696a065ef48a2192da5b28b694f87544b30fae8327c4510137a922f32c6dcf
+    public key   : 03ad1d8e89212f0b92c74d23bb710c00662ad1470198ac48c43f7d6f93a2a26873
+  
+  To sign it with a nHashType of 1 (SIGHASH_ALL):
+  
+  hashPrevouts:
+    dSHA256(db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a547701000000)
+  = b0287b4a252ac05af83d2dcef00ba313af78a3e9c329afa216eb3aa2a7b4613a
+  
+  hashSequence:
+    dSHA256(feffffff)
+  = 18606b350cd8bf565266bc352f0caddcf01e8fa789dd8a15386327cf8cabe198
+  
+  hashOutputs:
+    dSHA256(b8b4eb0b000000001976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac0008af2f000000001976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac)
+  = de984f44532e2173ca0d64314fcefe6d30da6f8cf27bafa706da61df8a226c83
+  
+  hash preimage: 01000000b0287b4a252ac05af83d2dcef00ba313af78a3e9c329afa216eb3aa2a7b4613a18606b350cd8bf565266bc352f0caddcf01e8fa789dd8a15386327cf8cabe198db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a5477010000001976a91479091972186c449eb1ded22b78e40d009bdf008988ac00ca9a3b00000000feffffffde984f44532e2173ca0d64314fcefe6d30da6f8cf27bafa706da61df8a226c839204000001000000
+  
+    nVersion:     01000000
+    hashPrevouts: b0287b4a252ac05af83d2dcef00ba313af78a3e9c329afa216eb3aa2a7b4613a
+    hashSequence: 18606b350cd8bf565266bc352f0caddcf01e8fa789dd8a15386327cf8cabe198
+    outpoint:     db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a547701000000
+    scriptCode:   1976a91479091972186c449eb1ded22b78e40d009bdf008988ac
+    amount:       00ca9a3b00000000
+    nSequence:    feffffff
+    hashOutputs:  de984f44532e2173ca0d64314fcefe6d30da6f8cf27bafa706da61df8a226c83
+    nLockTime:    92040000
+    nHashType:    01000000
+  
+  sigHash:      64f3b0f4dd2bb3aa1ce8566d220cc74dda9df97d8490cc81d89d735c92e59fb6
+  signature:    3044022047ac8e878352d3ebbde1c94ce3a10d057c24175747116f8288e5d794d12d482f0220217f36a485cae903c713331d877c1f64677e3622ad4010726870540656fe9dcb01
+  
+  The serialized signed transaction is: 01000000000101db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a5477010000001716001479091972186c449eb1ded22b78e40d009bdf0089feffffff02b8b4eb0b000000001976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac0008af2f000000001976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac02473044022047ac8e878352d3ebbde1c94ce3a10d057c24175747116f8288e5d794d12d482f0220217f36a485cae903c713331d877c1f64677e3622ad4010726870540656fe9dcb012103ad1d8e89212f0b92c74d23bb710c00662ad1470198ac48c43f7d6f93a2a2687392040000
+    nVersion:  01000000
+    marker:    00
+    flag:      01
+    txin:      01 db6b1b20aa0fd7b23880be2ecbd4a98130974cf4748fb66092ac4d3ceb1a5477 01000000 1716001479091972186c449eb1ded22b78e40d009bdf0089 feffffff
+    txout:     02 b8b4eb0b00000000 1976a914a457b684d7f0d539a46a45bbc043f35b59d0d96388ac
+                  0008af2f00000000 1976a914fd270b1ee6abcaea97fea7ad0402e8bd8ad6d77c88ac
+    witness    02 473044022047ac8e878352d3ebbde1c94ce3a10d057c24175747116f8288e5d794d12d482f0220217f36a485cae903c713331d877c1f64677e3622ad4010726870540656fe9dcb01 2103ad1d8e89212f0b92c74d23bb710c00662ad1470198ac48c43f7d6f93a2a26873
+    nLockTime: 92040000
+
+=== Native P2WSH ===
+
+This example shows how <code>OP_CODESEPARATOR</code> and out-of-range <code>SIGHASH_SINGLE</code> are processed:
+
+  
+  
+  The following is an unsigned transaction:
+    0100000002fe3dc9208094f3ffd12645477b3dc56f60ec4fa8e6f5d67c565d1c6b9216b36e0000000000ffffffff0815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f80000000000ffffffff0100f2052a010000001976a914a30741f8145e5acadf23f751864167f32e0963f788ac00000000
+  
+    nVersion:  01000000
+    txin:      02 fe3dc9208094f3ffd12645477b3dc56f60ec4fa8e6f5d67c565d1c6b9216b36e 00000000 00 ffffffff
+                  0815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f8 00000000 00 ffffffff
+    txout:     01 00f2052a01000000 1976a914a30741f8145e5acadf23f751864167f32e0963f788ac
+    nLockTime: 00000000
+  
+  The first input comes from an ordinary P2PK:
+    scriptPubKey: 21036d5c20fa14fb2f635474c1dc4ef5909d4568e5569b79fc94d3448486e14685f8ac value: 1.5625
+    private key:  b8f28a772fccbf9b4f58a4f027e07dc2e35e7cd80529975e292ea34f84c4580c
+    signature:    304402200af4e47c9b9629dbecc21f73af989bdaa911f7e6f6c2e9394588a3aa68f81e9902204f3fcf6ade7e5abb1295b6774c8e0abd94ae62217367096bc02ee5e435b67da201 (SIGHASH_ALL)
+  
+  The second input comes from a native P2WSH witness program:
+    scriptPubKey : 00205d1b56b63d714eebe542309525f484b7e9d6f686b3781b6f61ef925d66d6f6a0, value: 49
+    witnessScript: 21026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880aeadab210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac
+                   <026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880ae> CHECKSIGVERIFY CODESEPARATOR <0255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465> CHECKSIG
+  
+  To sign it with a nHashType of 3 (SIGHASH_SINGLE):
+  
+  hashPrevouts:
+    dSHA256(fe3dc9208094f3ffd12645477b3dc56f60ec4fa8e6f5d67c565d1c6b9216b36e000000000815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f800000000)
+  = ef546acf4a020de3898d1b8956176bb507e6211b5ed3619cd08b6ea7e2a09d41
+  
+    nVersion:     01000000
+    hashPrevouts: ef546acf4a020de3898d1b8956176bb507e6211b5ed3619cd08b6ea7e2a09d41
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     0815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f800000000
+    scriptCode:   (see below)
+    amount:       0011102401000000
+    nSequence:    ffffffff
+    hashOutputs:  0000000000000000000000000000000000000000000000000000000000000000 (this is the second input but there is only one output)
+    nLockTime:    00000000
+    nHashType:    03000000
+  
+  scriptCode:  4721026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880aeadab210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac
+                                                                                       ^^
+               (please note that the not-yet-exectued OP_CODESEPARATOR is not removed from the scriptCode)
+  preimage:    01000000ef546acf4a020de3898d1b8956176bb507e6211b5ed3619cd08b6ea7e2a09d4100000000000000000000000000000000000000000000000000000000000000000815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f8000000004721026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880aeadab210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac0011102401000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000003000000
+  sigHash:     82dde6e4f1e94d02c2b7ad03d2115d691f48d064e9d52f58194a6637e4194391
+  public key:  026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880ae
+  private key: 8e02b539b1500aa7c81cf3fed177448a546f19d2be416c0c61ff28e577d8d0cd
+  signature:   3044022027dc95ad6b740fe5129e7e62a75dd00f291a2aeb1200b84b09d9e3789406b6c002201a9ecd315dd6a0e632ab20bbb98948bc0c6fb204f2c286963bb48517a7058e2703
+  
+  scriptCode:  23210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac
+               (everything up to the last executed OP_CODESEPARATOR, including that OP_CODESEPARATOR, are removed)
+  preimage:    01000000ef546acf4a020de3898d1b8956176bb507e6211b5ed3619cd08b6ea7e2a09d4100000000000000000000000000000000000000000000000000000000000000000815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f80000000023210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac0011102401000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000003000000
+  sigHash:     fef7bd749cce710c5c052bd796df1af0d935e59cea63736268bcbe2d2134fc47
+  public key:  0255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465
+  private key: 86bf2ed75935a0cbef03b89d72034bb4c189d381037a5ac121a70016db8896ec
+  signature:   304402200de66acf4527789bfda55fc5459e214fa6083f936b430a762c629656216805ac0220396f550692cd347171cbc1ef1f51e15282e837bb2b30860dc77c8f78bc8501e503
+  
+  The serialized signed transaction is: 01000000000102fe3dc9208094f3ffd12645477b3dc56f60ec4fa8e6f5d67c565d1c6b9216b36e000000004847304402200af4e47c9b9629dbecc21f73af989bdaa911f7e6f6c2e9394588a3aa68f81e9902204f3fcf6ade7e5abb1295b6774c8e0abd94ae62217367096bc02ee5e435b67da201ffffffff0815cf020f013ed6cf91d29f4202e8a58726b1ac6c79da47c23d1bee0a6925f80000000000ffffffff0100f2052a010000001976a914a30741f8145e5acadf23f751864167f32e0963f788ac000347304402200de66acf4527789bfda55fc5459e214fa6083f936b430a762c629656216805ac0220396f550692cd347171cbc1ef1f51e15282e837bb2b30860dc77c8f78bc8501e503473044022027dc95ad6b740fe5129e7e62a75dd00f291a2aeb1200b84b09d9e3789406b6c002201a9ecd315dd6a0e632ab20bbb98948bc0c6fb204f2c286963bb48517a7058e27034721026dccc749adc2a9d0d89497ac511f760f45c47dc5ed9cf352a58ac706453880aeadab210255a9626aebf5e29c0e6538428ba0d1dcf6ca98ffdf086aa8ced5e0d0215ea465ac00000000
+
+
+This example shows how unexecuted <code>OP_CODESEPARATOR</code> is processed, and <code>SINGLE|ANYONECANPAY</code> does not commit to the input index:
+
+  
+  
+  The following is an unsigned transaction:
+    0100000002e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc0010000000000ffffffff80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b0000000000ffffffff0280969800000000001976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac80969800000000001976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac00000000
+  
+    nVersion:  01000000
+    txin:      02 e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc001 00000000 00 ffffffff
+                  80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b 00000000 00 ffffffff
+    txout:     02 8096980000000000 1976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac
+                  8096980000000000 1976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac
+    nLockTime: 00000000
+  
+  The first input comes from a native P2WSH witness program:
+    scriptPubKey: 0020ba468eea561b26301e4cf69fa34bde4ad60c81e70f059f045ca9a79931004a4d value: 0.16777215
+    witnessScript:0063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+                  0 IF CODESEPARATOR ENDIF <0392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98> CHECKSIG
+  
+  The second input comes from a native P2WSH witness program:
+    scriptPubKey: 0020d9bbfbe56af7c4b7f960a70d7ea107156913d9e5a26b0a71429df5e097ca6537 value: 0.16777215
+    witnessScript:5163ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+                  1 IF CODESEPARATOR ENDIF <0392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98> CHECKSIG
+  
+  To sign it with a nHashType of 0x83 (SINGLE|ANYONECANPAY):
+  
+    nVersion:     01000000
+    hashPrevouts: 0000000000000000000000000000000000000000000000000000000000000000
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     (see below)
+    scriptCode:   (see below)
+    amount:       ffffff0000000000
+    nSequence:    ffffffff
+    hashOutputs:  (see below)
+    nLockTime:    00000000
+    nHashType:    83000000
+  
+  outpoint:    e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc00100000000
+  scriptCode:  270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+               (since the OP_CODESEPARATOR is not executed, nothing is removed from the scriptCode)
+  hashOutputs: b258eaf08c39fbe9fbac97c15c7e7adeb8df142b0df6f83e017f349c2b6fe3d2
+  preimage:    0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc00100000000270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98acffffff0000000000ffffffffb258eaf08c39fbe9fbac97c15c7e7adeb8df142b0df6f83e017f349c2b6fe3d20000000083000000
+  sigHash:     e9071e75e25b8a1e298a72f0d2e9f4f95a0f5cdf86a533cda597eb402ed13b3a
+  public key:  0392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98
+  private key: f52b3484edd96598e02a9c89c4492e9c1e2031f471c49fd721fe68b3ce37780d
+  signature:   3045022100f6a10b8604e6dc910194b79ccfc93e1bc0ec7c03453caaa8987f7d6c3413566002206216229ede9b4d6ec2d325be245c5b508ff0339bf1794078e20bfe0babc7ffe683
+  
+  outpoint:    80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b00000000
+  scriptCode:  2468210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+               (everything up to the last executed OP_CODESEPARATOR, including that OP_CODESEPARATOR, are removed)
+  hashOutputs: 91ea93dd77f702b738ebdbf3048940a98310e869a7bb8fa2c6cb3312916947ca
+  preimage:    010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b000000002468210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98acffffff0000000000ffffffff91ea93dd77f702b738ebdbf3048940a98310e869a7bb8fa2c6cb3312916947ca0000000083000000
+  sigHash:     cd72f1f1a433ee9df816857fad88d8ebd97e09a75cd481583eb841c330275e54
+  public key:  0392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98
+  private key: f52b3484edd96598e02a9c89c4492e9c1e2031f471c49fd721fe68b3ce37780d
+  signature:   30440220032521802a76ad7bf74d0e2c218b72cf0cbc867066e2e53db905ba37f130397e02207709e2188ed7f08f4c952d9d13986da504502b8c3be59617e043552f506c46ff83
+  
+  The serialized signed transaction is:
+  01000000000102e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc0010000000000ffffffff80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b0000000000ffffffff0280969800000000001976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac80969800000000001976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac02483045022100f6a10b8604e6dc910194b79ccfc93e1bc0ec7c03453caaa8987f7d6c3413566002206216229ede9b4d6ec2d325be245c5b508ff0339bf1794078e20bfe0babc7ffe683270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac024730440220032521802a76ad7bf74d0e2c218b72cf0cbc867066e2e53db905ba37f130397e02207709e2188ed7f08f4c952d9d13986da504502b8c3be59617e043552f506c46ff83275163ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac00000000
+    nVersion:  01000000
+    marker:    00
+    flag:      01
+    txin:      02 e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc001 00000000 00 ffffffff
+                  80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b 00000000 00 ffffffff
+    txout:     02 8096980000000000 1976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac
+                  8096980000000000 1976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac
+    witness    02 483045022100f6a10b8604e6dc910194b79ccfc93e1bc0ec7c03453caaa8987f7d6c3413566002206216229ede9b4d6ec2d325be245c5b508ff0339bf1794078e20bfe0babc7ffe683 270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+               02 4730440220032521802a76ad7bf74d0e2c218b72cf0cbc867066e2e53db905ba37f130397e02207709e2188ed7f08f4c952d9d13986da504502b8c3be59617e043552f506c46ff83 275163ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+    nLockTime: 00000000
+  
+  Since SINGLE|ANYONECANPAY does not commit to the input index, the signatures are still valid when the the input-output pairs are swapped:
+  0100000000010280e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b0000000000ffffffffe9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc0010000000000ffffffff0280969800000000001976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac80969800000000001976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac024730440220032521802a76ad7bf74d0e2c218b72cf0cbc867066e2e53db905ba37f130397e02207709e2188ed7f08f4c952d9d13986da504502b8c3be59617e043552f506c46ff83275163ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac02483045022100f6a10b8604e6dc910194b79ccfc93e1bc0ec7c03453caaa8987f7d6c3413566002206216229ede9b4d6ec2d325be245c5b508ff0339bf1794078e20bfe0babc7ffe683270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac00000000
+    nVersion:  01000000
+    marker:    00
+    flag:      01
+    txin:      02 80e68831516392fcd100d186b3c2c7b95c80b53c77e77c35ba03a66b429a2a1b 00000000 00 ffffffff
+                  e9b542c5176808107ff1df906f46bb1f2583b16112b95ee5380665ba7fcfc001 00000000 00 ffffffff
+    txout:     02 8096980000000000 1976a9146648a8cd4531e1ec47f35916de8e259237294d1e88ac
+                  8096980000000000 1976a914de4b231626ef508c9a74a8517e6783c0546d6b2888ac
+    witness    02 4730440220032521802a76ad7bf74d0e2c218b72cf0cbc867066e2e53db905ba37f130397e02207709e2188ed7f08f4c952d9d13986da504502b8c3be59617e043552f506c46ff83 275163ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+               02 483045022100f6a10b8604e6dc910194b79ccfc93e1bc0ec7c03453caaa8987f7d6c3413566002206216229ede9b4d6ec2d325be245c5b508ff0339bf1794078e20bfe0babc7ffe683 270063ab68210392972e2eb617b2388771abe27235fd5ac44af8e61693261550447a4c3e39da98ac
+    nLockTime: 00000000
+
+=== P2SH-P2WSH ===
+
+This example is a P2SH-P2WSH 6-of-6 multisig witness program signed with 6 different <code>SIGHASH</code> types.
+
+  
+  
+  The following is an unsigned transaction: 010000000136641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e0100000000ffffffff0200e9a435000000001976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688acc0832f05000000001976a9147480a33f950689af511e6e84c138dbbd3c3ee41588ac00000000
+  
+    nVersion:  01000000
+    txin:      01 36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e 01000000 00 ffffffff
+    txout:     02 00e9a43500000000 1976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688ac
+                  c0832f0500000000 1976a9147480a33f950689af511e6e84c138dbbd3c3ee41588ac
+    nLockTime: 00000000
+  
+  The input comes from a P2SH-P2WSH 6-of-6 multisig witness program:
+    scriptPubKey : a9149993a429037b5d912407a71c252019287b8d27a587, value: 9.87654321
+    redeemScript : 0020a16b5755f7f6f96dbd65f5f0d6ab9418b89af4b1f14a1bb8a09062c35f0dcb54
+    witnessScript: 56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+  
+  hashPrevouts:
+    dSHA256(36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000)
+  = 74afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa0
+  
+  hashSequence:
+    dSHA256(ffffffff)
+  = 3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044
+  
+  hashOutputs for ALL:
+    dSHA256(00e9a435000000001976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688acc0832f05000000001976a9147480a33f950689af511e6e84c138dbbd3c3ee41588ac)
+  = bc4d309071414bed932f98832b27b4d76dad7e6c1346f487a8fdbb8eb90307cc
+  
+  hashOutputs for SINGLE:
+    dSHA256(00e9a435000000001976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688ac)
+  = 9efe0c13a6b16c14a41b04ebe6a63f419bdacb2f8705b494a43063ca3cd4f708
+  
+  hash preimage for ALL: 0100000074afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa03bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e7066504436641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56aeb168de3a00000000ffffffffbc4d309071414bed932f98832b27b4d76dad7e6c1346f487a8fdbb8eb90307cc0000000001000000
+    nVersion:     01000000
+    hashPrevouts: 74afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa0
+    hashSequence: 3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044
+    outpoint:     36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000
+    scriptCode:   cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+    amount:       b168de3a00000000
+    nSequence:    ffffffff
+    hashOutputs:  bc4d309071414bed932f98832b27b4d76dad7e6c1346f487a8fdbb8eb90307cc
+    nLockTime:    00000000
+    nHashType:    01000000
+  sigHash:      185c0be5263dce5b4bb50a047973c1b6272bfbd0103a89444597dc40b248ee7c
+  public key:   0307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba3
+  private key:  730fff80e1413068a05b57d6a58261f07551163369787f349438ea38ca80fac6
+  signature:    304402206ac44d672dac41f9b00e28f4df20c52eeb087207e8d758d76d92c6fab3b73e2b0220367750dbbe19290069cba53d096f44530e4f98acaa594810388cf7409a1870ce01
+  
+  hash preimage for NONE: 0100000074afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa0000000000000000000000000000000000000000000000000000000000000000036641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56aeb168de3a00000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000002000000
+    nVersion:     01000000
+    hashPrevouts: 74afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa0
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000
+    scriptCode:   cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+    amount:       b168de3a00000000
+    nSequence:    ffffffff
+    hashOutputs:  0000000000000000000000000000000000000000000000000000000000000000
+    nLockTime:    00000000
+    nHashType:    02000000
+  sigHash:        e9733bc60ea13c95c6527066bb975a2ff29a925e80aa14c213f686cbae5d2f36
+  public key:     03b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b
+  private key:    11fa3d25a17cbc22b29c44a484ba552b5a53149d106d3d853e22fdd05a2d8bb3
+  signature:      3044022068c7946a43232757cbdf9176f009a928e1cd9a1a8c212f15c1e11ac9f2925d9002205b75f937ff2f9f3c1246e547e54f62e027f64eefa2695578cc6432cdabce271502
+  
+  hash preimage for SINGLE: 0100000074afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa0000000000000000000000000000000000000000000000000000000000000000036641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56aeb168de3a00000000ffffffff9efe0c13a6b16c14a41b04ebe6a63f419bdacb2f8705b494a43063ca3cd4f7080000000003000000
+    nVersion:     01000000
+    hashPrevouts: 74afdc312af5183c4198a40ca3c1a275b485496dd3929bca388c4b5e31f7aaa0
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000
+    scriptCode:   cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+    amount:       b168de3a00000000
+    nSequence:    ffffffff
+    hashOutputs:  9efe0c13a6b16c14a41b04ebe6a63f419bdacb2f8705b494a43063ca3cd4f708
+    nLockTime:    00000000
+    nHashType:    03000000
+  sigHash:        1e1f1c303dc025bd664acb72e583e933fae4cff9148bf78c157d1e8f78530aea
+  public key:     034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a
+  private key:    77bf4141a87d55bdd7f3cd0bdccf6e9e642935fec45f2f30047be7b799120661
+  signature:      3044022059ebf56d98010a932cf8ecfec54c48e6139ed6adb0728c09cbe1e4fa0915302e022007cd986c8fa870ff5d2b3a89139c9fe7e499259875357e20fcbb15571c76795403
+  
+  hash preimage for ALL|ANYONECANPAY: 010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000036641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56aeb168de3a00000000ffffffffbc4d309071414bed932f98832b27b4d76dad7e6c1346f487a8fdbb8eb90307cc0000000081000000
+    nVersion:     01000000
+    hashPrevouts: 0000000000000000000000000000000000000000000000000000000000000000
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000
+    scriptCode:   cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+    amount:       b168de3a00000000
+    nSequence:    ffffffff
+    hashOutputs:  bc4d309071414bed932f98832b27b4d76dad7e6c1346f487a8fdbb8eb90307cc
+    nLockTime:    00000000
+    nHashType:    81000000
+  sigHash:        2a67f03e63a6a422125878b40b82da593be8d4efaafe88ee528af6e5a9955c6e
+  public key:     033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f4
+  private key:    14af36970f5025ea3e8b5542c0f8ebe7763e674838d08808896b63c3351ffe49
+  signature:      3045022100fbefd94bd0a488d50b79102b5dad4ab6ced30c4069f1eaa69a4b5a763414067e02203156c6a5c9cf88f91265f5a942e96213afae16d83321c8b31bb342142a14d16381
+  
+  hash preimage for NONE|ANYONECANPAY: 010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000036641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56aeb168de3a00000000ffffffff00000000000000000000000000000000000000000000000000000000000000000000000082000000
+    nVersion:     01000000
+    hashPrevouts: 0000000000000000000000000000000000000000000000000000000000000000
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000
+    scriptCode:   cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+    amount:       b168de3a00000000
+    nSequence:    ffffffff
+    hashOutputs:  0000000000000000000000000000000000000000000000000000000000000000
+    nLockTime:    00000000
+    nHashType:    82000000
+  sigHash:        781ba15f3779d5542ce8ecb5c18716733a5ee42a6f51488ec96154934e2c890a
+  public key:     03a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac16
+  private key:    fe9a95c19eef81dde2b95c1284ef39be497d128e2aa46916fb02d552485e0323
+  signature:      3045022100a5263ea0553ba89221984bd7f0b13613db16e7a70c549a86de0cc0444141a407022005c360ef0ae5a5d4f9f2f87a56c1546cc8268cab08c73501d6b3be2e1e1a8a0882
+  
+  hash preimage for SINGLE|ANYONECANPAY: 010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000036641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56aeb168de3a00000000ffffffff9efe0c13a6b16c14a41b04ebe6a63f419bdacb2f8705b494a43063ca3cd4f7080000000083000000
+    nVersion:     01000000
+    hashPrevouts: 0000000000000000000000000000000000000000000000000000000000000000
+    hashSequence: 0000000000000000000000000000000000000000000000000000000000000000
+    outpoint:     36641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e01000000
+    scriptCode:   cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae
+    amount:       b168de3a00000000
+    nSequence:    ffffffff
+    hashOutputs:  9efe0c13a6b16c14a41b04ebe6a63f419bdacb2f8705b494a43063ca3cd4f708
+    nLockTime:    00000000
+    nHashType:    83000000
+  sigHash:        511e8e52ed574121fc1b654970395502128263f62662e076dc6baf05c2e6a99b
+  public key:     02d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b
+  private key:    428a7aee9f0c2af0cd19af3cf1c78149951ea528726989b2e83e4778d2c3f890
+  signature:      30440220525406a1482936d5a21888260dc165497a90a15669636d8edca6b9fe490d309c022032af0c646a34a44d1f4576bf6a4a74b67940f8faa84c7df9abe12a01a11e2b4783
+  
+  The serialized signed transaction is: 0100000000010136641869ca081e70f394c6948e8af409e18b619df2ed74aa106c1ca29787b96e0100000023220020a16b5755f7f6f96dbd65f5f0d6ab9418b89af4b1f14a1bb8a09062c35f0dcb54ffffffff0200e9a435000000001976a914389ffce9cd9ae88dcc0631e88a821ffdbe9bfe2688acc0832f05000000001976a9147480a33f950689af511e6e84c138dbbd3c3ee41588ac080047304402206ac44d672dac41f9b00e28f4df20c52eeb087207e8d758d76d92c6fab3b73e2b0220367750dbbe19290069cba53d096f44530e4f98acaa594810388cf7409a1870ce01473044022068c7946a43232757cbdf9176f009a928e1cd9a1a8c212f15c1e11ac9f2925d9002205b75f937ff2f9f3c1246e547e54f62e027f64eefa2695578cc6432cdabce271502473044022059ebf56d98010a932cf8ecfec54c48e6139ed6adb0728c09cbe1e4fa0915302e022007cd986c8fa870ff5d2b3a89139c9fe7e499259875357e20fcbb15571c76795403483045022100fbefd94bd0a488d50b79102b5dad4ab6ced30c4069f1eaa69a4b5a763414067e02203156c6a5c9cf88f91265f5a942e96213afae16d83321c8b31bb342142a14d16381483045022100a5263ea0553ba89221984bd7f0b13613db16e7a70c549a86de0cc0444141a407022005c360ef0ae5a5d4f9f2f87a56c1546cc8268cab08c73501d6b3be2e1e1a8a08824730440220525406a1482936d5a21888260dc165497a90a15669636d8edca6b9fe490d309c022032af0c646a34a44d1f4576bf6a4a74b67940f8faa84c7df9abe12a01a11e2b4783cf56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae00000000
+
+
+=== No FindAndDelete ===
+
+These examples show that <code>FindAndDelete</code> for the signature is not applied. The transactions are generated in an unconventional way. Instead of signing using a private key, the signatures are pre-determined as part of <code>witnessScript</code>. The public keys are generated with key recovery, using the fixed signatures and the <code>sighash</code> defined in this proposal. Therefore, the private keys are unknown.
+
+  
+  The following is an unsigned transaction: 010000000169c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d000000ffffffff0101000000000000000000000000
+  
+    nVersion:  01000000
+    txin:      01 69c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f1 4c1d0000 00 ffffffff
+    txout:     01 0100000000000000 00
+    nLockTime: 00000000
+  
+  The input comes from a P2WSH witness program:
+    scriptPubKey : 00209e1be07558ea5cc8e02ed1d80c0911048afad949affa36d5c3951e3159dbea19, value: 200000
+    redeemScript : OP_CHECKSIGVERIFY <0x30450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01>
+                   ad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01
+  
+  To sign it with a nHashType of 1 (SIGHASH_ALL):
+  
+  hashPrevouts:
+    dSHA256(69c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d0000)
+  = b67c76d200c6ce72962d919dc107884b9d5d0e26f2aea7474b46a1904c53359f
+  
+  hashSequence:
+    dSHA256(ffffffff)
+  = 3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044
+  
+  hashOutputs:
+    dSHA256(010000000000000000)
+  = e5d196bfb21caca9dbd654cafb3b4dc0c4882c8927d2eb300d9539dd0b934228
+  
+  hash preimage: 01000000b67c76d200c6ce72962d919dc107884b9d5d0e26f2aea7474b46a1904c53359f3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e7066504469c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d00004aad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01400d030000000000ffffffffe5d196bfb21caca9dbd654cafb3b4dc0c4882c8927d2eb300d9539dd0b9342280000000001000000
+  
+    nVersion:     01000000
+    hashPrevouts: b67c76d200c6ce72962d919dc107884b9d5d0e26f2aea7474b46a1904c53359f
+    hashSequence: 3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e70665044
+    outpoint:     69c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d0000
+    scriptCode:   4aad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01
+    amount:       400d030000000000
+    nSequence:    ffffffff
+    hashOutputs:  e5d196bfb21caca9dbd654cafb3b4dc0c4882c8927d2eb300d9539dd0b934228
+    nLockTime:    00000000
+    nHashType:    01000000
+  
+  sigHash:      71c9cd9b2869b9c70b01b1f0360c148f42dee72297db312638df136f43311f23
+  signature:    30450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e 01
+  pubkey:       02a9781d66b61fb5a7ef00ac5ad5bc6ffc78be7b44a566e3c87870e1079368df4c
+  
+  The serialized signed transaction is: 0100000000010169c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f14c1d000000ffffffff01010000000000000000034830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e012102a9781d66b61fb5a7ef00ac5ad5bc6ffc78be7b44a566e3c87870e1079368df4c4aad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e0100000000
+
+    nVersion:  01000000
+    marker:    00
+    flag:      01
+    txin:      01 69c12106097dc2e0526493ef67f21269fe888ef05c7a3a5dacab38e1ac8387f1 4c1d0000 00 ffffffff
+    txout:     01 0100000000000000 00
+    witness:   03 4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01
+                  2102a9781d66b61fb5a7ef00ac5ad5bc6ffc78be7b44a566e3c87870e1079368df4c
+                  4aad4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01
+    nLockTime: 00000000
+  
+
+  
+  The following transaction is a <code>OP_CHECKMULTISIGVERIFY</code> version of the <code>FindAndDelete</code> examples: 010000000001019275cb8d4a485ce95741c013f7c0d28722160008021bb469a11982d47a6628964c1d000000ffffffff0101000000000000000007004830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e0148304502205286f726690b2e9b0207f0345711e63fa7012045b9eb0f19c2458ce1db90cf43022100e89f17f86abc5b149eba4115d4f128bcf45d77fb3ecdd34f594091340c0395960101022102966f109c54e85d3aee8321301136cedeb9fc710fdef58a9de8a73942f8e567c021034ffc99dd9a79dd3cb31e2ab3e0b09e0e67db41ac068c625cd1f491576016c84e9552af4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e0148304502205286f726690b2e9b0207f0345711e63fa7012045b9eb0f19c2458ce1db90cf43022100e89f17f86abc5b149eba4115d4f128bcf45d77fb3ecdd34f594091340c039596017500000000
+  
+  redeemScript:  OP_2 OP_CHECKMULTISIGVERIFY <30450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01> <304502205286f726690b2e9b0207f0345711e63fa7012045b9eb0f19c2458ce1db90cf43022100e89f17f86abc5b149eba4115d4f128bcf45d77fb3ecdd34f594091340c03959601>
+  hash preimage: 0100000039283953eb1e26994dde57b7f9362a79a8c523e2f8deba943c27e826a005f1e63bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e706650449275cb8d4a485ce95741c013f7c0d28722160008021bb469a11982d47a6628964c1d00009552af4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e0148304502205286f726690b2e9b0207f0345711e63fa7012045b9eb0f19c2458ce1db90cf43022100e89f17f86abc5b149eba4115d4f128bcf45d77fb3ecdd34f594091340c0395960175400d030000000000ffffffffe5d196bfb21caca9dbd654cafb3b4dc0c4882c8927d2eb300d9539dd0b9342280000000001000000
+  sighash:       c1628a1e7c67f14ca0c27c06e4fdeec2e6d1a73c7a91d7c046ff83e835aebb72
+  witness:       07 00
+                    4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e01
+                    48304502205286f726690b2e9b0207f0345711e63fa7012045b9eb0f19c2458ce1db90cf43022100e89f17f86abc5b149eba4115d4f128bcf45d77fb3ecdd34f594091340c03959601
+                    0102
+                    2102966f109c54e85d3aee8321301136cedeb9fc710fdef58a9de8a73942f8e567c0
+                    21034ffc99dd9a79dd3cb31e2ab3e0b09e0e67db41ac068c625cd1f491576016c84e
+                    9552af4830450220487fb382c4974de3f7d834c1b617fe15860828c7f96454490edd6d891556dcc9022100baf95feb48f845d5bfc9882eb6aeefa1bc3790e39f59eaa46ff7f15ae626c53e0148304502205286f726690b2e9b0207f0345711e63fa7012045b9eb0f19c2458ce1db90cf43022100e89f17f86abc5b149eba4115d4f128bcf45d77fb3ecdd34f594091340c0395960175
+
+
 The new serialization format is described in BIP144 <ref>[[bip-0144.mediawiki|BIP144: Segregated Witness (Peer Services)]]</ref>
+
 == Deployment ==
 
 This proposal is deployed with Segregated Witness softfork (BIP 141) 
 
 == Backward compatibility ==
 
-As a soft fork, older software will continue to operate without modification. Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs, inculding the redefined sigops, as anyone-can-spend scripts.
+As a soft fork, older software will continue to operate without modification. Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs, including the redefined sigops, as anyone-can-spend scripts.
 
 == Reference Implementation ==
 
-https://github.com/sipa/bitcoin/commits/segwit
+https://github.com/bitcoin/bitcoin/pull/8149
 
 == References ==
 
-<references>
+<references />
 
 == Copyright ==
 

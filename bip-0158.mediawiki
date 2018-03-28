@@ -1,0 +1,431 @@
+<pre>
+  BIP: 158
+  Layer: Peer Services
+  Title: Compact Block Filters for Light Clients
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+          Alex Akselrod <alex@akselrod.org>
+  Comments-Summary: None yet
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0158
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-05-24
+  License: CC0-1.0
+</pre>
+
+
+== Abstract ==
+
+This BIP describes a structure for compact filters on block data, for use in the
+BIP 157 light client protocol<ref>bip-0157.mediawiki</ref>. The filter
+construction proposed is an alternative to Bloom filters, as used in BIP 37,
+that minimizes filter size by using Golomb-Rice coding for compression. This
+document specifies two initial types of filters based on this construction that
+enables basic wallets and applications with more advanced smart contracts.
+
+== Motivation ==
+
+[[bip-0157.mediawiki|BIP 157]] defines a light client protocol based on
+deterministic filters of block content. The filters are designed to
+minimize the expected bandwidth consumed by light clients, downloading filters
+and full blocks. This document defines two initial filter types, ''basic'' and
+''extended'', to provide support for advanced applications while reducing the
+filter size for regular wallets.
+
+== Definitions ==
+
+<code>[]byte</code> represents a vector of bytes.
+
+<code>[N]byte</code> represents a fixed-size byte array with length N.
+
+''CompactSize'' is a compact encoding of unsigned integers used in the Bitcoin
+P2P protocol.
+
+''Data pushes'' are byte vectors pushed to the stack according to the rules of
+Bitcoin script.
+
+''Bit streams'' are readable and writable streams of individual bits. The
+following functions are used in the pseudocode in this document:
+* <code>new_bit_stream</code> instantiates a new writable bit stream
+* <code>new_bit_stream(vector)</code> instantiates a new bit stream reading data from <code>vector</code>
+* <code>write_bit(stream, b)</code> appends the bit <code>b</code> to the end of the stream
+* <code>read_bit(stream)</code> reads the next available bit from the stream
+* <code>write_bits_big_endian(stream, n, k)</code> appends the <code>k</code> least significant bits of integer <code>n</code> to the end of the stream in big-endian bit order
+* <code>read_bits_big_endian(stream, k)</code> reads the next available
+* <code>k</code> bits from the stream and interprets them as the least significant bits of a big-endian integer
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
+"SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in RFC 2119.
+
+== Specification ==
+
+=== Golomb-Coded Sets ===
+
+For each block, compact filters are derived containing sets of items associated
+with the block (eg. addresses sent to, outpoints spent, etc.). A set of such
+data objects is compressed into a probabilistic structure called a
+''Golomb-coded set'' (GCS), which matches all items in the set with probability
+1, and matches other items with probability <code>2^(-P)</code> for some integer
+parameter <code>P</code>.
+
+At a high level, a GCS is constructed from a set of <code>N</code> items by:
+# hashing all items to 64-bit integers in the range <code>[0, N * 2^P)</code>
+# sorting the hashed values in ascending order
+# computing the differences between each value and the previous one
+# writing the differences sequentially, compressed with Golomb-Rice coding
+
+The following sections describe each step in greater detail.
+
+==== Hashing Data Objects ====
+
+The first step in the filter construction is hashing the variable-sized raw
+items in the set to the range <code>[0, F)</code>, where <code>F = N *
+2^P</code>. Set membership queries against the hash outputs will have a false
+positive rate of <code>2^(-P)</code>. To avoid integer overflow, the number of
+items <code>N</code> MUST be <2^32 and <code>P</code> MUST be <=32.
+
+The items are first passed through the pseudorandom function ''SipHash'', which
+takes a 128-bit key <code>k</code> and a variable-sized byte vector and produces
+a uniformly random 64-bit output. Implementations of this BIP MUST use the
+SipHash parameters <code>c = 2</code> and <code>d = 4</code>.
+
+The 64-bit SipHash outputs are then mapped uniformly over the desired range by
+multiplying with F and taking the top 64 bits of the 128-bit result. This
+algorithm is a faster alternative to modulo reduction, as it avoids the
+expensive division
+operation<ref>https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/</ref>.
+Note that care must be taken when implementing this reduction to ensure the
+upper 64 bits of the integer multiplication are not truncated; certain
+architectures and high level languages may require code that decomposes the
+64-bit multiplication into four 32-bit multiplications and recombines into the
+result.
+
+<pre>
+hash_to_range(item: []byte, F: uint64, k: [16]byte) -> uint64:
+    return (siphash(k, item) * F) >> 64
+
+hashed_set_construct(raw_items: [][]byte, P: uint, k: [16]byte) -> []uint64:
+    let N = len(raw_items)
+    let F = N << P
+
+    let set_items = []
+
+    for item in raw_items:
+        let set_value = hash_to_range(item, F, k)
+        set_items.append(set_value)
+
+    return set_items
+</pre>
+
+==== Golomb-Rice Coding ====
+
+Instead of writing the items in the hashed set directly to the filter, greater
+compression is achieved by only writing the differences between successive
+items in sorted order. Since the items are distributed uniformly, it can be
+shown that the differences resemble a geometric
+distribution<ref>https://en.wikipedia.org/wiki/Geometric_distribution</ref>.
+''Golomb-Rice''
+''coding''<ref>https://en.wikipedia.org/wiki/Golomb_coding#Rice_coding</ref>
+is a technique that optimally compresses geometrically distributed values.
+
+With Golomb-Rice, a value is split into a quotient and remainder modulo
+<code>2^P</code>, which are encoded separately. The quotient <code>q</code> is
+encoded as ''unary'', with a string of <code>q</code> 1's followed by one 0. The
+remainder <code>r</code> is represented in big-endian by P bits. For example,
+this is a table of Golomb-Rice coded values using <code>P=2</code>:
+
+{| class="wikitable"
+! n !! (q, r) !! c
+|-
+| 0 || (0, 0) || <code>0 00</code>
+|-
+| 1 || (0, 1) || <code>0 01</code>
+|-
+| 2 || (0, 2) || <code>0 10</code>
+|-
+| 3 || (0, 3) || <code>0 11</code>
+|-
+| 4 || (1, 0) || <code>10 00</code>
+|-
+| 5 || (1, 1) || <code>10 01</code>
+|-
+| 6 || (1, 2) || <code>10 10</code>
+|-
+| 7 || (1, 3) || <code>10 11</code>
+|-
+| 8 || (2, 0) || <code>110 00</code>
+|-
+| 9 || (2, 1) || <code>110 01</code>
+|}
+
+<pre>
+golomb_encode(stream, x: uint64, P: uint):
+    let q = x >> P
+
+    while q > 0:
+        write_bit(stream, 1)
+        q--
+    write_bit(stream, 0)
+
+    write_bits_big_endian(stream, x, P)
+
+golomb_decode(stream, P: uint) -> uint64:
+    let q = 0
+    while read_bit(stream) == 1:
+        q++
+
+    let r = read_bits_big_endian(stream, P)
+
+    let x = (q << P) + r
+    return x
+</pre>
+
+==== Set Construction ====
+
+A GCS is constructed from three parameters:
+* <code>L</code>, a vector of <code>N</code> raw items
+* <code>P</code>, which determines the false positive rate
+* <code>k</code>, the 128-bit key used to randomize the SipHash outputs
+
+The result is a byte vector with a minimum size of <code>N * (P + 1)</code>
+bits.
+
+The raw items in <code>L</code> are first hashed to 64-bit unsigned integers as
+specified above and sorted. The differences between consecutive values,
+hereafter referred to as ''deltas'', are encoded sequentially to a bit stream
+with Golomb-Rice coding. Finally, the bit stream is padded with 0's to the
+nearest byte boundary and serialized to the output byte vector.
+
+<pre>
+construct_gcs(L: [][]byte, P: uint, k: [16]byte) -> []byte:
+    let set_items = hashed_set_construct(L, P, k)
+
+    set_items.sort()
+
+    let output_stream = new_bit_stream()
+
+    let last_value = 0
+    for item in set_items:
+        let delta = item - last_value
+        golomb_encode(output_stream, delta, P)
+        last_value = item
+
+    return output_stream.bytes()
+</pre>
+
+==== Set Querying/Decompression ====
+
+To check membership of an item in a compressed GCS, one must reconstruct the
+hashed set members from the encoded deltas. The procedure to do so is the
+reverse of the compression: deltas are decoded one by one and added to a
+cumulative sum. Each intermediate sum represents a hashed value in the original
+set. The queried item is hashed in the same way as the set members and compared
+against the reconstructed values. Note that querying does not require the entire
+decompressed set be held in memory at once.
+
+<pre>
+gcs_match(key: [16]byte, compressed_set: []byte, target: []byte, P: uint, N: uint) -> bool:
+    let F = N << P
+    let target_hash = hash_to_range(target, F, k)
+
+    stream = new_bit_stream(compressed_set)
+
+    let last_value = 0
+
+    loop N times:
+        let delta = golomb_decode(stream, P)
+        let set_item = last_value + delta
+
+        if set_item == target_hash:
+            return true
+
+        // Since the values in the set are sorted, terminate the search once
+        // the decoded value exceeds the target.
+        if set_item > target_hash:
+            break
+
+        last_value = set_item
+
+    return false
+</pre>
+
+Some applications may need to check for set intersection instead of membership
+of a single item. This can be performed far more efficiently than checking each
+item individually by leveraging the sorted structure of the compressed GCS.
+First the query elements are all hashed and sorted, then compared in order
+against the decompressed GCS contents. See
+[[#golomb-coded-set-multi-match|Appendix B]] for pseudocode.
+
+=== Block Filters ===
+
+This BIP defines two initial filter types:
+* Basic (<code>0x00</code>)
+* Extended (<code>0x01</code>)
+
+==== Contents ====
+
+The basic filter is designed to contain everything that a light client needs to
+sync a regular Bitcoin wallet. A basic filter MUST contain exactly the following
+items for each transaction in a block:
+* The outpoint of each input, except for the coinbase transaction
+* Each data push in the scriptPubKey of each output, ''only if'' the scriptPubKey is parseable
+* The <code>txid</code> of the transaction itself
+
+The extended filter contains extra data that is meant to enable applications
+with more advanced smart contracts. An extended filter MUST contain exactly the
+following items for each transaction in a block ''except the coinbase'':
+* Each item within the witness stack of each input (if the input has a witness)
+* Each data push in the scriptSig of each input
+
+Note that neither filter type interprets P2SH scripts or witness scripts to
+extract data pushes from them. If necessary, future filter types may be designed
+to do so.
+
+==== Construction ====
+
+Both the basic and extended filter types are constructed as Golomb-coded sets
+with the following parameters.
+
+The parameter <code>P</code> MUST be set to <code>20</code>. This value was
+chosen as simulations show that it minimizes the bandwidth utilized, considering
+both the expected number of blocks downloaded due to false positives and the
+size of the filters themselves. The code along with a demo used for the
+parameter tuning can be found
+[https://github.com/Roasbeef/bips/blob/83b83c78e189be898573e0bfe936dd0c9b99ecb9/gcs_light_client/gentestvectors.go here].
+
+The parameter <code>k</code> MUST be set to the first 16 bytes of the hash of
+the block for which the filter is constructed. This ensures the key is
+deterministic while still varying from block to block.
+
+Since the value <code>N</code> is required to decode a GCS, a serialized GCS
+includes it as a prefix, written as a CompactSize. Thus, the complete
+serialization of a filter is:
+* <code>N</code>, encoded as a CompactSize
+* The bytes of the compressed filter itself
+
+==== Signaling ====
+
+This BIP allocates a new service bit:
+
+{| class="wikitable"
+|-
+| NODE_COMPACT_FILTERS
+| style="white-space: nowrap;" | <code>1 << 6</code>
+| If enabled, the node MUST respond to all BIP 157 messages for filter types <code>0x00</code> and <code>0x01</code>
+|}
+
+== Compatibility ==
+
+This block filter construction is not incompatible with existing software,
+though it requires implementation of the new filters.
+
+== Acknowledgments ==
+
+We would like to thank bfd (from the bitcoin-dev mailing list) for bringing the
+basis of this BIP to our attention, Greg Maxwell for pointing us in the
+direction of Golomb-Rice coding and fast range optimization, and Pedro
+Martelletto for writing the initial indexing code for <code>btcd</code>.
+
+We would also like to thank Dave Collins, JJ Jeffrey, and Eric Lombrozo for
+useful discussions.
+
+== Reference Implementation ==
+
+Light client: [https://github.com/lightninglabs/neutrino]
+
+Full-node indexing: https://github.com/Roasbeef/btcd/tree/segwit-cbf
+
+Golomb-Rice Coded sets: https://github.com/Roasbeef/btcutil/tree/gcs/gcs
+
+== Appendix A: Alternatives ==
+
+A number of alternative set encodings were considered before Golomb-coded
+sets were settled upon. In this appendix section, we'll list a few of the
+alternatives along with our rationale for not pursuing them.
+
+==== Bloom Filters ====
+
+Bloom Filters are perhaps the best known probabilistic data structure for
+testing set membership, and were introduced into the Bitcoin protocol with BIP
+37. The size of a Bloom filter is larger than the expected size of a GCS with
+the same false positive rate, which is the main reason the option was rejected.
+
+==== Cryptographic Accumulators ====
+
+Cryptographic
+accumulators<ref>https://en.wikipedia.org/wiki/Accumulator_(cryptography)</ref>
+are a cryptographic data structures that enable (amongst other operations) a one
+way membership test. One advantage of accumulators are that they are constant
+size, independent of the number of elements inserted into the accumulator.
+However, current constructions of cryptographic accumulators require an initial
+trusted set up. Additionally, accumulators based on the Strong-RSA Assumption
+require mapping set items to prime representatives in the associated group which
+can be preemptively expensive.
+
+==== Matrix Based Probabilistic Set Data Structures ====
+
+There exist data structures based on matrix solving which are even more space
+efficient compared to Bloom
+filters<ref>https://arxiv.org/pdf/0804.1845.pdf</ref>. We instead opted for our
+GCS-based filters as they have a much lower implementation complexity and are
+easier to understand.
+
+== Appendix B: Pseudocode ==
+
+=== Golomb-Coded Set Multi-Match ===
+
+<pre>
+gcs_match_any(key: [16]byte, compressed_set: []byte, targets: [][]byte, P: uint, N: uint) -> bool:
+    let F = N << P
+
+    // Map targets to the same range as the set hashes.
+    let target_hashes = []
+    for target in targets:
+        let target_hash = hash_to_range(target, F, k)
+        target_hashes.append(target_hash)
+
+    // Sort targets so matching can be checked in linear time.
+    target_hashes.sort()
+
+    stream = new_bit_stream(compressed_set)
+
+    let value = 0
+    let target_idx = 0
+    let target_val = target_hashes[target_idx]
+
+    loop N times:
+        let delta = golomb_decode(stream, P)
+        value += delta
+
+        inner loop:
+            if target_val == value:
+                return true
+
+            // Move on to the next set value.
+            else if target_val > value:
+                break inner loop
+
+            // Move on to the next target value.
+            else if target_val < value:
+                target_idx++
+
+                // If there are no targets left, then there are no matches.
+                if target_idx == len(targets):
+                    break outer loop
+
+                target_val = target_hashes[target_idx]
+
+    return false
+</pre>
+
+== Appendix C: Test Vectors ==
+
+TODO: To be generated.
+
+== References ==
+
+<references/>
+
+== Copyright ==
+
+This document is licensed under the  Creative Commons CC0 1.0 Universal lisence.
