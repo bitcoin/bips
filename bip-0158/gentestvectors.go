@@ -10,12 +10,13 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
 
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
@@ -23,90 +24,96 @@ import (
 	"github.com/roasbeef/btcutil/gcs/builder"
 )
 
+var (
+	// testBlockHeights are the heights of the blocks to include in the test
+	// vectors. Any new entries must be added in sorted order.
+	testBlockHeights = []testBlockCase{
+		{0, "Genesis block"},
+		{1, "Extended filter is empty"},
+		{2, ""},
+		{3, ""},
+		{926485, "Duplicate pushdata 913bcc2be49cb534c20474c4dee1e9c4c317e7eb"},
+		{987876, "Coinbase tx has unparseable output script"},
+		{1263442, "Includes witness data"},
+	}
+)
+
+type testBlockCase struct {
+	height  uint32
+	comment string
+}
+
+type JSONTestWriter struct {
+	writer          io.Writer
+	firstRowWritten bool
+}
+
+func NewJSONTestWriter(writer io.Writer) *JSONTestWriter {
+	return &JSONTestWriter{writer: writer}
+}
+
+func (w *JSONTestWriter) WriteComment(comment string) error {
+	return w.WriteTestCase([]interface{}{comment})
+}
+
+func (w *JSONTestWriter) WriteTestCase(row []interface{}) error {
+	var err error
+	if w.firstRowWritten {
+		_, err = io.WriteString(w.writer, ",\n")
+	} else {
+		_, err = io.WriteString(w.writer, "[\n")
+		w.firstRowWritten = true
+	}
+	if err != nil {
+		return err
+	}
+
+	rowBytes, err := json.Marshal(row)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.writer.Write(rowBytes)
+	return err
+}
+
+func (w *JSONTestWriter) Close() error {
+	if !w.firstRowWritten {
+		return nil
+	}
+
+	_, err := io.WriteString(w.writer, "\n]\n")
+	return err
+}
+
 func main() {
 	err := os.Mkdir("gcstestvectors", os.ModeDir|0755)
 	if err != nil { // Don't overwrite existing output if any
 		fmt.Println("Couldn't create directory: ", err)
 		return
 	}
-	files := make([]*os.File, 33)
+	files := make([]*JSONTestWriter, 33)
 	prevBasicHeaders := make([]chainhash.Hash, 33)
 	prevExtHeaders := make([]chainhash.Hash, 33)
 	for i := 1; i <= 32; i++ { // Min 1 bit of collision space, max 32
-		var blockBuf bytes.Buffer
-		fName := fmt.Sprintf("gcstestvectors/testnet-%02d.csv", i)
+		fName := fmt.Sprintf("gcstestvectors/testnet-%02d.json", i)
 		file, err := os.Create(fName)
 		if err != nil {
-			fmt.Println("Error creating CSV file: ", err.Error())
+			fmt.Println("Error creating output file: ", err.Error())
 			return
 		}
-		_, err = file.WriteString("Block Height,Block Hash,Block,Previous Basic Header,Previous Ext Header,Basic Filter,Ext Filter,Basic Header,Ext Header\n")
+		defer file.Close()
+
+		writer := &JSONTestWriter{writer: file}
+		defer writer.Close()
+
+		err = writer.WriteComment("Block Height,Block Hash,Block,Previous Basic Header,Previous Ext Header,Basic Filter,Ext Filter,Basic Header,Ext Header,Notes")
 		if err != nil {
-			fmt.Println("Error writing to CSV file: ", err.Error())
+			fmt.Println("Error writing to output file: ", err.Error())
 			return
 		}
-		files[i] = file
-		basicFilter, err := buildBasicFilter(
-			chaincfg.TestNet3Params.GenesisBlock, uint8(i))
-		if err != nil {
-			fmt.Println("Error generating basic filter: ", err.Error())
-			return
-		}
-		prevBasicHeaders[i], err = builder.MakeHeaderForFilter(basicFilter,
-			chaincfg.TestNet3Params.GenesisBlock.Header.PrevBlock)
-		if err != nil {
-			fmt.Println("Error generating header for filter: ", err.Error())
-			return
-		}
-		if basicFilter == nil {
-			basicFilter = &gcs.Filter{}
-		}
-		extFilter, err := buildExtFilter(
-			chaincfg.TestNet3Params.GenesisBlock, uint8(i))
-		if err != nil {
-			fmt.Println("Error generating ext filter: ", err.Error())
-			return
-		}
-		prevExtHeaders[i], err = builder.MakeHeaderForFilter(extFilter,
-			chaincfg.TestNet3Params.GenesisBlock.Header.PrevBlock)
-		if err != nil {
-			fmt.Println("Error generating header for filter: ", err.Error())
-			return
-		}
-		if extFilter == nil {
-			extFilter = &gcs.Filter{}
-		}
-		err = chaincfg.TestNet3Params.GenesisBlock.Serialize(&blockBuf)
-		if err != nil {
-			fmt.Println("Error serializing block to buffer: ", err.Error())
-			return
-		}
-		bfBytes, err := basicFilter.NBytes()
-		if err != nil {
-			fmt.Println("Couldn't get NBytes(): ", err)
-			return
-		}
-		efBytes, err := extFilter.NBytes()
-		if err != nil {
-			fmt.Println("Couldn't get NBytes(): ", err)
-			return
-		}
-		err = writeCSVRow(
-			file,
-			0, // Height
-			*chaincfg.TestNet3Params.GenesisHash,
-			blockBuf.Bytes(),
-			chaincfg.TestNet3Params.GenesisBlock.Header.PrevBlock,
-			chaincfg.TestNet3Params.GenesisBlock.Header.PrevBlock,
-			bfBytes,
-			efBytes,
-			prevBasicHeaders[i],
-			prevExtHeaders[i],
-		)
-		if err != nil {
-			fmt.Println("Error writing to CSV file: ", err.Error())
-			return
-		}
+
+		files[i] = writer
 	}
 	cert, err := ioutil.ReadFile(
 		path.Join(os.Getenv("HOME"), "/.btcd/rpc.cert"))
@@ -126,7 +133,9 @@ func main() {
 		fmt.Println("Couldn't create a new client: ", err.Error())
 		return
 	}
-	for height := 1; height < 988000; height++ {
+
+	var testBlockIndex int = 0
+	for height := 0; testBlockIndex < len(testBlockHeights); height++ {
 		fmt.Printf("Height: %d\n", height)
 		blockHash, err := client.GetBlockHash(int64(height))
 		if err != nil {
@@ -224,62 +233,46 @@ func main() {
 				}
 				fmt.Println("Verified against server")
 			}
-			switch height {
-			case 1, 2, 3, 926485, 987876: // Blocks for test cases
+
+			if uint32(height) == testBlockHeights[testBlockIndex].height {
 				var bfBytes []byte
 				var efBytes []byte
-				if basicFilter.N() > 0 {
-					bfBytes, err = basicFilter.NBytes()
-					if err != nil {
-						fmt.Println("Couldn't get NBytes(): ", err)
-						return
-					}
+				bfBytes, err = basicFilter.NBytes()
+				if err != nil {
+					fmt.Println("Couldn't get NBytes(): ", err)
+					return
 				}
-				if extFilter.N() > 0 { // Exclude special case for block 987876
-					efBytes, err = extFilter.NBytes()
-					if err != nil {
-						fmt.Println("Couldn't get NBytes(): ", err)
-						return
-					}
+				efBytes, err = extFilter.NBytes()
+				if err != nil {
+					fmt.Println("Couldn't get NBytes(): ", err)
+					return
 				}
-				writeCSVRow(
-					files[i],
+				row := []interface{}{
 					height,
-					*blockHash,
-					blockBytes,
-					prevBasicHeaders[i],
-					prevExtHeaders[i],
-					bfBytes,
-					efBytes,
-					basicHeader,
-					extHeader)
+					blockHash.String(),
+					hex.EncodeToString(blockBytes),
+					prevBasicHeaders[i].String(),
+					prevExtHeaders[i].String(),
+					hex.EncodeToString(bfBytes),
+					hex.EncodeToString(efBytes),
+					basicHeader.String(),
+					extHeader.String(),
+					testBlockHeights[testBlockIndex].comment,
+				}
+				err = files[i].WriteTestCase(row)
+				if err != nil {
+					fmt.Println("Error writing test case to output: ", err.Error())
+					return
+				}
 			}
 			prevBasicHeaders[i] = basicHeader
 			prevExtHeaders[i] = extHeader
 		}
-	}
-}
 
-// writeCSVRow writes a test vector to a CSV file.
-func writeCSVRow(file *os.File, height int, blockHash chainhash.Hash,
-	blockBytes []byte, prevBasicHeader, prevExtHeader chainhash.Hash,
-	basicFilter, extFilter []byte, basicHeader, extHeader chainhash.Hash) error {
-	row := fmt.Sprintf("%d,%s,%s,%s,%s,%s,%s,%s,%s\n",
-		height,
-		blockHash.String(),
-		hex.EncodeToString(blockBytes),
-		prevBasicHeader.String(),
-		prevExtHeader.String(),
-		hex.EncodeToString(basicFilter),
-		hex.EncodeToString(extFilter),
-		basicHeader.String(),
-		extHeader.String(),
-	)
-	_, err := file.WriteString(row)
-	if err != nil {
-		return err
+		if uint32(height) == testBlockHeights[testBlockIndex].height {
+			testBlockIndex++
+		}
 	}
-	return nil
 }
 
 // buildBasicFilter builds a basic GCS filter from a block. A basic GCS filter
