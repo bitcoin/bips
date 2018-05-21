@@ -1,0 +1,144 @@
+<pre>
+  BIP: 118
+  Layer: Consensus (soft fork)
+  Title: SIGHASH_NOINPUT
+  Author: Christian Decker <decker.christian@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0118
+  Status: Draft
+  Type: Standards Track
+  Created: 2017-02-28
+  License: BSD-3-Clause
+</pre>
+
+== Abstract ==
+This BIP describes a new signature hash flag (<tt>sighash</tt>-flag) for
+segwit transactions. It removes any commitment to the output being
+spent from the signature verification mechanism. This enables dynamic
+binding of transactions to outputs, predicated solely on the
+compatibility of output scripts to input scripts.
+
+== Motivation ==
+Off-chain protocols make use of transactions that are not yet
+broadcast to the Bitcoin network in order to renegotiate the final
+state that should be settled on-chain.
+In a number of cases it is desirable to react to a given transaction
+being seen on-chain with a predetermined reaction in the form of
+another transaction.
+Often the reaction is identical, no matter which transaction is seen
+on-chain, but the application still needs to create many identical
+transaction.
+This is because signatures in the input of a transaction uniquely
+commit to the hash of the transaction that created the output being
+spent.
+
+This proposal introduces a new sighash flag that modifies the behavior
+of the transaction digest algorithm used in the signature creation and
+verification, to exclude the previous output commitment.
+By removing the commitment we enable dynamic rebinding of a signed
+transaction to outputs whose <tt>witnessProgram</tt> and value match the ones
+in the <tt>witness</tt> of the spending transaction.
+
+The dynamic binding is opt-in and can further be restricted by using
+unique <tt>witnessProgram</tt> scripts that are specific to the application
+instance, e.g., using public keys that are specific to the off-chain
+protocol instance.
+
+== Specification ==
+<tt>SIGHASH_NOINPUT</tt> is a flag with value <tt>0x40</tt> appended to a signature
+to that the signature does not commit to any of the inputs, and
+therefore to the outputs being spent. The flag applies solely to the
+verification of that single signature.
+
+The <tt>SIGHASH_NOINPUT</tt> flag is only active for segwit scripts with
+version 1 or higher. Should the flag be used in a non-segwit script or
+a segwit script of version 0, the current behavior is maintained and
+the script execution MUST abort with a failure.
+
+The transaction digest algorithm from BIP 143 is used when verifying a
+<tt>SIGHASH_NOINPUT</tt> signature, with the following modifications:
+
+    2. hashPrevouts (32-byte hash) is 32 0x00 bytes
+    3. hashSequence (32-byte hash) is 32 0x00 bytes
+    4. outpoint (32-byte hash + 4-byte little endian) is
+       set to 36 0x00 bytes
+    5. scriptCode of the input is set to an empty script
+       0x00
+
+The <tt>value</tt> of the previous output remains part of the transaction
+digest and is therefore also committed to in the signature.
+
+The <tt>NOINPUT</tt> flag MAY be combined with the <tt>SINGLE</tt> flag in which
+case the <tt>hashOutputs</tt> is modified as per BIP
+143<ref>https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki</ref>: it
+only commits to the output with the matching index, if such output exists, and
+is a <tt>uint256</tt> <tt>0x0000......0000</tt> otherwise.
+
+Being a change in the digest algorithm, the <tt>NOINPUT</tt> flag applies to
+all segwit signature verification opcodes, specifically it applies to:
+
+* <tt>OP_CHECKSIG</tt>
+
+* <tt>OP_CHECKSIGVERIFY</tt>
+
+* <tt>OP_CHECKMULTISIG</tt>
+
+* <tt>OP_CHECKMULTISIGVERIFY</tt>
+
+== Binding through scripts ==
+Using <tt>NOINPUT</tt> the input containing the signature no longer
+references a specific output.
+Any participant can take a transaction and rewrite it by changing the
+hash reference to the previous output, without invalidating the
+signatures.
+This allows transactions to be bound to any output that matches the
+value committed to in the <tt>witness</tt> and whose <tt>witnessProgram</tt>,
+combined with the spending transaction's <tt>witness</tt> returns <tt>true</tt>.
+
+Previously, all information in the transaction was committed in the
+signature itself, while now the relationship between the spending
+transaction and the output being spent is solely based on the
+compatibility of the <tt>witnessProgram</tt> and the <tt>witness</tt>.
+
+This also means that particular care has to be taken in order to avoid
+unintentionally enabling this rebinding mechanism. <tt>NOINPUT</tt> MUST NOT
+be used, unless it is explicitly needed for the application, i.e., it
+MUST NOT be a default signing flag in a wallet
+implementation. Rebinding is only possible when the outputs the
+transaction may bind to all use the same public keys. Any public key
+that is used in a <tt>NOINPUT</tt> signature MUST only be used for outputs
+that the input may bind to, and they MUST NOT be used for transactions
+that the input may not bind to. For example an application SHOULD
+generate a new key-pair for the application instance using <tt>NOINPUT</tt>
+signatures and MUST NOT reuse them afterwards.
+
+== Deployment ==
+The <tt>NOINPUT</tt> sighash flag is to be deployed during a regular segwit
+script update.
+
+== Backward compatibility ==
+As a soft fork, older software will continue to operate without
+modification. Non-upgraded nodes, however, will not verify the
+validity of the new sighash flag and will consider the transaction
+valid by default. Being only applicable to segwit transaction,
+non-segwit nodes will see an anyone-can-spend script and will consider
+it valid.
+
+== Acknowledgments ==
+
+The <tt>NOINPUT</tt> sighash flag was first proposed by Joseph Poon in
+February 2016<ref>https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-February/012460.html</ref>, after being mentioned in the original
+Lightning paper<ref>http://lightning.network/lightning-network.pdf</ref>. A formal proposal was however
+deferred until after the activation of segwit. This proposal is a
+continuation of this discussion and attempts to formalize it in such a
+way that it can be included in the Bitcoin protocol. As such we'd like
+acknowledge Joseph Poon and Thaddeus Dryja as the original inventors
+of the <tt>NOINPUT</tt> sighash flag, and its uses in off-chain protocols.
+
+== References ==
+
+<references/>
+
+== Copyright ==
+
+This document is licensed under the BSD 3 Clause license.
