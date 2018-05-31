@@ -65,11 +65,14 @@ For each block, compact filters are derived containing sets of items associated
 with the block (eg. addresses sent to, outpoints spent, etc.). A set of such
 data objects is compressed into a probabilistic structure called a
 ''Golomb-coded set'' (GCS), which matches all items in the set with probability
-1, and matches other items with probability <code>2^(-P)</code> for some integer
-parameter <code>P</code>.
+1, and matches other items with probability <code>2^(-P)</code> for some
+integer parameter <code>P</code>. We also introduce parameter <code>M</code>
+which allows filter to uniquely tune the range that items are hashed onto
+before compressing. Each defined filter also selects distinct parameters for P
+and M.
 
 At a high level, a GCS is constructed from a set of <code>N</code> items by:
-# hashing all items to 64-bit integers in the range <code>[0, N * 2^P)</code>
+# hashing all items to 64-bit integers in the range <code>[0, N * M)</code>
 # sorting the hashed values in ascending order
 # computing the differences between each value and the previous one
 # writing the differences sequentially, compressed with Golomb-Rice coding
@@ -80,9 +83,13 @@ The following sections describe each step in greater detail.
 
 The first step in the filter construction is hashing the variable-sized raw
 items in the set to the range <code>[0, F)</code>, where <code>F = N *
-2^P</code>. Set membership queries against the hash outputs will have a false
-positive rate of <code>2^(-P)</code>. To avoid integer overflow, the number of
-items <code>N</code> MUST be <2^32 and <code>P</code> MUST be <=32.
+M</code>. Customarily, <code>M</code> is set to <code>2^P</code>. However, if
+one is able to select both Parameters independently, then more optimal values
+can be
+selected<ref>https://gist.github.com/sipa/576d5f09c3b86c3b1b75598d799fc845</ref>.
+Set membership queries against the hash outputs will have a false positive rate
+of <code>2^(-P)</code>. To avoid integer overflow, the
+number of items <code>N</code> MUST be <2^32 and <code>M</code> MUST be <2^32.
 
 The items are first passed through the pseudorandom function ''SipHash'', which
 takes a 128-bit key <code>k</code> and a variable-sized byte vector and produces
@@ -104,9 +111,9 @@ result.
 hash_to_range(item: []byte, F: uint64, k: [16]byte) -> uint64:
     return (siphash(k, item) * F) >> 64
 
-hashed_set_construct(raw_items: [][]byte, P: uint, k: [16]byte) -> []uint64:
+hashed_set_construct(raw_items: [][]byte, k: [16]byte, M: uint) -> []uint64:
     let N = len(raw_items)
-    let F = N << P
+    let F = N * M
 
     let set_items = []
 
@@ -197,8 +204,8 @@ with Golomb-Rice coding. Finally, the bit stream is padded with 0's to the
 nearest byte boundary and serialized to the output byte vector.
 
 <pre>
-construct_gcs(L: [][]byte, P: uint, k: [16]byte) -> []byte:
-    let set_items = hashed_set_construct(L, P, k)
+construct_gcs(L: [][]byte, P: uint, k: [16]byte, M: uint) -> []byte:
+    let set_items = hashed_set_construct(L, k, M)
 
     set_items.sort()
 
@@ -224,8 +231,8 @@ against the reconstructed values. Note that querying does not require the entire
 decompressed set be held in memory at once.
 
 <pre>
-gcs_match(key: [16]byte, compressed_set: []byte, target: []byte, P: uint, N: uint) -> bool:
-    let F = N << P
+gcs_match(key: [16]byte, compressed_set: []byte, target: []byte, P: uint, N: uint, M: uint) -> bool:
+    let F = N * M
     let target_hash = hash_to_range(target, F, k)
 
     stream = new_bit_stream(compressed_set)
@@ -260,6 +267,8 @@ against the decompressed GCS contents. See
 
 This BIP defines one initial filter type:
 * Basic (<code>0x00</code>)
+  * <code>M = 784931</code>
+  * <code>P = 19</code>
 
 ==== Contents ====
 
@@ -271,24 +280,27 @@ items for each transaction in a block:
 
 ==== Construction ====
 
-Both the basic and extended filter types are constructed as Golomb-coded sets
-with the following parameters.
+The basic type is constructed as Golomb-coded sets with the following
+parameters.
 
-The parameter <code>P</code> MUST be set to <code>20</code>. This value was
-chosen as simulations show that it minimizes the bandwidth utilized, considering
-both the expected number of blocks downloaded due to false positives and the
-size of the filters themselves. The code along with a demo used for the
-parameter tuning can be found
-[https://github.com/Roasbeef/bips/blob/83b83c78e189be898573e0bfe936dd0c9b99ecb9/gcs_light_client/gentestvectors.go here].
+The parameter <code>P</code> MUST be set to <code>19</code>, and the parameter
+<code>M</code> MUST be set to <code>784931</code>. Analysis has shown that if
+one is able to select <code>P</code> and <code>M</code> independently, then
+setting <code>M=1.497137 * 2^P</code> is close to optimal
+<ref>https://gist.github.com/sipa/576d5f09c3b86c3b1b75598d799fc845</ref>.
+
+Empirical analysis also shows that was chosen as these parameters minimize the
+bandwidth utilized, considering both the expected number of blocks downloaded
+due to false positives and the size of the filters themselves. 
 
 The parameter <code>k</code> MUST be set to the first 16 bytes of the hash of
 the block for which the filter is constructed. This ensures the key is
 deterministic while still varying from block to block.
 
 Since the value <code>N</code> is required to decode a GCS, a serialized GCS
-includes it as a prefix, written as a CompactSize. Thus, the complete
-serialization of a filter is:
-* <code>N</code>, encoded as a CompactSize
+includes it as a prefix, written as a <code>CompactSize</code>. Thus, the
+complete serialization of a filter is:
+* <code>N</code>, encoded as a <code>CompactSize</code>
 * The bytes of the compressed filter itself
 
 ==== Signaling ====
@@ -311,7 +323,8 @@ though it requires implementation of the new filters.
 
 We would like to thank bfd (from the bitcoin-dev mailing list) for bringing the
 basis of this BIP to our attention, Greg Maxwell for pointing us in the
-direction of Golomb-Rice coding and fast range optimization, and Pedro
+direction of Golomb-Rice coding and fast range optimization, Pieter Wullie for
+his analysis of optimal GCS parameters, and Pedro
 Martelletto for writing the initial indexing code for <code>btcd</code>.
 
 We would also like to thank Dave Collins, JJ Jeffrey, and Eric Lombrozo for
@@ -363,8 +376,8 @@ easier to understand.
 === Golomb-Coded Set Multi-Match ===
 
 <pre>
-gcs_match_any(key: [16]byte, compressed_set: []byte, targets: [][]byte, P: uint, N: uint) -> bool:
-    let F = N << P
+gcs_match_any(key: [16]byte, compressed_set: []byte, targets: [][]byte, P: uint, N: uint, M: uint) -> bool:
+    let F = N * M
 
     // Map targets to the same range as the set hashes.
     let target_hashes = []
