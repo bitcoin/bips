@@ -258,6 +258,11 @@ input, then it should not have a Non-Witness UTXO key-value pair.
 If the signer encounters key-value pairs that it does not understand, it must
 pass those key-value pairs through when re-serializing the transaction.
 
+All keys must have the data that they specify. If any key or value does not match the
+specified format for that type, the PSBT must be considered invalid. For example, any
+key that has no data except for the type specifier must only have the type specifier in
+the key.
+
 ===Handling Duplicated Keys===
 
 Keys within each scope should never be duplicated; all keys in the format are unique. PSBTs containing duplicate keys are invalid. However implementors
@@ -266,39 +271,63 @@ whichever value it wishes.
 
 ==Responsibilities==
 
-Using the transaction format involves many different responsibilities. These responsibilities can be handled by a single entity, but each responsibility is specialized in what it should be capable of doing.
+Using the transaction format involves many different responsibilities. Multiple responsibilities can be handled by a single entity, but each responsibility is specialized in what it should be capable of doing.
 
 ===Creator===
 
-The Creator must be capable of accepting either a network serialized transaction, or a PSBT.
-The Creator can either produce a new PSBT, or update the provided PSBT.
-For any scriptSigs which are non-final, the Creator will provide an empty scriptSig and input fields with information from the scriptSig, if any.
-If possible,  the Creator should also look for any required redeemScripts and witnesScripts and add those to the global data section of the PSBT.
-The Creator should also provide any related UTXOs that it knows about.
+The Creator creates a new PSBT. It must create an unsigned transaction and place it in the PSBT.
+The Creator must create empty input fields.
+
+===Updater===
+
+The Updater must only accept a PSBT.
+The Updater adds information to the PSBT that it has access to. If it has the UTXO for an input, it should add it to the PSBT.
+The Updater should also add redeemScripts, witnessScripts, and BIP 32 derivation paths to the input and output data if it knows them.
+
+A single entity is likely to be both a Creator and Updater.
 
 ===Signer===
 
 The Signer must only accept a PSBT.
 The Signer must only use the UTXOs provided in the PSBT to produce signatures for inputs.
-The Signer should not need require any additional data sources, as all necessary information is provided in the PSBT format.
+Before signing a non-witness output, the Signer must verify that the TXID of the non-witness UTXO matches the TXID specified in the unsigned transaction.
+The Signer should not need any additional data sources, as all necessary information is provided in the PSBT format.
+The Signer must only add data to a PSBT.
 Any signatures created by the Signer must be added as a "Partial Signature" key-value pair for the respective input it relates to.
+If a Signer cannot sign a transaction, it must not add a Partial Signature.
 
 The Signer can additionally compute the addresses and values being sent, and the transaction fee,  optionally showing this data to the user as a confirmation of intent and the consequences of signing the PSBT.
+
+Signers do not need to sign for all possible input types. For example, a signer may choose to only sign only Segwit inputs.
+
+A single entity is likely to be both a Signer and an Updater as it can update a PSBT with necessary information prior to signing it.
 
 ===Combiner===
 
 The Combiner can accept 1 or many PSBTs.
 The Combiner must merge them into one PSBT (if possible), or fail.
-The resulting PSBT must contains all of the key-value pairs from each of the PSBTs.
-The Combined must remove any duplicate key-value pairs, in accordance with the specification.
+The resulting PSBT must contain all of the key-value pairs from each of the PSBTs.
+The Combiner must remove any duplicate key-value pairs, in accordance with the specification. It can pick arbitrarily when conflicts occur.
+A Combiner must not combine two different PSBTs. PSBTs can be uniquely identified by <tt>0x00</tt> global transaction typed key-value pair.
+For every type that a Combiner understands, it may refuse to combine PSBTs if it detects that there will be inconsistencies or conflicts for that type in the combined PSBT.
 
-===Finalizer===
+The Combiner does not need to know how to interpret scripts in order to combine PSBTs. It can do so without understanding scripts or the network serialization format.
 
-The Finalizer must only accept a PSBT.
-The Finalizer transforms a PSBT into a network serialized transaction.
+===Input Finalizer===
 
-For any inputs which are not complete, the Finalizer will emplace an empty scriptSig in the network serialized transaction.
-For any input which has a complete set of signatures, the Finalizer must attempt to build the complete scriptSig and encode it into the network serialized transaction.
+The Input Finalizer must only accept a PSBT.
+For each input, the Input Finalizer determines if the input has enough data to pass validation. If it does, it must construct the scriptSig and scriptWitness and place them into the input key-value map.
+All other data except the UTXO and unknown fields in the input key-value map should be cleared from the PSBT. The UTXO should be kept to allow Transaction Extractors to verify the final network serialized transaction.
+
+===Transaction Extractor===
+
+The Transaction Extractor must only accept a PSBT.
+It checks whether all inputs have complete scriptSigs and scriptWitnesses by checking for the presence of <tt>0x05</tt> Finalized scriptSig and <tt>0x06</tt> Finalized scriptWitness typed records. If they do, the Transaction Extractor should construct complete scriptSigs and scriptWitnesses and encode them into network serialized transactions. Otherwise the Extractor must not modify the PSBT.
+The Extractor should produce a fully valid, network serialized transaction if all inputs are complete.
+
+The Transaction Extractor does not need to know how to interpret scripts in order to extract the network serialized transaction. However it may be able to in order to validate the network serialized transaction at the same time.
+
+A single entity is likely to be both a Transaction Extractor and an Input Finalizer.
 
 ==Extensibility==
 
@@ -306,9 +335,7 @@ The Partially Signed Transaction format can be extended in the future by adding
 new types for key-value pairs. Backwards compatibilty will still be maintained as those new
 types will be ignored and passed-through by signers which do not know about them.
 
-Additional key-value maps with different types for the key-value pairs can be added on to
-the end of the format. The number of each map that follows must be specified in the globals
-section so that parsers will know when to use different definitions of the data types.
+If one byte type fields were to ever run out, new extensions can still be added by defining multi-byte types where the first byte signals that the next byte indicates the type and so on.
 
 ==Compatibility==
 
