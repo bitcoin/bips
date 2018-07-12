@@ -5,7 +5,7 @@
   Author: Andrew Chow <achow101@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0174
-  Status: Draft
+  Status: Proposed
   Type: Standards Track
   Created: 2017-07-12
   License: BSD-2-Clause
@@ -267,7 +267,9 @@ the key.
 
 Keys within each scope should never be duplicated; all keys in the format are unique. PSBTs containing duplicate keys are invalid. However implementors
 will still need to handle events where keys are duplicated when combining transactions with duplicated fields. In this event, the software may choose
-whichever value it wishes.
+whichever value it wishes.<ref>'''Why can the values be arbitrarily chosen?''' When there are duplicated keys, the values that can be chosen will either be
+valid or invalid. If the values are invalid, a signer would simply produce an invalid signature and the final transaction itself would be invalid. If the
+values are valid, then it does not matter which is chosen as either way the transaction is still valid.</ref>
 
 ==Responsibilities==
 
@@ -290,7 +292,8 @@ A single entity is likely to be both a Creator and Updater.
 
 The Signer must only accept a PSBT.
 The Signer must only use the UTXOs provided in the PSBT to produce signatures for inputs.
-Before signing a non-witness output, the Signer must verify that the TXID of the non-witness UTXO matches the TXID specified in the unsigned transaction.
+Before signing a non-witness input, the Signer must verify that the TXID of the non-witness UTXO matches the TXID specified in the unsigned transaction.
+Before signing a witness input, the Signer must verify that the witnessScript (if provided) matches the hash specified in the UTXO or the redeemScript, and the redeemScript (if provided) matches the hash in the UTXO.
 The Signer should not need any additional data sources, as all necessary information is provided in the PSBT format.
 The Signer must only add data to a PSBT.
 Any signatures created by the Signer must be added as a "Partial Signature" key-value pair for the respective input it relates to.
@@ -312,6 +315,9 @@ A Combiner must not combine two different PSBTs. PSBTs can be uniquely identifie
 For every type that a Combiner understands, it may refuse to combine PSBTs if it detects that there will be inconsistencies or conflicts for that type in the combined PSBT.
 
 The Combiner does not need to know how to interpret scripts in order to combine PSBTs. It can do so without understanding scripts or the network serialization format.
+
+In general, the result of a Combiner combining two PSBTs from independent participants A and B should be functionally equivalent to a result obtained from processing the original PSBT by A and then B in a sequence.
+Or, for participants performing fA(psbt) and fB(psbt): Combine(fA(psbt), fB(psbt)) == fA(fB(psbt)) == fB(fA(psbt))
 
 ===Input Finalizer===
 
@@ -354,11 +360,11 @@ able to be unserialized by an unserializer for the PSBT format.
 
 ===Manual CoinJoin Workflow===
 
-<img src="bip-0174/coinjoin-workflow.png" align="middle"></img>
+<img src="bip-0174/coinjoin-workflow.svg" align="middle"></img>
 
 ===2-of-3 Multisig Workflow===
 
-<img src="bip-0174/multisig-workflow.png" align="middle"></img>
+<img src="bip-0174/multisig-workflow.svg" align="middle"></img>
 
 ==Test Vectors==
 
@@ -500,7 +506,7 @@ The reference implementation of the PSBT format is available at https://github.c
 Special thanks to Pieter Wuille for suggesting that such a transaction format should be made
 and for coming up with the name and abbreviation of PSBT.
 
-Thanks to Pieter Wuille, Gregory Maxwell, Jonathan Underwood, and Daniel Cousens for additional comments
+Thanks to Pieter Wuille, Gregory Maxwell, Jonathan Underwood, Daniel Cousens and those who commented on the bitcoin-dev mailing list for additional comments
 and suggestions for improving this proposal.
 
 ==Appendix A: Data types and their specifications==
