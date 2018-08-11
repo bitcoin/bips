@@ -8,6 +8,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Portuguese](portuguese.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -82,3 +83,17 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good.
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Portuguese
+
+Credits: @brenorb
+
+1. Words can be uniquely determined typing the first 4 characters.
+2. No accents or special characters.
+3. No complex verb forms.
+4. No plural words, unless there's no singular form.
+5. No words with double spelling.
+6. No words with the exact sound of another word with different spelling.
+7. No offensive words.
+8. No words already used in other language mnemonic sets.
+9. The words which have not the same spelling in Brazil and in Portugal are excluded.
