@@ -88,12 +88,13 @@ All the words have been manually selected and automatically checked against the 
 
 Credits: @brenorb
 
-1. Words can be uniquely determined typing the first 4 characters.
-2. No accents or special characters.
-3. No complex verb forms.
-4. No plural words, unless there's no singular form.
-5. No words with double spelling.
-6. No words with the exact sound of another word with different spelling.
-7. No offensive words.
-8. No words already used in other language mnemonic sets.
-9. The words which have not the same spelling in Brazil and in Portugal are excluded.
+1. Length between 4 and 8 characters.
+2. Words can be uniquely determined typing the first 4 characters.
+3. No accents or special characters.
+4. No complex verb forms.
+5. No plural words, unless there's no singular form.
+6. No words with common double spelling, except when the only change is the accent.
+7. No words with the exact sound of another word with different spelling.
+8. No offensive words.
+9. No words already used in other language mnemonic sets.
+10. The words which have not the same spelling in Brazil and in Portugal are excluded.
