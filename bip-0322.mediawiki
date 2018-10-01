@@ -1,0 +1,169 @@
+<pre>
+  BIP: 322
+  Layer: Applications
+  Title: Generic Signed Message Format
+  Author: Karl-Johan Alm <karljohan-alm@garage.co.jp>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0322
+  Status: Draft
+  Type: Standards Track
+  Created: 2018-09-10
+  License: CC0-1.0
+</pre>
+
+== Abstract ==
+
+A standard for interoperable generic signed messages based on the Bitcoin Script format.
+
+== Motivation ==
+
+The current message signing standard only works for P2PKH (1...) addresses. By extending it to use a Bitcoin Script based approach, it could be made more generic without causing a too big burden on implementers, who most likely have access to Bitcoin Script interpreters already.
+
+== Specification ==
+
+A new structure <code>SignatureProof</code> is added, which is a simple serializable scriptSig & witness container.
+
+Two actions "Sign" and "Verify" are defined along with two *purposes* "SignMessage" and "ProveFunds".
+
+=== SignatureProof container ===
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Comment
+|-
+|Uint32||4||flags||standard flags (1-to-1 with standard flags in Bitcoin Core)
+|-
+|VarInt||1-8||msglen||Number of bytes in message string, excluding NUL termination
+|-
+|Char*||[msglen]||msg||The message being signed for all subjects, excluding NUL termination
+|-
+|Uint8||1||entries||Number of proof entries<ref><strong>Why support multiple proofs?</strong> In particular with proof of funds, it is non-trivial to check a large number of individual proofs (one per UTXO) for duplicates. Software could be written to do so, but it seems more efficient to build this check into the specification itself.</ref>
+|}
+
+The above is followed by [entries] number of signature entries:
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Comment
+|-
+|VarInt||1-8||scriptsiglen||Number of bytes in scriptSig data
+|-
+|Uint8*||[scriptsiglen]||scriptsig||ScriptSig data
+|-
+|VarInt||1-8||witlen||Number of bytes in witness data
+|-
+|Uint8*||[witlen]||wit||Witness
+|}
+
+In some cases, the scriptsig or wit may be empty. If both are empty, the proof is incomplete.
+
+=== Result Codes ===
+
+A verification call will return a result code according to the table below.
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Code
+!Description
+|-
+|INCOMPLETE||One or several of the given challenges had an empty proof. The prover may need some other entity to complete the proof.
+|-
+|INCONCLUSIVE||One or several of the given proofs used unknown opcodes or the scriptPubKey had an unknown witness version, perhaps due to the verifying node being outdated.
+|-
+|VALID||All proofs were deemed valid.
+|-
+|INVALID||One or more of the given proofs were invalid
+|-
+|SPENT||One or more of the claimed UTXO:s has been spent
+|-
+|ERROR||An error was encountered
+|}
+
+== Signing and Verifying ==
+
+Let there be an empty set `inputs` which is populated and tested at each call to one of the actions below.
+
+=== Purpose: SignMessage ===
+
+The "SignMessage" purpose generates a sighash based on a scriptPubKey and a message. It emits a VALID verification result code unless otherwise stated.
+
+# Return INVALID if scriptPubKey already exists in `inputs` set, otherwise insert it<ref><strong>Why track duplicates?</strong> Because a 3-entry proof is not proving 3 inputs unless they are all distinct</ref>
+# Define the message pre-image as the sequence "Bitcoin Message:" concatenated with the message, encoded in UTF-8 using Normalization Form Compatibility Decomposition (NFKD)
+# Let sighash = sha256(sha256(scriptPubKey || pre-image))
+
+=== Purpose: ProveFunds ===
+
+The "ProveFunds" purpose generates a sighash and a scriptPubKey from a transaction, an output index, and a message. For multiple simultaneous proofs, it also requires access to the ordered list of proofs. It emits a VALID verification result code unless otherwise stated.
+
+# Let txid be the transaction ID of the transaction, and vout be the output index corresponding to the index of the output being spent
+# Return INVALID if the txid:vout pair already exists in `inputs` set, otherwise insert it
+# Return SPENT if the txid/vout is not a valid UTXO according to a Bitcoin node<ref><strong>Synced up or not?</strong> A normal verifier would use a synced up node. An auditor checking records from a client that were submitted in the past want to use a node that is synced up to the block corresponding to the proof, or the proof will fail, even if it may have been valid at the time of creation.</ref>
+# Extract scriptPubKey from transaction output
+# Define the message pre-image as the concatenation of the following components:<ref><strong>Why not just the UTXO data?</strong> We want the verifier to be able to challenge the prover with a custom message to sign, or anyone can reuse the POF proof for a set of UTXO:s once they have seen it, and the funds have not yet been spent</ref>
+#* the string "POF:"
+#* the message, encoded in UTF-8 using Normalization Form Compatibility Decomposition (NFKD), including the null terminating character (i.e. write strlen(message) + 1 bytes, for a C string)
+#* all transactions being proven for, as binary txid (little endian uint256) followed by index (little endian uint32), each separated by a single `0x00` byte
+# Let sighash = sha256(sha256(scriptPubKey || pre-image))
+
+=== Action: Sign ===
+
+The "Sign" action takes as input a purpose. It returns a signature or fails.
+
+# Obtain the sighash and scriptPubKey from the purpose; FAIL if not VALID
+# Derive the private key privkey for the scriptPubKey; FAIL if not VALID
+# Generate and return a signature sig with privkey=privkey, sighash=sighash
+
+=== Action: Verify ===
+
+The "Verify" action takes as input a standard flags value, a script sig, an optional witness, and a purpose.
+It emits one of INCONCLUSIVE, VALID, INVALID, or ERROR.
+
+# Obtain the sighash and scriptPubKey from the purpose; pass on result code if not VALID
+# If one or more of the standard flags are unknown, return INCONCLUSIVE
+# Verify Script with flags=standard flags, scriptSig=script sig, scriptPubKey=scriptPubKey, witness=witness, and sighash=sighash
+# Return VALID if verify succeeds, otherwise return INVALID
+
+=== Multiple Proofs ===
+
+When more than one proof is created or verified, repeat the operation for each proof, retaining the inputs set. As noted, if the same input appears more than once, the operation must fail accordingly.
+
+Note that the order of the entries in the proof must match the order of the entries given by the verifier.
+
+* If any of the proofs are empty during a verification process, skip the verification and set the INCOMPLETE flag
+* If a verification call returns ERROR or INVALID, return ERROR or INVALID immediately, ignoring as yet unverified entries
+* After all verifications complete,
+** return INCONCLUSIVE if any verification call returned INCONCLUSIVE
+** return SPENT if any verification call returned SPENT
+** return INCOMPLETE if the INCOMPLETE flag is set
+** return VALID
+
+== Compatibility ==
+
+This specification is not backwards compatible with the legacy signmessage/verifymessage specification. However, legacy addresses (1...) may be used in this implementation without any problems.
+
+== Rationale ==
+
+<references/>
+
+== Reference implementation ==
+
+To do.
+
+== Acknowledgements ==
+
+TODO
+
+== References ==
+
+# Original mailing list thread: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-March/015818.html
+# Pull request, with comments: https://github.com/bitcoin/bips/pull/725
+
+== Copyright ==
+
+This document is licensed under the Creative Commons CC0 1.0 Universal license.

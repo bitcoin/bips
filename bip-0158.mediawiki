@@ -50,8 +50,7 @@ following functions are used in the pseudocode in this document:
 * <code>write_bit(stream, b)</code> appends the bit <code>b</code> to the end of the stream
 * <code>read_bit(stream)</code> reads the next available bit from the stream
 * <code>write_bits_big_endian(stream, n, k)</code> appends the <code>k</code> least significant bits of integer <code>n</code> to the end of the stream in big-endian bit order
-* <code>read_bits_big_endian(stream, k)</code> reads the next available
-* <code>k</code> bits from the stream and interprets them as the least significant bits of a big-endian integer
+* <code>read_bits_big_endian(stream, k)</code> reads the next available <code>k</code> bits from the stream and interprets them as the least significant bits of a big-endian integer
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
 "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
@@ -65,11 +64,10 @@ For each block, compact filters are derived containing sets of items associated
 with the block (eg. addresses sent to, outpoints spent, etc.). A set of such
 data objects is compressed into a probabilistic structure called a
 ''Golomb-coded set'' (GCS), which matches all items in the set with probability
-1, and matches other items with probability <code>2^(-P)</code> for some
-integer parameter <code>P</code>. We also introduce parameter <code>M</code>
-which allows filter to uniquely tune the range that items are hashed onto
-before compressing. Each defined filter also selects distinct parameters for P
-and M.
+1, and matches other items with probability <code>1/M</code> for some
+integer parameter <code>M</code>. The encoding is also parameterized by
+<code>P</code>, the bit length of the remainder code. Each filter defined
+specifies values for <code>P</code> and <code>M</code>.
 
 At a high level, a GCS is constructed from a set of <code>N</code> items by:
 # hashing all items to 64-bit integers in the range <code>[0, N * M)</code>
@@ -88,8 +86,8 @@ one is able to select both Parameters independently, then more optimal values
 can be
 selected<ref>https://gist.github.com/sipa/576d5f09c3b86c3b1b75598d799fc845</ref>.
 Set membership queries against the hash outputs will have a false positive rate
-of <code>2^(-P)</code>. To avoid integer overflow, the
-number of items <code>N</code> MUST be <2^32 and <code>M</code> MUST be <2^32.
+of <code>M</code>. To avoid integer overflow, the number of items <code>N</code>
+MUST be <2^32 and <code>M</code> MUST be <2^32.
 
 The items are first passed through the pseudorandom function ''SipHash'', which
 takes a 128-bit key <code>k</code> and a variable-sized byte vector and produces
@@ -189,9 +187,10 @@ golomb_decode(stream, P: uint) -> uint64:
 
 ==== Set Construction ====
 
-A GCS is constructed from three parameters:
+A GCS is constructed from four parameters:
 * <code>L</code>, a vector of <code>N</code> raw items
-* <code>P</code>, which determines the false positive rate
+* <code>P</code>, the bit parameter of the Golomb-Rice coding
+* <code>M</code>, the target false positive rate
 * <code>k</code>, the 128-bit key used to randomize the SipHash outputs
 
 The result is a byte vector with a minimum size of <code>N * (P + 1)</code>
@@ -267,8 +266,8 @@ against the decompressed GCS contents. See
 
 This BIP defines one initial filter type:
 * Basic (<code>0x00</code>)
-  * <code>M = 784931</code>
-  * <code>P = 19</code>
+** <code>M = 784931</code>
+** <code>P = 19</code>
 
 ==== Contents ====
 
@@ -280,7 +279,7 @@ following items for each transaction in a block:
 * The scriptPubKey of each output, aside from all <code>OP_RETURN</code> output
   scripts.
 
-Any "nil" items MUST NOT be included into the final set of filter elements. 
+Any "nil" items MUST NOT be included into the final set of filter elements.
 
 We exclude all <code>OP_RETURN</code> outputs in order to allow filters to
 easily be committed to in the future via a soft-fork. A likely area for future
@@ -303,11 +302,12 @@ setting <code>M=1.497137 * 2^P</code> is close to optimal
 
 Empirical analysis also shows that was chosen as these parameters minimize the
 bandwidth utilized, considering both the expected number of blocks downloaded
-due to false positives and the size of the filters themselves. 
+due to false positives and the size of the filters themselves.
 
-The parameter <code>k</code> MUST be set to the first 16 bytes of the hash of
-the block for which the filter is constructed. This ensures the key is
-deterministic while still varying from block to block.
+The parameter <code>k</code> MUST be set to the first 16 bytes of the hash
+(in standard little-endian representation) of the block for which the filter is
+constructed. This ensures the key is deterministic while still varying from
+block to block.
 
 Since the value <code>N</code> is required to decode a GCS, a serialized GCS
 includes it as a prefix, written as a <code>CompactSize</code>. Thus, the
@@ -433,7 +433,7 @@ gcs_match_any(key: [16]byte, compressed_set: []byte, targets: [][]byte, P: uint,
 
 == Appendix C: Test Vectors ==
 
-Test vectors for a P value of 20 on five testnet blocks, including the filters and filter headers, can be found [[bip-0158/testnet-20.csv|here]]. The code to generate these vectors for P values of 1 through 32 can be found [[bip-0158/gentestvectors.go|here]].
+Test vectors for basic block filters on five testnet blocks, including the filters and filter headers, can be found [[bip-0158/testnet-19.json|here]]. The code to generate them can be found [[bip-0158/gentestvectors.go|here]].
 
 == References ==
 
@@ -441,4 +441,4 @@ Test vectors for a P value of 20 on five testnet blocks, including the filters a
 
 == Copyright ==
 
-This document is licensed under the  Creative Commons CC0 1.0 Universal lisence.
+This document is licensed under the  Creative Commons CC0 1.0 Universal license.
