@@ -73,6 +73,7 @@ TODO: Something about how having only one pool server is great cause you can mul
 #* Clients MAY allow the user to specify the expected ''public_key''. If a client allows this, it SHOULD allow the user to specify the expected ''public_key'' by entering the work provider in the format bech32-encoded-hash160-of-public-key@ip-or-host:port (eg tb1qps9dq95rz7cramm0pjka0pd2tv8qrjyjj6y4me@1.1.1.1:8888).
 #* Clients SHOULD provide UI-exposed TOFU-state reset mechanisms (ie which reconnect and allow the server to provide any public key). Clients MAY do so only upon power-cyle (eg by storing TOFU state only in memory and not persisting it to non-volatile storage).
 #* Servers MUST persist the private key corresponding to the ''public_key'' to non-volatile storage and use the same key persistently.
+#* Clients MUST verify the ''signature'' over the PROTOCOL_VERSION message before acting on it, disconnecting the work provider and attempting to reconnect if the signature is invalid. This and the repetition of the PROTOCOL_VERSION message contents inside of the signed data ensures no future protocol downgrade attacks can be performed against key-specified (ie non-TOFU-authenticated) connections.
 #* Currently only the bits at index 6 and 7 (ie the low-order two bits when serialized as a 16-bit little-endian number) in ''flags'' are defined, all other bits SHOULD be set to 0 by clients.
 #* Servers which receive unknown bits set in PROTOCOL_SUPPORT ''flags'' SHOULD simply ignore them and not include them in the responding PROTOCOL_VERSION ''flags''.
 #* If bit 7 is set in PROTOCOL_VERSION ''flags'', the server MUST set ''coinbase_tx_remaining_value'' in each BLOCK_TEMPLATE message to 0, and fully claim any coinbase transaction reward in ''coinbase_tx_outputs_to_append''. If bit 7 is not set in PROTOCOL_VERSION ''flags'', the value of all entries in ''coinbase_tx_outputs_to_append'' MUST be 0.
@@ -194,13 +195,21 @@ TODO: Something about how having only one pool server is great cause you can mul
 |-
 |message_type||byte||1 byte||The constant 2||The message type
 |-
-|message_length||uint32_t||3 bytes||The bytes {0x25, 0x00, 0x00}||The remaining length of the message in order {low-order byte, second-to-low-order byte, second-to-high-order byte} with the high-order byte implicitly 0
+|message_length||uint32_t||3 bytes||The bytes {0x6b, 0x00, 0x00}||The remaining length of the message in order {low-order byte, second-to-low-order byte, second-to-high-order byte} with the high-order byte implicitly 0
+|-
+|public_key||secp256k1 Public Key||33 bytes||"Compressed" secp256k1 public key||The public key which will be used for authentication of remaining messages
+|-
+|signature||secp256k1 compact signature||64 bytes||secp256k1 ECDSA signature encoded as R, S, both in big endian||Signature over SHA256(2 followed by all remaining data in this message)
 |-
 |version||uint16_t||2 bytes||Little-Endian Integer||The version the server has selected to use (currently always 1)
 |-
 |flags||uint16_t||2 bytes||16 flag bits||Flags indicating optional protocol features which the server selected for use.
 |-
-|public_key||secp256k1 Public Key||33 bytes||"Compressed" secp256k1 public key||The public key which will be used for authentication of remaining messages
+|client_supported_max_version||uint16_t||2 bytes||Little-Endian Integer||The max_version field from the PROTOCOL_SUPPORT
+|-
+|client_supported_min_version||uint16_t||2 bytes||Little-Endian Integer||The min_version field from the PROTOCOL_SUPPORT
+|-
+|client_supported_flags||uint16_t||2 bytes||16 flag bits||The field field from the PROTOCOL_SUPPORT
 |}
 
 ====ADDITIONAL_COINBASE_LENGTH====
@@ -438,6 +447,7 @@ TODO: Something about how having only one pool server is great cause you can mul
 #* Clients MAY allow the user to specify the expected ''public_key''. If a client allows this, it SHOULD allow the user to specify the expected ''public_key'' by entering the work provider in the format bech32-encoded-hash160-of-public-key@ip-or-host:port (eg tb1qps9dq95rz7cramm0pjka0pd2tv8qrjyjj6y4me@1.1.1.1:8888).
 #* Clients SHOULD provide UI-exposed TOFU-state reset mechanisms (ie which reconnect and allow the server to provide any public key). Clients MAY reset TOFU state upon power-cyle (eg by storing TOFU state only in memory and not persisting it to non-volatile storage).
 #* Servers MUST persist the private key corresponding to the ''public_key'' to non-volatile storage and use the same key persistently.
+#* Clients MUST verify the ''signature'' over the PROTOCOL_VERSION message before acting on it, disconnecting the work provider and attempting to reconnect if the signature is invalid. This and the repetition of the PROTOCOL_VERSION message contents inside of the signed data ensures no future protocol downgrade attacks can be performed against key-specified (ie non-TOFU-authenticated) connections.
 #* Currently no bits in ''flags'' in either PROTOCOL_SUPPORT or PROTOCOL_VERSION are defined, clients and servers SHOULD set ''flags'' to 0.
 #* Servers which receive unknown bits set in PROTOCOL_SUPPORT ''flags'' SHOULD simply ignore them and not include them in the responding PROTOCOL_VERSION ''flags''.
 
@@ -570,13 +580,21 @@ TODO: Something about how having only one pool server is great cause you can mul
 |-
 |message_type||byte||1 byte||The constant 2||The message type
 |-
-|message_length||uint32_t||3 bytes||The bytes {0x25, 0x00, 0x00}||The remaining length of the message in order {low-order byte, second-to-low-order byte, second-to-high-order byte} with the high-order byte implicitly 0
+|message_length||uint32_t||3 bytes||The bytes {0x6b, 0x00, 0x00}||The remaining length of the message in order {low-order byte, second-to-low-order byte, second-to-high-order byte} with the high-order byte implicitly 0
+|-
+|public_key||secp256k1 Public Key||33 bytes||"Compressed" secp256k1 public key||The public key which will be used for authentication of remaining messages
+|-
+|signature||secp256k1 compact signature||64 bytes||secp256k1 ECDSA signature encoded as R, S, both in big endian||Signature over SHA256(2 followed by all remaining data in this message)
 |-
 |version||uint16_t||2 bytes||Little-Endian Integer||The version the server has selected to use (currently always 1)
 |-
 |flags||uint16_t||2 bytes||16 flag bits||Flags indicating optional protocol features which the server selected for use.
 |-
-|public_key||secp256k1 Public Key||33 bytes||"Compressed" secp256k1 public key||The public key which will be used for authentication of remaining messages
+|client_supported_max_version||uint16_t||2 bytes||Little-Endian Integer||The max_version field from the PROTOCOL_SUPPORT
+|-
+|client_supported_min_version||uint16_t||2 bytes||Little-Endian Integer||The min_version field from the PROTOCOL_SUPPORT
+|-
+|client_supported_flags||uint16_t||2 bytes||16 flag bits||The field field from the PROTOCOL_SUPPORT
 |}
 
 ====PAYOUT_INFO====
