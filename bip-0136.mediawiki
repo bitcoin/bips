@@ -4,6 +4,7 @@
   Title: Bech32 Encoded Tx Position References
   Author: Велеслав <veleslav.bips@protonmail.com>
           Jonas Schnelli <dev@jonasschnelli.ch>
+          Daniel Pape <dpape@dpape.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0136
   Status: Draft
@@ -15,10 +16,9 @@
 == Introduction ==
 
 === Abstract ===
+This document proposes a convenient human useable format, '''"TxRef"''', as a standard way to refer to a transaction position within the Bitcoin Blockchain, and optionally a particular outpoint index with the referred transaction. The primary purpose of this format is to allow users to refer to a confirmed transaction (and optionally an outpoint index within) in a standard reliable and concise way.
 
-This document proposes a human useable format: '''"TxRef"''' as a standard way of referencing transaction positions within the Bitcoin Blockchain.  The primary purpose of this format is to allow end-users an effective and convenient way of referencing transactions that have been confirmed within the blockchain.
-
-''Please note: that a TxRef does not reference an actual transaction itself, rather it references a possible location within a blockchain for a transaction, that may or may not, point to an actual transaction and may change with reorganisations. We recommend that TxRef's should be not used for positions within the blockchain with a maturity less than 100 blocks.''
+''Please note: Unlike TxID where there is strong cryptographic link between the ID and the actual transaction. TxRef only provide a weak link to a particular transaction. TxRef locates an offset within a blockchain for a transaction, that may - or may not - point to an actual transaction, which fact may change with reorganisations. We recommend that TxRef's should be not used for positions within the blockchain having a maturity less than 100 blocks.''
 
 === Copyright ===
 
@@ -32,24 +32,25 @@ However, for many use-cases they have practical limitations:
 * TxIDs require third-party service for SPV wallets to lookup.
 * TxIDs are very long HEX encoded values (64 characters long).
 
-For transactions that have been embedded in the blockchain, it is possible to reference them not by their TxID, but by their location within the blockchain itself. In this document, we propose a standard for doing this.
+For transactions that have been embedded in the blockchain, it is possible to reference them not by their TxID, but by their location within the blockchain itself. The encoding can be made friendly for occasional human transcription. In this document, we propose a standard for doing this.
 
 === Examples ===
 These examples are for Bitcoin Transactions.
-* Genesis Coinbase Transaction: <tt>tx1:rqqq-qqqq-qmhu-qk (need to update)</tt>
-* Transaction #2205 of Block #466793: <tt>tx1:rjk0-u5ng-4jsf-mc (need to update)</tt>
+* Genesis Coinbase Transaction: <tt>tx1:rqqq-qqqq-qmhu-qhp</tt>
+* Transaction #2205 of Block #466793: <tt>tx1:rjk0-uqay-zsrw-hqe</tt>
 
 == Specification ==
 
-A '''confirmed transaction position reference''', or '''TxRef''' is reference to a particular location within the blockchain specified by the block height and a index within the block.
+A '''confirmed transaction position reference''', or '''TxRef''', is a reference to a particular location within the blockchain, specified by the block height and a transaction index within the block, and optionally a outpoint index within the transaction.
 
 ''Please Note: All values in this specification are encoded in little-endian format.''
 
 === Transaction Position Reference Considerations ===
 A TxRef may reference a location that doesn't exist because:
 
-* The block height hasn't been mined. Or,
-* The index is more than the total number of transactions included within the specified block.
+* The specified block hasn't yet been mined. Or,
+* The transaction index is greater than the total number of transactions included within the specified block.
+* The optional outpoint index is greater than the total outpoints contained within the transaction.
 
 Therefore, implementers must be careful not to display TxRef's to users prematurely:
 
@@ -62,21 +63,23 @@ Therefore, implementers must be careful not to display TxRef's to users prematur
 TxRef uses standard Bech32<ref name=":0">'''Why use Bech32 Encoding for Confirmed Transaction References?''' The error detection and correction properties of this encoding format make it very attractive. We expect that it will be reasonable for software to correct a maximum of two characters; however, we haven’t specified this yet.</ref> encoding as defined in [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP-173] and therefore consists of:
 
 * Human-readable Part, or "HRP", that provides namespacing. We have chosen to distinguish between Main and Test Networks:
-**For Any Mainnet Network: '''"tx"'''.
-**For Any Testnet Network: '''"txtest"'''.
-**Please see [https://github.com/satoshilabs/slips/blob/master/slip-0173.md SLIP-0173 : Registered human-readable parts for BIP-0173] for a full list of HRP's including these two and other relating to other projects.
+** For Any Mainnet Network: '''"tx"'''.
+** For Any Testnet Network: '''"txtest"'''.
+** Please see [https://github.com/satoshilabs/slips/blob/master/slip-0173.md SLIP-0173 : Registered human-readable parts for BIP-0173] for a full list of HRP's including these two and others relating to other projects.
 * Separator: '''"1"'''.
 * Data Part.
+
+Please node: other specifcations, such as [https://w3c-ccg.github.io/did-spec/ Decentralized Identifier syntax] , have implicitly encoded the information contained within the HRP elsewhere. In this case they may choose not include the HRP as specified here.
 
 To increase portability and readability additional separators SHOULD be added:
 
 * A Colon<ref>'''Why add a colon here?''' This allows it to conform better with W3C URN/URL standards.</ref> '''":"'''  added after '1'.
-* Hyphens<ref>'''Why hyphens to the TxRef?''' As TxRef's are short, we expect that they will be quoted via voice or written by hand. The inclusion of hyphens every 4 characters breaks the string and means people don't loose their place so easily.</ref> '''"-"''' added after every 4 characters beyond the colon.
+* Hyphens<ref>'''Why hyphens to the TxRef?''' As TxRef's are short, we expect that they will be quoted via voice or written by hand. The inclusion of hyphens every 4 characters breaks the string and means people don't lose their place so easily.</ref> '''"-"''' added after every 4 characters beyond the colon.
 
 All non-bech32-alphabet characters after the bech32 code separator MUST be ignored/removed when parsing (except for terminating characters).<ref>'''Why strip all non-bech32-alphabet characters?''' We do not wish to expect the users to keep their TxRef's in good unicode form (hyphens, colons, invisible spaces, random unicode characters, etc). We expect them to copy, paste, write by-hand, write in a mix of character sets, etc. Parsers should automatically correct for all sorts of these common errors.
 </ref>
 {| class="wikitable"
-|+TxRef String Format for Bitcoin Mainnet and Bitcoin Testnet:
+|+Text Encoding of the TxRef
 !
 !Bit
 !Character
@@ -112,39 +115,12 @@ All non-bech32-alphabet characters after the bech32 code separator MUST be ignor
 |9
 |1
 |"'''-'''"
-|-
-|Data
-|20 – 39
-|10 – 13
-|4
-|
-|-
-|Hyphen
-|
-|14
-|1
-|"'''-'''"
-|-
-|Data
-|40 – 59
-|15 – 18
-|4
-|
-|-
-|Hyphen
-|
-|19
-|1
-|"'''-'''"
-|-
-|Data
-|60 – 74
-|20 – 22
-|3
-|
 |}
+The Data - Hyphen patten is repeated for the entire length of data, ( a hyphen is inserted after every encoded 20 bits or 4 data characters).
+=== Data ===
 
-=== Data Part ===
+The 75 or 90 bits of data encoded in the string above are defined in this manner:
+
 {| class="wikitable"
 |+TxRef Binary Format for Bitcoin Mainnet and Bitcoin Testnet:
 !
@@ -158,7 +134,10 @@ All non-bech32-alphabet characters after the bech32 code separator MUST be ignor
 |0 – 4
 |5
 |Chain Namespacing Code
-|'''0x3''' for Bitcoin Mainnet, or '''0x6''' for Bitcoin Testnet
+|'''0x3''' for Bitcoin Mainnet.
+'''0x4''' for Bitcoin Mainnet with Outpoint.
+'''0x6''' for Bitcoin Testnet.
+'''0x7''' for Bitcoin Testnet with Outpoint.
 |
 |-
 |Version
@@ -181,27 +160,59 @@ All non-bech32-alphabet characters after the bech32 code separator MUST be ignor
 |The index of the Tx inside the block
 |Tx 0 (coinbase) to Tx position 32767
 |Max Tx's in block is 16665
+|}
+If the magic is '''0x4''' or '''0x7''', an optional outpoint is included in the encoding:
+
+{| class="wikitable"
+|+Optional Outpoint Index Encoding:
+!
+!'''Bit'''
+!'''Bit(s)'''
+!'''Type'''
+!'''Values'''
+!'''Notes'''
+|-
+|Outpoint Index
+|45 – 59
+|15
+|The index of the Outpoint inside the Tx
+|Outpoint 0  to Outpoint Position 32767
+|
+|}
+
+We include the 30-bit checksum last:
+{| class="wikitable"
+|+Bech32 Checksum Encoding:
+!
+!'''Bit'''
+!'''Bit(s)'''
+!'''Type'''
+!'''Values'''
+!'''Notes'''
 |-
 |Checksum
-|45 – 74
+|45 – 74 or 60 – 89
 |30
 |Bech32 Checksum
 |
 |
 |}
+
 ==== Magic Notes: ====
 The magic code provides namespacing between chains. 5-bit magic codes are used for the Bitcoin Mainnet and the Bitcoin Testnet. (it may be significantly longer for other projects/chains):
 
-* For Bitcoin Mainnet the magic code is: '''0x3''', leading to a '''"r"''' character.
-* For Bitcoin Testnet the magic code is: '''0x6''', leading to a '''"x"''' character.
+* For Bitcoin Mainnet the magic code is: '''0x3''', leading to an '''"r"''' character when encoded.
+* For Bitcoin Mainnet with Outpoint Encoded the magic code is: '''0x4''', leading to an '''"y"''' character when encoded.
+* For Bitcoin Testnet the magic code is: '''0x6''', leading to an '''"x"''' character when encoded.
+* For Bitcoin Testnet with Outpoint Encoded the magic code is: '''0x7''', leading to an '''"8"''' character when encoded.
 
-Codes '''0x0''', '''0x1''', '''0x2''' are also reserved for future use within the Bitcoin project.
+Codes '''0x0''', '''0x1''', '''0x2''', '''0x5''', are also reserved for future use within the Bitcoin project.
 
-''Any other chain MUST NOT start their magic code with any value between 0x0 and 0x6 inclusive.''
+''Any other chain MUST NOT start their magic code with any value between 0x0 and 0x7 inclusive.''
 
 Other magic codes will be specified in SLIP-XXXX "TxRef for Non-Bitcoin Chains and Networks".
 
-=== Compatibly ===
+=== Compatibility ===
 There are no known compatibility issues.
 
 == Rationale ==
@@ -209,9 +220,11 @@ There are no known compatibility issues.
 <references />
 
 == Reference implementations ==
-C Reference Implementation: https://github.com/jonasschnelli/bitcoin_txref_code
+C Reference Implementation (supports version 0): https://github.com/jonasschnelli/bitcoin_txref_code
 
-Go Reference Implementation: https://github.com/kulpreet/txref
+Go Reference Implementation (supports version 0): https://github.com/kulpreet/txref
+
+C++ Reference Implementation (support versions 0 and 1): https://github.com/dcdpr/btcr-DID-method/blob/master/libtxref
 
 == Appendices ==
 
@@ -234,24 +247,24 @@ The following list gives invalid TxRef's and the reason for their invalidity.
 * <tt>bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kg3g4ty</tt>: Invalid human-readable part
 * <tt>tx1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5</tt>: Invalid checksum
 
-==== Bitcoin TxRef <u>(out of date, need to be amended).</u> ====
+==== Bitcoin TxRef ====
 The following list gives properly encoded Bitcoin TxRef's and the values in hex. (block height, transaction index)
 
-* <tt>tx1:rqqq-qqqq-qmhu-qk</tt>: <tt>(0x0, 0x0)</tt>
-* <tt>tx1:rqqq-qull-6v87-r7</tt>: <tt>(0x0, 0x1FFF)</tt>
-* <tt>tx1:r7ll-lrqq-vq5e-gg</tt>: <tt>(0x1FFFFF, 0x0)</tt>
-* <tt>tx1:r7ll-llll-khym-tq</tt>: <tt>(0x1FFFFF, 0x1FFF)</tt>
+* <tt>tx1:rqqq-qqqq-qmhu-qhp</tt>: <tt>(0x0, 0x0)</tt>
+* <tt>tx1:rqqq-qqll-l8xh-jkg</tt>: <tt>(0x0, 0x7FFF)</tt>
+* <tt>tx1:r7ll-llqq-qghq-qr8</tt>: <tt>(0xFFFFFF, 0x0)</tt>
+* <tt>tx1:r7ll-llll-l5xt-jzw</tt>: <tt>(0xFFFFFF, 0x7FFF)</tt>
 
-The following list give valid Bitcoin TxRef's and the values in hex. (block height, transaction index)
-* <tt>tx1:rjk0-u5ng-4jsf-mc</tt>: <tt>(0x71F69, 0x89D)</tt>
-* <tt>TX1RJK0U5NG4JSFMC</tt>:  <tt>(0x71F69, 0x89D)</tt>
-* <tt>TX1R1JK0--U5bNG4JSb----FMC</tt>:  <tt>(0x71F69, 0x89D)</tt>
-* <tt>tx1 rjk0 u5ng 4jsfmc</tt>: <tt>(0x71F69, 0x89D)</tt>
-* <tt>tx1!rjk0\u5ng*4jsf^^mc</tt>: <tt>(0x71F69, 0x89D)</tt>
+The following list gives valid Bitcoin TxRef's and the values in hex. (block height, transaction index)
+* <tt>tx1:rjk0-uqay-zsrw-hqe</tt>: <tt>(0x71F69, 0x89D)</tt>
+* <tt>TX1RJK0UQAYZSRWHQE</tt>:  <tt>(0x71F69, 0x89D)</tt>
+* <tt>TX1RJK0--UQaYZSRw----HQE</tt>:  <tt>(0x71F69, 0x89D)</tt>
+* <tt>tx1 rjk0 uqay zsrw hqe</tt>: <tt>(0x71F69, 0x89D)</tt>
+* <tt>tx1!rjk0\uqay*zsrw^^hqe</tt>: <tt>(0x71F69, 0x89D)</tt>
 
 The following list gives invalid Bitcoin TxRef's and the reason for their invalidity.
-* <tt>tx1:t7ll-llll-gey7-ez</tt>: Magic 0xB instead of 0x3.  <tt>(0x1FFFFF, 0x1FFF)</tt>
-* <tt>tx1:rlll-llll-cgqu-n2</tt>: Version 1 instead of 0. <tt>(0x1FFFFF, 0x1FFF)</tt>
+* <tt>tx1:t7ll-llll-ldup-3hh</tt>: Magic 0xB instead of 0x3.  <tt>(0xFFFFFF, 0x7FFF)</tt>
+* <tt>tx1:rlll-llll-lfet-r2y</tt>: Version 1 instead of 0. <tt>(0xFFFFFF, 0x7FFF)</tt>
 * <tt>tx1:rjk0-u5ng-gghq-fkg7</tt>: Valid Bech32, but 10x5bit packages instead of 8.
 * <tt>tx1:rjk0-u5qd-s43z</tt>: Valid Bech32, but 6x5bit packages instead of 8.
 
@@ -271,6 +284,25 @@ Some calculations showing why we chose these particular bit-length of the block 
 **4B version + 1B tx_in count + 36B previous_output + 1B script length + 0B signature script + 4B sequence + 1B tx_out count + 8B amount + 1B script length + 23B pubkey script + 4B lock_time = 83B
 *The ''extreme'' smallest Tx is 60 Byte's: Max 16665 tx in a block.
 **4B version + 1B tx_in count + 36B previous_output + 1B script length + 0B signature script + 4B sequence + 1B tx_out count + 8B amount + 1B script length + 0B pubkey script + 4B lock_time = 60B
+
+=== Test Vectors (version 1) ===
+These test vectors are extended TxRefs (version 1):
+
+==== Bitcoin Extended TxRef ====
+The following list gives properly encoded Bitcoin Extended TxRef's and the values in hex. (block height, transaction index, TXO index)
+
+* <tt>tx1:rpqq-qqqq-qqqq-q2ge-ahz</tt>: <tt>(0x0, 0x0, 0x0)</tt>
+* <tt>tx1:rpqq-qqql-llqq-qshz-qhw</tt>: <tt>(0x0, 0x7FFF, 0x0)</tt>
+* <tt>tx1:rp7l-lllq-qqqq-qpvh-wkq</tt>: <tt>(0xFFFFFF, 0x0, 0x0)</tt>
+* <tt>tx1:rp7l-llll-llqq-qmnv-nkv</tt>: <tt>(0xFFFFFF, 0x7FFF, 0x0)</tt>
+
+* <tt>tx1:rpqq-qqqq-qqpq-qg2s-2w6</tt>: <tt>(0x0, 0x0, 0x1)</tt>
+* <tt>tx1:rpqq-qqql-llpq-qj4t-hwk</tt>: <tt>(0x0, 0x7FFF, 0x1)</tt>
+* <tt>tx1:rp7l-lllq-qqpq-qrw7-e0c</tt>: <tt>(0xFFFFFF, 0x0, 0x1)</tt>
+* <tt>tx1:rp7l-llll-llpq-qe39-y05</tt>: <tt>(0xFFFFFF, 0x7FFF, 0x1)</tt>
+
+* <tt>tx1:rpjk-0uqa-yzu4-x0w0-kuq</tt>: <tt>(0x71F69, 0x89D, 0x1ABC)</tt>
+* <tt>txtest1:xpjk-0uqa-yzu4-xgrl-pue</tt>: <tt>(0x71F69, 0x89D, 0x1ABC)</tt> (testnet, magic number = 0x6)
 
 == Acknowledgements ==
 Special Thanks to Pieter Wuille and Greg Maxwell for Bech32, a wonderful user-facing data encoding.
