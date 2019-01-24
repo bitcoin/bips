@@ -8,6 +8,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Polish](polish.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -82,3 +83,12 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good.
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Polish
+
+1. Length between 4 and 8 Polish letters without diacritics.
+2. The first 4 letters uniquely determine a word.
+3. Common nouns only. Plural form used only when there is no singular form/singular form is rarely used.
+4. Words from the Polish dictionary only. It is OK if some people especially children would not understand some of them,
+   but it should not 'put in trouble' (no embarrassing words) people who know the meaning and are asked for explanation.
+5. No very similar words - Levenshtein distance of ONE not allowed.
