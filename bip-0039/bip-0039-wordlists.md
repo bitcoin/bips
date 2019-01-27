@@ -8,6 +8,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Slovenian](slovenian.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -82,3 +83,17 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good.
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Slovenian
+
+Credits: @filips123
+
+1. Priority on common words where possible.
+2. Only verbs, adverbs and nouns in basic form.
+3. Only lowercase ASCII letters.
+4. No accents or special characters.
+5. Word length between 4 and 8 characters.
+6. First 4 letters must be unique between all words.
+7. Original wordlists from Wiktionary for [verbs](https://sl.wiktionary.org/wiki/Kategorija:Slovenski_glagoli), [adverbs](https://sl.wiktionary.org/wiki/Kategorija:Slovenski_prislovi) and [nouns](https://sl.wiktionary.org/wiki/Kategorija:Slovenski_samostalniki).
+8. Wordlist of common words from [NoSketch Engine](http://nl.ijs.si/noske/sl.cgi/wordlist?corpname=gigafida&wlsort=f&wlattr=word&wlpat=[a-z]{4%2C8}).
+9. Selection of words using [Python script](https://gist.github.com/filips123/2fe0bfb7f5453760549004502c869f16).
