@@ -23,9 +23,9 @@ The current message signing standard only works for P2PKH (1...) addresses. By e
 
 A new structure <code>SignatureProof</code> is added, which is a simple serializable scriptSig & witness container.
 
-=== Common Header ===
+Two actions "Sign" and "Verify" are defined along with two *purposes* "SignMessage" and "ProveFunds".
 
-A common header used for signature proofs and challenges is defined as follows:
+=== SignatureProof container ===
 
 {|class="wikitable" style="text-align: center;"
 |-
@@ -43,9 +43,7 @@ A common header used for signature proofs and challenges is defined as follows:
 |Uint8||1||entries||Number of proof entries<ref><strong>Why support multiple proofs?</strong> In particular with proof of funds, it is non-trivial to check a large number of individual proofs (one per UTXO) for duplicates. Software could be written to do so, but it seems more efficient to build this check into the specification itself.</ref>
 |}
 
-=== SignatureProof container ===
-
-The signature proof begins with a common header, and is followed by [entries] number of signature entries:
+The above is followed by [entries] number of signature entries:
 
 {|class="wikitable" style="text-align: center;"
 |-
@@ -82,53 +80,54 @@ A verification call will return a result code according to the table below.
 |-
 |INVALID||One or more of the given proofs were invalid
 |-
+|SPENT||One or more of the claimed UTXO:s has been spent
+|-
 |ERROR||An error was encountered
 |}
 
-=== SignMessage serialization ===
+== Signing and Verifying ==
 
-The SignMessage challenge begins with the common header, and is followed by [entries] entries:
+Let there be an empty set `inputs` which is populated and tested at each call to one of the actions below.
 
-{|class="wikitable" style="text-align: center;"
-|-
-!Type
-!Length
-!Name
-!Comment
-|-
-|VarInt||1-8||spklen||ScriptPubKey length
-|-
-|Uint8*||[spklen]||spk||ScriptPubKey
-|}
+=== Purpose: SignMessage ===
 
-=== Proving and Verifying ===
+The "SignMessage" purpose generates a sighash based on a scriptPubKey and a message. It emits a VALID verification result code unless otherwise stated.
 
-Let there be an empty set <code>inputs</code> which is populated and tested at each call to one of the actions below.
-
-=== Common steps ===
-
-A sighash is generated based on a scriptPubKey and a message. A VALID verification result code is emitted unless otherwise stated.
-
-# Emits INVALID if scriptPubKey already exists in <code>inputs</code>set, otherwise insert it<ref><strong>Why track duplicates?</strong> Because a 3-entry proof is not proving 3 inputs unless they are all distinct</ref>
-# Emits INVALID if the message is not a UTF-8 string encoded using Normalization Form Compatibility Decomposition (NFKD); note specifically that binary messages are not supported
-# Define the message pre-image as the sequence "Bitcoin Message:" concatenated with the message, ''excluding'' the null terminating character (if any)
+# Return INVALID if scriptPubKey already exists in `inputs` set, otherwise insert it<ref><strong>Why track duplicates?</strong> Because a 3-entry proof is not proving 3 inputs unless they are all distinct</ref>
+# Define the message pre-image as the sequence "Bitcoin Message:" concatenated with the message, encoded in UTF-8 using Normalization Form Compatibility Decomposition (NFKD)
 # Let sighash = sha256(sha256(scriptPubKey || pre-image))
 
-=== Proving ===
+=== Purpose: ProveFunds ===
 
-Returns a signature or fails (emits INVALID).
+The "ProveFunds" purpose generates a sighash and a scriptPubKey from a transaction, an output index, and a message. For multiple simultaneous proofs, it also requires access to the ordered list of proofs. It emits a VALID verification result code unless otherwise stated.
 
+# Let txid be the transaction ID of the transaction, and vout be the output index corresponding to the index of the output being spent
+# Return INVALID if the txid:vout pair already exists in `inputs` set, otherwise insert it
+# Return SPENT if the txid/vout is not a valid UTXO according to a Bitcoin node<ref><strong>Synced up or not?</strong> A normal verifier would use a synced up node. An auditor checking records from a client that were submitted in the past want to use a node that is synced up to the block corresponding to the proof, or the proof will fail, even if it may have been valid at the time of creation.</ref>
+# Extract scriptPubKey from transaction output
+# Define the message pre-image as the concatenation of the following components:<ref><strong>Why not just the UTXO data?</strong> We want the verifier to be able to challenge the prover with a custom message to sign, or anyone can reuse the POF proof for a set of UTXO:s once they have seen it, and the funds have not yet been spent</ref>
+#* the string "POF:"
+#* the message, encoded in UTF-8 using Normalization Form Compatibility Decomposition (NFKD), including the null terminating character (i.e. write strlen(message) + 1 bytes, for a C string)
+#* all transactions being proven for, as binary txid (little endian uint256) followed by index (little endian uint32), each separated by a single `0x00` byte
+# Let sighash = sha256(sha256(scriptPubKey || pre-image))
+
+=== Action: Sign ===
+
+The "Sign" action takes as input a purpose. It returns a signature or fails.
+
+# Obtain the sighash and scriptPubKey from the purpose; FAIL if not VALID
 # Derive the private key privkey for the scriptPubKey; FAIL if not VALID
-# Generate a signature sig with privkey=privkey, sighash=sighash
-# Return a SignatureProof container with the given signature
+# Generate and return a signature sig with privkey=privkey, sighash=sighash
 
-=== Verifying ===
+=== Action: Verify ===
 
-Emits one of INCONCLUSIVE, VALID, or INVALID.
+The "Verify" action takes as input a standard flags value, a script sig, an optional witness, and a purpose.
+It emits one of INCONCLUSIVE, VALID, INVALID, or ERROR.
 
+# Obtain the sighash and scriptPubKey from the purpose; pass on result code if not VALID
 # If one or more of the standard flags are unknown, return INCONCLUSIVE
 # Verify Script with flags=standard flags, scriptSig=script sig, scriptPubKey=scriptPubKey, witness=witness, and sighash=sighash
-# Emit VALID if verify succeeds, otherwise emit INVALID
+# Return VALID if verify succeeds, otherwise return INVALID
 
 === Multiple Proofs ===
 
