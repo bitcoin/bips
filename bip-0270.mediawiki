@@ -7,16 +7,17 @@
 
 ==Abstract==
 
-This BIP describes a protocol for communication between a merchant and their customer, enabling
-both a better customer experience and better security against man-in-the-middle attacks on
-the payment process.
+This BIP describes a protocol for communication between a merchant and their
+customer, enabling both a better customer experience, simpler wallet
+infrastructure, more advanced features such as multiple outputs, and better
+security against man-in-the-middle attacks on the payment process.
 
 This BIP is a simplified update to BIP 70 with a few important differences.
 First, we have switched from protobufs (protocol buffers) to JSON. Second, we
 have removed the redundant signatures from the messages and define
 authentication to happen at the communication later (usually HTTPS). Thirdly, we
-add a notion of optional outputs and output descriptions. There are a few other
-minor differences such as removing the redundant PaymentDetails object and
+add a notion of optional output values and output descriptions. There are a few
+other minor differences such as removing the redundant PaymentDetails object and
 changing all variable names to camelCase.
 
 TODO: Create a spec for NFC application ID for this. Ask Rafa.
@@ -31,7 +32,13 @@ The naive Bitcoin payment protocol operates as follows:
 # Customer authorizes payment to the merchant's address and broadcasts the transaction through the Bitcoin p2p network.
 # Merchant's server detects payment and after sufficient transaction confirmations considers the transaction final.
 
-There are several major problems with the naive approach. First, it assumes the customer broadcasts the transaction, which requires that the customer connect to the Bitcoin p2p network and for the merchant to wait for the transaction to propagate before accepting the payment. Second, it has no ability to allow for multiple outputs, which is necessary for many interesting use-cases of Bitcoin such as OP_RETURN data. Thirdly, there is no reliable way for a merchant to refund a payment in case of an issue.
+There are several major problems with the naive approach. First, it assumes the
+customer broadcasts the transaction, which requires that the customer connect to
+the Bitcoin p2p network and for the merchant to wait for the transaction to
+propagate before accepting the payment. Second, it has no ability to allow for
+multiple outputs, which is necessary for many interesting use-cases of Bitcoin
+such as OP_RETURN data. Thirdly, there is no reliable way for a merchant to
+refund a payment in case of an issue.
 
 This BIP extends the naive protocol to simplify wallets, add new features, and make every future interaction on-chain possible:
 
@@ -44,6 +51,11 @@ This BIP extends the naive protocol to simplify wallets, add new features, and m
 # Payment can contain multiple outputs which can be arbitrary scripts and not just addresses, making new applications possible.
 # It is no longer necessary for wallets to connect to the Bitcoin p2p network to broadcast transactions.
 # It is no longer necessary for merchants to maintain an address index to monitor for in coming transactions.
+
+Please note that the "merchant" in this document may not actually be the
+recipient of the funds. Like BitPay, the merchant may actuall be a host or
+payment processor who is providing this protocol as a service for another party
+who is the actual recipient of the funds.
 
 ==Protocol==
 
@@ -84,13 +96,13 @@ encoded strings. Do NOT prefix the hex encoded strings with "0x".
 Outputs are used in PaymentRequest messages to specify where a payment (or
 part of a payment) should be sent. They are also used in Payment messages
 to specify where a refund should be sent.
-<code>
+<pre>
 Output {
   amount // number. optional.
   script // string. required. isomorphic ASM-formatted script.
   description // string. optional. must not have JSON string length of greater than 100.
 }
-</code>
+</pre>
 {|
 | amount || Number of satoshis (0.00000001 BTC) to be paid. It is optional in order two allow the two most common flows for payments. In the usual flow, the merchant sets the value and the user must pay the required amount exactly as specified. If the user pays any other amount, the payment is invalid. However, if the merchant leaves the amount unspecified, any other amount is allowed. This would be the case during the second most common flow when a user is sending from one of their own wallets to another and uses the sending wallet to specify the amount. It can also be used for tipping.
 |-
@@ -267,6 +279,8 @@ We use JSON and JSON is naturally extensible. Any property of the objects not
 specified in this spec is a candidate to convey information for extensions.
 
 ==References==
+
+[[bip-0270.mediawiki|BIP 0271]] : Simplified Payment Protocol mime types
 
 [[bip-0070.mediawiki|BIP 0070]] : The original Payment Protocol specification
 
