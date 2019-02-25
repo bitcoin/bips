@@ -7,10 +7,12 @@
 
 ==Abstract==
 
-This BIP describes a protocol for communication between a merchant and their
-customer, enabling both a better customer experience, simpler wallet
-infrastructure, more advanced features such as multiple outputs, and better
-security against man-in-the-middle attacks on the payment process.
+This BIP describes a protocol for communication between a payment host (usually
+either a merchant, a payment processor, or simply the recipient's wallet) and
+their customer (the sender of the funds), enabling both a better customer
+experience, simpler wallet infrastructure, more advanced features such as
+multiple outputs, and better security against man-in-the-middle attacks on the
+payment process.
 
 This BIP is a simplified update to BIP 70 with a few important differences.
 First, we have switched from protobufs (protocol buffers) to JSON. Second, we
@@ -18,7 +20,7 @@ have removed the redundant signatures from the messages and define
 authentication to happen at the communication later (usually HTTPS). Thirdly, we
 add a notion of optional output values and output descriptions. There are a few
 other minor differences such as removing the redundant PaymentDetails object and
-changing all variable names to camelCase.
+changing all variable names to camelCase, and changing some names and terms.
 
 TODO: Create a spec for NFC application ID for this. Ask Rafa.
 
@@ -27,35 +29,38 @@ TODO: Create a spec for NFC application ID for this. Ask Rafa.
 The naive Bitcoin payment protocol operates as follows:
 
 # Customer adds items to an online shopping basket, and decides to pay using Bitcoin.
-# Merchant generates a unique payment address, associates it with the customer's order, and asks the customer to pay.
-# Customer copies the Bitcoin address from the merchant's web page and pastes it into whatever wallet they are using OR follows a bitcoin: link and their wallet is launched with the amount to be paid.
-# Customer authorizes payment to the merchant's address and broadcasts the transaction through the Bitcoin p2p network.
-# Merchant's server detects payment and after sufficient transaction confirmations considers the transaction final.
+# Payment host generates a unique payment address, associates it with the customer's order, and asks the customer to pay.
+# Customer copies the Bitcoin address from the payment host's web page and pastes it into whatever wallet they are using OR follows a bitcoin: link and their wallet is launched with the amount to be paid.
+# Customer authorizes payment to the payment host's address and broadcasts the transaction through the Bitcoin p2p network.
+# Payment host's server detects payment and after sufficient transaction confirmations considers the transaction final.
 
 There are several major problems with the naive approach. First, it assumes the
 customer broadcasts the transaction, which requires that the customer connect to
-the Bitcoin p2p network and for the merchant to wait for the transaction to
+the Bitcoin p2p network and for the payment host to wait for the transaction to
 propagate before accepting the payment. Second, it has no ability to allow for
 multiple outputs, which is necessary for many interesting use-cases of Bitcoin
-such as OP_RETURN data. Thirdly, there is no reliable way for a merchant to
+such as OP_RETURN data. Thirdly, there is no reliable way for a payment host to
 refund a payment in case of an issue.
 
 This BIP extends the naive protocol to simplify wallets, add new features, and make every future interaction on-chain possible:
 
 # Human-readable, secure payment destinations-- customers will be asked to authorize payment to "example.com" instead of an inscrutable, 34-character bitcoin address.
-# Secure proof of payment, which the customer can use in case of a dispute with the merchant.
-# Resistance from man-in-the-middle attacks that replace a merchant's bitcoin address with an attacker's address before a transaction is authorized with a hardware wallet.
-# Payment is sent directly to the merchant, removing the necessity of the customer engaging with the Bitcoin p2p network, and enabling quicker confirmation.
-# Payment received messages, so the customer knows immediately that the merchant has received, and has processed (or is processing) their payment.
-# Refund addresses, automatically given to the merchant by the customer's wallet software, so merchants do not have to contact customers before refunding overpayments or orders that cannot be fulfilled for some reason.
+# Secure proof of payment, which the customer can use in case of a dispute with the payment host.
+# Resistance from man-in-the-middle attacks that replace a payment host's bitcoin address with an attacker's address before a transaction is authorized with a hardware wallet.
+# Payment is sent directly to the payment host, removing the necessity of the customer engaging with the Bitcoin p2p network, and enabling quicker confirmation.
+# Payment received messages, so the customer knows immediately that the payment host has received, and has processed (or is processing) their payment.
+# Refund addresses, automatically given to the payment host by the customer's wallet software, so payment hosts do not have to contact customers before refunding overpayments or orders that cannot be fulfilled for some reason.
 # Payment can contain multiple outputs which can be arbitrary scripts and not just addresses, making new applications possible.
 # It is no longer necessary for wallets to connect to the Bitcoin p2p network to broadcast transactions.
-# It is no longer necessary for merchants to maintain an address index to monitor for in coming transactions.
+# It is no longer necessary for payment hosts to maintain an address index to monitor for in coming transactions.
 
-Please note that the "merchant" in this document may not actually be the
-recipient of the funds. Like BitPay, the merchant may actuall be a host or
+Please note that the "payment host" in this document may not actually be the
+recipient of the funds. Like BitPay, the payment host may actually be a host or
 payment processor who is providing this protocol as a service for another party
-who is the actual recipient of the funds.
+who is the actual recipient of the funds. We have chosen the name "payment" host
+to be an abstraction over either a merchant, a payment processor, a wallet, or
+any other agent that receives funds or acts as a proxy to whoever is the true
+recipient of the funds.
 
 ==Protocol==
 
@@ -66,7 +71,7 @@ protocol to other encodings, PKI systems, or transport protocols.
 
 The payment protocol consists of three messages; PaymentRequest, Payment,
 and PaymentACK, and begins with the customer somehow indicating that
-they are ready to pay and the merchant's server responding with a
+they are ready to pay and the payment host's server responding with a
 PaymentRequest message:
 
 <img src=bip-0270/Protocol_Sequence.png></img>
@@ -102,7 +107,7 @@ Output {
 </pre>
 
 {|
-| amount || Number of satoshis (0.00000001 BTC) to be paid. It is optional in order two allow the two most common flows for payments. In the usual flow, the merchant sets the value and the user must pay the required amount exactly as specified. If the user pays any other amount, the payment is invalid. However, if the merchant leaves the amount unspecified, any other amount is allowed. This would be the case during the second most common flow when a user is sending from one of their own wallets to another and uses the sending wallet to specify the amount. It can also be used for tipping.
+| amount || Number of satoshis (0.00000001 BTC) to be paid. It is optional in order two allow the two most common flows for payments. In the usual flow, the payment host sets the value and the user must pay the required amount exactly as specified. If the user pays any other amount, the payment is invalid. However, if the payment host leaves the amount unspecified, any other amount is allowed. This would be the case during the second most common flow when a user is sending from one of their own wallets to another and uses the sending wallet to specify the amount. It can also be used for tipping.
 |-
 | script || A "TxOut" script where payment should be sent. It is formatted as a human-readable ASM-formatted string. The reason to make it an ASM script is to make debugging easier. We use ASM format which is the original format used in bitcoind. However, because there is some flexibility about how ASM scripts can be written, we add an additional constrant on the script of requiring that it be "isomorphic", which means that if you read in the script and print it out again you ought to get exactly the same thing. This removes all flexibility from the format and gaurantees that two byte-equivalent scripts are also string-equivalant.
 |-
@@ -111,17 +116,17 @@ Output {
 
 ===PaymentRequest===
 
-A payment request contains the informtion the consumer needs to make the payment to the merchant.
+A payment request contains the informtion the consumer needs to make the payment to the payment host.
 
 <pre>
 PaymentRequest {
     network // string. required. always set to "bitcoin".
     outputs // an array of outputs. required, but can have zero elements.
-    time // number. required.
-    expires // number. optional.
+    creationTimestamp // number. required.
+    expirationTimestamp // number. optional.
     memo // string. optional.
     paymentUrl // string. optional.
-    merchantData // string. optional.
+    payment hostData // string. optional.
 }
 </pre>
 {|
@@ -129,28 +134,28 @@ PaymentRequest {
 |-
 | outputs || One or more outputs where Bitcoins are to be sent. For any outputs with no amount, the user will be asked to specify an amount. This is most useful for self-payments from wallet to wallet or for tipping. For instance, the output may have a description of "tip"
 |-
-| time || Unix timestamp (seconds since 1-Jan-1970 UTC) when the PaymentRequest was created.
+| creationTimestamp || Unix timestamp (seconds since 1-Jan-1970 UTC) when the PaymentRequest was created.
 |-
-| expires || Unix timestamp (UTC) after which the PaymentRequest should be considered invalid.
+| expirationTimestamp || Unix timestamp (UTC) after which the PaymentRequest should be considered invalid.
 |-
 | memo || Note that should be displayed to the customer, explaining what this PaymentRequest is for.
 |-
 | paymentUrl || Secure HTTPS location where a Payment message (see below) may be sent to obtain a PaymentACK.
 |-
-| merchantData || Arbitrary data that may be used by the merchant to identify the PaymentRequest. May be omitted if the merchant does not need to associate Payments with PaymentRequest or if they associate each PaymentRequest with a separate payment address.
+| payment hostData || Arbitrary data that may be used by the payment host to identify the PaymentRequest. May be omitted if the payment host does not need to associate Payments with PaymentRequest or if they associate each PaymentRequest with a separate payment address.
 |}
 
 The paymentUrl specified in the PaymentRequest should remain valid at least until the PaymentRequest
-expires (or as long as possible if the PaymentRequest does not expire). Note that this is irrespective of
+expirationTimestamp (or as long as possible if the PaymentRequest does not expire). Note that this is irrespective of
 any state change in the underlying payment request; for example cancellation of an order should not
-invalidate the paymentUrl, as it is important that the merchant's server can record mis-payments
+invalidate the paymentUrl, as it is important that the payment host's server can record mis-payments
 in order to refund the payment.
 
 When a Bitcoin wallet application receives a PaymentRequest, it must authorize payment by doing the following:
 
-# Validate the merchant's identity and signature using the PKI system. The PKI system is assumed to occur in a wrapper layer (such as HTTPS) and if no PKI system is available then the wallet can choose whether or not to display the payment request. The PKI system is usually HTTPS, and as such if the payment request is retrieved over HTTPS then the domain name should be displayed as the merchant.
-# Validate that customer's system unix time (UTC) is before PaymentRequest.expires. If it is not, then the payment request must be rejected.
-# Display the merchant's identity and ask the customer if they would like to submit payment (e.g. display the "Common Name" in the first X.509 certificate).
+# Validate the payment host's identity and signature using the PKI system. The PKI system is assumed to occur in a wrapper layer (such as HTTPS) and if no PKI system is available then the wallet can choose whether or not to display the payment request. The PKI system is usually HTTPS, and as such if the payment request is retrieved over HTTPS then the domain name should be displayed as the payment host.
+# Validate that customer's system unix time (UTC) is before PaymentRequest.expirationTimestamp. If it is not, then the payment request must be rejected.
+# Display the payment host's identity and ask the customer if they would like to submit payment (e.g. display the "Common Name" in the first X.509 certificate).
 
 PaymentRequest messages larger than 10 MB should be rejected by the wallet
 application, to mitigate denial-of-service attacks.
@@ -161,7 +166,7 @@ Payment messages are sent after the customer has authorized payment:
 
 <pre>
 Payment {
-  merchantData // string. optional.
+  payment hostData // string. optional.
   transactions // array of hex-formatted (and fully-signed and valid) transactions. required.
   refundTo // array of Outputs. required.
   memo // string. optional.
@@ -169,33 +174,33 @@ Payment {
 </pre>
 
 {|
-| merchantData || copied from PaymentDetails.merchantData. Merchants may use invoice numbers or any other data they require to match Payments to  PaymentRequests. Note that malicious clients may modify the merchantData, so should be authenticated in some way (for example, signed with a merchant-only key).
+| payment hostData || copied from PaymentDetails.payment hostData. Payment hosts may use invoice numbers or any other data they require to match Payments to  PaymentRequests. Note that malicious clients may modify the payment hostData, so should be authenticated in some way (for example, signed with a payment host-only key).
 |-
 | transactions || One or more valid, signed Bitcoin transactions that fully pay the PaymentRequest. Each transaction is hex-encoded and must NOT be prefixed with "0x".
 |-
-| refundTo || One or more outputs where the merchant may return funds, if necessary. The merchant may return funds using these outputs for up to 2 months
+| refundTo || One or more outputs where the payment host may return funds, if necessary. The payment host may return funds using these outputs for up to 2 months
 after the time of the payment request. After that time has expired, parties must negotiate if returning of funds becomes necessary.
 |-
-| memo || A plain-text note from the customer to the merchant.
+| memo || A plain-text note from the customer to the payment host.
 |}
 If the customer authorizes payment, then the Bitcoin client:
 
 # Creates and signs one or more transactions that satisfy (pay in full) PaymentDetails.outputs
-# Validate that customer's system unix time (UTC) is still before PaymentDetails.expires. If it is not, the payment should be cancelled.
+# Validate that customer's system unix time (UTC) is still before PaymentDetails.expirationTimestamp. If it is not, the payment should be cancelled.
 # A POST a Payment message to the paymentUrl URL. The Payment message is serialized and sent as the body of the POST request.
-# The client can optionall broadcast the transaction(s) themselves to the Bitcoin network, but they are not required to do so as the merchant is expected to do so. If the merchant never broadcasts the transaction, then after two months the client can recover their funds.
+# The client can optionall broadcast the transaction(s) themselves to the Bitcoin network, but they are not required to do so as the payment host is expected to do so. If the payment host never broadcasts the transaction, then after two months the client can recover their funds.
 
 Errors communicating with the paymentUrl server should be communicated to the user.
-In the scenario where the merchant's server receives multiple identical Payment
+In the scenario where the payment host's server receives multiple identical Payment
 messages for an individual PaymentRequest, it must acknowledge each. The second
-and further PaymentACK messages sent from the merchant's server may vary by memo
+and further PaymentACK messages sent from the payment host's server may vary by memo
 field to indicate current state of the Payment (for example number of confirmations
 seen on the network). This is required in order to ensure that in case of a transport
 level failure during transmission, recovery is possible by the Bitcoin client
 re-sending the Payment message.
 
 PaymentDetails.paymentUrl should be secure against man-in-the-middle attacks
-that might alter Payment.refundTo because the wallet and merchant are using
+that might alter Payment.refundTo because the wallet and payment host are using
 HTTPS or some other secure transit layer.
 
 Wallet software sending Payment messages via HTTPS must set appropriate
@@ -204,18 +209,18 @@ Content-Type and Accept headers, as specified in BIP 271:
 Accept: application/bitcoinsv-paymentack
 </pre>
 
-When the merchant's server receives the Payment message, it must
+When the payment host's server receives the Payment message, it must
 determine whether or not the transactions satisfy conditions of
 payment. If and only if they do, it should broadcast the
 transaction(s) on the Bitcoin p2p network.
 
 Payment messages larger than 10 MB should be rejected by
-the merchant's server, to mitigate denial-of-service attacks.
+the payment host's server, to mitigate denial-of-service attacks.
 
 ===PaymentACK===
 
 PaymentACK is the final message in the payment protocol; it is sent
-from the merchant's server to the bitcoin wallet in response to a
+from the payment host's server to the bitcoin wallet in response to a
 Payment message:
 
 <pre>
@@ -237,17 +242,17 @@ as PaymentACK contains a full Payment message within it.
 
 ==Localization==
 
-Merchants that support multiple languages should generate
+Payment hosts that support multiple languages should generate
 language-specific PaymentRequests, and either associate the language
 with the request or embed a language tag in the request's
-merchantData. They should also generate a language-specific
+payment hostData. They should also generate a language-specific
 PaymentACK based on the original request.
 
 For example: A greek-speaking customer browsing the Greek version of a
-merchant's website clicks on a "Αγορά τώρα" link, which generates a
-PaymentRequest with merchantData set to "lang=el&basketId=11252". The
+payment host's website clicks on a "Αγορά τώρα" link, which generates a
+PaymentRequest with payment hostData set to "lang=el&basketId=11252". The
 customer pays, their bitcoin client sends a Payment message, and the
-merchant's website responds with PaymentACK.message "σας ευχαριστούμε".
+payment host's website responds with PaymentACK.message "σας ευχαριστούμε".
 
 ==Certificates==
 
