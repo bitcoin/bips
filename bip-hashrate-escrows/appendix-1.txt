@@ -1,20 +1,45 @@
 
 ==== Two Withdrawals at Once ====
 
-Currently, the documentation and code describe a situation where only one withdrawal can proceed at a time.
+Currently, the documentation and code describe a situation where only one withdrawal can proceed at a time. As a result, one "train" (carrying everyone's withdrawals) leaves the station every 3 months, and takes 3-6 months to reach its destination.
 
-In other words, as WT^s are proposed, only one can make progress toward the finish line. As a result, a given side-to-main transfer will always take between 3 and 6 months.
+Thus, if a withdrawing-user is very unlucky, and "just misses" the train, this user must wait double-long. First, (s)he must wait for the missed-train to reach its destination. Second, (s)he must board the new train, and wait for *it* to reach its destination. Each of these steps takes 3-6 months.
 
-However, it might be best to use a maximum of two transfers at once.
+So, even when withdrawals always go as quickly as possible (3 months each), the total time varies, from 3 months (0 months waiting + 3 months travel) to 6 months (3 months waiting + 3 months travel). The average is 4.5 months.
 
-If there were more simulataneous withdrawals, the worst-case transfer duration would improve.
+To improve this, we allow for slightly different behavior if the highest-ACK-withdrawal [1st] has an ACK score >= 6575; and [2nd] is not tied with any other withdrawal.
 
-See image: bip-hashrate-escrows/two-groups.png?raw=true
+Basically: a second train can leave, if the furthest train is 50+% of the way to its destination.
 
-The worst-case withdrawal time obeys f(n)=3+(3/n) months, where n is the number of simultaneous withdrawals.
+So, previously, for m trains, M4 could be any of the following:
 
-N=2 is the most desirable choice for several reasons. First, it delievers the greatest marginal benefit (of 1.5 months). Later choices only deliver 0.5 and 0.25 marginal months.
+    abstain
+    alarm (move all trains backwards)
+    move train #1 forward (and others backwards)
+    move train #2 forward (and others backwards)
+    ...
+    move train #3 forward (and others backwards)
 
-Second, n=2 can be implemented in a clever way: by allowing a withdrawal to freely advance, if and only if has an ACK-score of 6575 or greater, and if it also has the largest ACK score. In other words, the withdrawal that is furthest along can advance (or retreat) for free, if it has already made it at least halfway to the finish line. With this change, our new M4, is either an "abstain" for the sidechain (in which case nothing happens to any ACK scores), or else it will be in one of two cases: old_M4 + "the largest advances", or new_M4 + "the largest retreats". As a result the number of M4 possibilities (of which the next section is concerned) only increases by a factor of two (instead of exponentially).
+If our new special conditions apply, we now double the (m-1) elements, to accommodate a second train:
 
-It is possible to troll this rule, by getting two (or even three) withdrawals to have 6575+ ACK scores, and then getting them to *tie* for first place. So, if there are any ties, the ability to "bonus move" would be disabled until all ties are broken.
+    |abstain
+    |alarm (move all trains backwards)
+
+    |advance furthest train + advance train #1 (regress all others)
+    |advance furthest train + advance train #2 (regress all others)
+    |...
+    |advance furthest train + advance train #(m-1)  (regress all others)
+     
+    |regress furthest train + advance train #1 (regress all others)
+    |regress furthest train + advance train #2 (regress all others)
+    |...
+    |regress furthest train + advance train #(m-1) (regress all others)
+    
+
+It is theoretically possible (but in practice probably impossible) to troll this rule, by getting two (or even three) withdrawals to have >6575 ACK scores, and then getting these to *tie* for first place. Then they'd both be furthest. Hence the second condition prohibiting this new behavior, if the furthest trains have any ACK-score ties.
+
+This simple change, which has almost zero impact on the security assumptions, improves the monthly total wait times drastically:
+
+    Worst-case:   6 --> 4.5
+    Average:    4.5 --> 3.75
+    Std Dev:   ~.91 --> ~.45
