@@ -28,18 +28,35 @@ If a sender is willing to pay a large fee, then a transaction may be allowed in 
 ==Specification==
 
 Every transaction has to fit into the following block space:
-    Input variable 'FeeInSatoshiPerByte': Must be positive or 0
-      type: double
-      unit: Satishi per byte
-    Output:
-      type: uint
+    Input variable 'transactionFee':
+      type: integer
+      unit: Satishi
+    Input variable 'transactionSize':
+      type: integer
       unit: bytes
-    Formula:
-      floor( log10( 1.1 + FeeInSatoshiPerByte ) * 1024 * 1024 )
+    Output:
+      type: integer
+      unit: bytes
+    Code:
+      int Formula(int transactionFee, int transactionSize)
+      {
+        int feePerByte = satoshis / bytes;
+        if (feePerByte == 1) return 200000;
+        return 41000 + 315653 * Log2(satoshis / bytes);
+      }
+      int Log2(int value)
+      {
+        int i;
+        for (i = 0; value > 1; i++)
+        {
+          value >>= 1;
+        }
+        return i;
+      }
 
 ==Implementation==
 
-# Sort transactions by FeeInSatoshiPerByte (lowest first)
+# Sort transactions by (TransactionFee / TransactionSize) (integer division, lowest first)
 # For each transaction starting from lowest FeeInSatoshiPerByte: Sum up the bytes of space used so far. Check if summed up bytes of space used so far is smaller or equal than the formula result.
 # If this is valid for each transaction then the blocksize is valid.
 
@@ -59,10 +76,10 @@ Every transaction has to fit into the following block space:
 | 0
 |- 
 | 1 satoshi/byte 
-| about 322kb
+| about 200kb
 | 250 sat
 | 0.01 $
-| 0.00322 btc
+| 0.002 btc
 |-
 | 10 satoshi/byte 
 | about 1Mb
@@ -108,7 +125,7 @@ your proposed algorithm to treat chains of transactions as a group.
 (And note that you could have multiple transactions in one block that
 depend on the same "parent" transaction, also in the same block.)
 ====Answer====
-Under the assumption that 41kb space for transaction with zero fee should be enough, it does not break CPFP: The miner can throw out other transactions to make space for all parent transactions he needs. Please note: The incentive for miners is not to have 41kb filled with zero fees. The incentive is to fill all space with highest possible fee per byte transactions. (if necessary we could change the constant in the formula from 1.1 to 1.2 that would modify the space for zero fee transactions to 79kb)
+Under the assumption that 41kb space for transaction with zero fee should be enough, it does not break CPFP: The miner can throw out other transactions to make space for all parent transactions he needs. Please note: The incentive for miners is not to have 41kb filled with zero fees. The incentive is to fill all space with highest possible fee per byte transactions. (if necessary we could change a constant in the formula to modify the space for zero fee transactions.)
 
 ===Comment===
 Related ideas:
@@ -117,5 +134,7 @@ https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2017-March/013885.html
 ===Comment===
 It seems the algorithm would greatly increase validation time. In particular, if the current limit is removed (as in hardforked proposal) then a 1Tb block can be used to attack the network, since sorting would require looking through the entire block. Thus, validation time would still limit the practical block sizes that can be deployed with this.
 ====Answer====
-True in case of hardfork to remove the current limit we still need a limit of lets say 8 Mbyte. To achive a valid 8MB block with this formula, the block would need to contain about 8 million btc fees. This will never happen. So probably a hard limit of 8MB would be good for this formula.
+True in case of hardfork to remove the current limit we still need a limit of lets say 8 Mbyte. To achive a valid 8MB block with this formula, the block would need to contain about 8 million btc fees. This will never happen. So probably a hard limit of 8MB would be good for this formula. Also sorting could be implemented very fast because there are only 28 sorting-buckets before 8MB limit is reached.
 
+==History==
+Consensus might be at risk by rounding differences in the double type in varous environments. Therefore changed spec from double to integer division and integer logarithm.
