@@ -51,10 +51,11 @@ Addition (+) of two coordinate pair is defined as application of the EC group op
 Concatenation (||) is the operation of appending one byte sequence onto another.
 
 As standard conversion functions, we assume:
-* point(p): returns the coordinate pair resulting from EC point multiplication (repeated application of the EC group operation) of the secp256k1 base point with the integer p.
+* point(p): returns the coordinate pair resulting from EC point multiplication (repeated application of the EC group operation) of the secp256k1 base point with the integer p (similar to making public key).
 * ser<sub>32</sub>(i): serialize a 32-bit unsigned integer i as a 4-byte sequence, most significant byte first.
 * ser<sub>256</sub>(p): serializes the integer p as a 32-byte sequence, most significant byte first.
-* ser<sub>P</sub>(P): serializes the coordinate pair P = (x,y) as a byte sequence using SEC1's compressed form: (0x02 or 0x03) || ser<sub>256</sub>(x), where the header byte depends on the parity of the omitted y coordinate.
+* ser<sub>P</sub>(P): serializes the coordinate pair P = (x,y) (aka. the public key) as a byte sequence using [https://github.com/bitcoin-core/secp256k1/blob/master/include/secp256k1.h#L177 SEC1]'s compressed form: (0x02 or 0x03) || ser<sub>256</sub>(x), where the header byte depends on the parity of the omitted y coordinate.
+** [https://github.com/bitcoin-core/secp256k1 Libsecp256k1]'s pubkey_serialize and pubkey_parse functions implement this format.
 * parse<sub>256</sub>(p): interprets a 32-byte sequence as a 256-bit number, most significant byte first.
 
 
@@ -63,6 +64,8 @@ As standard conversion functions, we assume:
 In what follows, we will define a function that derives a number of child keys from a parent key. In order to prevent these from depending solely on the key itself, we extend both private and public keys first with an extra 256 bits of entropy. This extension, called the chain code, is identical for corresponding private and public keys, and consists of 32 bytes.
 
 We represent an extended private key as (k, c), with k the normal private key, and c the chain code. An extended public key is represented as (K, c), with K = point(k) and c the chain code.
+
+When deriving child keys, a 'hardened' child key can only be generated using a private key. This provides security advantages and prevents adversarial public key tracing. It is typically used to separate 'accounts' from one another.
 
 Each extended key has 2<sup>31</sup> normal child keys, and 2<sup>31</sup> hardened child keys. Each of these child keys has an index. The normal child keys use indices 0 through 2<sup>31</sup>-1. The hardened child keys use indices 2<sup>31</sup> through 2<sup>32</sup>-1. To ease notation for hardened key indices, a number i<sub>H</sub> represents i+2<sup>31</sup>.
 
@@ -104,6 +107,8 @@ To compute the public child key of a parent private key:
 * N(CKDpriv((k<sub>par</sub>, c<sub>par</sub>), i)) (works always).
 * CKDpub(N(k<sub>par</sub>, c<sub>par</sub>), i) (works only for non-hardened child keys).
 The fact that they are equivalent is what makes non-hardened keys useful (one can derive child public keys of a given parent key without knowing any private key), and also what distinguishes them from hardened keys. The reason for not always using non-hardened keys (which are more useful) is security; see further for more information.
+
+The non-hardened result is typically used by a server to continually generate receive addresses without the ability to spend funds.
 
 ====Public parent key &rarr; private child key====
 
