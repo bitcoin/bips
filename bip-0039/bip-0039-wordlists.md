@@ -8,6 +8,7 @@
 * [Chinese (Traditional)](chinese_traditional.txt)
 * [French](french.txt)
 * [Italian](italian.txt)
+* [Russian](russian.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -82,3 +83,20 @@ Words chosen using the following rules:
 Rules 11 and 12 prevent the selection words that are not different enough. This makes each word more recognizable among others and less error prone. For example: the wordlist contains "atono", then "atomo" is rejected, but "atomico" is good.
 
 All the words have been manually selected and automatically checked against the rules.
+
+### Russian
+
+Credits: Mikhail Vladimirov from ABDK Consulting
+
+1. Chosen from 10000 most frequently used Russian words.
+2. Only initial forms.
+3. Length between 4 and 8 letters.
+4. Not containing “ё” (Yo) letter.
+5. Neither two words could be made from each other by adding, removing, or replacing single letter, or by interchanging two adjacent letters.
+6. Distinguishable by first 4 letters.
+7. Not related to particular religion, nation, ideology, race etc.
+8. Not related to sexuality, death, alcohol, drugs, smoking etc.
+9. Not derived from geographic location.
+
+Words were automatically selected, then manually checked.
+
