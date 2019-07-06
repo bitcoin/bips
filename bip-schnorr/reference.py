@@ -34,7 +34,7 @@ def bytes_from_point(P):
     return (b'\x03' if P[1] & 1 else b'\x02') + bytes_from_int(P[0])
 
 def point_from_bytes(b):
-    if b[0] in [b'\x02', b'\x03']:
+    if b[0:1] in [b'\x02', b'\x03']:
         odd = b[0] - 0x02
     else:
         return None
