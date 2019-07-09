@@ -319,6 +319,8 @@ For a Signer to only produce valid signatures for what it expects to sign, it mu
 * If a witness UTXO is provided, no non-witness signature may be created
 * If a redeemScript is provided, the scriptPubKey must be for that redeemScript
 * If a witnessScript is provided, the scriptPubKey or the redeemScript must be for that witnessScript
+* If a sighash type is provided, the signer must check that the sighash is acceptable. If unacceptable, they must fail.
+* If a sighash type is not provided, the signer should sign using SIGHASH_ALL, but may use any sighash type they wish.
 
 =====Simple Signer Algorithm=====
 
@@ -326,13 +328,17 @@ A simple signer can use the following algorithm to determine what and how to sig
 
 <pre>
 sign_witness(script_code, i):
-    for key in psbt.inputs[i].keys:
-        if IsMine(key):
+    for key, sighash_type in psbt.inputs[i].items:
+        if sighash_type == None:
+            sighash_type = SIGHASH_ALL
+        if IsMine(key) and IsAcceptable(sighash_type):
             sign(witness_sighash(script_code, i, input))
 
 sign_non_witness(script_code, i):
-    for key in psbt.inputs[i].keys:
-        if IsMine(key):
+    for key, sighash_type in psbt.inputs[i].items:
+        if sighash_type == None:
+            sighash_type = SIGHASH_ALL
+        if IsMine(key) and IsAcceptable(sighash_type):
             sign(non_witness_sighash(script_code, i, input))
 
 for input,i in enumerate(psbt.inputs):
