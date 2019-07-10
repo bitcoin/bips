@@ -118,6 +118,12 @@ The currently defined global types are as follows:
 *** <tt>{transaction}</tt>
 ** Note: Every PSBT must have a field with this type.
 
+* Type: Extended Public Key <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
+** Key: The type followed by the 78 byte serialized extended public key as defined by BIP 32. Extended public keys are those that can be used to derive public keys used in the inputs and outputs of this transaction. It should be the public key at the highest hardened derivation index so that the unhardened child keys used in the transaction can be derived.
+*** <tt>{0x01}|{xpub}</tt>
+** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
+*** <tt>{master key fingerprint}|{32-bit int}|...|{32-bit int}</tt>
+
 The currently defined per-input types are defined as follows:
 
 * Type: Non-Witness UTXO <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
@@ -357,6 +363,23 @@ for input,i in enumerate(psbt.inputs):
     else:
         assert False
 </pre>
+
+====Change Detection====
+
+Signers may wish to display the inputs and outputs to users for extra verification.
+In such displays, signers may wish to identify which outputs are change outputs in order to omit them to avoid additional user confusion.
+In order to detect change, a signer can use the BIP 32 derivation paths provided in inputs and outputs as well as the extended public keys provided globally.
+
+For a single key output, a signer can observe whether the master fingerprint for the public key for that output belongs to itself.
+If it does, it can then derive the public key at the specified derivation path and check whether that key is the one present in that output.
+
+For outputs involving multiple keys, a signer can first examine the inputs that it is signing.
+It should determine the general pattern of the script and internally produce a representation of the policy that the script represents.
+Such a policy can include things like how many keys are present, what order they are in, how many signers are necessary, which signers are required, etc.
+The signer can then use the BIP 32 derivation paths for each of the pubkeys to find which global extended public key is the one that can derive that particular public key.
+To do so, the signer would extract the derivation path to the highest hardened index and use that to lookup the public key with that index and master fingerprint.
+The signer would construct this script policy with extended public keys for all of the inputs and outputs.
+Change outputs would then be identified as being the outputs which have the same script policy as the inputs that are being signed.
 
 ===Combiner===
 
