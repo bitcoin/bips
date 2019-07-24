@@ -1,0 +1,107 @@
+<pre>
+  BIP: 323
+  Layer: Script Language
+  Title: PubRef - Script OP Code For Public Data References
+  Author: Michael Brooks <m@ib.tc>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0323
+  Status: Draft
+  Type: Standards Track
+  Created: 2019-07-23
+  License: CC0-1.0
+</pre>
+
+== Abstract ==
+
+This BIP describes how a new OP code can be used to construct smaller, more compact transactions.  With a public reference (PubRef), a newly created transaction can reuse elements of a previously confirmed transaction by representing this information with a smaller numeric offset or “pointer”.
+
+== Motivation ==
+
+Giving scripts the ability to refer to data on the blockchain will reduce transaction sizes because key material does not have to be repeated in every Script. Users of the network are rewarded with smaller transaction sizes, and miners are able to fit more transactions into new blocks.  Pointers are a common feature and it felt like this was missing from Bitcoin Script.
+
+== Specification ==
+
+This BIP defines a new Script opcode that can be introduced with BIP-0141 (Segregated Witness (Consensus layer)). This new opcode is as follows:
+
+
+Word
+
+Opcode
+
+Hex
+
+Input
+
+Output
+
+Description
+
+OP_PUBREF4
+
+TBD
+
+TBD
+
+uint4
+
+data
+
+The next four bytes is an integer reference to a previously defined PUSHDATA 
+
+
+Let there be an ordered list of all invocations of PUSHDATA (OP codes; 0x4c,0x4d,0x4e) across all scripts starting from the genesis block: [t0,t2,...,tn].   With this list a newly created script can refer to a specific PUSHDATA that was used in any previously confirmed block.  The values referenced by this list are immutable and uniform to all observers.
+
+
+Lets assume there is some transaction containing a ScriptSig and outputScript pair, here is what an input and an output script would look like:
+
+
+ScriptSig
+
+PUSHDATA(72)[30450221008f906b9fe728cb17c81deccd6704f664ed1ac920223bb2eca918f066269c703302203b1c496fd4c3fa5071262b98447fbca5e3ed7a52efe3da26aa58f738bd342d3101] PUSHDATA(65)[04bca69c59dc7a6d8ef4d3043bdcb626e9e29837b9beb143168938ae8165848bfc788d6ff4cdf1ef843e6a9ccda988b323d12a367dd758261dd27a63f18f56ce77]
+
+outputScript
+
+DUP HASH160 PUSHDATA(20)[dd6cce9f255a8cc17bda8ba0373df8e861cb866e] EQUALVERIFY CHECKSIG
+
+The ScriptSig of an input typically contains the full public key which is ~65 bytes. Outputs will typically contain a hash of the public key which is 20 bytes.  Using PubRef, the public-key material shown above no longer need to be repeated, instead the needed values can be resolved from previously confirmed transaction.   The signature of the input must still be unique, however, the public key can be replaced with a call to PUBREF, as shown below:
+
+ScriptSig
+
+PUSHDATA(72)[30450221008f906b9fe728cb17c81deccd6704f664ed1ac920223bb2eca918f066269c703302203b1c496fd4c3fa5071262b98447fbca5e3ed7a52efe3da26aa58f738bd342d3101] PUBREF[43123]
+
+outputScript
+
+DUP HASH160 PUBREF[12123] EQUALVERIFY CHECKSIG
+
+The above call to PUBREF removed the need to include the full public-key, or hash of the public key in a given transaction.  This is only possible because these values where used previously in a confirmed block.  If for example a user was sending Bitcoins to a newly formed address, then no PUBREF can be created in this case - and a outputScript using PUSHDATA would need to be used at least once.  If a newly created wallet has never been used on the Bitcoin network, then the full public-key will need to be included in the ScriptSig.  Once these transactions have been confirmed, then these values will be indexed and any future script can refer to these public-key values with a PUBREF operation.
+
+
+PubRef is not susceptible to malleability attacks because the blockchain is immutable. The PUSHDATA operation can store at most 520 bytes on the stack, therefore a single PUBREF operation can never obtain more than 520 bytes.
+
+
+In order for a client to make use of the PUBREF operations they’ll need access to a database that look up public-keys and resolve their PUBREF index.  A value can be resolved to an index with a hash-table lookup in O(1) constant time.  Additionally, all instances of PUSHDATA can be indexed as an ordered list, resolution of a PUBREF index to the intended value would be an O(1) array lookup.  Although the data needed to build and resolve public references is already included with every full node, additional computational effort is needed to build and maintain these indices - a tradeoff which provides smaller transaction sizes and relieving the need to store repetitive data on the blockchain.
+
+== Compatibility ==
+
+
+
+== Rationale ==
+
+<references/>
+
+== Reference implementation ==
+
+To do.
+
+== Acknowledgements ==
+
+TODO
+
+== References ==
+
+# Original mailing list thread: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-March/015818.html
+# Pull request, with comments: https://github.com/bitcoin/bips/pull/725
+
+== Copyright ==
+
+This document is licensed under the Creative Commons CC0 1.0 Universal license.
