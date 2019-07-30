@@ -9,7 +9,6 @@ my %RequiredFields = (
 	BIP => undef,
 	Title => undef,
 	Author => undef,
-	'Comments-Summary' => undef,
 	'Comments-URI' => undef,
 	Status => undef,
 	Type => undef,
@@ -20,6 +19,7 @@ my %MayHaveMulti = (
 	Author => undef,
 	'Comments-URI' => undef,
 	License => undef,
+	'License-Code' => undef,
 	'Post-History' => undef,
 );
 my %DateField = (
@@ -87,6 +87,7 @@ my %DefinedLicenses = (
 );
 my %GrandfatheredPD = map { $_ => undef } qw(9 36 37 38 42 49 50 60 65 67 69 74 80 81 83 90 99 105 107 109 111 112 113 114 122 124 125 126 130 131 132 133 140 141 142 143 144 146 147 150 151 152);
 my %TolerateMissingLicense = map { $_ => undef } qw(1 10 11 12 13 14 15 16 21 31 33 34 35 39 43 44 45 47 61 64 68 70 71 72 73 101 102 106 120 121);
+my %TolerateTitleTooLong = map { $_ => undef } qw(39 44 45 47 49 60 67 68 69 73 74 75 80 81 99 105 106 109 113 122 126 131 143 145 147 173);
 
 my %emails;
 
@@ -121,6 +122,8 @@ while (++$bipnum <= $topbip) {
 			die "$fn claims to be BIP $val" if $val ne $bipnum;
 		} elsif ($field eq 'Title') {
 			$title = $val;
+			my $title_len = length($title);
+			die "$fn has too-long TItle ($title_len > 44 char max)" if $title_len > 44 and not exists $TolerateTitleTooLong{$bipnum};
 		} elsif ($field eq 'Author') {
 			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.]+\.\w+)\>$/ or die "Malformed Author line in $fn";
 			my ($authorname, $authoremail) = ($1, $2);
@@ -147,14 +150,15 @@ while (++$bipnum <= $topbip) {
 		} elsif ($field eq 'Layer') {  # BIP 123
 			die "Invalid layer $val in $fn" unless exists $ValidLayer{$val};
 			$layer = $val;
-		} elsif ($field eq 'License') {
+		} elsif ($field =~ /^License(?:\-Code)?$/) {
 			die "Undefined license $val in $fn" unless exists $DefinedLicenses{$val};
-			if (not $found{License}) {
+			if (not $found{$field}) {
 				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum});
 			}
 		} elsif ($field eq 'Comments-URI') {
 			if (not $found{'Comments-URI'}) {
-				die unless $val eq sprintf('https://github.com/bitcoin/bips/wiki/Comments:BIP-%04d', $bipnum);
+				my $first_comments_uri = sprintf('https://github.com/bitcoin/bips/wiki/Comments:BIP-%04d', $bipnum);
+				die "First Comments-URI must be exactly \"$first_comments_uri\" in $fn" unless $val eq $first_comments_uri;
 			}
 		} elsif (exists $DateField{$field}) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;

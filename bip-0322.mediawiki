@@ -1,0 +1,224 @@
+<pre>
+  BIP: 322
+  Layer: Applications
+  Title: Generic Signed Message Format
+  Author: Karl-Johan Alm <karljohan-alm@garage.co.jp>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0322
+  Status: Draft
+  Type: Standards Track
+  Created: 2018-09-10
+  License: CC0-1.0
+</pre>
+
+== Abstract ==
+
+A standard for interoperable generic signed messages based on the Bitcoin Script format.
+
+== Motivation ==
+
+The current message signing standard only works for P2PKH (1...) addresses. By extending it to use a Bitcoin Script based approach, it could be made more generic without causing a too big burden on implementers, who most likely have access to Bitcoin Script interpreters already.
+
+== Specification ==
+
+A new structure <code>SignatureProof</code> is added, which is a simple serializable scriptSig & witness container.
+
+Two actions "Sign" and "Verify" are defined along with one ''purpose'', "SignMessage", with the ability to expand in the future to add a potential "ProveFunds" purpose.
+
+=== SignatureProof container ===
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Comment
+|-
+|Uint32||4||flags||standard flags (1-to-1 with standard flags in Bitcoin Core)
+|-
+|Uint8||1||entries||number of proof entries<ref><strong>Why support multiple proofs?</strong> It is non-trivial to check a large number of individual proofs for duplicates. Software could be written to do so, but it seems more efficient to build this check into the specification itself.</ref>
+|}
+
+The above is followed by [entries] number of signature entries:
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Comment
+|-
+|VarInt||1-8||scriptsiglen||Number of bytes in scriptSig data
+|-
+|Uint8*||[scriptsiglen]||scriptsig||ScriptSig data
+|-
+|VarInt||1-8||witlen||Number of entries in witness stack
+|-
+|Uint8[]*||[witlen]||wit||Witness stack, as [witlen] uint8* vectors, each one prepended with a varint of its size
+|}
+
+In some cases, the scriptsig or wit may be empty. If both are empty, the proof is incomplete.
+
+=== Result Codes ===
+
+A verification call will return a result code according to the table below.
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Code
+!Description
+|-
+|INCOMPLETE||One or several of the given challenges had an empty proof. The prover may need some other entity to complete the proof.
+|-
+|INCONCLUSIVE||One or several of the given proofs used unknown opcodes or the scriptPubKey had an unknown witness version, perhaps due to the verifying node being outdated.
+|-
+|VALID||All proofs were deemed valid.
+|-
+|INVALID||One or more of the given proofs were invalid
+|-
+|ERROR||An error was encountered
+|}
+
+== Signing and Verifying ==
+
+If the challenge consists of a single address and the address is in the P2PK(H) (legacy) format, sign using the legacy format (further information below). Otherwise continue as stated below.
+
+Let there be an empty set <code>inputs</code> which is populated and tested at each call to one of the actions below.
+
+=== Purpose: SignMessage ===
+
+The "SignMessage" purpose generates a sighash based on a scriptPubKey and a message. It emits a VALID verification result code unless otherwise stated.
+
+# Return INVALID if scriptPubKey already exists in <code>inputs</code> set, otherwise insert it<ref><strong>Why track duplicates?</strong> Because a 3-entry proof is not proving 3 entries unless they are all distinct</ref>
+# Define the message pre-image as the sequence "Bitcoin Message:" concatenated with the message, encoded in UTF-8 using Normalization Form Compatibility Decomposition (NFKD)
+# Let sighash = sha256(sha256(scriptPubKey || pre-image))
+
+A private key may be used directly to sign a message. In this case, its P2WPKH bech32 address shall be derived, and used as the input.
+
+=== Action: Sign ===
+
+The "Sign" action takes as input a purpose. It returns a signature or fails.
+
+# Obtain the sighash and scriptPubKey from the purpose; FAIL if not VALID
+# Derive the private key privkey for the scriptPubKey; FAIL if not VALID
+# Generate and return a signature sig with privkey=privkey, sighash=sighash
+
+The resulting signature proof should be encoded using base64 encoding.
+
+=== Action: Verify ===
+
+The "Verify" action takes as input a standard flags value, a script sig, an optional witness, and a purpose.
+It emits one of INCONCLUSIVE, VALID, INVALID, or ERROR.
+
+# Obtain the sighash and scriptPubKey from the purpose; pass on result code if not VALID
+# If one or more of the standard flags are unknown, return INCONCLUSIVE
+# Verify Script with flags=standard flags, scriptSig=script sig, scriptPubKey=scriptPubKey, witness=witness, and sighash=sighash
+# Return VALID if verify succeeds, otherwise return INVALID
+
+=== Multiple Proofs ===
+
+When more than one proof is created or verified, repeat the operation for each proof, retaining the inputs set. As noted, if the same input appears more than once, the operation must fail accordingly.
+
+Note that the order of the entries in the proof must match the order of the entries given by the verifier.
+
+* If any of the proofs are empty during a verification process, skip the verification and set the INCOMPLETE flag
+* If a verification call returns ERROR or INVALID, return ERROR or INVALID immediately, ignoring as yet unverified entries
+* After all verifications complete,
+** return INCONCLUSIVE if any verification call returned INCONCLUSIVE
+** return INCOMPLETE if the INCOMPLETE flag is set
+** return VALID
+
+== Legacy format ==
+
+The legacy format is restricted to the legacy P2PK(H) address format, and restricted to one single challenge (address).
+
+Any other input (e.g. multiple addresses, or non-P2PK(H) address format(s)) must be signed using the new format described above.
+
+=== Signing ===
+
+Given the P2PK(H) address <code>a</code> and the message <code>m</code>:
+# let <code>p</code> be the pubkey-hash contained in <code>a</code>
+# let <code>x</code> be the private key associated with <code>p</code>
+# let <code>digest</code> be <code>SHA56d("Bitcoin Signed Message:\n"||m)</code>
+# create a compact signature <code>sig</code> (aka "recoverable ECDSA signature") using <code>x</code> on <code>digest</code>
+
+The resulting proof is <code>sig</code>, serialized using the base64 encoding.
+
+=== Verifying ===
+
+Given the P2PK(H) address <code>a</code>, the message <code>m</code>, and the compact signature <code>sig</code>:
+
+# let <code>p</code> be the pubkey-hash contained in <code>a</code>
+# let <code>digest</code> be <code>SHA56d("Bitcoin Signed Message:\n"||m)</code>
+# attempt pubkey recovery for <code>digest</code> using the signature <code>sig</code> and store the resulting pubkey into <code>Q</code>
+## fail verification if pubkey recovery above fails
+# let <code>q</code> be the pubkey-hash of <code>Q</code>
+# if <code>p == q</code>, the proof is valid, otherwise it is invalid
+
+== Compatibility ==
+
+This specification is backwards compatible with the legacy signmessage/verifymessage specification through the special case as described above.
+
+== Rationale ==
+
+<references/>
+
+== Reference implementation ==
+
+# Pull request to Bitcoin Core: https://github.com/bitcoin/bitcoin/pull/16440
+
+== Acknowledgements ==
+
+Thanks to David Harding, Jim Posen, Kalle Rosenbaum, Pieter Wuille, and many others for their feedback on the specification.
+
+== References ==
+
+# Original mailing list thread: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-March/015818.html
+
+== Copyright ==
+
+This document is licensed under the Creative Commons CC0 1.0 Universal license.
+
+== Test vectors ==
+
+* <code>STANDARD_SCRIPT_VERIFY_FLAGS = 01ffdf (131039)</code>
+* <code>address = 2MsnqGxX7Abtn4b379MEpkDaD3VbNKQosd8</code>
+* <code>message = "hello world"</code>
+* <code>sighash = 7b66a1861b4e179e1dbab4702e26bcefeabf1cada7cccc97b6ebaec89a035d84</code> (<code>sha256d("Bitcoin Message:hello world")</code>)
+
+A possible proof is:
+
+* HEX: <code>dfff01000117160014689bbb5d76774321c652832ea209958fa1770b330247304402204368b119399d33b9bc9beef06d713becefd3ac508dc95ff62d1859d4912960c7022063d88ddc648faed710b3f870b7a839fdc1b3bfc3c3bd065df51bbbd8c386c81c012102b4e4c6d5021576a5c0bc4535890c3f17e1ff23a94eac87beb0a5e8747c42d920</code>
+* Base64: <code>3/8BAAEXFgAUaJu7XXZ3QyHGUoMuogmVj6F3CzMCRzBEAiBDaLEZOZ0zubyb7vBtcTvs79OsUI3JX/YtGFnUkSlgxwIgY9iN3GSPrtcQs/hwt6g5/cGzv8PDvQZd9Ru72MOGyBwBIQK05MbVAhV2pcC8RTWJDD8X4f8jqU6sh76wpeh0fELZIA==</code>
+
+Split into components:
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Value
+!Comment
+|-
+|Uint32||4||flags||<code>dfff0100</code>||standard flags used in signing
+|-
+|Uint8||1||entries||<code>01</code>||1 entry
+|-
+|VarInt||1-8||scriptsiglen||<code>17</code>||23 byte scriptsig
+|-
+|Uint8[32]||32||scriptsig||<code>160014689bbb5d76774321c652832ea209958fa1770b33</code>||ScriptSig data
+|-
+|VarInt||1-8||witlen||<code>02</code>||2 entries in witness stack
+|-
+|VarInt||1-8||entry1len||<code>47</code>||71 byte entry
+|-
+|Uint8[71]||71||entry1||<code>304402204368b119399d33b9bc9beef06d713becefd3ac50
+8dc95ff62d1859d4912960c7022063d88ddc648faed710b3
+f870b7a839fdc1b3bfc3c3bd065df51bbbd8c386c81c01</code>||Witness stack item 1
+|-
+|VarInt||1-8||entry2len||<code>21</code>||33 byte entry
+|-
+|Uint8[33]||33||entry2||<code>02b4e4c6d5021576a5c0bc4535890c3f17e1ff23a94eac87
+beb0a5e8747c42d920</code>||Witness stack item 2
+|}
