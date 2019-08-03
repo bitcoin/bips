@@ -1,10 +1,15 @@
 <pre>
   BIP: 145
+  Layer: API/RPC
   Title: getblocktemplate Updates for Segregated Witness
   Author: Luke Dashjr <luke+bip22@dashjr.org>
-  Status: Draft
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0145
+  Status: Final
   Type: Standards Track
   Created: 2016-01-30
+  License: BSD-2-Clause
+           OPL
 </pre>
 
 ==Abstract==
@@ -15,19 +20,19 @@ This BIP describes modifications to the getblocktemplate JSON-RPC call ([[bip-00
 
 ===Block Template===
 
-The template Object is revised to include these keys:
+The template Object is revised to include a new key:
 
 {| class="wikitable"
 !colspan=4| template
 |-
 ! Key !! Required !! Type !! Description
 |-
-| costlimit || {{No}} || Number || total cost allowed in blocks
-|-
-| sigoplimit || {{No}} || Number || total sigop cost allowed in blocks divided by 4
-|-
-| version || {{Yes}} || Number || block version; clients MUST understand the implications of the version they use (eg, comply with [[bip-0141.mediawiki|BIP 141]] for version 5)
+| weightlimit || No || Number || total weight allowed in blocks
 |}
+
+The '!' rule prefix MUST be enabled on the "segwit" rule for templates including transactions with witness data.
+In particular, note that even if the client's "rules" list lacks "segwit", server MAY support old miners by producing a witness-free template and omitting the '!' rule prefix for "segwit" in the template's "rules" list.
+If the GBT server does not support producing witness-free templates after its activation, it must also use the '!' rule prefix in the "vbavailable" list prior to activation.
 
 ====Transactions Object Format====
 
@@ -40,12 +45,16 @@ The Objects listed in the response's "transactions" key is revised to include th
 |-
 | txid || String || transaction id encoded in hexadecimal; required for transactions with witness data
 |-
-| cost || Number || numeric cost of the transaction, as counted for purposes of the block's costlimit; if key is not present, cost is unknown and clients MUST NOT assume it is zero, although they MAY choose to calculate it themselves
+| weight || Number || numeric weight of the transaction, as counted for purposes of the block's weightlimit; if key is not present, weight is unknown and clients MUST NOT assume it is zero, although they MAY choose to calculate it themselves
 |-
 | hash || String || reversed hash of complete transaction (with witness data included) encoded in hexadecimal
 |}
 
-Transactions with witness data may only be included if the template's block version is at least 5.
+Transactions with witness data may only be included if the template's "rules" list (see [[bip-0009.mediawiki#getblocktemplate_changes|BIP 9]]) includes "segwit".
+
+===Sigops===
+
+For templates with "segwit" enabled as a rule, the "sigoplimit" and "sigops" keys must use the new values as calculated in [[bip-0141.mediawiki#Sigops|BIP 141]].
 
 ===Block Assembly with Witness Transactions===
 
@@ -62,12 +71,12 @@ It additionally also adds a new way of counting resource limits, and so GBT must
 
 ==Rationale==
 
-Why doesn't "costlimit" simply redefine the existing "sizelimit"?
+Why doesn't "weightlimit" simply redefine the existing "sizelimit"?
 * "sizelimit" is already enforced by clients by counting the sum of bytes in transactions' "data" keys.
-* Servers may wish to limit the overall size of a block, independently from the "cost" of the block.
+* Servers may wish to limit the overall size of a block, independently from the "weight" of the block.
 
-Why is "sigoplimit" redefined instead of a new "sigopcostlimit" being added?
-* The old limit was already arbitrarily defined, and could not be counted by clients on their own anyway. The concept of "sigop cost" is merely a change in the arbitrary formula used.
+Why is "sigoplimit" redefined instead of a new "sigopweightlimit" being added?
+* The old limit was already arbitrarily defined, and could not be counted by clients on their own anyway. The concept of "sigop weight" is merely a change in the arbitrary formula used.
 
 Why is "sigoplimit" divided by 4?
 * To resemble the previous values. (FIXME: is this a good reason? maybe we shouldn't divide it?)
@@ -87,6 +96,7 @@ Why shouldn't the server simply add the commitment upfront in the "coinbasetxn",
 * [https://github.com/bitcoin/bitcoin/pull/7404/files Bitcoin Core]
 
 ==See Also==
+* [[bip-0009.mediawiki|BIP 9: Version bits with timeout and delay]]
 * [[bip-0022.mediawiki|BIP 22: getblocktemplate - Fundamentals]]
 * [[bip-0023.mediawiki|BIP 23: getblocktemplate - Pooled Mining]]
 * [[bip-0141.mediawiki|BIP 141: Segregated Witness (Consensus layer)]]
