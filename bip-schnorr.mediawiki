@@ -34,8 +34,8 @@ from not being standardized. This document seeks to change that. As we
 propose a new standard, a number of improvements not specific to Schnorr signatures can be
 made:
 
-* '''Signature encoding''': Instead of [https://en.wikipedia.org/wiki/X.690#DER_encoding DER]-encoding for signatures (which are variable size, and up to 72 bytes), we can use a simple fixed 64-byte format.
-* '''Public key encoding''': Instead of ''compressed'' 33-byte encoding of elliptic curve points which are common in Bitcoin, public keys in this proposal are encoded as 32 bytes.
+* '''Signature encoding''': Instead of using [https://en.wikipedia.org/wiki/X.690#DER_encoding DER]-encoding for signatures (which are variable size, and up to 72 bytes), we can use a simple fixed 64-byte format.
+* '''Public key encoding''': Instead of using ''compressed'' 33-byte encodings of elliptic curve points which are common in Bitcoin today, public keys in this proposal are encoded as 32 bytes.
 * '''Batch verification''': The specific formulation of ECDSA signatures that is standardized cannot be verified more efficiently in batch compared to individually, unless additional witness data is added. Changing the signature scheme offers an opportunity to avoid this.
 
 [[File:bip-schnorr/speedup-batch.png|frame|This graph shows the ratio between the time it takes to verify ''n'' signatures individually and to verify a batch of ''n'' signatures. This ratio goes up logarithmically with the number of signatures, or in other words: the total time to verify ''n'' signatures grows with ''O(n / log n)''.]]
@@ -58,19 +58,14 @@ We choose the ''R''-option to support batch verification.
 
 '''Key prefixing''' When using the verification rule above directly, it is possible for a third party to convert a signature ''(R,s)'' for key ''P'' into a signature ''(R,s + aH(R || m))'' for key ''P + aG'' and the same message, for any integer ''a''. This is not a concern for Bitcoin currently, as all signature hashes indirectly commit to the public keys. However, this may change with proposals such as SIGHASH_NOINPUT ([https://github.com/bitcoin/bips/blob/master/bip-0118.mediawiki BIP 118]), or when the signature scheme is used for other purposes&mdash;especially in combination with schemes like [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP32]'s unhardened derivation. To combat this, we choose ''key prefixed''<ref>A limitation of committing to the public key (rather than to a short hash of it, or not at all) is that it removes the ability for public key recovery or verifying signatures against a short public key hash. These constructions are generally incompatible with batch verification.</ref> Schnorr signatures; changing the equation to ''sG = R + H(R || P || m)P''.
 
-'''Encoding the sign of P and the sign of R''' There exist several possibilities for encoding the sign of the public key point:
-# Encoding the full X and Y coordinate of P, resulting in a 64-byte public key.
-# Encoding the full X coordinate, but only whether Y is even or odd (like compressed public keys). This would result in 33-byte public keys.
-# Encoding only the X coordinate, resulting in 32-byte public keys.
+'''Encoding R and public key point P''' There exist several possibilities for encoding elliptic curve points:
+# Encoding the full X and Y coordinates of ''P'' and ''R'', resulting in a 64-byte public key and a 96-byte signature.
+# Encoding the full X coordinate and one bit of the Y coordinate to determine one of the two possible Y coordinates. This would result in 33-byte public keys and 65-byte signatures.
+# Encoding only the X coordinate, resulting in 32-byte public keys and 64-byte signatures.
 
-As we chose the ''R''-option above, we're required to encode the point ''R'' into the signature. The possibilities are similar to the encoding of ''P'':
-# Encoding the full X and Y coordinate of R, resulting in a 96-byte signature.
-# Encoding the full X coordinate, but only whether Y is even or odd (like compressed public keys). This would result in 65-byte signatures.
-# Encoding only the X coordinate, leaving us with 64-byte signature.
+Using the first option would be slightly more efficient for verification (around 10%), but we prioritize compactness, and therefore choose option 3.
 
-Using the first option for both ''P'' and ''R'' would be slightly more efficient for verification (around 5%), but we prioritize compactness, and therefore choose option 3.
-
-'''Implicit Y coordinates''' In order to support batch verification, the Y coordinate of ''P'' and of ''R'' cannot be ambiguous (every valid X coordinate has two possible Y coordinates). We have a choice between several options for symmetry breaking:
+'''Implicit Y coordinates''' In order to support efficient verification and batch verification, the Y coordinate of ''P'' and of ''R'' cannot be ambiguous (every valid X coordinate has two possible Y coordinates). We have a choice between several options for symmetry breaking:
 # Implicitly choosing the Y coordinate that is in the lower half.
 # Implicitly choosing the Y coordinate that is even<ref>Since ''p'' is odd, negation modulo ''p'' will map even numbers to odd numbers and the other way around. This means that for a valid X coordinate, one of the corresponding Y coordinates will be even, and the other will be odd.</ref>.
 # Implicitly choosing the Y coordinate that is a quadratic residue (has a square root modulo the field size)<ref>A product of two numbers is a quadratic residue when either both or none of the factors are quadratic residues. As ''-1'' is not a quadratic residue, and the two Y coordinates corresponding to a given X coordinate are each other's negation, this means exactly one of the two must be a quadratic residue.</ref>.
@@ -80,13 +75,13 @@ In the case of ''R'' the third option is slower at signing time but a bit faster
 for elliptic curve operations). The two other options require a possibly
 expensive conversion to affine coordinates first. This would even be the case if the sign or oddness were explicitly coded (option 2 in the previous design choice). We therefore choose option 3.
 
-For ''P'' the speed of signing and verification is not significantly different between any of the three options because affine coordinates of the point have to computed anyway. We therefore choose the same option as for ''R''. The signing algorithm ensures that the signature is valid under the correct public key by negating the secret key if necessary.
+For ''P'' the speed of signing and verification does not significantly differ between any of the three options because affine coordinates of the point have to computed anyway. We therefore choose the same option as for ''R''. The signing algorithm ensures that the signature is valid under the correct public key by negating the secret key if necessary.
 
-It is important to not mix up the 32 byte public key format and other existing public key formats. Concretely, a verifier should only accept 32 byte public keys and not, for example, convert a 33 byte public key by throwing away the first byte. Otherwise, two public keys would be valid for a single signature which can result in subtle malleability issues.
+It is important to not mix up the 32-byte bip-schnorr public key format and other existing public key formats (e.g. encodings used in Bitcoin's ECDSA). Concretely, a verifier should only accept 32 byte public keys and not, for example, convert a 33 byte public key by throwing away the first byte. Otherwise, two public keys would be valid for a single signature which can result in subtle malleability issues (although this type of malleability already exists in the case of ECDSA signatures).
 
 Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is a quadratic residue by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation.
 
-'''Final scheme''' As a result, our final scheme ends up using public keys ''p'' where ''p'' is the X coordinate of a point ''P'' on the curve whose Y coordinate is a quadratic residue and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a quadratic residue. The signature satisfies ''sG = R + H(r || p || m)P''.
+'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is a quadratic residue and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a quadratic residue. The signature satisfies ''sG = R + H(r || p || m)P''.
 
 === Specification ===
 
