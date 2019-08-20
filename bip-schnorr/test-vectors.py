@@ -30,7 +30,7 @@ def vector2():
     msg = bytes_from_int(0x5E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C)
     sig = schnorr_sign(msg, seckey)
 
-    # This signature does not verify vector if the implementer would check the
+    # This singature vector would not verify if the implementer checked the
     # jacobi symbol of the X coordinate of R instead of the Y coordinate.
     R = point_from_bytes(sig[0:32])
     assert(jacobi(R[0]) != 1)
