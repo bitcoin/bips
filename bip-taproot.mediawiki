@@ -62,36 +62,36 @@ In the text below, ''hash<sub>tag</sub>(m)'' is a shorthand for ''SHA256(SHA256(
 
 === Script validation rules ===
 
-A Taproot output is a SegWit output (native or P2SH-nested, see [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) with version number 1, and a 33-byte witness program whose first byte is 0 or 1.
-The following rules only apply when such an output is being spent. Any other outputs, including version 1 outputs with lengths other than 33 bytes, or with a first byte different from 0 or 1, remain unencumbered.
+A Taproot output is a SegWit output (native or P2SH-nested, see [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) with version number 1, and a 32-byte witness program.
+The following rules only apply when such an output is being spent. Any other outputs, including version 1 outputs with lengths other than 32 bytes, remain unencumbered.
 
-* Let ''u'' be the 33-byte array containing the witness program (second push in scriptPubKey or P2SH redeemScript).
-* Let ''Q = point(byte(2 + u[0]) || u[1:33])''<ref>'''Why is the public key directly included in the output?''' While typical earlier constructions store a hash of a script or a public key in the output, this is rather wasteful when a public key is always involved. To guarantee batch verifiability, ''Q'' must be known to every verifier, and thus only revealing its hash as an output would imply adding an additional 33 bytes to the witness. Furthermore, to maintain [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-January/012198.html 128-bit collision security] for outputs, a 256-bit hash would be required anyway, which is comparable in size (and thus in cost for senders) to revealing the public key directly. While the usage of public key hashes is often said to protect against ECDLP breaks or quantum computers, this protection is very weak at best: transactions are not protected while being confirmed, and a very [https://twitter.com/pwuille/status/1108097835365339136 large portion] of the currency's supply is not under such protection regardless. Actual resistance to such systems can be introduced by relying on different cryptographic assumptions, but this proposal focuses on improvements that do not change the security model. Note that using P2SH-wrapped outputs only have 80-bit collision security. This is considered low, and is relevant whenever the output includes data from more than a single party (public keys, hashes, ...). </ref> If this is not a valid point on the curve, fail.
+* Let ''q'' be the 32-byte array containing the witness program (second push in scriptPubKey or P2SH redeemScript) which represents a public key according to bip-schnorr <ref>'''Why is the public key directly included in the output?''' While typical earlier constructions store a hash of a script or a public key in the output, this is rather wasteful when a public key is always involved. To guarantee batch verifiability, ''q'' must be known to every verifier, and thus only revealing its hash as an output would imply adding an additional 32 bytes to the witness. Furthermore, to maintain [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-January/012198.html 128-bit collision security] for outputs, a 256-bit hash would be required anyway, which is comparable in size (and thus in cost for senders) to revealing the public key directly. While the usage of public key hashes is often said to protect against ECDLP breaks or quantum computers, this protection is very weak at best: transactions are not protected while being confirmed, and a very [https://twitter.com/pwuille/status/1108097835365339136 large portion] of the currency's supply is not under such protection regardless. Actual resistance to such systems can be introduced by relying on different cryptographic assumptions, but this proposal focuses on improvements that do not change the security model. Note that using P2SH-wrapped outputs only have 80-bit collision security. This is considered low, and is relevant whenever the output includes data from more than a single party (public keys, hashes, ...). </ref>.
 * Fail if the witness stack has 0 elements.
-* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' Like the <code>0xc0</code>-<code>0xc1</code> constants, <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y oddness, each script version needs two subsequence byte values that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the outputs being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
+* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' Like the <code>0xc0</code>-<code>0xc1</code> constants, <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y quadratic residuosity, each script version needs two subsequence byte values that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the outputs being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
 * If there is exactly one element left in the witness stack, key path spending is used:
-** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''Q'' and taproot transaction digest (to be defined hereinafter) as message. Fail if it is not. Otherwise pass.
+** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''q'' and taproot transaction digest (to be defined hereinafter) as message. Fail if it is not. Otherwise pass.
 * If there are at least two witness elements left, script path spending is used:
 ** Call the second-to-last stack element ''s'', the script.
 ** The last stack element is called the control block ''c'', and must have length ''33 + 32m'', for a value of ''m'' that is an integer between 0 and 32, inclusive. Fail if it does not have such a length.
-** Let ''P = point(byte(2 + (c[0] & 1)) || c[1:33])''<ref>'''What is the purpose of the first byte of the control block?''' The first byte of the control block has three distinct functions:
-* The low bit is used to denote the oddness of the Y coordinate of the ''P'' point.
+** Let ''P = point(c[1:33])'' where ''point'' is defined as in bip-schnorr. Fail if this point is not on the curve.
+** Let ''l = c[0] & 0xfe'', the leaf version<ref>'''What is the purpose of the first byte of the control block?''' The first byte of the control block has three distinct functions:
+* The low bit is used to denote whether the ''Q'' point's Y coordinate is a quadratic residue.<ref>'''Why is the quadratic residuosity of the output public key's Y coordinate required in a script path spend?''' The ''point'' function always constructs a point with Y coordinate having that property, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>
 * By keeping the top two bits set to true, it can be guaranteed that scripts can be recognized without knowledge of the UTXO being spent, simplifying analysis. This is because such values cannot occur as first byte of the final stack element in either P2WPKH or P2WSH spends.
 * The remaining five bits are used for introducing new script versions that are not observable unless actually executed.
-</ref>. Fail if this point is not on the curve.
-** Let ''l = c[0] & 0xfe'', the leaf version.
+</ref>.
 ** Let ''k<sub>0</sub> = hash<sub>TapLeaf</sub>(l || compact_size(size of s) || s)''; also call it the ''tapleaf hash''.
 ** For ''j'' in ''[0,1,...,m-1]'':
 *** Let ''e<sub>j</sub> = c[33+32j:65+32j]''.
 *** Let ''k<sub>j+1</sub> depend on whether ''k<sub>j</sub> < e<sub>j</sub>'' (lexicographically)<ref>'''Why are child elements sorted before hashing in the Merkle tree?''' By doing so, it is not necessary to reveal the left/right directions along with the hashes in revealed Merkle branches. This is possible because we do not actually care about the position of specific scripts in the tree; only that they are actually committed to.</ref>:
 **** If ''k<sub>j</sub> < e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(k<sub>j</sub> || e<sub>j</sub>)''<ref>'''Why not use a more efficient hash construction for inner Merkle nodes?''' The chosen construction does require two invocations of the SHA256 compression functions, one of which can be avoided in theory (see BIP98). However, it seems preferable to stick to constructions that can be implemented using standard cryptographic primitives, both for implementation simplicity and analyzability. If necessary, a significant part of the second compression function can be optimized out by [https://github.com/bitcoin/bitcoin/pull/13191 specialization] for 64-byte inputs.</ref>.
 **** If ''k<sub>j</sub> &ge; e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(e<sub>j</sub> || k<sub>j</sub>)''.
-** Let ''t = hash<sub>TapTweak</sub>(bytes(P) || k<sub>m</sub>) = hash<sub>TapTweak</sub>(2 + (c[0] & 1) || c[1:33] || k<sub>m</sub>)''.
+** Let ''t = hash<sub>TapTweak</sub>(bytes(P) || k<sub>m</sub>) = hash<sub>TapTweak</sub>(c[1:33] || k<sub>m</sub>)''.
 ** If ''t &ge; 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141'' (order of secp256k1), fail.
+** Let ''Q = point(q) if (c[0] & 1) = 1 and -point(q) otherwise''. Fail if this point is not on the curve.
 ** If ''Q &ne; P + int(t)G'', fail.
 ** Execute the script, according to the applicable script rules<ref>'''What are the applicable script rules in script path spends?''' Bip-tapscript specifies validity rules that apply if the leaf version is ''0xc0'', but future proposals can introduce rules for other leaf versions.</ref>, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack.
 
-''Q'' is referred to as ''taproot output key'' and ''P'' as ''taproot internal key''.
+''q'' is referred to as ''taproot output key'' and ''c[1:33]'' as ''taproot internal key''.
 
 === Signature validation rules ===
 
@@ -137,7 +137,7 @@ As the message for signature verification, transaction digest is ''hash<sub>TapS
 *** Bit-0 is set if the <code>scriptPubKey</code> being spent is P2SH (opposed to "native segwit").
 *** Bit-1 is set if an annex is present (the original witness stack has two or more witness elements, and the first byte of the last element is <code>0x50</code>).
 *** The other bits are unset.
-** <code>scriptPubKey</code> (24 or 36): <code>scriptPubKey</code> of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. The size is 24-byte for P2SH-embedded segwit, or 36-byte for native segwit.
+** <code>scriptPubKey</code> (24 or 35): <code>scriptPubKey</code> of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. The size is 24-byte for P2SH-embedded segwit, or 35-byte for native segwit.
 ** If the <code>SIGHASH_ANYONECANPAY</code> flag is set:
 *** <code>outpoint</code> (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
 *** <code>amount</code> (8): value of the previous output spent by this input.
@@ -150,7 +150,7 @@ As the message for signature verification, transaction digest is ''hash<sub>TapS
 ** If the <code>SIGHASH_SINGLE</code> flag is set:
 *** <code>sha_single_output</code> (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-The total number of bytes hashed is at most ''209''<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''177 - is_anyonecanpay * 50 - is_none * 32 - is_p2sh_spending * 12 + has_annex * 32''.</ref>.
+The total number of bytes hashed is at most ''209''<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''176 - is_anyonecanpay * 50 - is_none * 32 - is_p2sh_spending * 11 + has_annex * 32''.</ref>.
 
 In summary, the semantics of the BIP143 sighash types remain unchanged, except the following:
 # The way and order of serialization is changed.<ref>'''Why is the serialization in the transaction digest changed?''' Hashes that go into the digest and the digest itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for transaction digests because there is no secret data. Therefore doubling SHA256 is a waste of resources. The digest computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the digest across different inputs using the SHA256 midstate. Additionally, digest computation avoids unnecessary hashing as opposed to BIP143 digests in which parts may be set zero and before hashing them. Despite that, collisions are made impossible by committing to the length of the data (implicit in <code>hash_type</code> and <code>spend_type</code>) before the variable length data.</ref>
@@ -165,7 +165,7 @@ This section discusses how to construct and spend Taproot outputs. It only affec
 and is not consensus critical in any way.
 
 Conceptually, every Taproot output corresponds to a combination of a single public key condition (the internal key), and zero or more general conditions encoded in scripts organized in a tree.
-Satisfying any of these conditions is sufficient to spend the output. 
+Satisfying any of these conditions is sufficient to spend the output.
 
 '''Initial steps''' The first step is determining what the internal key and the organization of the rest of the scripts should be. The specifics are likely application dependent, but here are some general guidelines:
 * When deciding between scripts with conditionals (<code>OP_IF</code> etc.) and splitting them up into multiple scripts (each corresponding to one execution path through the original script), it is generally preferable to pick the latter.
@@ -173,7 +173,7 @@ Satisfying any of these conditions is sufficient to spend the output.
 * If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a point with unknown discrete logarithm (TODO).
 * The remaining scripts should be organized into the leaves of a binary tree. This can be a balanced tree if each of the conditions these scripts correspond to are equally likely. If probabilities for each condition are known, consider constructing the tree as a Huffman tree.
 
-'''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the following Python3 algorithm can be used to compute the output script. In the code below, <code>ser_script</code> prefixes its input with a CCompactSize-encoded length, and public key objects have methods <code>get_bytes</code> to get their compressed encoding (see bip-schnorr) and <code>tweak_add</code> to add a multiple of the secp256k1 generator to it (similar to BIP32's derivation).
+'''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the following Python3 algorithm can be used to compute the output script. In the code below, <code>ser_script</code> prefixes its input with a CCompactSize-encoded length. Public key objects hold 32-byte public keys according to bip-schnorr, have a method <code>get_bytes</code> to get the byte array and a method <code>tweak_add</code> which returns a new public key corresponding to the sum of the public key point and a multiple of the secp256k1 generator (similar to BIP32's derivation). The second return value of <code>tweak_add</code> is a boolean indicating the quadratic residuosity of the Y coordinate of the resulting point.
 
 <source lang="python">
 import hashlib
@@ -202,22 +202,26 @@ def taproot_output_script(internal_pubkey, script_tree):
     _, h = taproot_tree_helper(script_tree)
     t = tagged_hash("TapTweak", internal_pubkey.get_bytes() + h)
     assert int.from_bytes(t, 'big') < SECP256K1_ORDER
-    output_pubkey = internal_pubkey.tweak_add(t).get_bytes()
-    return bytes([0x51, 0x21, output_pubkey[0] & 1]) + output_pubkey[1:]
+    output_pubkey, _ = internal_pubkey.tweak_add(t)
+    return bytes([0x51, 0x20]) + output_pubkey.get_bytes()
 </source>
 
 The function <code>taproot_output_script</code> returns a byte array with the scriptPubKey. It can be P2SH wrapped if desired (see BIP141).
 
 [[File:bip-taproot/tree.png|frame|This diagram shows the hashing structure to obtain the tweak from an internal key ''P'' and a Merkle tree consisting of 5 script leaves. ''A'', ''B'', ''C'' and ''E'' are ''TapLeaf'' hashes similar to ''D'' and ''AB'' is a ''TapBranch'' hash. Note that when ''CDE'' is computed ''E'' is hashed first because ''E'' is less than ''CD''.]]
 
-'''Spending using the internal key''' A Taproot output can be spent with the private key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consisting of a single element, a bip-schnorr signature on the signature hash as defined above, with the private key tweaked by the same <code>t</code> in the above snippet. See the code below:
+'''Spending using the internal key''' A Taproot output can be spent with the private key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consists of a single element: a bip-schnorr signature on the signature hash as defined above, with the private key tweaked by the same <code>t</code> as in the above snippet. In the code below, <code>internal_privkey</code> has a method <code>pubkey_gen</code> that returns a public key according to bip-schnorr and a boolean indicating the quadratic residuosity of the Y coordinate of the underlying point.
+See the code below:
 
 <source lang="python">
-def taproot_sign_internal_key(internal_pubkey, script_tree, internal_privkey, hash_type):
+def taproot_sign_internal_key(script_tree, internal_privkey, hash_type):
+    internal_pubkey, is_y_qresidue = internal_privkey.pubkey_gen()
+    if is_y_qresidue:
+        internal_privkey = internal_privkey.negate()
     _, h = taproot_tree_helper(script_tree)
     t = tagged_hash("TapTweak", internal_pubkey.get_bytes() + h)
     output_privkey = internal_privkey.tweak_add(t)
-    sig = output_privkey.sign_schnorr(sighash(hash_type))
+    sig = output_privkey.schnorr_sign(sighash(hash_type))
     if hash_type != 0:
         sig += bytes([hash_type])
     return [sig]
@@ -229,10 +233,12 @@ This function returns the witness stack necessary, and assumes a <code>tweak_add
 
 <source lang="python">
 def taproot_sign_script(internal_pubkey, script_tree, script_num, inputs):
-    info, _ = taproot_tree_helper(script_tree)
+    info, h = taproot_tree_helper(script_tree)
     (leaf_version, script), path = info[script_num]
-    pubkey_bytes = internal_pubkey.get_bytes()
-    pubkey_data = bytes([(pubkey_bytes[0] & 1) + leaf_version]) + pubkey_bytes[1:]
+    t = tagged_hash("TapTweak", internal_pubkey.get_bytes() + h)
+    _, is_y_qresidue = internal_pubkey.tweak_add(t)
+    output_pubkey_tag = 0 if is_y_qresidue else 1
+    pubkey_data = bytes([output_pubkey_tag + leaf_version]) + internal_pubkey.get_bytes()
     return inputs + [script, pubkey_data + path]
 </source>
 

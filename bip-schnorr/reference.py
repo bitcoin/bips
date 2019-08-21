@@ -31,19 +31,14 @@ def bytes_from_int(x):
     return x.to_bytes(32, byteorder="big")
 
 def bytes_from_point(P):
-    return (b'\x03' if P[1] & 1 else b'\x02') + bytes_from_int(P[0])
+    return bytes_from_int(P[0])
 
 def point_from_bytes(b):
-    if b[0] in [b'\x02', b'\x03']:
-        odd = b[0] - 0x02
-    else:
-        return None
-    x = int_from_bytes(b[1:33])
+    x = int_from_bytes(b)
     y_sq = (pow(x, 3, p) + 7) % p
-    y0 = pow(y_sq, (p + 1) // 4, p)
-    if pow(y0, 2, p) != y_sq:
+    y = pow(y_sq, (p + 1) // 4, p)
+    if pow(y, 2, p) != y_sq:
         return None
-    y = p - y0 if y0 & 1 != odd else y0
     return [x, y]
 
 def int_from_bytes(b):
@@ -55,24 +50,30 @@ def hash_sha256(b):
 def jacobi(x):
     return pow(x, (p - 1) // 2, p)
 
-def schnorr_sign(msg, seckey):
+def pubkey_gen(seckey):
+    P = point_mul(G, seckey)
+    return bytes_from_point(P)
+
+def schnorr_sign(msg, seckey0):
     if len(msg) != 32:
         raise ValueError('The message must be a 32-byte array.')
-    if not (1 <= seckey <= n - 1):
+    if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
+    P = point_mul(G, seckey0)
+    seckey = seckey0 if (jacobi(P[1]) == 1) else n - seckey0
     k0 = int_from_bytes(hash_sha256(bytes_from_int(seckey) + msg)) % n
     if k0 == 0:
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
     k = n - k0 if (jacobi(R[1]) != 1) else k0
-    e = int_from_bytes(hash_sha256(bytes_from_int(R[0]) + bytes_from_point(point_mul(G, seckey)) + msg)) % n
-    return bytes_from_int(R[0]) + bytes_from_int((k + e * seckey) % n)
+    e = int_from_bytes(hash_sha256(bytes_from_point(R) + bytes_from_point(P) + msg)) % n
+    return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
 def schnorr_verify(msg, pubkey, sig):
     if len(msg) != 32:
         raise ValueError('The message must be a 32-byte array.')
-    if len(pubkey) != 33:
-        raise ValueError('The public key must be a 33-byte array.')
+    if len(pubkey) != 32:
+        raise ValueError('The public key must be a 32-byte array.')
     if len(sig) != 64:
         raise ValueError('The signature must be a 64-byte array.')
     P = point_from_bytes(pubkey)
@@ -82,7 +83,7 @@ def schnorr_verify(msg, pubkey, sig):
     s = int_from_bytes(sig[32:64])
     if (r >= p or s >= n):
         return False
-    e = int_from_bytes(hash_sha256(sig[0:32] + bytes_from_point(P) + msg)) % n
+    e = int_from_bytes(hash_sha256(sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
     if R is None or jacobi(R[1]) != 1 or R[0] != r:
         return False
@@ -107,20 +108,25 @@ def test_vectors():
             print('\nTest vector #%-3i: ' % int(index))
             if seckey != '':
                 seckey = int(seckey, 16)
+                pubkey_actual = pubkey_gen(seckey)
+                if pubkey != pubkey_actual:
+                    print(' * Failed key generation.')
+                    print('   Expected key:', pubkey.hex().upper())
+                    print('     Actual key:', pubkey_actual.hex().upper())
                 sig_actual = schnorr_sign(msg, seckey)
                 if sig == sig_actual:
                     print(' * Passed signing test.')
                 else:
                     print(' * Failed signing test.')
-                    print('   Excepted signature:', sig.hex())
-                    print('     Actual signature:', sig_actual.hex())
+                    print('   Expected signature:', sig.hex().upper())
+                    print('     Actual signature:', sig_actual.hex().upper())
                     all_passed = False
             result_actual = schnorr_verify(msg, pubkey, sig)
             if result == result_actual:
                 print(' * Passed verification test.')
             else:
                 print(' * Failed verification test.')
-                print('   Excepted verification result:', result)
+                print('   Expected verification result:', result)
                 print('     Actual verification result:', result_actual)
                 if comment:
                     print('   Comment:', comment)
