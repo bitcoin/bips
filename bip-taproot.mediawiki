@@ -49,16 +49,7 @@ Not included in this proposal are additional features like new sighash modes or 
 
 This section specifies the Taproot consensus rules. Validity is defined by exclusion: a block or transaction is valid if no condition exists that marks it failed.
 
-The notation below follows that of bip-schnorr.
-
-=== Tagged hashes ===
-
-Cryptographic hash functions are used for multiple purposes in the specification below and in Bitcoin in general. To make sure hashes used in one context can't be reinterpreted in another one, all hash functions are tweaked with a context-dependent tag name, in such a way that collisions across contexts can be assumed to be infeasible.
-
-In the text below, ''hash<sub>tag</sub>(m)'' is a shorthand for ''SHA256(SHA256(tag) || SHA256(tag) || m)'', where ''tag'' is a UTF-8 encoded tag name.
-* So far, nowhere in the Bitcoin protocol are hashes used where the input of SHA256 starts with two (non-double) SHA256 hashes, making collisions with existing uses of hash functions infeasible.
-* Because the prefix ''SHA256(tag) || SHA256(tag)'' is a 64-byte long context-specific constant, optimized implementations are possible (identical to SHA256 itself, but with a modified initial state).
-* Using SHA256 of the tag name itself is reasonably simple and efficient for implementations that don't choose to use the optimization above.
+The notation below follows that of bip-schnorr including the notion of tagged hashes.
 
 === Script validation rules ===
 
@@ -173,15 +164,9 @@ Satisfying any of these conditions is sufficient to spend the output.
 * If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a point with unknown discrete logarithm. One example of such a point is ''H = point(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of secp256k1 generator ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key is does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
 * The remaining scripts should be organized into the leaves of a binary tree. This can be a balanced tree if each of the conditions these scripts correspond to are equally likely. If probabilities for each condition are known, consider constructing the tree as a Huffman tree.
 
-'''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the following Python3 algorithm can be used to compute the output script. In the code below, <code>ser_script</code> prefixes its input with a CCompactSize-encoded length. Public key objects hold 32-byte public keys according to bip-schnorr, have a method <code>get_bytes</code> to get the byte array and a method <code>tweak_add</code> which returns a new public key corresponding to the sum of the public key point and a multiple of the secp256k1 generator (similar to BIP32's derivation). The second return value of <code>tweak_add</code> is a boolean indicating the quadratic residuosity of the Y coordinate of the resulting point.
+'''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the following Python3 algorithm can be used to compute the output script. In the code below, <code>ser_script</code> prefixes its input with a CCompactSize-encoded length. Public key objects hold 32-byte public keys according to bip-schnorr, have a method <code>get_bytes</code> to get the byte array and a method <code>tweak_add</code> which returns a new public key corresponding to the sum of the public key point and a multiple of the secp256k1 generator (similar to BIP32's derivation). The second return value of <code>tweak_add</code> is a boolean indicating the quadratic residuosity of the Y coordinate of the resulting point. <code>tagged_hash</code> computes the tagged hash according to bip-schnorr.
 
 <source lang="python">
-import hashlib
-
-def tagged_hash(tag, msg):
-    tag_hash = hashlib.sha256(tag.encode()).digest()
-    return hashlib.sha256(tag_hash + tag_hash + msg).digest()
-
 def taproot_tree_helper(script_tree):
     if isinstance(script_tree, tuple):
         leaf_version, script = script_tree

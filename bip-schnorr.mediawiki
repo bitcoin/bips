@@ -110,6 +110,11 @@ The following convention is used, with constants as defined for secp256k1:
 *** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y''.
 ** The function ''point(x)'', where ''x'' is a 32-byte array, returns the point ''P = lift_x(int(x))''.
 ** The function ''hash(x)'', where ''x'' is a byte array, returns the 32-byte SHA256 hash of ''x''.
+** The function ''hash<sub>tag</sub>(x)'' is a shorthand for ''hash(hash(tag) || hash(tag) || x)'', where ''tag'' is a UTF-8 encoded tag name.<ref>Cryptographic hash functions are used for multiple purposes in the specification below and in Bitcoin in general. To make sure hashes used in one context can't be reinterpreted in another one, hash functions can be tweaked with a context-dependent tag name, in such a way that collisions across contexts can be assumed to be infeasible.
+
+* So far, nowhere in the Bitcoin protocol are hashes used where the input of SHA256 starts with two (non-double) SHA256 hashes, making collisions with existing uses of hash functions infeasible.
+* Because the prefix ''SHA256(tag) || SHA256(tag)'' is a 64-byte long context-specific constant, optimized implementations are possible (identical to SHA256 itself, but with a modified initial state).
+* Using SHA256 of the tag name itself is reasonably simple and efficient for implementations that don't choose to use the optimization above.</ref>
 ** The function ''jacobi(x)'', where ''x'' is an integer, returns the [https://en.wikipedia.org/wiki/Jacobi_symbol Jacobi symbol] of ''x / p''. It is equal to ''x<sup>(p-1)/2</sup> mod p'' ([https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion])<ref>For points ''P'' on the secp256k1 curve it holds that ''jacobi(y(P)) &ne; 0''.</ref>.
 
 === Public Key Generation ===
@@ -165,7 +170,7 @@ Input:
 To sign ''m'' for public key ''bytes(dG)'':
 * Let ''P = dG''
 * Let ''d = d' '' if ''jacobi(y(P)) = 1'', otherwise let ''d = n - d' ''.
-* Let ''k' = int(hash(bytes(d) || m)) mod n''<ref>Note that in general, taking the output of a hash function modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
+* Let ''k' = int(hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)) mod n''<ref>Note that in general, taking the output of a hash function modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
 * Let ''R = k'G''.
 * Let ''k = k' '' if ''jacobi(y(R)) = 1'', otherwise let ''k = n - k' ''.
