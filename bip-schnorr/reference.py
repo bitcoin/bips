@@ -5,6 +5,8 @@ p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 G = (0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798, 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8)
 
+# This implementation can be sped up by storing the midstate after hashing
+# tag_hash instead of rehashing it all the time.
 def tagged_hash(tag, msg):
     tag_hash = hashlib.sha256(tag.encode()).digest()
     return hashlib.sha256(tag_hash + tag_hash + msg).digest()
@@ -70,7 +72,7 @@ def schnorr_sign(msg, seckey0):
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
     k = n - k0 if (jacobi(R[1]) != 1) else k0
-    e = int_from_bytes(hash_sha256(bytes_from_point(R) + bytes_from_point(P) + msg)) % n
+    e = int_from_bytes(tagged_hash("BIPSchnorr", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
 def schnorr_verify(msg, pubkey, sig):
@@ -87,7 +89,7 @@ def schnorr_verify(msg, pubkey, sig):
     s = int_from_bytes(sig[32:64])
     if (r >= p or s >= n):
         return False
-    e = int_from_bytes(hash_sha256(sig[0:32] + pubkey + msg)) % n
+    e = int_from_bytes(tagged_hash("BIPSchnorr", sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
     if R is None or jacobi(R[1]) != 1 or R[0] != r:
         return False
