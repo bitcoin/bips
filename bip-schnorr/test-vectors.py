@@ -26,7 +26,7 @@ def vector1():
     return (bytes_from_int(seckey), pubkey, msg, sig, "TRUE", None)
 
 def vector2():
-    seckey = 0xC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C7
+    seckey = 0xC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C9
     msg = bytes_from_int(0x5E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C)
     sig = schnorr_sign(msg, seckey)
 
@@ -53,7 +53,7 @@ def schnorr_sign_fixed_nonce(msg, seckey0, k):
     P = point_mul(G, seckey0)
     seckey = seckey0 if (jacobi(P[1]) == 1) else n - seckey0
     R = point_mul(G, k)
-    e = int_from_bytes(hash_sha256(bytes_from_point(R) + bytes_from_point(P) + msg)) % n
+    e = int_from_bytes(tagged_hash("BIPSchnorr", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
 # Creates a singature with a small x(R) by using k = 1/2
