@@ -15,6 +15,17 @@
 
 A standard for interoperable generic signed messages based on the Bitcoin Script format.
 
+== Background ==
+
+* Assume two actors, a prover <code>P</code> and a verifier <code>V</code>.
+* <code>P</code> wants to prove that they own the private key <code>k</code> associated with a given address <code>A</code> (which in turn is derived from the pubkey <code>kG</code>).
+* Let <code>V</code> generate a message <code>M</code> and hand this to <code>P</code>.
+* <code>P</code> generates a signature <code>S</code> by signing the message <code>M</code> using <code>k</code>. Given <code>S</code>, <code>V</code> can prove that <code>P</code> has the private key associated with <code>A</code>.
+
+The astute reader will notice that the above is missing a critical part, namely the pubkey <code>kG</code>, without which the verifier cannot actually verify the message. The current message signing standard solves this via a cryptographic trick, wherein the signature <code>S</code> above is a special "recoverable signature" type. Given the message <code>M</code> and the signature <code>S</code>, it is then possible to recover the pubkey <code>kG</code>. The system thus derives the address for the pubkey <code>kG</code>, and if it does not match <code>A</code>, the proof is deemed invalid.
+
+While this is a neat trick, it unnecessarily restricts and complicates the message signing mechanism; for instance, it is currently not possible to sign a message for a P2SH address, because there is no pubkey to recover from the resulting signature.
+
 == Motivation ==
 
 The current message signing standard only works for P2PKH (1...) addresses. By extending it to use a Bitcoin Script based approach, it could be made more generic without causing a too big burden on implementers, who most likely have access to Bitcoin Script interpreters already.
@@ -109,6 +120,8 @@ The resulting signature proof should be encoded using base64 encoding.
 
 The "Verify" action takes as input a standard flags value, a script sig, an optional witness, and a purpose.
 It emits one of INCONCLUSIVE, VALID, INVALID, or ERROR.
+
+While omitted below, ERROR is returned if an unforeseen error occurs at any point in the process. A concrete example of this is if a legacy proof is given as input to a non-legacy address; the deserialization of the proof will fail in this case, and this should result in an ERROR result.
 
 # Obtain the sighash and scriptPubKey from the purpose; pass on result code if not VALID
 # Verify Script with flags=consensus flags (currently P2SH, DERSIG, NULLDUMMY, CLTV, CSV, WITNESS), scriptSig=script sig, scriptPubKey=scriptPubKey, witness=witness, and sighash=sighash
