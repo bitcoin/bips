@@ -1,0 +1,305 @@
+<pre>
+  BIP:
+  Layer: Applications
+  Title: Bitcoin Request URI Scheme
+  Author: Aleksandar Dinkov <aleks@bitcoinsofia.com>
+  Type: Standards Track
+  Created: 2019-08-26
+</pre>
+
+This BIP is inspired by BIP20 (by Luke Dashjr), BIP21 (by Nils Schneider) and most of all - FatURI (by _unwriter)
+
+==Abstract==
+This BIP proposes a URI scheme for making a wallet complete the missing pieces of a Bitcoin transaction.
+The URI provides the transaction outputs, while the wallet provides the inputs (pays for it).
+
+It represents a payment request as described in BIP-270, and aims to replace the URI scheme described in BIP-272.
+This URI scheme is an alternative way to pass the payment request information, to the HTTP requests described in BIP-270.
+
+This proposal enables wallets to make payments to a non-standard script without needing to know how that script was designed.
+
+==Motivation==
+The purpose of this URI scheme is to enable users to easily make Bitcoin transactions of various types by simply clicking links on webpages.
+
+==Specification==
+
+=== General rules for displaying ===
+
+Websites and Applications are adviced to NOT display QR codes for this URI scheme.
+The URIs will contain a lot of information and that would make them unpractical to display and scan.
+
+Instead, the URIs should be displayed as clickable links and buttons.
+
+=== General rules for handling (important!) ===
+
+Bitcoin clients MUST NOT act on URIs without getting the user's authorization.
+They SHOULD require the user to manually approve each payment individually, though in some cases they MAY allow the user to automatically make this decision.
+
+=== Operating system integration ===
+Graphical bitcoin clients SHOULD register themselves as the handler for the "bitcoin-req:" URI scheme by default, if no other handler is already registered. If there is already a registered handler, they MAY prompt the user to change it once when they first run the client.
+
+=== General Format ===
+
+Bitcoin URIs follow the general format for URIs as set forth in RFC 3986. The path component consists of a JSON object for a payment request.
+
+Elements of the path component may contain characters outside the valid range. These must first be encoded according to UTF-8, and then each octet of the corresponding UTF-8 sequence must be percent-encoded as described in RFC 3986.
+
+=== ABNF grammar ===
+
+ bitcoinRequestUrn                = "bitcoin-req:" ListOfOutputs "?" paymentUrl "&" network [ "&" optionalBitcoinRequestParams ]
+ ListOfOutputs                    = *qchar
+ paymentUrl                       = "paymentUrl=" *qchar
+ network                          = "network=" *qchar
+ optionalBitcoinRequestParams     = optionalBitcoinRequestParam [ "&" optionalBitcoinRequestParam ]
+ optionalBitcoinRequestParam      = [ expirationTimestamp / creationTimestamp / merchantData / memo ]
+ expirationTimestamp              = "expirationTimestamp=" *digit
+ creationTimestamp                = "creationTimestamp=" *digit
+ merchantData                     = "merchantData=" *qchar
+ memo                             = "memo=" *qchar
+
+Here, "qchar" corresponds to valid characters of an RFC 3986 URI query component, excluding the "=" and "&" characters, which this BIP takes as separators.
+
+The scheme component ("bitcoin-req:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The rest of the URI is case-sensitive, including the query parameter keys.
+
+=== ListOfOutputs grammar ===
+
+ ListOfOutputs                  = "[" outputObject [ "," outputObject ] "]"
+ outputObject                   = "{" amount "," script "}"
+ amount                         = "\"amount\":"    *digit
+ script                         = "\"script\":\""    *hexString	"\""
+ hexString                      = hex [ hexString ]
+ hex                            = 0/1/2/3/4/5/6/7/8/9/a/b/c/d/e/f
+
+The whole ListOfOutputs must be encoded to remove characters outside the valid range. It must first be encoded according to UTF-8, and then each octet of the corresponding UTF-8 sequence must be percent-encoded as described in RFC 3986.
+
+When not URI encoded, ListOfOutputs must be a valid JSON string.
+
+The hexString is the Hex representation of the output script, written in a way that will be accepted by the network.
+
+=== Query Keys ===
+
+*paymentUrl: HTTP location where a Payment message (see below) will be sent to obtain a PaymentACK. Maximum length is 4000 characters. 
+*network: This field is required and always set to "bitcoin". If set to any other value besides "bitcoin", no wallet should process the payments. For test purposes, one can set this field to "test" which will ensure that no wallet will accidentally send a payment to what might be invalid or test addresses. 
+*expirationTimestamp: must be a valid timestamp in the Unix Epoch style, and in the UTC timezone. Must be bigger than creationTimestamp.
+*creationTimestamp: must be a valid timestamp in the Unix Epoch style, and in the UTC timezone. If it is missing, the current time should be considered as creation time.
+*merchantData: Arbitrary data that may be used by the payment host to identify the PaymentRequest. May be omitted if the payment host does not need to associate Payments with PaymentRequest. Maximum length is 10000 characters.
+*memo: Note that should be displayed to the customer, explaining what this PaymentRequest is for. Maximum length is 50 characters.
+
+=== Client Behaviour ===
+
+==== Transfer amount ====
+
+Each output must contain an amount field. The amount is a decimal number, measured in bitcoin satoshies.
+The sum of these output values, combined with the necessery transaction fee, is the total amount needed for this transaction.
+
+All values MUST contain only decimal numbers and no other characters.
+I.e. "value":"500000000" is treated as 5 bitcoins, and "value":"500,000,000" is invalid.
+
+Bitcoin clients MAY display the total amount or individual values in any format that is not intended to deceive the user.
+They SHOULD choose a format that is foremost least confusing, and only after that most reasonable given the amount requested.
+For example, so long as the majority of users work in bitcoin units, values should always be displayed in bitcoins by default, even if smaller units would otherwise be a more logical interpretation of the amount.
+
+==== Transaction Completion ====
+
+The provided information is an incomplete transaction. The outputs are provided, but not the inputs. Bitcoin clients SHOULD construct a transaction by providing the inputs that match the specified outputs.
+
+If "expirationTimestamp" is present, the Bitcoin clients MUST check it and not send the payment if the current date is bigger than it.
+
+If "network" is present, the Bitcoin clients MUST check it and not send the payment if the value is not "bitcoin" unless they can handle the different network.
+
+Bitcoin clients MAY choose any type of valid inputs for the transaction.
+
+An additional output SHOULD be created if there is a leftover change of bitcoins. The bitcoin clients should handle that in whatever way is standard for them.
+
+Bitcoin clients MUST NOT change the provided outputs. They MUST be added to the transaction in the exact state in which they were received.
+
+Bitcoin clients MAY choose to validate the outputs to see if they contain invalid scripts (non-existant OP codes) but they SHOULD NOT attempt to execute these scripts.
+
+Bitcoin clients MAY choose to warn the user if a script is obviously unspendable, but the requested value is not 0.00
+(for example - an output script has OP_RETURN but the requested value is 1 bitcoin)
+
+Bitcoin clients SHOULD proceed sending an HTTP POST request to the provided "paymentUrl" as described in BIP-270
+
+== Rationale ==
+
+===Payment identifiers, not person identifiers===
+
+Current best practices are that a unique address (or output script) should be used for every transaction.
+Therefore, a URI scheme should not represent an exchange of personal information, but a one-time payment.
+
+===Flexability of payments===
+
+There is a huge range of possible transaction scripts. Most are currently considered non-standard and are ignored by bitcoin wallets. This proposal enables wallets to make payments to a non-standard script without needing to know how that script was designed. A wallet only needs to understand its own standard set of scripts, in order to provide valid inputs for the transaction.
+
+===Accessibility (URI scheme name)===
+
+Should someone from the outside happen to see such a URI, the URI scheme name already gives a description.
+A quick search should then do the rest to help them find the resources needed to make their payment.
+
+Websites and apps attempting to open such uri MAY attempt to propose trusted applications that can open them, if the OS of the user doesn't already have such apps installed.
+For example, if opening of a URI fails, it is a common practice in Android to redirect to the Google Play store page for the missing app.
+
+==Forward compatibility==
+
+The current scheme already covers the complete set of ALL possible bitcoin outputs.
+Even if additional query parameters are added to the URI, they will most likely be metadata about the transaction. They might be good to have, but they will not be required to complete the payment successfully. 
+
+ The nature of this URI Scheme is such that once version 0.1 is released, the core design is set in stone for the rest of its lifetime. 
+
+==Backward in-compatibility==
+
+This protocol aims to completely replace BIP-20, BIP-21 and BIP-272 as the main URI protocol used for all bitcoin payment requests.
+As such, reusing the "bitcoin:" uri scheme would be very confusing, as there are plenty of applications that would expect BIP21 instead.
+For that reason a new scheme ("bitcoin-req:") is used.
+This scheme is much more specific to the purpose of the URI, while at the same time the URI handles a much broader range of possible payment requests. (It handles ALL of them.)
+
+Additionally, this BIP is aimed mainly at Bitcoin Satoshi Vision (BitcoinSV) and as such it makes sense use a new URI scheme and decrease the chance of using the wrong currency.
+
+If other currencies implement this protocol they can derive their URI scheme names from the current one.
+Examples: "bitcoincash-req", "bitcoincore-req", "litecoin-req", etc...
+
+== Appendix ==
+
+=== Use Cases ===
+
+Here are some possible problems that can be solved with these URIs:
+
+==== Good smartphone payment experience ====
+
+* A native smartphone application requires a payment
+* The application then opens a deep link representing the specific payment
+* A wallet on the same phone picks up the link and opens
+* The wallet displays the sum that needs to be paid and prompts the user to confirm
+* The user confirms and the payment gets sent
+* The wallet closes, so that the user can continue with what he was doing
+
+==== Easy to implement non-standard scripts ====
+
+* An application or website wants the user to create a transaction with non-standard outputs
+* The application generates a Hex Script corresponding to the specific output
+* The application creates a URI with the hex script(s)
+* The user clicks on the URI and activates a wallet
+* The wallet treats the script as any other script - it asks the user if he agrees to spend the required amount
+* The user agrees and the transactions is sent to the paymentUrl
+* Without much trouble, the user just sent a complex transaction from a simple regular wallet
+
+==== Various OP_RETURN schemes ====
+
+* An application or website lets the user publish data to the blockchain
+* The data is in some specific format (for example B://) defined by the app or website
+* A URI gets prepared and the user click it
+* A wallet opens
+* The wallet may (or may not) display some details about the transaction (for example - the size of the data)
+* The wallet may (or may not) restrict the user from sending any funds to an unspendable output
+* The user pays the transaction fee and the data is now uploaded.
+
+// Note:
+It is not advisable to use QR codes for long strings of Data.
+The QR code will be too big.
+Use deep links instead.
+
+
+=== Examples ===
+
+==== Standard P2PKH payment: ====
+
+*paymentUrl = https://example.com/payments
+*network = bitcoin
+
+ [
+    {
+      "amount":0.01,
+      "script":"76a914808a0e92d0d42b650f083dd223d556b410699d6f88ac"
+    }
+ ]
+
+*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+
+==== With two outputs: ====
+
+*paymentUrl = https://example.com/payments
+*network = bitcoin
+
+ [
+    {
+      "amount":0.01,
+      "script":"76a914808a0e92d0d42b650f083dd223d556b410699d6f88ac"
+    },
+    {
+      "amount": 0.01,
+      "script": "76a914eb280a7c70784b5136119cb889e024d22437ed4c88ac"
+    }
+ ]
+
+*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%2C%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914eb280a7c70784b5136119cb889e024d22437ed4c88ac%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+
+==== OP_RETURN message: ====
+
+*paymentUrl = https://example.com/payments
+*network = bitcoin
+
+ [
+    {
+      "amount":0.00,
+      "script": "006a2231394878696756345179427633744870515663554551797131707a5a56646f4175740e62697462746e20697320636f6f6c0a746578742f706c61696e"
+    }
+ ]
+
+*bitcoin-req:%5B%7B%22amount%22%3A0%2C%22script%22%3A%22006a2231394878696756345179427633744870515663554551797131707a5a56646f4175740e62697462746e20697320636f6f6c0a746578742f706c61696e%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+
+==== A non-standard script: ====
+
+This hex script is "1 OP_ADD 3 OP_EQUAL" (which basically means "x + 1 = 3")
+
+*paymentUrl = https://example.com/payments
+*network = bitcoin
+
+ [
+    {
+      "amount":0.01,
+      "script":"010193010387"
+    }
+ ]
+
+*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%22010193010387%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+
+==== With a memo and merchantData: ====
+
+*paymentUrl = https://example.com/payments
+*network = bitcoin
+*memo = Payment to Aleks
+*merchantData = { "userID"="VGhlIFRpbWVzIDAzL0phbi8yMDA5IENoYW5jZWxsb3Igb24gYnJpbmsgb2Ygc2Vjb25kIGJhaWxvdXQgZm9yIGJhbmtzLg==" }
+
+ [
+    {
+      "amount":0.01,
+      "script":"76a914808a0e92d0d42b650f083dd223d556b410699d6f88ac"
+    }
+ ]
+
+*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&memo=Payment%20to%20Aleks&merchantData=%7B%22userID%22%3D%22VGhlIFRpbWVzIDAzL0phbi8yMDA5IENoYW5jZWxsb3Igb24gYnJpbmsgb2Ygc2Vjb25kIGJhaWxvdXQgZm9yIGJhbmtzLg%3D%3D%22%7D
+
+
+Characters must be URI encoded properly.
+
+== Reference Implementations ==
+
+=== Tools for URI generation ===
+* None yet...
+
+=== Bitcoin clients ===
+* None yet...
+
+=== BIP-270 servers ===
+* None yet...
+
+=== Libraries ===
+* None yet...
+
+
+== See Also ==
+
+* [https://github.com/moneybutton/bips/blob/master/bip-0020.mediawiki BIP 0020] - The 'bitcoin:' URI Scheme
+* [https://github.com/moneybutton/bips/blob/master/bip-0021.mediawiki BIP 0021] - The updated 'bitcoin:' URI Scheme
+* [https://github.com/moneybutton/bips/blob/master/bip-0270.mediawiki BIP 0270] - Simplified Payment Protocol - P2P payments
+* [https://github.com/moneybutton/bips/blob/master/bip-0272.mediawiki BIP 0272] - URI scheme for BIP-270 (the one that this proposal aims to replace)
