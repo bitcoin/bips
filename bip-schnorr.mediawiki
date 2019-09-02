@@ -40,7 +40,7 @@ made:
 
 [[File:bip-schnorr/speedup-batch.png|frame|This graph shows the ratio between the time it takes to verify ''n'' signatures individually and to verify a batch of ''n'' signatures. This ratio goes up logarithmically with the number of signatures, or in other words: the total time to verify ''n'' signatures grows with ''O(n / log n)''.]]
 
-By reusing the same curve as Bitcoin has used for ECDSA, private and public keys remain identical for Schnorr signatures, and we avoid introducing new assumptions about elliptic curve group security.
+By reusing the same curve as Bitcoin has used for ECDSA, we are able to retain existing mechanisms for choosing private and public keys, and we avoid introducing new assumptions about elliptic curve group security.
 
 == Description ==
 
@@ -87,11 +87,11 @@ For example, without tagged hashing a bip-schnorr signature could also be valid 
 
 This proposal suggests to include the tag by prefixing the hashed data with ''SHA256(tag) || SHA256(tag)''. Because this is a 64-byte long context-specific constant, optimized implementations are possible (identical to SHA256 itself, but with a modified initial state). Using SHA256 of the tag name itself is reasonably simple and efficient for implementations that don't choose to use the optimization.
 
-'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is a quadratic residue and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a quadratic residue. The signature satisfies ''sG = R + tagged_hash(r || p || m)P''.
+'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is a quadratic residue and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a quadratic residue. The signature satisfies ''sG = R + tagged_hash(r || pk || m)P''.
 
 === Specification ===
 
-We first describe the verification algorithm, and then the signature algorithm.
+We first describe the key generation algorithm, then the verification algorithm, and then the signature algorithm.
 
 The following convention is used, with constants as defined for secp256k1:
 * Lowercase variables represent integers or byte arrays.
@@ -117,13 +117,18 @@ The following convention is used, with constants as defined for secp256k1:
 ** The function ''point(x)'', where ''x'' is a 32-byte array, returns the point ''P = lift_x(int(x))''.
 ** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
 ** The function ''jacobi(x)'', where ''x'' is an integer, returns the [https://en.wikipedia.org/wiki/Jacobi_symbol Jacobi symbol] of ''x / p''. It is equal to ''x<sup>(p-1)/2</sup> mod p'' ([https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion])<ref>For points ''P'' on the secp256k1 curve it holds that ''jacobi(y(P)) &ne; 0''.</ref>.
+** The function ''pubkey(x)'', where ''x'' is a 32-byte array, returns ''bytes(dG)'' where ''d = int(x) mod n''.
 
-=== Public Key Generation ===
+==== Public Key Generation ====
 
 Input:
-* The secret key ''d'': an integer in the range ''1..n-1'' chosen uniformly at random.
+* The secret key ''sk'': a 32-byte array, generated uniformly at random
 
-The public key corresponding to secret key ''d'' is ''bytes(dG)''.
+To generate the corresponding public key:
+* Fail if ''int(sk) = 0'' or ''int(sk) >= n''
+* The public key corresponding to secret key ''sk'' is ''pubkey(sk)''.
+
+Note that the two secret keys ''sk'' and ''bytes(n-int(sk))'' will generate the same public key.
 
 Alternatively, the public key can be created according to [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP32] which describes the derivation of 33-byte compressed public keys.
 In order to translate such public keys into bip-schnorr compatible keys, the first byte must be dropped.
@@ -165,11 +170,13 @@ All provided signatures are valid with overwhelming probability if and only if t
 ==== Signing ====
 
 Input:
-* The secret key ''d' '': an integer in the range ''1..n-1''
+* The secret key ''sk'': a 32-byte array
 * The message ''m'': a 32-byte array
 
-To sign ''m'' for public key ''bytes(dG)'':
-* Let ''P = dG''
+To sign ''m'' for public key ''pubkey(sk)'':
+* Let ''d' = int(sk)''
+* Fail if ''d' = 0'' or ''d' >= n''
+* Let ''P = d'G''
 * Let ''d = d' '' if ''jacobi(y(P)) = 1'', otherwise let ''d = n - d' ''.
 * Let ''k' = int(hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)) mod n''<ref>Note that in general, taking the output of a hash function modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.

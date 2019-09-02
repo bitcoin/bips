@@ -64,7 +64,7 @@ The following rules only apply when such an output is being spent. Any other out
 * If there are at least two witness elements left, script path spending is used:
 ** Call the second-to-last stack element ''s'', the script.
 ** The last stack element is called the control block ''c'', and must have length ''33 + 32m'', for a value of ''m'' that is an integer between 0 and 32, inclusive. Fail if it does not have such a length.
-** Let ''P = point(c[1:33])'' where ''point'' is defined as in bip-schnorr. Fail if this point is not on the curve.
+** Let ''p = c[1:33]'' and let ''P = point(p)'' where ''point'' is defined as in bip-schnorr. Fail if this point is not on the curve.
 ** Let ''l = c[0] & 0xfe'', the leaf version<ref>'''What is the purpose of the first byte of the control block?''' The first byte of the control block has three distinct functions:
 * The low bit is used to denote whether the ''Q'' point's Y coordinate is a quadratic residue.<ref>'''Why is the quadratic residuosity of the output public key's Y coordinate required in a script path spend?''' The ''point'' function always constructs a point with Y coordinate having that property, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>
 * By keeping the top two bits set to true, it can be guaranteed that scripts can be recognized without knowledge of the UTXO being spent, simplifying analysis. This is because such values cannot occur as first byte of the final stack element in either P2WPKH or P2WSH spends.
@@ -76,13 +76,13 @@ The following rules only apply when such an output is being spent. Any other out
 *** Let ''k<sub>j+1</sub> depend on whether ''k<sub>j</sub> < e<sub>j</sub>'' (lexicographically)<ref>'''Why are child elements sorted before hashing in the Merkle tree?''' By doing so, it is not necessary to reveal the left/right directions along with the hashes in revealed Merkle branches. This is possible because we do not actually care about the position of specific scripts in the tree; only that they are actually committed to.</ref>:
 **** If ''k<sub>j</sub> < e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(k<sub>j</sub> || e<sub>j</sub>)''<ref>'''Why not use a more efficient hash construction for inner Merkle nodes?''' The chosen construction does require two invocations of the SHA256 compression functions, one of which can be avoided in theory (see BIP98). However, it seems preferable to stick to constructions that can be implemented using standard cryptographic primitives, both for implementation simplicity and analyzability. If necessary, a significant part of the second compression function can be optimized out by [https://github.com/bitcoin/bitcoin/pull/13191 specialization] for 64-byte inputs.</ref>.
 **** If ''k<sub>j</sub> &ge; e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(e<sub>j</sub> || k<sub>j</sub>)''.
-** Let ''t = hash<sub>TapTweak</sub>(bytes(P) || k<sub>m</sub>) = hash<sub>TapTweak</sub>(c[1:33] || k<sub>m</sub>)''.
+** Let ''t = hash<sub>TapTweak</sub>(p || k<sub>m</sub>)''.
 ** If ''t &ge; 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141'' (order of secp256k1), fail.
 ** Let ''Q = point(q) if (c[0] & 1) = 1 and -point(q) otherwise''. Fail if this point is not on the curve.
 ** If ''Q &ne; P + int(t)G'', fail.
 ** Execute the script, according to the applicable script rules<ref>'''What are the applicable script rules in script path spends?''' Bip-tapscript specifies validity rules that apply if the leaf version is ''0xc0'', but future proposals can introduce rules for other leaf versions.</ref>, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack.
 
-''q'' is referred to as ''taproot output key'' and ''c[1:33]'' as ''taproot internal key''.
+''q'' is referred to as ''taproot output key'' and ''p'' as ''taproot internal key''.
 
 === Signature validation rules ===
 
