@@ -36,7 +36,7 @@ Bitcoin clients MUST NOT act on URIs without getting the user's authorization.
 They SHOULD require the user to manually approve each payment individually, though in some cases they MAY allow the user to automatically make this decision.
 
 === Operating system integration ===
-Graphical bitcoin clients SHOULD register themselves as the handler for the "bitcoin-req:" URI scheme by default, if no other handler is already registered. If there is already a registered handler, they MAY prompt the user to change it once when they first run the client.
+Graphical bitcoin clients SHOULD register themselves as the handler for the "bitcoin:" URI scheme by default, if no other handler is already registered. If there is already a registered handler, they MAY prompt the user to change it once when they first run the client.
 
 === General Format ===
 
@@ -46,8 +46,11 @@ Elements of the path component may contain characters outside the valid range. T
 
 === ABNF grammar ===
 
- bitcoinRequestUrn                = "bitcoin-req:" ListOfOutputs "?" paymentUrl "&" network [ "&" optionalBitcoinRequestParams ]
+ bitcoinRequestUrn                = "bitcoin:?" requiredParams [ "&" optionalBitcoinRequestParams ]
+ requiredParams                   = reqSvParam "&" paymentUrl "&" network "&" outputsParam
+ outputsParam                     = "outputs=" ListOfOutputs
  ListOfOutputs                    = *qchar
+ reqSvParam                       = "req-bip275"
  paymentUrl                       = "paymentUrl=" *qchar
  network                          = "network=" *qchar
  optionalBitcoinRequestParams     = optionalBitcoinRequestParam [ "&" optionalBitcoinRequestParam ]
@@ -59,7 +62,7 @@ Elements of the path component may contain characters outside the valid range. T
 
 Here, "qchar" corresponds to valid characters of an RFC 3986 URI query component, excluding the "=" and "&" characters, which this BIP takes as separators.
 
-The scheme component ("bitcoin-req:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The rest of the URI is case-sensitive, including the query parameter keys.
+The scheme component ("bitcoin:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The rest of the URI is case-sensitive, including the query parameter keys.
 
 === ListOfOutputs grammar ===
 
@@ -77,13 +80,46 @@ When not URI encoded, ListOfOutputs must be a valid JSON string.
 The hexString is the Hex representation of the output script, written in a way that will be accepted by the network.
 
 === Query Keys ===
+{|
+!Parameter
+!Required
+!Description
+|-
+| req-bip275 
+| Yes 
+| an empty parameter, signaling that this is a BIP-275 URI.
+|-
+| paymentUrl 
+| Yes 
+| HTTP location where a Payment message (see below) will be sent to obtain a PaymentACK. Maximum length is 4000 characters. 
+|-
+| network
+| Yes 
+| This field is required and always set to "bitcoin". If set to any other value besides "bitcoin", no wallet should process the payments. For test purposes, one can set this field to "test" which will ensure that no wallet will accidentally send a payment to what might be invalid or test addresses.
+|-
+| outputs 
+| Yes 
+| a valid JSON string representing an array of output objects (uri escaped). Must have at least one output object.
+|-
+| expirationTimestamp 
+|  
+| must be a valid timestamp in the Unix Epoch style, and in the UTC timezone. Must be bigger than creationTimestamp.
+|-
+| creationTimestamp 
+|  
+| must be a valid timestamp in the Unix Epoch style, and in the UTC timezone. If it is missing, the current time should be considered as creation time.
+|-
+| merchantData 
+|  
+| Arbitrary data that may be used by the payment host to identify the PaymentRequest. May be omitted if the payment host does not need to associate Payments with PaymentRequest. Maximum length is 10000 characters.
+|-
+| memo
+|  
+| Note that should be displayed to the customer, explaining what this PaymentRequest is for. Maximum length is 50 characters.
+|-
+|}
 
-*paymentUrl: HTTP location where a Payment message (see below) will be sent to obtain a PaymentACK. Maximum length is 4000 characters. 
-*network: This field is required and always set to "bitcoin". If set to any other value besides "bitcoin", no wallet should process the payments. For test purposes, one can set this field to "test" which will ensure that no wallet will accidentally send a payment to what might be invalid or test addresses. 
-*expirationTimestamp: must be a valid timestamp in the Unix Epoch style, and in the UTC timezone. Must be bigger than creationTimestamp.
-*creationTimestamp: must be a valid timestamp in the Unix Epoch style, and in the UTC timezone. If it is missing, the current time should be considered as creation time.
-*merchantData: Arbitrary data that may be used by the payment host to identify the PaymentRequest. May be omitted if the payment host does not need to associate Payments with PaymentRequest. Maximum length is 10000 characters.
-*memo: Note that should be displayed to the customer, explaining what this PaymentRequest is for. Maximum length is 50 characters.
+The scheme should not contain any of the BIP-0021 parameters. If any of them are present in a URI containing a "req-bip275" parameter, they MUST be ignored.
 
 === Client Behaviour ===
 
@@ -142,21 +178,14 @@ For example, if opening of a URI fails, it is a common practice in Android to re
 ==Forward compatibility==
 
 The current scheme already covers the complete set of ALL possible bitcoin outputs.
-Even if additional query parameters are added to the URI, they will most likely be metadata about the transaction. They might be good to have, but they will not be required to complete the payment successfully. 
+Even if additional query parameters are added to the URI, they will most likely be metadata about the transaction.
 
- The nature of this URI Scheme is such that once version 0.1 is released, the core design is set in stone for the rest of its lifetime. 
-
-==Backward in-compatibility==
+==Backward Compatibility==
 
 This protocol aims to completely replace BIP-20, BIP-21 and BIP-272 as the main URI protocol used for all bitcoin payment requests.
-As such, reusing the "bitcoin:" uri scheme would be very confusing, as there are plenty of applications that would expect BIP21 instead.
-For that reason a new scheme ("bitcoin-req:") is used.
-This scheme is much more specific to the purpose of the URI, while at the same time the URI handles a much broader range of possible payment requests. (It handles ALL of them.)
+It builds upon BIP-21, but thanks to the "req-bip275" parameter, older wallets will know that this is a new (incompattible) scheme and incorrect sends will not happen. (Read more about "req-" parameters in [https://github.com/moneybutton/bips/blob/master/bip-0021.mediawiki BIP-0021])
 
-Additionally, this BIP is aimed mainly at Bitcoin Satoshi Vision (BitcoinSV) and as such it makes sense use a new URI scheme and decrease the chance of using the wrong currency.
-
-If other currencies implement this protocol they can derive their URI scheme names from the current one.
-Examples: "bitcoincash-req", "bitcoincore-req", "litecoin-req", etc...
+The main reasons for reusing the "bitcoin" scheme name, instead of creating a new one are the great future proofing of BIP-0021 (through required parameters) and the fact that the "bitcoin:" scheme is a globally recognized standard for bitcoin URIs (for example - it is a whitelisted protocol in all modern browsers).
 
 == Appendix ==
 
@@ -199,6 +228,22 @@ The QR code will be too big.
 Use deep links instead.
 
 
+=== Advantages ===
+
+==== Advantages over BIP-21 ====
+
+There are multiple advantages over the BIP21 scheme:
+* Flexability of payments (by using Bitcoin script instead of addresses and allowing for multiple outputs)
+* P2P payments (as described in BIP-270)
+
+==== Advantages over BIP-272 ====
+
+The main advantage over BIP-272 is that it is no longer necessary to make the initial GET request to the server, in order to use BIP-270 P2P payments.
+This is good in multiple ways:
+* Custom payment requests can be created by just writing a string, instead of needing to expose an additional HTTPS endpoint.
+* Security and Privacy concerns - users can decide if they want to pay or not, without needing to announce the fact that they are considering the payment through the inital GET request.
+* Record Keeping - BIP-275 URIs carry the payment information in them, meaning that it is possible to recover payment data even if the Payment Server no longer exists.
+
 === Examples ===
 
 ==== Standard P2PKH payment: ====
@@ -213,7 +258,7 @@ Use deep links instead.
     }
  ]
 
-*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+*bitcoin:?req-bip275&paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&outputs=%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%5D
 
 ==== With two outputs: ====
 
@@ -231,7 +276,7 @@ Use deep links instead.
     }
  ]
 
-*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%2C%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914eb280a7c70784b5136119cb889e024d22437ed4c88ac%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+*bitcoin:?req-bip275&paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&outputs=%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%2C%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914eb280a7c70784b5136119cb889e024d22437ed4c88ac%22%7D%5D
 
 ==== OP_RETURN message: ====
 
@@ -245,7 +290,7 @@ Use deep links instead.
     }
  ]
 
-*bitcoin-req:%5B%7B%22amount%22%3A0%2C%22script%22%3A%22006a2231394878696756345179427633744870515663554551797131707a5a56646f4175740e62697462746e20697320636f6f6c0a746578742f706c61696e%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+*bitcoin:?req-bip275&paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&outputs=%5B%7B%22amount%22%3A0%2C%22script%22%3A%22006a2231394878696756345179427633744870515663554551797131707a5a56646f4175740e62697462746e20697320636f6f6c0a746578742f706c61696e%22%7D%5D
 
 ==== A non-standard script: ====
 
@@ -261,7 +306,7 @@ This hex script is "1 OP_ADD 3 OP_EQUAL" (which basically means "x + 1 = 3")
     }
  ]
 
-*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%22010193010387%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin
+*bitcoin:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%22010193010387%22%7D%5D?req-bip275&paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&outputs=
 
 ==== With a memo and merchantData: ====
 
@@ -277,7 +322,7 @@ This hex script is "1 OP_ADD 3 OP_EQUAL" (which basically means "x + 1 = 3")
     }
  ]
 
-*bitcoin-req:%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%5D?paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&memo=Payment%20to%20Aleks&merchantData=%7B%22userID%22%3D%22VGhlIFRpbWVzIDAzL0phbi8yMDA5IENoYW5jZWxsb3Igb24gYnJpbmsgb2Ygc2Vjb25kIGJhaWxvdXQgZm9yIGJhbmtzLg%3D%3D%22%7D
+*bitcoin:?req-bip275&paymentUrl=https%3A%2F%2Fexample.com%2Fpayments&network=bitcoin&outputs=%5B%7B%22amount%22%3A0.01%2C%22script%22%3A%2276a914808a0e92d0d42b650f083dd223d556b410699d6f88ac%22%7D%5D&memo=Payment%20to%20Aleks&merchantData=%7B%22userID%22%3D%22VGhlIFRpbWVzIDAzL0phbi8yMDA5IENoYW5jZWxsb3Igb24gYnJpbmsgb2Ygc2Vjb25kIGJhaWxvdXQgZm9yIGJhbmtzLg%3D%3D%22%7D
 
 
 Characters must be URI encoded properly.
