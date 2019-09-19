@@ -33,9 +33,13 @@ var (
 		{0, "Genesis block"},
 		{2, ""},
 		{3, ""},
+		{15007, "Tx has non-standard OP_RETURN output followed by opcodes"},
+		{49291, "Tx pays to empty output script"},
+		{180480, "Tx spends from empty output script"},
 		{926485, "Duplicate pushdata 913bcc2be49cb534c20474c4dee1e9c4c317e7eb"},
 		{987876, "Coinbase tx has unparseable output script"},
 		{1263442, "Includes witness data"},
+		{1414221, "Empty data"},
 	}
 
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
