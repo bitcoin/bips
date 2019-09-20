@@ -1,0 +1,117 @@
+<pre>
+  BIP: Block Batch Filters for Light Clients
+  Layer: Peer Services
+  Title: Block Batch Filters for Light Clients
+  Author: Aleksey Karpov <admin@bitaps.com>
+  Comments-Summary: None yet
+  Comments-URI: 
+  Status: Draft
+  Type: Standards Track
+  Created: 2019-09-20
+  License: CC0-1.0
+</pre>
+
+
+== Abstract ==
+
+This BIP describes a new filter types on blocks data, for use in the BIP 157 light client protocol. 
+The filter construction proposed is an alternative to BIP 158 filters, with lower false positive rate
+and block filters aggregated to batches. For compression  using Delta-Huffman coding. This document 
+defines new types of filters that vary in batch size and separated by address types.
+
+== Motivation ==
+
+[[bip-0158.mediawiki|BIP 158]] defines the initial filter type basic that is designed to reduce the filter 
+size for regular wallets and minimize the expected bandwidth consumed by light clients, downloading 
+filters and full blocks.
+
+==== False positive rate is low ====
+
+To achieve privacy and security, wallets must follow the rule - no address reuse. This means that each payment
+received or sent uses one or more new addresses. The wallet makes 2-3 payments per day, during the year the number 
+of used addresses increases to about 1000 pieces. All addresses that were used at least once should be monitored
+for new payments. Assume in this BIP that a reasonable estimated number of wallet monitoring addresses is 10000 pieces. 
+
+False positive rate in BIP 158 is low. We can achieve lower bandwidth consumption with higher false positive rate filte, 
+while sync blockchain. Below provided result of test with  10000 addresses in monitoring for 2000 blocks (7300 addresses each):
+
+<pre>
+False positive blocks 32 from 2000 
+Filters size:  36.64 Mb
+Downloaded 68.64 Mb (32 blocks included);
+</pre>
+
+Size of downloaded false positive blocks (~32 Mb) can be excluded by use filters with lower false positive rate . 
+
+<pre>
+False positive blocks 0 from 2000
+Download 57.64 Mb  
+Filters size:  57.64 Mb
+</pre>
+
+Bandwidth consumption reduced about 16%, good result, but is not enough to be reasonable argument to 
+set lower false positive rate and increase filter size.
+
+==== Total filters size and filters batching ====
+
+Total filters size for BIP 158 is about 4.5 Gb. It's not so much for a full node, but for light client we 
+need size smaller as possible (to store permanently or download one time for initial sync).
+
+To achieve best level of privacy and security wallets must follow the rule “no address reuse”,
+but despite the recommendations “no address reuse”, a lot of addresses was reused and will be reused in future. 
+About 94% of all addresses recorded in bitcoin blockchain have zero balance at this moment, this means that at 
+least 2 records for 94% of addresses in blockchain. Each spent utxo have 1 creating and 1 spending records.  
+Combining filters for block ranges, excludes all reused and spent records as duplicates in a filter within 
+the range of combined blocks.
+
+Block combined filters with set of elements about 5 000 000 pieces per batch reduce total filters size to 2.3 Gb.
+
+Block combined  filters with set of elements about 20 000 000 pieces per batch reduce total filters size to 1.6 Gb.
+
+The increase set elements limit in batch  more then 20 000 000 pieces no longer gives a tangible effect. 
+
+Reducing downloadable total filter size to 1.6 Gb is obviously good improvement for light clients and bitcoin scalability.
+
+
+==== Batching and BIP 158 ====
+
+BIP 158 use siphash as hash function to produce set of filter elements. Siphash is effective function computes 64-bit 
+or 128-bit values from a variable-length message and 128-bit secret key. For a 128-bit secret key, the first 128-bit of 
+block hash is used. Consequently the same element but in different blocks has a different hashes. As a result of this
+we have to recalculate all hashes for monitoring elements for each block and we can’t aggregate block filters sets  to batch. 
+
+SipHash is fundamentally different from cryptographic hash functions like SHA and main goal is a produce message 
+authentication code: a keyed hash function like HMAC. To create a probabilistic filter structure, an effective hash 
+function with good uniform distribution is needed. MAC functionality is out of block filters task scope. Using a constant
+value of 128-bit key allows using sighash as a regular hash function and opens up the opportunity for filters batching.
+
+The 64-bit SipHash outputs are then mapped uniformly over the desired range by multiplying with F and taking the top 
+64 bits of the 128-bit result. Where F = N * M, N - count of filter elements, M - inverse of  probability for set of 
+elements matches other items.  This algorithm is a faster alternative to modulo reduction, as it avoids the expensive 
+division operation. In other words, 64-bit SipHash outputs are mapped to values with a given number of bits 
+to achieve a given false positive rate. To archive shotter filter size with Golomb-Rice coding N should be 
+exactly match the count of elements in filter. This means that filters with fewer elements cut out more bits from hashes 
+than filters with more elements. As a result, we cannot do batching for filters due to the lack of reduced bits and 
+still have to recalculate all hashes for wallet monitoring elements for each block.
+
+In case we use static parameters for Golomb-Rice coding F, with necessary bits and false positive rate for all blocks 
+independently from block filter elements count. Redundancy size grows significantly for the filters with the count 
+of elements moving away from the maximum count.
+
+In this BIP describes alternative filter coding algorithm based on combination of Deltas coding and double Huffman coding, 
+which allows to minimize the size redundancy for filters with a small number of elements and approaches the compression up
+to 98,3 % from optimal,  for filters with an average and a large number of elements.
+
+
+== Specification ==
+
+For each block, filters are derived containing sets of addresses or scripts associated with the block. 
+
+At a high level, a batch filter is constructed from a set of N items by:
+* hashing all items to 64-bit integers in the range [0, F]
+* sorting the hashed values in ascending order and remove duplicates
+* apply Deltas coding - computing the differences between each value and the previous one
+* writing the differences sequentially to bit string with minimal bits required to encode each value
+* writing separate bit string with number of bits for corresponding value in first bitstring
+* compress second bit string with 2 round Huffman coding 
+
