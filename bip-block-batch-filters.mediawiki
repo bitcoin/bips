@@ -107,11 +107,198 @@ to 98,3 % from optimal,  for filters with an average and a large number of eleme
 
 For each block, filters are derived containing sets of addresses or scripts associated with the block. 
 
-At a high level, a batch filter is constructed from a set of N items by:
-* hashing all items to 64-bit integers in the range [0, F]
+At a high level, a batch filter is constructed from a set of <code>N</code> items by:
+* hashing all items to 64-bit integers in the range <code>[0, F)</code>
 * sorting the hashed values in ascending order and remove duplicates
 * apply Deltas coding - computing the differences between each value and the previous one
 * writing the differences sequentially to bit string with minimal bits required to encode each value
 * writing separate bit string with number of bits for corresponding value in first bitstring
 * compress second bit string with 2 round Huffman coding 
 
+==== Hashing data objects ====
+
+The first step in the filter construction is hashing the variable-sized raw items in the set to the range <code>[0, F)</code>, where <code> F = N * M</code>.  Currently about 560 millions unique addresses stored in bitcoin blockchain, reasonable values of <code> N, M </code>  defined in this BIP is <code> N = 10 000 </code> (count of unique addresses monitored by wallet), <code> M = 1 000 000 000 </code> (count of unique addresses in blockchain). This parameters may be increased in the future with the growth of the blockchain.
+
+The items are first passed through the pseudorandom function SipHash, which takes a 128-bit key <code> k = 0 </code> and a variable-sized byte vector and produces a uniformly random 64-bit output. Implementations of this BIP MUST use the SipHash parameters <code>c = 2</code> and <code>d = 4</code> for best performance.
+
+The 64-bit SipHash outputs are then mapped uniformly over the desired range by multiplying with <code>F</code> and taking the top 64 bits of the 128-bit result. This algorithm is a faster alternative to modulo reduction, as it avoids the expensive division operation, the same as in BIP 158. 
+
+==== Deltas coding ====
+
+Instead of writing the items in the hashed set directly to the filter, greater compression is achieved by only writing the differences between successive items in sorted order.
+
+==== Huffman coding ====
+
+Instead of encoding values into a sequence of bits with a prefix that allows decoding, we divide the data into 2 separate sequences.  First sequence with  element values written  as a string of bits using the minimum required number bits for each element. Second sequence with number of bits written in first sequence for each element, written as byte string. As result we got first sequence without redundancy and second one with a lot of duplicate values. 
+
+Huffman encoding is effective algorithm to encode duplicate values in sequence. 2 round of huffman encoding on second sequence give optimal result. To reduce size of compressed second sequence we will use minimal  bits threshold for writing values for first sequence. Count of bits to encode most of item values is in range 20 - 24, we apply 20 bit minimal threshold to reduce huffman coding dictionary, get more duplicates in second sequence and get better huffman compression result.
+
+<pre>
+def encode_dhcs(elements, min_bits_threshold=20):
+   # Delta-Hoffman coded set
+   data_sequence = bitarray()
+   data_sequence_append = data_sequence.append
+
+   deltas_bits = deque()
+   deltas_bits_map_freq = dict()
+   last = 0
+
+   for value in  sorted(elements):
+       delta =  value - last
+
+       bits = delta.bit_length()
+       if bits < min_bits_threshold:
+           bits =  min_bits_threshold
+
+       deltas_bits.append(bits)
+
+       try:
+           deltas_bits_map_freq[bits] += 1
+       except:
+           deltas_bits_map_freq[bits] = 1
+
+       while bits > 0:
+           data_sequence_append(delta & (1 << (bits - 1)))
+           bits -= 1
+       last = value
+
+   # huffman encode round 1
+   # encode bits length sequence to byte string
+   codes_round_1 = huffman_code(huffman_tree(deltas_bits_map_freq))
+   r = bitarray()
+   r.encode(codes_round_1, deltas_bits)
+   bits_sequence = r.tobytes()
+   bits_sequnce_len_round_1 = r.length()
+
+   # huffman encode round 2
+   # encode byte string
+   deltas_bits = deque()
+   deltas_bits_map_freq = dict()
+   for i in bits_sequence:
+       b = i >> 4
+       c = i & 0b1111
+       deltas_bits.append(b)
+       try:
+           deltas_bits_map_freq[b] += 1
+       except:
+           deltas_bits_map_freq[b] = 1
+
+       deltas_bits.append(c)
+       try:
+           deltas_bits_map_freq[c] += 1
+       except:
+           deltas_bits_map_freq[c] = 1
+
+   codes_round_2 = huffman_code(huffman_tree(deltas_bits_map_freq))
+   r = bitarray()
+   r.encode(codes_round_2, deltas_bits)
+   bits_sequnce_len_round_2 = r.length()
+   bits_sequence = r.tobytes()
+
+
+   code_table_1 = int_to_var_int(len(codes_round_1))
+   for code in codes_round_1:
+       code_table_1 += int_to_var_int(code)
+       code_table_1 += int_to_var_int(codes_round_1[code].length())
+       code_table_1 += b"".join([bytes([i]) for i in codes_round_1[code].tolist()])
+
+   code_table_2 = int_to_var_int(len(codes_round_2))
+   for code in codes_round_2:
+       code_table_2 += int_to_var_int(code)
+       code_table_2 += int_to_var_int(codes_round_2[code].length())
+       code_table_2 += b"".join([bytes([i]) for i in codes_round_2[code].tolist()])
+
+
+   d_filter_len = data_sequence.length()
+   d_filter_string = data_sequence.tobytes()
+
+   return  b"".join((code_table_1,
+                     code_table_2,
+                     int_to_var_int(bits_sequnce_len_round_1),
+                     int_to_var_int(bits_sequnce_len_round_2),
+                     bits_sequence,
+                     int_to_var_int(d_filter_len),
+                     d_filter_string))
+
+</pre>
+
+<pre>
+def decode_dhcs(h):
+   # Delta-Hoffman coded set
+   stream = get_stream(h)
+
+   # read code_table_1
+   c = var_int_to_int(read_var_int(stream))
+   code_table_1 = dict()
+   for i in range(c):
+       key = var_int_to_int(read_var_int(stream))
+       l = var_int_to_int(read_var_int(stream))
+       code =  bitarray([bool(k) for k in stream.read(l)])
+       code_table_1[key] = code
+
+   # read code_table_2
+   c = var_int_to_int(read_var_int(stream))
+   code_table_2 = dict()
+   for i in range(c):
+       key = var_int_to_int(read_var_int(stream))
+       l = var_int_to_int(read_var_int(stream))
+       code =  bitarray([bool(k) for k in stream.read(l)])
+       code_table_2[key] = code
+
+   # read compressed deltas
+   deltas_bits_len_1 = var_int_to_int(read_var_int(stream))
+   deltas_bits_len_2 = var_int_to_int(read_var_int(stream))
+   deltas_byte_len = deltas_bits_len_2 // 8 + int(bool(deltas_bits_len_2 % 8))
+
+   r = stream.read(deltas_byte_len)
+   deltas = bitarray()
+   deltas.frombytes(r)
+
+   while deltas.length() > deltas_bits_len_2:
+       deltas.pop()
+
+   # Huffman decode round 1
+   r = deltas.decode(code_table_2)
+   deltas_string = bytearray()
+   for i in range(int(len(r)/2)):
+       deltas_string += bytes([(r[i*2] << 4) + r[i*2 + 1]])
+
+   # Huffman decode round 2
+   r = bitarray()
+   r.frombytes(bytes(deltas_string))
+
+   while r.length() > deltas_bits_len_1:
+       r.pop()
+
+   deltas_bits = r.decode(code_table_1)
+
+
+   d_filter_bit_len = var_int_to_int(read_var_int(stream))
+   d_filter_byte_len = d_filter_bit_len // 8 + int(bool(d_filter_bit_len % 8))
+   r = stream.read(d_filter_byte_len)
+
+   d_filter = bitarray()
+   d_filter.frombytes(r)
+
+   while d_filter.length() > d_filter_bit_len:
+       d_filter.pop()
+
+   f = 0
+   f_max = d_filter.length()
+   decoded_set = set()
+   last = 0
+
+   for bits in deltas_bits:
+       d = 0
+       while bits  > 0 and f < f_max :
+           bits -= 1
+           d = d << 1
+           if d_filter[f]:
+               d += 1
+           f += 1
+       last += d
+       decoded_set.add(last)
+      
+   return decoded_set
+
+</pre>
