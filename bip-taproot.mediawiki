@@ -54,10 +54,10 @@ The notation below follows that of bip-schnorr.
 
 === Script validation rules ===
 
-A Taproot output is a SegWit output (native or P2SH-nested, see [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) with version number 1, and a 32-byte witness program.
-The following rules only apply when such an output is being spent. Any other outputs, including version 1 outputs with lengths other than 32 bytes, remain unencumbered.
+A Taproot output is a native SegWit output (see [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) with version number 1, and a 32-byte witness program.
+The following rules only apply when such an output is being spent. Any other outputs, including version 1 outputs with lengths other than 32 bytes, or P2SH-wrapped version 1 outputs, remain unencumbered.
 
-* Let ''q'' be the 32-byte array containing the witness program (second push in scriptPubKey or P2SH redeemScript) which represents a public key according to bip-schnorr.
+* Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents a public key according to bip-schnorr.
 * Fail if the witness stack has 0 elements.
 * If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' Like the <code>0xc0</code>-<code>0xc1</code> constants, <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y quadratic residuosity, each script version needs two subsequence byte values that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the outputs being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
 * If there is exactly one element left in the witness stack, key path spending is used:
@@ -126,10 +126,9 @@ As the message for signature verification, transaction digest is ''hash<sub>TapS
 *** <code>sha_outputs</code> (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
 * Data about this input:
 ** <code>spend_type</code> (1):
-*** Bit-0 is set if the <code>scriptPubKey</code> being spent is P2SH (opposed to "native segwit").
-*** Bit-1 is set if an annex is present (the original witness stack has two or more witness elements, and the first byte of the last element is <code>0x50</code>).
+*** Bit 0 is set if an annex is present (the original witness stack has two or more witness elements, and the first byte of the last element is <code>0x50</code>).
 *** The other bits are unset.
-** <code>scriptPubKey</code> (24 or 35): <code>scriptPubKey</code> of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. The size is 24-byte for P2SH-embedded segwit, or 35-byte for native segwit.
+** <code>scriptPubKey</code> (35): <code>scriptPubKey</code> of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
 ** If the <code>SIGHASH_ANYONECANPAY</code> flag is set:
 *** <code>outpoint</code> (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
 *** <code>amount</code> (8): value of the previous output spent by this input.
@@ -142,11 +141,11 @@ As the message for signature verification, transaction digest is ''hash<sub>TapS
 ** If the <code>SIGHASH_SINGLE</code> flag is set:
 *** <code>sha_single_output</code> (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-The total number of bytes hashed is at most ''209''<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''176 - is_anyonecanpay * 50 - is_none * 32 - is_p2sh_spending * 11 + has_annex * 32''.</ref>.
+The total number of bytes hashed is at most ''209''<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''176 - is_anyonecanpay * 50 - is_none * 32 + has_annex * 32''.</ref>.
 
 In summary, the semantics of the BIP143 sighash types remain unchanged, except the following:
 # The way and order of serialization is changed.<ref>'''Why is the serialization in the transaction digest changed?''' Hashes that go into the digest and the digest itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for transaction digests because there is no secret data. Therefore doubling SHA256 is a waste of resources. The digest computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the digest across different inputs using the SHA256 midstate. Additionally, digest computation avoids unnecessary hashing as opposed to BIP143 digests in which parts may be set zero and before hashing them. Despite that, collisions are made impossible by committing to the length of the data (implicit in <code>hash_type</code> and <code>spend_type</code>) before the variable length data.</ref>
-# The digest commits to the <code>scriptPubKey</code><ref>'''Why does the transaction digest commit to the <code>scriptPubKey</code>?''' This prevents lying to offline signing devices about the type of output being spent, even when the actually executed script (<code>scriptCode</code> in BIP143) is correct. Without committing to the <code>scriptPubKey</code> an attacker can fool the device into overpaying fees by asking it to sign for a P2SH wrapped segwit output but actually using it to spend a native segwit output.</ref>.
+# The digest commits to the <code>scriptPubKey</code><ref>'''Why does the transaction digest commit to the <code>scriptPubKey</code>?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (<code>scriptCode</code> in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed.</ref>.
 # If the <code>SIGHASH_ANYONECANPAY</code> flag is not set, the digest commits to the amounts of ''all'' transaction inputs.<ref>'''Why does the transaction digest commit to the amounts of all transaction inputs?''' This eliminates the possibility to lie to offline signing devices about the fee of a transaction.</ref>
 # The digest commits to all input <code>nSequence</code> if <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code> are set (unless <code>SIGHASH_ANYONECANPAY</code> is set as well).<ref>'''Why does the transaction digest commit to all input <code>nSequence</code> if <code>SIGHASH_SINGLE</code> or <code>SIGHASH_NONE</code> are set?''' Because setting them already makes the digest commit to the <code>prevouts</code> part of all transaction inputs, it is not useful to treat the <code>nSequence</code> any different. Moreover, this change makes <code>nSequence</code> consistent with the view that <code>SIGHASH_SINGLE</code> and <code>SIGHASH_NONE</code> only modify the digest with respect to transaction outputs and not inputs.</ref>
 # The digest commits to taproot-specific data <code>epoch</code>, <code>spend_type</code> and <code>annex</code> (if present).
@@ -208,7 +207,7 @@ def taproot_output_script(internal_pubkey, script_tree):
     return bytes([0x51, 0x20]) + output_pubkey.get_bytes()
 </source>
 
-The function <code>taproot_output_script</code> returns a byte array with the scriptPubKey. It can be P2SH wrapped if desired (see BIP141).
+The function <code>taproot_output_script</code> returns a byte array with the scriptPubKey (see BIP141).
 
 [[File:bip-taproot/tree.png|frame|This diagram shows the hashing structure to obtain the tweak from an internal key ''P'' and a Merkle tree consisting of 5 script leaves. ''A'', ''B'', ''C'' and ''E'' are ''TapLeaf'' hashes similar to ''D'' and ''AB'' is a ''TapBranch'' hash. Note that when ''CDE'' is computed ''E'' is hashed first because ''E'' is less than ''CD''.]]
 
@@ -229,7 +228,7 @@ def taproot_sign_key(script_tree, internal_privkey, hash_type):
     return [sig]
 </source>
 
-This function returns the witness stack necessary, and assumes a <code>tweak_add</code> method on private keys, and a <code>sighash</code> function to compute the signature hash as defined above (for simplicity, the snippet above ignores passing information like the transaction, the input position, P2SH or not, ... to the sighashing code).
+This function returns the witness stack necessary, and assumes a <code>tweak_add</code> method on private keys, and a <code>sighash</code> function to compute the signature hash as defined above (for simplicity, the snippet above ignores passing information like the transaction, the input position, ... to the sighashing code).
 
 '''Spending using one of the scripts''' A Taproot output can be spent by satisfying any of the scripts used in its construction. To do so, a witness stack consisting of the script's inputs, plus the script itself and the control block are necessary. See the code below:
 
@@ -282,8 +281,7 @@ Non-upgraded nodes, however, will consider all SegWit version 1 witness programs
 They are strongly encouraged to upgrade in order to fully validate the new programs.
 
 Non-upgraded wallets can receive and send bitcoin from non-upgraded and upgraded wallets using SegWit version 0 programs, traditional pay-to-pubkey-hash, etc.
-Depending on the implementation non-upgraded wallets may be able to send to Segwit version 1 programs if they support sending to BIP173 Bech32 addresses and non-standardness of these outputs does not prevent transaction broadcasting.
-Non-upgraded wallets can send bitcoin to upgraded wallets using Segwit version 1 programs nested in BIP16 P2SH.
+Depending on the implementation non-upgraded wallets may be able to send to Segwit version 1 programs if they support sending to BIP173 Bech32 addresses.
 
 == Acknowledgements ==
 
