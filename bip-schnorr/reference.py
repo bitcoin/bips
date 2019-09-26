@@ -57,12 +57,16 @@ def jacobi(x):
     return pow(x, (p - 1) // 2, p)
 
 def pubkey_gen(seckey):
-    P = point_mul(G, seckey)
+    x = int_from_bytes(seckey)
+    if not (1 <= x <= n - 1):
+        raise ValueError('The secret key must be an integer in the range 1..n-1.')
+    P = point_mul(G, x)
     return bytes_from_point(P)
 
 def schnorr_sign(msg, seckey0):
     if len(msg) != 32:
         raise ValueError('The message must be a 32-byte array.')
+    seckey0 = int_from_bytes(seckey0)
     if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     P = point_mul(G, seckey0)
@@ -113,7 +117,7 @@ def test_vectors():
             result = result == 'TRUE'
             print('\nTest vector #%-3i: ' % int(index))
             if seckey != '':
-                seckey = int(seckey, 16)
+                seckey = bytes.fromhex(seckey)
                 pubkey_actual = pubkey_gen(seckey)
                 if pubkey != pubkey_actual:
                     print(' * Failed key generation.')
