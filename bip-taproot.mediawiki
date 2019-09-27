@@ -169,14 +169,37 @@ MuSig key aggregation does not have this issue because it already causes the int
 
 The attack works as follows: Assume Alice and Mallory want to aggregate their keys into a taproot output key without a script path.
 In order to prevent key cancellation and related attacks they use [https://eprint.iacr.org/2018/483.pdf MSDL-pop] instead of MuSig.
-The MSDL-pop protocol requires all parties to provide a proof of possession of their corresponding private key and the aggregated key is just the sum of the individual keys.
+The MSDL-pop protocol requires all parties to provide a proof of possession of their corresponding secret key and the aggregated key is just the sum of the individual keys.
 After Mallory receives Alice's key ''A'', Mallory creates ''M = M<sub>0</sub> + int(t)G'' where ''M<sub>0</sub>'' is Mallory's original key and ''t'' allows a script path spend with internal key ''P = A + M<sub>0</sub>'' and a script that only contains Mallory's key.
 Mallory sends a proof of possession of ''M'' to Alice and both parties compute output key ''Q = A + M = P + int(t)G''.
 Alice will not be able to notice the script path, but Mallory can unilaterally spend any coin with output key ''Q''.
 </ref>
 * The remaining scripts should be organized into the leaves of a binary tree. This can be a balanced tree if each of the conditions these scripts correspond to are equally likely. If probabilities for each condition are known, consider constructing the tree as a Huffman tree.
 
-'''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the following Python3 algorithm can be used to compute the output script. In the code below, <code>ser_script</code> prefixes its input with a CCompactSize-encoded length. Public key objects hold 32-byte public keys according to bip-schnorr, have a method <code>get_bytes</code> to get the byte array and a method <code>tweak_add</code> which returns a new public key corresponding to the sum of the public key point and a multiple of the secp256k1 generator (similar to BIP32's derivation). The second return value of <code>tweak_add</code> is a boolean indicating the quadratic residuosity of the Y coordinate of the resulting point. <code>tagged_hash</code> computes the tagged hash according to bip-schnorr.
+'''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the output script can be computed using the following Python3 algorithms with helper functions from the bip-schnorr reference code for integer conversion, point multiplication and tagged hashes.
+
+First, we define <code>taproot_tweak_pubkey</code> for 32-byte bip-schnorr public key arrays.
+In addition to the tweaked public key byte array, the function returns a boolean for the quadratic residuosity of the tweaked points' Y coordinate modulo the secp256k1 field order.
+This will be required for spending the output with a script path.
+In order to allow spending with the key path, we define <code>taproot_tweak_seckey</code> to compute the secret key for a tweaked public key.
+For any byte string <code>h</code> it holds that <code>taproot_tweak_pubkey(pubkey_gen(seckey), h)[0] == pubkey_gen(taproot_tweak_seckey(seckey, h))</code>.
+
+<source lang="python">
+def taproot_tweak_pubkey(pubkey, h):
+    t = int_from_bytes(tagged_hash("TapTweak", pubkey + h))
+    assert t < SECP256K1_ORDER
+    Q = point_mul(point(pubkey), t)
+    return bytes_from_int(x(Q)), is_quad(y(Q))
+
+def taproot_tweak_seckey(seckey0, h):
+    P = point_mul(G, int_from_bytes(seckey0))
+    seckey = SECP256K1_ORDER - seckey0 if not is_quad(y(R)) else seckey
+    t = int_from_bytes(tagged_hash("TapTweak", bytes_from_int(x(P)) + h))
+    return (seckey + t) % SECP256K1_ORDER
+</source>
+
+The following function, <code>taproot_output_script</code>, returns a byte array with the scriptPubKey (see BIP141).
+<code>ser_script</code> refers to a function that prefixes its input with a CCompactSize-encoded length.
 
 <source lang="python">
 def taproot_tree_helper(script_tree):
@@ -201,34 +224,25 @@ def taproot_output_script(internal_pubkey, script_tree):
         h = b''
     else:
         _, h = taproot_tree_helper(script_tree)
-    t = tagged_hash("TapTweak", internal_pubkey.get_bytes() + h)
-    assert int.from_bytes(t, 'big') < SECP256K1_ORDER
-    output_pubkey, _ = internal_pubkey.tweak_add(t)
-    return bytes([0x51, 0x20]) + output_pubkey.get_bytes()
+    output_pubkey, _ = taproot_tweak_pubkey(internal_pubkey, h)
+    return bytes([0x51, 0x20]) + output_pubkey
 </source>
-
-The function <code>taproot_output_script</code> returns a byte array with the scriptPubKey (see BIP141).
 
 [[File:bip-taproot/tree.png|frame|This diagram shows the hashing structure to obtain the tweak from an internal key ''P'' and a Merkle tree consisting of 5 script leaves. ''A'', ''B'', ''C'' and ''E'' are ''TapLeaf'' hashes similar to ''D'' and ''AB'' is a ''TapBranch'' hash. Note that when ''CDE'' is computed ''E'' is hashed first because ''E'' is less than ''CD''.]]
 
-'''Spending using the key path''' A Taproot output can be spent with the private key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consists of a single element: a bip-schnorr signature on the signature hash as defined above, with the private key tweaked by the same <code>t</code> as in the above snippet. In the code below, <code>internal_privkey</code> has a method <code>pubkey_gen</code> that returns a public key according to bip-schnorr and a boolean indicating the quadratic residuosity of the Y coordinate of the underlying point.
-See the code below:
+'''Spending using the key path''' A Taproot output can be spent with the secret key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consists of a single element: a bip-schnorr signature on the signature hash as defined above, with the secret key tweaked by the same <code>h</code> as in the above snippet. See the code below:
 
 <source lang="python">
-def taproot_sign_key(script_tree, internal_privkey, hash_type):
+def taproot_sign_key(script_tree, internal_seckey, hash_type):
     _, h = taproot_tree_helper(script_tree)
-    internal_pubkey, is_y_qresidue = internal_privkey.pubkey_gen()
-    if not is_y_qresidue:
-        internal_privkey = internal_privkey.negate()
-    t = tagged_hash("TapTweak", internal_pubkey.get_bytes() + h)
-    output_privkey = internal_privkey.tweak_add(t)
-    sig = output_privkey.schnorr_sign(sighash(hash_type))
+    output_seckey = taproot_tweak_seckey(internal_seckey, h)
+    sig = schnorr_sign(sighash(hash_type), output_seckey)
     if hash_type != 0:
         sig += bytes([hash_type])
     return [sig]
 </source>
 
-This function returns the witness stack necessary, and assumes a <code>tweak_add</code> method on private keys, and a <code>sighash</code> function to compute the signature hash as defined above (for simplicity, the snippet above ignores passing information like the transaction, the input position, ... to the sighashing code).
+This function returns the witness stack necessary and a <code>sighash</code> function to compute the signature hash as defined above (for simplicity, the snippet above ignores passing information like the transaction, the input position, ... to the sighashing code).
 
 '''Spending using one of the scripts''' A Taproot output can be spent by satisfying any of the scripts used in its construction. To do so, a witness stack consisting of the script's inputs, plus the script itself and the control block are necessary. See the code below:
 
@@ -236,10 +250,9 @@ This function returns the witness stack necessary, and assumes a <code>tweak_add
 def taproot_sign_script(internal_pubkey, script_tree, script_num, inputs):
     info, h = taproot_tree_helper(script_tree)
     (leaf_version, script), path = info[script_num]
-    t = tagged_hash("TapTweak", internal_pubkey.get_bytes() + h)
-    _, is_y_qresidue = internal_pubkey.tweak_add(t)
-    output_pubkey_tag = 0 if is_y_qresidue else 1
-    pubkey_data = bytes([output_pubkey_tag + leaf_version]) + internal_pubkey.get_bytes()
+    _, is_y_quad = taproot_tweak_pubkey(internal_pubkey, t)
+    output_pubkey_tag = 0 if is_y_quad else 1
+    pubkey_data = bytes([output_pubkey_tag + leaf_version]) + internal_pubkey
     return inputs + [script, pubkey_data + path]
 </source>
 
