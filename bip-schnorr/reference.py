@@ -62,6 +62,9 @@ def hash_sha256(b):
 def jacobi(x):
     return pow(x, (p - 1) // 2, p)
 
+def is_quad(x):
+    return jacobi(x) == 1
+
 def pubkey_gen(seckey):
     P = point_mul(G, seckey)
     return bytes_from_point(P)
@@ -72,12 +75,12 @@ def schnorr_sign(msg, seckey0):
     if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     P = point_mul(G, seckey0)
-    seckey = seckey0 if (jacobi(y(P)) == 1) else n - seckey0
+    seckey = seckey0 if is_quad(y(P)) else n - seckey0
     k0 = int_from_bytes(tagged_hash("BIPSchnorrDerive", bytes_from_int(seckey) + msg)) % n
     if k0 == 0:
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
-    k = n - k0 if (jacobi(y(R)) != 1) else k0
+    k = n - k0 if not is_quad(y(R)) else k0
     e = int_from_bytes(tagged_hash("BIPSchnorr", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
@@ -97,7 +100,7 @@ def schnorr_verify(msg, pubkey, sig):
         return False
     e = int_from_bytes(tagged_hash("BIPSchnorr", sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
-    if R is None or jacobi(y(R)) != 1 or x(R) != r:
+    if R is None or not is_quad(y(R)) or x(R) != r:
         return False
     return True
 
