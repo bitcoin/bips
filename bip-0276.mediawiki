@@ -1,0 +1,165 @@
+<pre>
+  BIP: 276
+  Layer: Applications
+  Title: Scheme for encoding typed bitcoin data
+  Author: Roger Taylor <roger.taylor.email@gmail.com>
+  Status: Draft
+  Type: Standards Track
+  Created: 2019-10-11
+  License: PD
+</pre>
+
+==Abstract==
+
+This BIP proposes a scheme for encoding typed bitcoin related data in a user friendly way.
+
+==Motivation==
+
+In the past, due to the constraints placed on the Bitcoin protocol, the ways it could be used
+were artificially limited and in most cases it was enough to share addresses, or to copy and
+paste them where needed. Because addresses were relatively short, and it was possible that a
+user might choose to type them in manually, base58 was a useful choice.
+
+With the restoration of the protocol, and the wider variety of possibilities like payment
+destinations that are scripts which lack the ability to be summarised by an address, it becomes
+necessary to define a way to copy and paste data of arbitrarily length. No real person will be
+typing addresses, or scripts by hand. We do not need to care about the shorter length, or the
+danger of characters being transcribed. Instead we should aim to give the user a general context
+of what they are pasting, by using a textual prefix. And we should aim to give developers some
+easy insight into the data by not attempting to pack the data, and providing a format that can
+to some degree be read visually, by encoding all data following the prefix in hexadecimal.
+
+We intentionally retain what base58 offers, including
+the relevant network, a version for the prefixed data, and a checksum using the same
+algorithm. However, we aim to do so in a less opaque manner.
+
+==Specification==
+
+The scheme follows this form:
+
+ <nowiki><prefix>:<version><network><data><checksum></nowiki>
+
+At this time, the only valid value for the version byte is 1.
+
+Where the currently supported prefixes are:
+
+{| class="wikitable"
+! style="text-align: center;" | Prefix
+! style="text-align: center;" | Description
+|-
+| bitcoin-script
+| A complete script as intended to be included in a transaction output.
+|-
+| bitcoin-template
+| ... TODO: some standardised specification for incomplete scripts
+|}
+
+Where the encoded segments are:
+
+{| class="wikitable"
+! style="text-align: center;" | Segment
+! style="text-align: center;" | Structure
+! style="text-align: center;" | Description
+|-
+| version
+| unsigned byte[1] as hexadecimal
+| Provides the ability to update the structure of the data that follows it.
+|-
+| network
+| unsigned byte[1] as hexadecimal
+| Provides the ability to specify that the data is only valid for use on the given network.
+|-
+| data
+| unsigned byte[] as hexadecimal
+| The payload data.
+|-
+| checksum
+| unsigned byte[4] as hexadecimal
+| Provides the ability to detect whether the preceding bytes are intact.
+|}
+
+Where the currently supported network byte values are:
+
+{| class="wikitable"
+! style="text-align: center;" | Network
+! style="text-align: center;" | Value
+|-
+| not applicable
+| 0
+|-
+| mainnet
+| 1
+|-
+| testnet
+| 2
+|}
+
+The data bytes are of arbitrary length, and are followed by four checksum bytes. The
+checksum is created by taking the first four bytes of the double SHA256 hash of the text
+preceding it.
+
+The checksum is calculated over:
+
+ <nowiki><prefix text>:<version hex><network hex><data hex></nowiki>
+
+And the hexadecimal encoded checksum appended.
+
+----
+===Examples===
+
+==== Python ====
+
+<pre>
+from hashlib import sha256
+from typing import Tuple
+
+PREFIX_SCRIPT = "bitcoin-script"
+PREFIX_TEMPLATE = "bitcoin-template"
+CURRENT_VERSION = 1
+NETWORK_MAINNET = 1
+
+def _checksum(data: bytes) -> bytes:
+    return sha256(sha256(data).digest()).digest()[0:4]
+
+def bip276_encode(prefix: str, data: bytes, network:int=NETWORK_MAINNET,
+        version:int=CURRENT_VERSION) -> str:
+    assert version == CURRENT_VERSION
+    payload_bytes = bytearray()
+    payload_bytes.append(version)
+    payload_bytes.append(network)
+    payload_bytes.extend(data)
+    payload_hex = payload_bytes.hex()
+    result = prefix +":"+ payload_hex
+    return result + _checksum(result.encode()).hex()
+
+class ChecksumMismatchError(Exception): pass
+
+def bip276_decode(text: str) -> Tuple[str, int, int, bytes]:
+    text = text.strip()
+    prefix, payload_hex = text.split(":", 1)
+    payload_bytes = bytes.fromhex(payload_hex)
+    checksum = payload_bytes[-4:]
+    version = payload_bytes[0]
+    assert version == CURRENT_VERSION
+    network = payload_bytes[1]
+    data = payload_bytes[2:-4]
+    checksummed_bytes = text[:-8].encode()
+    local_checksum = _checksum(checksummed_bytes)
+    if checksum != local_checksum:
+        raise ChecksumMismatchError(f"expected {checksum.hex()}, got {local_checksum.hex()}")
+    return prefix, version, network, data
+</pre>
+
+Expected output:
+
+<pre>
+>>> s = bip276_encode(PREFIX_SCRIPT, b"fake script")
+>>> s
+'bitcoin-script:010166616b65207363726970746f0cd86a'
+>>> bip276_decode(s)
+('bitcoin-script', 1, 1, b'fake script')
+</pre>
+
+==Copyright==
+
+This document is placed in the public domain.
