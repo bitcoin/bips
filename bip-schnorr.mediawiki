@@ -77,8 +77,6 @@ expensive conversion to affine coordinates first. This would even be the case if
 
 For ''P'' the speed of signing and verification does not significantly differ between any of the three options because affine coordinates of the point have to be computed anyway. For consistency reasons we choose the same option as for ''R''. The signing algorithm ensures that the signature is valid under the correct public key by negating the secret key if necessary.
 
-It is important not to mix up the 32-byte bip-schnorr public key format and other existing public key formats (e.g. encodings used in Bitcoin's ECDSA). Concretely, a verifier should only accept 32-byte public keys and not, for example, convert a 33-byte public key by throwing away the first byte. Otherwise, two public keys would be valid for a single signature which can result in subtle malleability issues (although this type of malleability already exists in the case of ECDSA signatures).
-
 Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is a square by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is not a square.</ref>.
 
 '''Tagged Hashes''' Cryptographic hash functions are used for multiple purposes in the specification below and in Bitcoin in general. To make sure hashes used in one context can't be reinterpreted in another one, hash functions can be tweaked with a context-dependent tag name, in such a way that collisions across contexts can be assumed to be infeasible. Such collisions obviously can not be ruled out completely, but only for schemes using tagging with a unique name. As for other schemes collisions are at least less likely with tagging than without.
@@ -172,6 +170,8 @@ The algorithm ''Verify(pk, m, sig)'' is defined as:
 * Return success iff no failure occurred before reaching this point.
 
 For every valid secret key ''sk'' and message ''m'', ''Verify(PubKey(sk),m,Sign(sk,m))'' will succeed.
+
+Note that the correctness of verification relies on the fact that ''point(pk)'' always returns a positive point (i.e., with a square Y coordinate). A hypothetical verification algorithm that treats points as public keys, and takes the point ''P'' directly as input would fail any time a negative point is used. While it is possible to correct for this by negating negative points before further processing, this would result in a scheme where every (message, signature) pair is valid for two public keys (a type of malleability that exists for ECDSA as well, but we don't wish to retain). We avoid these problems by treating just the X coordinate as public key.
 
 ==== Batch Verification ====
 
