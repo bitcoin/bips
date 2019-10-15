@@ -68,9 +68,9 @@ Using the first option would be slightly more efficient for verification (around
 '''Implicit Y coordinates''' In order to support efficient verification and batch verification, the Y coordinate of ''P'' and of ''R'' cannot be ambiguous (every valid X coordinate has two possible Y coordinates). We have a choice between several options for symmetry breaking:
 # Implicitly choosing the Y coordinate that is in the lower half.
 # Implicitly choosing the Y coordinate that is even<ref>Since ''p'' is odd, negation modulo ''p'' will map even numbers to odd numbers and the other way around. This means that for a valid X coordinate, one of the corresponding Y coordinates will be even, and the other will be odd.</ref>.
-# Implicitly choosing the Y coordinate that is a quadratic residue (has a square root modulo the field size)<ref>A product of two numbers is a quadratic residue when either both or none of the factors are quadratic residues. As ''-1'' is not a quadratic residue, and the two Y coordinates corresponding to a given X coordinate are each other's negation, this means exactly one of the two must be a quadratic residue.</ref>.
+# Implicitly choosing the Y coordinate that is a quadratic residue (has a square root modulo the field size, or "is a square" for short)<ref>A product of two numbers is a square when either both or none of the factors are squares. As ''-1'' is not a square, and the two Y coordinates corresponding to a given X coordinate are each other's negation, this means exactly one of the two must be a square.</ref>.
 
-In the case of ''R'' the third option is slower at signing time but a bit faster to verify, as it is possible to directly compute whether the Y coordinate is a quadratic residue when the points are represented in
+In the case of ''R'' the third option is slower at signing time but a bit faster to verify, as it is possible to directly compute whether the Y coordinate is a square when the points are represented in
 [https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates Jacobian coordinates] (a common optimization to avoid modular inverses
 for elliptic curve operations). The two other options require a possibly
 expensive conversion to affine coordinates first. This would even be the case if the sign or oddness were explicitly coded (option 2 in the previous design choice). We therefore choose option 3.
@@ -79,7 +79,7 @@ For ''P'' the speed of signing and verification does not significantly differ be
 
 It is important not to mix up the 32-byte bip-schnorr public key format and other existing public key formats (e.g. encodings used in Bitcoin's ECDSA). Concretely, a verifier should only accept 32-byte public keys and not, for example, convert a 33-byte public key by throwing away the first byte. Otherwise, two public keys would be valid for a single signature which can result in subtle malleability issues (although this type of malleability already exists in the case of ECDSA signatures).
 
-Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is a quadratic residue by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is not a quadratic residue.</ref>.
+Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is a square by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is not a square.</ref>.
 
 '''Tagged Hashes''' Cryptographic hash functions are used for multiple purposes in the specification below and in Bitcoin in general. To make sure hashes used in one context can't be reinterpreted in another one, hash functions can be tweaked with a context-dependent tag name, in such a way that collisions across contexts can be assumed to be infeasible. Such collisions obviously can not be ruled out completely, but only for schemes using tagging with a unique name. As for other schemes collisions are at least less likely with tagging than without.
 
@@ -87,7 +87,7 @@ For example, without tagged hashing a bip-schnorr signature could also be valid 
 
 This proposal suggests to include the tag by prefixing the hashed data with ''SHA256(tag) || SHA256(tag)''. Because this is a 64-byte long context-specific constant and the ''SHA256'' block size is also 64 bytes, optimized implementations are possible (identical to SHA256 itself, but with a modified initial state). Using SHA256 of the tag name itself is reasonably simple and efficient for implementations that don't choose to use the optimization.
 
-'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is a quadratic residue and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a quadratic residue. The signature satisfies ''sG = R + tagged_hash(r || pk || m)P''.
+'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is a square and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a square. The signature satisfies ''sG = R + tagged_hash(r || pk || m)P''.
 
 === Specification ===
 
@@ -96,37 +96,38 @@ The following conventions are used, with constants as defined for [https://www.s
 ** The constant ''p'' refers to the field size, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F''.
 ** The constant ''n'' refers to the curve order, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141''.
 * Uppercase variables refer to points on the curve with equation ''y<sup>2</sup> = x<sup>3</sup> + 7'' over the integers modulo ''p''.
-** ''infinite(P)'' returns whether or not ''P'' is the point at infinity.
+** ''is_infinite(P)'' returns whether or not ''P'' is the point at infinity.
 ** ''x(P)'' and ''y(P)'' are integers in the range ''0..p-1'' and refer to the X and Y coordinates of a point ''P'' (assuming it is not infinity).
 ** The constant ''G'' refers to the generator, for which ''x(G) = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'' and ''y(G) = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8''.
 ** Addition of points refers to the usual [https://en.wikipedia.org/wiki/Elliptic_curve#The_group_law elliptic curve group operation].
-** [https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication Multiplication of an integer and a point] refers to the repeated application of the group operation.
+** [https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication Multiplication (⋅) of an integer and a point] refers to the repeated application of the group operation.
 * Functions and operations:
 ** ''||'' refers to byte array concatenation.
 ** The function ''x[i:j]'', where ''x'' is a byte array, returns a ''(j - i)''-byte array with a copy of the ''i''-th byte (inclusive) to the ''j''-th byte (exclusive) of ''x''.
 ** The function ''bytes(x)'', where ''x'' is an integer, returns the 32-byte encoding of ''x'', most significant byte first.
 ** The function ''bytes(P)'', where ''P'' is a point, returns ''bytes(x(P))'.
 ** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte first encoding is ''x''.
-** The function ''lift_x(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x'' and ''y(P)'' is a quadratic residue modulo ''p'', or fails if no such point exists<ref>Given an candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''.  Given a candidate ''x'', the valid Y coordinates are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''. Due to [https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion] it then holds that ''c<sup>(p-1)/2</sup> = 1 mod p''. The same criterion applied to ''y'' results in ''y<sup>(p-1)/2</sup> mod p = &plusmn;c<sup>((p+1)/4)((p-1)/2)</sup> mod p = &plusmn;1 mod p''. Therefore ''y = +c<sup>(p+1)/4</sup> mod p'' is a quadratic residue and ''-y mod p'' is not.</ref>. The function ''lift_x(x)'' is equivalent to the following pseudocode:
+** The function ''is_square(x)'', where ''x'' is an integer, returns whether or not ''x'' is a quadratic residue modulo ''p''. Since ''p'' is prime, it is equivalent to the Legendre symbol ''(x / p) = x<sup>(p-1)/2</sup> mod p'' being equal to ''1'' (see [https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion])<ref>For points ''P'' on the secp256k1 curve it holds that ''x<sup>(p-1)/2</sup> &ne; 0 mod p''.</ref>.
+** The function ''is_positive(P)'', where ''P'' is a point, is defined as ''not is_infinite(P) and is_square(y(P))''<ref>For points ''P'' on the secp256k1 curve it holds that ''is_positive(P) = not is_positive(-P)''.</ref>.
+** The function ''lift_x(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x'' and ''is_positive(P)'', or fails if no such point exists<ref>Given an candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''.  Given a candidate ''x'', the valid Y coordinates are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''. Due to [https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion] it then holds that ''c<sup>(p-1)/2</sup> = 1 mod p''. The same criterion applied to ''y'' results in ''y<sup>(p-1)/2</sup> mod p = &plusmn;c<sup>((p+1)/4)((p-1)/2)</sup> mod p = &plusmn;1 mod p''. Therefore ''y = +c<sup>(p+1)/4</sup> mod p'' is a quadratic residue and ''-y mod p'' is not.</ref>. The function ''lift_x(x)'' is equivalent to the following pseudocode:
 *** Let ''c = x<sup>3</sup> + 7 mod p''.
 *** Let ''y = c<sup>(p+1)/4</sup> mod p''.
 *** Fail if ''c &ne; y<sup>2</sup> mod p''.
 *** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'', or fail if no such point exists.
 ** The function ''point(x)'', where ''x'' is a 32-byte array, returns the point ''P = lift_x(int(x))''.
 ** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
-** The function ''jacobi(x)'', where ''x'' is an integer, returns the [https://en.wikipedia.org/wiki/Jacobi_symbol Jacobi symbol] of ''x / p''. Since ''p'' is prime, it is equal to ''x<sup>(p-1)/2</sup> mod p'' ([https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion])<ref>For points ''P'' on the secp256k1 curve it holds that ''jacobi(y(P)) &ne; 0''.</ref>.
-** The function ''pubkey(x)'', where ''x'' is a 32-byte array, returns ''bytes(dG)'' where ''d = int(x) mod n''.
 
 ==== Public Key Generation ====
 
 Input:
 * The secret key ''sk'': a 32-byte array, generated uniformly at random
 
-To generate the corresponding public key:
-* Fail if ''int(sk) = 0'' or ''int(sk) &ge; n''
-* The public key corresponding to secret key ''sk'' is ''pubkey(sk)''.
+The algorithm ''PubKey(sk)'' is defined as:
+* Let ''d = int(sk)''.
+* Fail if ''d = 0'' or ''d &ge; n''.
+* Return ''bytes(d⋅G)''.
 
-Note that the two secret keys ''sk'' and ''bytes(n-int(sk))'' will generate the same public key.
+Note that ''PubKey(sk) = PubKey(bytes(n - int(sk))'', so every public key has two corresponding private keys.
 
 Alternatively, the public key can be created according to [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP32] which describes the derivation of 33-byte compressed public keys.
 In order to translate such public keys into bip-schnorr compatible keys, the first byte must be dropped.
@@ -137,17 +138,17 @@ Input:
 * The secret key ''sk'': a 32-byte array
 * The message ''m'': a 32-byte array
 
-To sign ''m'' for public key ''pubkey(sk)'':
+The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''d' = int(sk)''
 * Fail if ''d' = 0'' or ''d' &ge; n''
-* Let ''P = d'G''
-* Let ''d = d' '' if ''jacobi(y(P)) = 1'', otherwise let ''d = n - d' ''.
+ * Let ''P = d'⋅G''
+* Let ''d = d' '' if ''is_positive(P)'', otherwise let ''d = n - d' ''.
 * Let ''k' = int(hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)) mod n''<ref>Note that in general, taking the output of a hash function modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
 * Let ''R = k'G''.
-* Let ''k = k' '' if ''jacobi(y(R)) = 1'', otherwise let ''k = n - k' ''.
+* Let ''k = k' '' if ''is_positive(R)'', otherwise let ''k = n - k' ''.
 * Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(R) || bytes(P) || m)) mod n''.
-* The signature is ''bytes(R) || bytes((k + ed) mod n)''.
+* Return the signature ''bytes(R) || bytes((k + ed) mod n)''.
 
 '''Above deterministic derivation of ''R'' is designed specifically for this signing algorithm and may not be secure when used in other signature schemes.'''
 For example, using the same derivation in the MuSig multi-signature scheme leaks the secret key (see the [https://eprint.iacr.org/2018/068 MuSig paper] for details).
@@ -161,14 +162,16 @@ Input:
 * The message ''m'': a 32-byte array
 * A signature ''sig'': a 64-byte array
 
-The signature is valid if and only if the algorithm below does not fail.
+The algorithm ''Verify(pk, m, sig)'' is defined as:
 * Let ''P = point(pk)''; fail if ''point(pk)'' fails.
 * Let ''r = int(sig[0:32])''; fail if ''r &ge; p''.
 * Let ''s = int(sig[32:64])''; fail if ''s &ge; n''.
 * Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(r) || bytes(P) || m)) mod n''.
-* Let ''R = sG - eP''.
-* Fail if ''infinite(R)''.
-* Fail if ''jacobi(y(R)) &ne; 1'' or ''x(R) &ne; r''.
+* Let ''R = s⋅G - e⋅P''.
+* Fail if ''not is_positive(R)'' or ''x(R) &ne; r''.
+* Return success iff no failure occurred before reaching this point.
+
+For every valid secret key ''sk'' and message ''m'', ''Verify(PubKey(sk),m,Sign(sk,m))'' will succeed.
 
 ==== Batch Verification ====
 
@@ -178,7 +181,7 @@ Input:
 * The messages ''m<sub>1..u</sub>'': ''u'' 32-byte arrays
 * The signatures ''sig<sub>1..u</sub>'': ''u'' 64-byte arrays
 
-All provided signatures are valid with overwhelming probability if and only if the algorithm below does not fail.
+The algorithm ''BatchVerify(pk<sub>1..u</sub>, m<sub>1..u</sub>, sig<sub>1..u</sub>)'' is defined as:
 * Generate ''u-1'' random integers ''a<sub>2...u</sub>'' in the range ''1...n-1''. They are generated deterministically using a [https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator CSPRNG] seeded by a cryptographic hash of all inputs of the algorithm, i.e. ''seed = seed_hash(pk<sub>1</sub>..pk<sub>u</sub> || m<sub>1</sub>..m<sub>u</sub> || sig<sub>1</sub>..sig<sub>u</sub> )''. A safe choice is to instantiate ''seed_hash'' with SHA256 and use [https://tools.ietf.org/html/rfc8439 ChaCha20] with key ''seed'' as a CSPRNG to generate 256-bit integers, skipping integers not in the range ''1...n-1''.
 * For ''i = 1 .. u'':
 ** Let ''P<sub>i</sub> = point(pk<sub>i</sub>)''; fail if ''point(pk<sub>i</sub>)'' fails.
@@ -186,16 +189,19 @@ All provided signatures are valid with overwhelming probability if and only if t
 ** Let ''s<sub>i</sub> = int(sig<sub>i</sub>[32:64])''; fail if ''s<sub>i</sub> &ge; n''.
 ** Let ''e<sub>i</sub> = int(hash<sub>BIPSchnorr</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
 ** Let ''R<sub>i</sub> = lift_x(r<sub>i</sub>)''; fail if ''lift_x(r<sub>i</sub>)'' fails.
-* Fail if ''(s<sub>1</sub> + a<sub>2</sub>s<sub>2</sub> + ... + a<sub>u</sub>s<sub>u</sub>)G &ne; R<sub>1</sub> + a<sub>2</sub>R<sub>2</sub> + ... + a<sub>u</sub>R<sub>u</sub> + e<sub>1</sub>P<sub>1</sub> + (a<sub>2</sub>e<sub>2</sub>)P<sub>2</sub> + ... + (a<sub>u</sub>e<sub>u</sub>)P<sub>u</sub>''.
+* Fail if ''(s<sub>1</sub> + a<sub>2</sub>s<sub>2</sub> + ... + a<sub>u</sub>s<sub>u</sub>)⋅G &ne; R<sub>1</sub> + a<sub>2</sub>⋅R<sub>2</sub> + ... + a<sub>u</sub>⋅R<sub>u</sub> + e<sub>1</sub>⋅P<sub>1</sub> + (a<sub>2</sub>e<sub>2</sub>)⋅P<sub>2</sub> + ... + (a<sub>u</sub>e<sub>u</sub>)⋅P<sub>u</sub>''.
+* Return success iff no failure occurred before reaching this point.
+
+If all individual signatures are valid (i.e., ''Verify'' would return success for them), ''BatchVerify'' will always return success. If at least one signature is invalid, ''BatchVerify'' will return success with at most a negligible probability.
 
 === Optimizations ===
 
 Many techniques are known for optimizing elliptic curve implementations. Several of them apply here, but are out of scope for this document. Two are listed below however, as they are relevant to the design decisions:
 
-'''Jacobi symbol''' The function ''jacobi(x)'' is defined as above, but can be computed more efficiently using an [https://en.wikipedia.org/wiki/Jacobi_symbol#Calculating_the_Jacobi_symbol extended GCD algorithm].
+'''Squareness testing''' The function ''is_square(x)'' is defined as above, but can be computed more efficiently using an [https://en.wikipedia.org/wiki/Jacobi_symbol#Calculating_the_Jacobi_symbol extended GCD algorithm].
 
 '''Jacobian coordinates''' Elliptic Curve operations can be implemented more efficiently by using [https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates Jacobian coordinates]. Elliptic Curve operations implemented this way avoid many intermediate modular inverses (which are computationally expensive), and the scheme proposed in this document is in fact designed to not need any inversions at all for verification. When operating on a point ''P'' with Jacobian coordinates ''(x,y,z)'' which is not the point at infinity and for which ''x(P)'' is defined as ''x / z<sup>2</sup>'' and ''y(P)'' is defined as ''y / z<sup>3</sup>'':
-* ''jacobi(y(P))'' can be implemented as ''jacobi(yz mod p)''.
+* ''is_positive(P)'' can be implemented as ''is_square(yz mod p)''.
 * ''x(P) &ne; r'' can be implemented as ''(0 &le; r < p) and (x &ne; z<sup>2</sup>r mod p)''.
 
 == Applications ==
