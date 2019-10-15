@@ -21,8 +21,8 @@ This document is licensed under the 2-clause BSD license.
 === Motivation ===
 
 Bitcoin has traditionally used
-[https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm ECDSA] signatures over the [http://www.secg.org/sec2-v2.pdf secp256k1 curve] for authenticating
-transactions. These are [http://www.secg.org/sec1-v2.pdf standardized], but have a number of downsides
+[https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm ECDSA] signatures over the [https://www.secg.org/sec2-v2.pdf secp256k1 curve] for authenticating
+transactions. These are [https://www.secg.org/sec1-v2.pdf standardized], but have a number of downsides
 compared to [http://publikationen.ub.uni-frankfurt.de/opus4/files/4280/schnorr.pdf Schnorr signatures] over the same curve:
 
 * '''Security proof''': The security of Schnorr signatures is easily [https://www.di.ens.fr/~pointche/Documents/Papers/2000_joc.pdf provable] in the random oracle model assuming the elliptic curve discrete logarithm problem (ECDLP) is hard. Such a proof does not exist for ECDSA.
@@ -40,7 +40,7 @@ made:
 
 [[File:bip-schnorr/speedup-batch.png|frame|This graph shows the ratio between the time it takes to verify ''n'' signatures individually and to verify a batch of ''n'' signatures. This ratio goes up logarithmically with the number of signatures, or in other words: the total time to verify ''n'' signatures grows with ''O(n / log n)''.]]
 
-By reusing the same curve as Bitcoin has used for ECDSA, we are able to retain existing mechanisms for choosing secret and public keys, and we avoid introducing new assumptions about elliptic curve group security.
+By reusing the same curve as Bitcoin uses for ECDSA, we are able to retain existing mechanisms for choosing secret and public keys, and we avoid introducing new assumptions about elliptic curve group security.
 
 == Description ==
 
@@ -75,9 +75,9 @@ In the case of ''R'' the third option is slower at signing time but a bit faster
 for elliptic curve operations). The two other options require a possibly
 expensive conversion to affine coordinates first. This would even be the case if the sign or oddness were explicitly coded (option 2 in the previous design choice). We therefore choose option 3.
 
-For ''P'' the speed of signing and verification does not significantly differ between any of the three options because affine coordinates of the point have to be computed anyway. For consistency resons we choose the same option as for ''R''. The signing algorithm ensures that the signature is valid under the correct public key by negating the secret key if necessary.
+For ''P'' the speed of signing and verification does not significantly differ between any of the three options because affine coordinates of the point have to be computed anyway. For consistency reasons we choose the same option as for ''R''. The signing algorithm ensures that the signature is valid under the correct public key by negating the secret key if necessary.
 
-It is important to not mix up the 32-byte bip-schnorr public key format and other existing public key formats (e.g. encodings used in Bitcoin's ECDSA). Concretely, a verifier should only accept 32-byte public keys and not, for example, convert a 33-byte public key by throwing away the first byte. Otherwise, two public keys would be valid for a single signature which can result in subtle malleability issues (although this type of malleability already exists in the case of ECDSA signatures).
+It is important not to mix up the 32-byte bip-schnorr public key format and other existing public key formats (e.g. encodings used in Bitcoin's ECDSA). Concretely, a verifier should only accept 32-byte public keys and not, for example, convert a 33-byte public key by throwing away the first byte. Otherwise, two public keys would be valid for a single signature which can result in subtle malleability issues (although this type of malleability already exists in the case of ECDSA signatures).
 
 Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is a quadratic residue by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is not a quadratic residue.</ref>.
 
@@ -91,9 +91,7 @@ This proposal suggests to include the tag by prefixing the hashed data with ''SH
 
 === Specification ===
 
-We first describe the key generation algorithm, then the verification algorithm, and then the signature algorithm.
-
-The following convention is used, with constants as defined for secp256k1:
+The following conventions are used, with constants as defined for [https://www.secg.org/sec2-v2.pdf secp256k1]:
 * Lowercase variables represent integers or byte arrays.
 ** The constant ''p'' refers to the field size, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F''.
 ** The constant ''n'' refers to the curve order, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141''.
@@ -108,12 +106,12 @@ The following convention is used, with constants as defined for secp256k1:
 ** The function ''x[i:j]'', where ''x'' is a byte array, returns a ''(j - i)''-byte array with a copy of the ''i''-th byte (inclusive) to the ''j''-th byte (exclusive) of ''x''.
 ** The function ''bytes(x)'', where ''x'' is an integer, returns the 32-byte encoding of ''x'', most significant byte first.
 ** The function ''bytes(P)'', where ''P'' is a point, returns ''bytes(x(P))'.
-** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte encoding is ''x''.
+** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte first encoding is ''x''.
 ** The function ''lift_x(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x'' and ''y(P)'' is a quadratic residue modulo ''p'', or fails if no such point exists<ref>Given an candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''.  Given a candidate ''x'', the valid Y coordinates are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''. Due to [https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion] it then holds that ''c<sup>(p-1)/2</sup> = 1 mod p''. The same criterion applied to ''y'' results in ''y<sup>(p-1)/2</sup> mod p = &plusmn;c<sup>((p+1)/4)((p-1)/2)</sup> mod p = &plusmn;1 mod p''. Therefore ''y = +c<sup>(p+1)/4</sup> mod p'' is a quadratic residue and ''-y mod p'' is not.</ref>. The function ''lift_x(x)'' is equivalent to the following pseudocode:
 *** Let ''c = x<sup>3</sup> + 7 mod p''.
 *** Let ''y = c<sup>(p+1)/4</sup> mod p''.
 *** Fail if ''c &ne; y<sup>2</sup> mod p''.
-*** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y''.
+*** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'', or fail if no such point exists.
 ** The function ''point(x)'', where ''x'' is a 32-byte array, returns the point ''P = lift_x(int(x))''.
 ** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
 ** The function ''jacobi(x)'', where ''x'' is an integer, returns the [https://en.wikipedia.org/wiki/Jacobi_symbol Jacobi symbol] of ''x / p''. Since ''p'' is prime, it is equal to ''x<sup>(p-1)/2</sup> mod p'' ([https://en.wikipedia.org/wiki/Euler%27s_criterion Euler's criterion])<ref>For points ''P'' on the secp256k1 curve it holds that ''jacobi(y(P)) &ne; 0''.</ref>.
@@ -125,13 +123,36 @@ Input:
 * The secret key ''sk'': a 32-byte array, generated uniformly at random
 
 To generate the corresponding public key:
-* Fail if ''int(sk) = 0'' or ''int(sk) >= n''
+* Fail if ''int(sk) = 0'' or ''int(sk) &ge; n''
 * The public key corresponding to secret key ''sk'' is ''pubkey(sk)''.
 
 Note that the two secret keys ''sk'' and ''bytes(n-int(sk))'' will generate the same public key.
 
 Alternatively, the public key can be created according to [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP32] which describes the derivation of 33-byte compressed public keys.
 In order to translate such public keys into bip-schnorr compatible keys, the first byte must be dropped.
+
+==== Signing ====
+
+Input:
+* The secret key ''sk'': a 32-byte array
+* The message ''m'': a 32-byte array
+
+To sign ''m'' for public key ''pubkey(sk)'':
+* Let ''d' = int(sk)''
+* Fail if ''d' = 0'' or ''d' &ge; n''
+* Let ''P = d'G''
+* Let ''d = d' '' if ''jacobi(y(P)) = 1'', otherwise let ''d = n - d' ''.
+* Let ''k' = int(hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)) mod n''<ref>Note that in general, taking the output of a hash function modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
+* Fail if ''k' = 0''.
+* Let ''R = k'G''.
+* Let ''k = k' '' if ''jacobi(y(R)) = 1'', otherwise let ''k = n - k' ''.
+* Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(R) || bytes(P) || m)) mod n''.
+* The signature is ''bytes(R) || bytes((k + ed) mod n)''.
+
+'''Above deterministic derivation of ''R'' is designed specifically for this signing algorithm and may not be secure when used in other signature schemes.'''
+For example, using the same derivation in the MuSig multi-signature scheme leaks the secret key (see the [https://eprint.iacr.org/2018/068 MuSig paper] for details).
+
+Note that this is not a ''unique signature'' scheme: while this algorithm will always produce the same signature for a given message and public key, ''k'' (and hence ''R'') may be generated in other ways (such as by a CSPRNG) producing a different, but still valid, signature.
 
 ==== Verification ====
 
@@ -161,34 +182,11 @@ All provided signatures are valid with overwhelming probability if and only if t
 * Generate ''u-1'' random integers ''a<sub>2...u</sub>'' in the range ''1...n-1''. They are generated deterministically using a [https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator CSPRNG] seeded by a cryptographic hash of all inputs of the algorithm, i.e. ''seed = seed_hash(pk<sub>1</sub>..pk<sub>u</sub> || m<sub>1</sub>..m<sub>u</sub> || sig<sub>1</sub>..sig<sub>u</sub> )''. A safe choice is to instantiate ''seed_hash'' with SHA256 and use [https://tools.ietf.org/html/rfc8439 ChaCha20] with key ''seed'' as a CSPRNG to generate 256-bit integers, skipping integers not in the range ''1...n-1''.
 * For ''i = 1 .. u'':
 ** Let ''P<sub>i</sub> = point(pk<sub>i</sub>)''; fail if ''point(pk<sub>i</sub>)'' fails.
-** Let ''r = int(sig<sub>i</sub>[0:32])''; fail if ''r &ge; p''.
+** Let ''r<sub>i</sub> = int(sig<sub>i</sub>[0:32])''; fail if ''r<sub>i</sub> &ge; p''.
 ** Let ''s<sub>i</sub> = int(sig<sub>i</sub>[32:64])''; fail if ''s<sub>i</sub> &ge; n''.
-** Let ''e<sub>i</sub> = int(hash<sub>BIPSchnorr</sub>(bytes(r) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
-** Let ''R<sub>i</sub> = lift_x(r)''; fail if ''lift_x(r)'' fails.
+** Let ''e<sub>i</sub> = int(hash<sub>BIPSchnorr</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
+** Let ''R<sub>i</sub> = lift_x(r<sub>i</sub>)''; fail if ''lift_x(r<sub>i</sub>)'' fails.
 * Fail if ''(s<sub>1</sub> + a<sub>2</sub>s<sub>2</sub> + ... + a<sub>u</sub>s<sub>u</sub>)G &ne; R<sub>1</sub> + a<sub>2</sub>R<sub>2</sub> + ... + a<sub>u</sub>R<sub>u</sub> + e<sub>1</sub>P<sub>1</sub> + (a<sub>2</sub>e<sub>2</sub>)P<sub>2</sub> + ... + (a<sub>u</sub>e<sub>u</sub>)P<sub>u</sub>''.
-
-==== Signing ====
-
-Input:
-* The secret key ''sk'': a 32-byte array
-* The message ''m'': a 32-byte array
-
-To sign ''m'' for public key ''pubkey(sk)'':
-* Let ''d' = int(sk)''
-* Fail if ''d' = 0'' or ''d' >= n''
-* Let ''P = d'G''
-* Let ''d = d' '' if ''jacobi(y(P)) = 1'', otherwise let ''d = n - d' ''.
-* Let ''k' = int(hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)) mod n''<ref>Note that in general, taking the output of a hash function modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
-* Fail if ''k' = 0''.
-* Let ''R = k'G''.
-* Let ''k = k' '' if ''jacobi(y(R)) = 1'', otherwise let ''k = n - k' ''.
-* Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(R) || bytes(P) || m)) mod n''.
-* The signature is ''bytes(R) || bytes((k + ed) mod n)''.
-
-'''Above deterministic derivation of ''R'' is designed specifically for this signing algorithm and may not be secure when used in other signature schemes.'''
-For example, using the same derivation in the MuSig multi-signature scheme leaks the secret key (see the [https://eprint.iacr.org/2018/068 MuSig paper] for details).
-
-Note that this is not a ''unique signature'' scheme: while this algorithm will always produce the same signature for a given message and public key, ''k'' (and hence ''R'') may be generated in other ways (such as by a CSPRNG) producing a different, but still valid, signature.
 
 === Optimizations ===
 
@@ -198,7 +196,7 @@ Many techniques are known for optimizing elliptic curve implementations. Several
 
 '''Jacobian coordinates''' Elliptic Curve operations can be implemented more efficiently by using [https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates Jacobian coordinates]. Elliptic Curve operations implemented this way avoid many intermediate modular inverses (which are computationally expensive), and the scheme proposed in this document is in fact designed to not need any inversions at all for verification. When operating on a point ''P'' with Jacobian coordinates ''(x,y,z)'' which is not the point at infinity and for which ''x(P)'' is defined as ''x / z<sup>2</sup>'' and ''y(P)'' is defined as ''y / z<sup>3</sup>'':
 * ''jacobi(y(P))'' can be implemented as ''jacobi(yz mod p)''.
-* ''x(P) &ne; r'' can be implemented as ''x &ne; z<sup>2</sup>r mod p''.
+* ''x(P) &ne; r'' can be implemented as ''(0 &le; r < p) and (x &ne; z<sup>2</sup>r mod p)''.
 
 == Applications ==
 
@@ -207,9 +205,9 @@ While recent academic papers claim that they are also possible with ECDSA, conse
 
 === Multisignatures and Threshold Signatures ===
 
-By means of an interactive scheme such as [https://eprint.iacr.org/2018/068 MuSig], participants can aggregate their public keys into a single public key which they can jointly sign for. This allows n-of-n multisignatures which, from a verifier's perspective, are no different from ordinary signatures, giving improved privacy and efficiency versus ''CHECKMULTISIG'' or other means.
+By means of an interactive scheme such as [https://eprint.iacr.org/2018/068 MuSig], participants can aggregate their public keys into a single public key which they can jointly sign for. This allows ''n''-of-''n'' multisignatures which, from a verifier's perspective, are no different from ordinary signatures, giving improved privacy and efficiency versus ''CHECKMULTISIG'' or other means.
 
-Moreover, Schnorr signatures are compatible with [https://web.archive.org/web/20031003232851/http://www.research.ibm.com/security/dkg.ps distributed key generation], which enables interactive threshold signatures schemes, e.g., the schemes described by [http://cacr.uwaterloo.ca/techreports/2001/corr2001-13.ps Stinson and Strobl (2001)] or [https://web.archive.org/web/20060911151529/http://theory.lcs.mit.edu/~stasio/Papers/gjkr03.pdf Genaro, Jarecki and Krawczyk (2003)]. These protocols make it possible to realize k-of-n threshold signatures, which ensure that any subset of size k of the set of n signers can sign but no subset of size less than k can produce a valid Schnorr signature. However, the practicality of the existing schemes is limited: most schemes in the literature have been proven secure only for the case k < n/2, are not secure when used concurrently in multiple sessions, or require a reliable broadcast mechanism to be secure. Further research is necessary to improve this situation.
+Moreover, Schnorr signatures are compatible with [https://web.archive.org/web/20031003232851/http://www.research.ibm.com/security/dkg.ps distributed key generation], which enables interactive threshold signatures schemes, e.g., the schemes described by [http://cacr.uwaterloo.ca/techreports/2001/corr2001-13.ps Stinson and Strobl (2001)] or [https://web.archive.org/web/20060911151529/http://theory.lcs.mit.edu/~stasio/Papers/gjkr03.pdf Genaro, Jarecki and Krawczyk (2003)]. These protocols make it possible to realize ''k''-of-''n'' threshold signatures, which ensure that any subset of size ''k'' of the set of ''n'' signers can sign but no subset of size less than ''k'' can produce a valid Schnorr signature. However, the practicality of the existing schemes is limited: most schemes in the literature have been proven secure only for the case ''k-1 < n/2'', are not secure when used concurrently in multiple sessions, or require a reliable broadcast mechanism to be secure. Further research is necessary to improve this situation.
 
 === Adaptor Signatures ===
 
@@ -227,7 +225,7 @@ Blind Schnorr signatures could for example be used in [https://github.com/Elemen
 
 == Test Vectors and Reference Code ==
 
-For development and testing purposes, we provide a [[bip-schnorr/test-vectors.csv|collection of test vectors in CSV format]] and a naive but highly inefficient and non-constant time [[bip-schnorr/reference.py|pure Python 3.7 reference implementation of the signing and verification algorithm]].
+For development and testing purposes, we provide a [[bip-schnorr/test-vectors.csv|collection of test vectors in CSV format]] and a naive, highly inefficient, and non-constant time [[bip-schnorr/reference.py|pure Python 3.7 reference implementation of the signing and verification algorithm]].
 The reference implementation is for demonstration purposes only and not to be used in production environments.
 
 == Footnotes ==
