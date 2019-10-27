@@ -129,7 +129,7 @@ Note that we use a very different public key format (32 bytes) than the ones use
 
 As an alternative to generating keys randomly, it is also possible and safe to repurpose existing key generation algorithms for ECDSA in a compatible way. The private keys constructed by such an algorithm can be used as ''sk'' directly. The public keys constructed by such an algorithm (assuming they use the 33-byte compressed encoding) need to be converted by dropping the first byte. Specifically, [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP32] and schemes built on top of it remain usable.
 
-==== Signing ====
+==== Default Signing ====
 
 Input:
 * The secret key ''sk'': a 32-byte array
@@ -147,10 +147,16 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(R) || bytes(P) || m)) mod n''.
 * Return the signature ''bytes(R) || bytes((k + ed) mod n)''.
 
-'''Above deterministic derivation of ''R'' is designed specifically for this signing algorithm and may not be secure when used in other signature schemes.'''
-For example, using the same derivation in the MuSig multi-signature scheme leaks the secret key (see the [https://eprint.iacr.org/2018/068 MuSig paper] for details).
+==== Alternative Signing ====
 
-Note that this is not a ''unique signature'' scheme: while this algorithm will always produce the same signature for a given message and public key, ''k'' (and hence ''R'') may be generated in other ways (such as by a CSPRNG) producing a different, but still valid, signature.
+It should be noted that various alternative signing algorithms can be used to produce equally valid signatures. The algorithm in the previous section will always produce the same signature for a given message and public key, but the ''k'' value (and hence ''R'') may be generated in other ways, producing a different, but still valid, signature (in other words, it is not a ''unique'' signature scheme).
+
+'''Synthetic nonces''' When a random number generator (RNG) is available, 32 bytes of RNG output can be appended to the input to ''hash<sub>BIPSchnorrDerive</sub>''. This will changes the corresponding line in the signing algorithm to ''k' = int(hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m || get_32_bytes_from_rng())) mod n'', where ''get_32_bytes_from_rng()'' is the call the RNG. Adding RNG output may improve protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks and side-channel attacks]. It is safe to add randomness from a low-quality randomness source, i.e., an RNG with low entropy.
+
+'''Nonce exfiltration protection''' It is possible to strengthen the nonce generation algorithm using a second device. In this case, the second device contributes randomness which the actual signer provably incorporates into its nonce. This prevents certain attacks where the signer device is compromised and intentionally tries to leak the private key through its nonce selection.
+
+'''Multisignatures''' This signature scheme is compatible with various types of multisignature and threshold schemes such as [https://eprint.iacr.org/2018/068 MuSig], where a single public key requires holders of multiple private keys to participate in signing (see Applications below). 
+'''It is important to note that multisignature signing schemes in general are insecure with the nonce generation from the default signing algorithm above (or any deterministic nonce algorithm).'''
 
 ==== Verification ====
 
