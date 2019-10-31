@@ -9,7 +9,7 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
-
+* [Persian](persian.txt)
 ## Wordlists (Special Considerations)
 
 ### Japanese
