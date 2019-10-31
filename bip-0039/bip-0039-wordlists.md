@@ -98,3 +98,16 @@ Words chosen using the following rules:
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+
+
+### Persian
+
+Credits: @nariman-amani
+
+Words chosen using following rules:
+
+1.  Words are 4-8 letters long.
+2.  Words can be uniquely determined typing the first 4 letters.
+3.  No any special characters like (آ إ ئ ؤ ْ ٌ ٍ ً ُ ِ َ ّ ٓ ٰ ٔ ء )
+4.  No any space or semi-space in word
+5.  Simple and common persian words
