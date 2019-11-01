@@ -88,7 +88,7 @@ def vector6():
     R = point_mul(G, k)
     assert(not has_square_y(R))
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "incorrect R residuosity")
+    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "has_square_y(R) is false")
 
 def vector7():
     seckey = default_seckey
