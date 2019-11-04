@@ -30,10 +30,10 @@ def vector2():
     msg = bytes_from_int(0x5E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C)
     sig = schnorr_sign(msg, seckey)
 
-    # This singature vector would not verify if the implementer checked the
-    # jacobi symbol of the X coordinate of R instead of the Y coordinate.
+    # This signature vector would not verify if the implementer checked the
+    # squareness of the X coordinate of R instead of the Y coordinate.
     R = point_from_bytes(sig[0:32])
-    assert(jacobi(R[0]) != 1)
+    assert(not is_square(R[0]))
 
     return (bytes_from_int(seckey), pubkey_gen(seckey), msg, sig, "TRUE", None)
 
@@ -43,15 +43,14 @@ def vector3():
     sig = schnorr_sign(msg, seckey)
     return (bytes_from_int(seckey), pubkey_gen(seckey), msg, sig, "TRUE", "test fails if msg is reduced modulo p or n")
 
-# Signs with a given nonce. Results in an invalid signature if y(kG) is not a
-# quadratic residue.
+# Signs with a given nonce. Results in an invalid signature if y(kG) is not a square
 def schnorr_sign_fixed_nonce(msg, seckey0, k):
     if len(msg) != 32:
         raise ValueError('The message must be a 32-byte array.')
     if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     P = point_mul(G, seckey0)
-    seckey = seckey0 if (jacobi(P[1]) == 1) else n - seckey0
+    seckey = seckey0 if has_square_y(P) else n - seckey0
     R = point_mul(G, k)
     e = int_from_bytes(tagged_hash("BIPSchnorr", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
@@ -84,9 +83,9 @@ def vector6():
     k = 3
     sig = schnorr_sign_fixed_nonce(msg, seckey, k)
 
-    # Y coordinate of R is not a quadratic residue
+    # Y coordinate of R is not a square
     R = point_mul(G, k)
-    assert(jacobi(R[1]) != 1)
+    assert(not has_square_y(R))
 
     return (None, pubkey_gen(seckey), msg, sig, "FALSE", "incorrect R residuosity")
 
@@ -121,7 +120,7 @@ def vector9():
     sig = schnorr_sign_fixed_nonce(msg, seckey, k)
     bytes_from_point.__code__ = bytes_from_point_tmp
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if jacobi(y(inf)) is defined as 1 and x(inf) as 0")
+    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if has_square_y(inf) is defined as true and x(inf) as 0")
 
 def bytes_from_point_inf1(P):
     if P == None:
@@ -140,7 +139,7 @@ def vector10():
     sig = schnorr_sign_fixed_nonce(msg, seckey, k)
     bytes_from_point.__code__ = bytes_from_point_tmp
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if jacobi(y(inf)) is defined as 1 and x(inf) as 1")
+    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if has_square_y(inf) is defined as true and x(inf) as 1")
 
 # It's cryptographically impossible to create a test vector that fails if run
 # in an implementation which merely misses the check that sig[0:32] is an X
