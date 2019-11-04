@@ -59,7 +59,7 @@ The following rules only apply when such an output is being spent. Any other out
 
 * Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents a public key according to bip-schnorr.
 * Fail if the witness stack has 0 elements.
-* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' Like the <code>0xc0</code> constant, <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y quadratic residuosity, each script version needs two subsequence byte values that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the outputs being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
+* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' Like the <code>0xc0</code> constant, <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y squareness, each script version needs two subsequence byte values that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the outputs being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
 * If there is exactly one element left in the witness stack, key path spending is used:
 ** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''q'' and taproot transaction digest (to be defined hereinafter) as message. Fail if it is not. Otherwise pass.
 * If there are at least two witness elements left, script path spending is used:
@@ -67,7 +67,7 @@ The following rules only apply when such an output is being spent. Any other out
 ** The last stack element is called the control block ''c'', and must have length ''33 + 32m'', for a value of ''m'' that is an integer between 0 and 128<ref>'''Why is the Merkle path length limited to 128?''' The optimally space-efficient Merkle tree can be constructed based on the probabilities of the scripts in the leaves, using the Huffman algorithm. This algorithm will construct branches with lengths approximately equal to ''log<sub>2</sub>(1/probability)'', but to have branches longer than 128 you would need to have scripts with an execution chance below 1 in ''2<sup>128</sup>''. As that is our security bound, scripts that truly have such a low chance can probably be removed entirely.</ref>, inclusive. Fail if it does not have such a length.
 ** Let ''p = c[1:33]'' and let ''P = point(p)'' where ''point'' is defined as in bip-schnorr. Fail if this point is not on the curve.
 ** Let ''l = c[0] & 0xfe'', the leaf version<ref>'''What is the purpose of the first byte of the control block?''' The first byte of the control block has three distinct functions:
-* The low bit is used to denote whether the ''Q'' point's Y coordinate is a quadratic residue.<ref>'''Why is the quadratic residuosity of the output public key's Y coordinate required in a script path spend?''' The ''point'' function always constructs a point with Y coordinate having that property, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>
+* The low bit is used to denote whether the ''has_square_y(Q)'' holds.<ref>'''Why is the squareness of the output public key's Y coordinate required in a script path spend?''' The ''point'' function always constructs a point with Y coordinate having that property, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>
 * By keeping the top two bits set to true, it can be guaranteed that scripts can be recognized without knowledge of the UTXO being spent, simplifying analysis. This is because such values cannot occur as first byte of the final stack element in either P2WPKH or P2WSH spends.
 * The remaining five bits are used for introducing new script versions that are not observable unless actually executed.
 </ref>.
@@ -179,7 +179,7 @@ Alice will not be able to notice the script path, but Mallory can unilaterally s
 '''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the output script can be computed using the following Python3 algorithms with helper functions from the bip-schnorr reference code for integer conversion, point multiplication and tagged hashes.
 
 First, we define <code>taproot_tweak_pubkey</code> for 32-byte bip-schnorr public key arrays.
-In addition to the tweaked public key byte array, the function returns a boolean for the quadratic residuosity of the tweaked points' Y coordinate modulo the secp256k1 field order.
+In addition to the tweaked public key byte array, the function returns a boolean for the squareness of the tweaked points' Y coordinate modulo the secp256k1 field order.
 This will be required for spending the output with a script path.
 In order to allow spending with the key path, we define <code>taproot_tweak_seckey</code> to compute the secret key for a tweaked public key.
 For any byte string <code>h</code> it holds that <code>taproot_tweak_pubkey(pubkey_gen(seckey), h)[0] == pubkey_gen(taproot_tweak_seckey(seckey, h))</code>.
@@ -190,11 +190,11 @@ def taproot_tweak_pubkey(pubkey, h):
     if t >= SECP256K1_ORDER:
         raise ValueError
     Q = point_mul(point(pubkey), t)
-    return bytes_from_int(x(Q)), is_quad(y(Q))
+    return bytes_from_int(x(Q)), has_square_y(Q)
 
 def taproot_tweak_seckey(seckey0, h):
     P = point_mul(G, int_from_bytes(seckey0))
-    seckey = SECP256K1_ORDER - seckey0 if not is_quad(y(R)) else seckey
+    seckey = SECP256K1_ORDER - seckey0 if not has_square_y(R) else seckey
     t = int_from_bytes(tagged_hash("TapTweak", bytes_from_int(x(P)) + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
@@ -253,8 +253,8 @@ This function returns the witness stack necessary and a <code>sighash</code> fun
 def taproot_sign_script(internal_pubkey, script_tree, script_num, inputs):
     info, h = taproot_tree_helper(script_tree)
     (leaf_version, script), path = info[script_num]
-    _, is_y_quad = taproot_tweak_pubkey(internal_pubkey, t)
-    output_pubkey_tag = 0 if is_y_quad else 1
+    _, is_y_square = taproot_tweak_pubkey(internal_pubkey, t)
+    output_pubkey_tag = 0 if is_y_square else 1
     pubkey_data = bytes([output_pubkey_tag + leaf_version]) + internal_pubkey
     return inputs + [script, pubkey_data + path]
 </source>
