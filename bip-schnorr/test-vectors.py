@@ -69,12 +69,14 @@ def vector4():
 default_seckey = bytes_from_int(0xB7E151628AED2A6ABF7158809CF4F3C762E7160F38B4DA56A784D9045190CFEF)
 default_msg = bytes_from_int(0x243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89)
 
+# Public key is not on the curve
 def vector5():
+    # This creates a dummy signature that doesn't have anything to do with the
+    # public key.
     seckey = default_seckey
     msg = default_msg
     sig = schnorr_sign(msg, seckey)
 
-    # Public key is not on the curve
     pubkey = bytes_from_int(0xEEFDEA4CDB677750A420FEE807EACF21EB9898AE79B9768766E4FAA04A2D4A34)
     assert(point_from_bytes(pubkey) is None)
 
@@ -185,6 +187,27 @@ def vector13():
 
     return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sig[32:64] is equal to curve order")
 
+# Test out of range pubkey
+# It's cryptographically impossible to create a test vector that fails if run
+# in an implementation which accepts out of range pubkeys because we can't find
+# a secret key for such a public key and therefore can not create a signature.
+# This test vector just increases test coverage.
+def vector14():
+    # This creates a dummy signature that doesn't have anything to do with the
+    # public key.
+    seckey = default_seckey
+    msg = default_msg
+    sig = schnorr_sign(msg, seckey)
+
+    pubkey_int = p + 1
+    pubkey = bytes_from_int(pubkey_int)
+    assert(point_from_bytes(pubkey) is None)
+    # If an implementation would reduce a given public key modulo p then the
+    # pubkey would be valid
+    assert(point_from_bytes(bytes_from_int(pubkey_int % p)) is not None)
+
+    return (None, pubkey, msg, sig, "FALSE", "public key is not a valid X coordinate because it exceeds the field size")
+
 vectors = [
         vector0(),
         vector1(),
@@ -200,6 +223,7 @@ vectors = [
         vector11(),
         vector12(),
         vector13(),
+        vector14()
     ]
 
 # Converts the byte strings of a test vector into hex strings

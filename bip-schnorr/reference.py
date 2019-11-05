@@ -53,6 +53,8 @@ def bytes_from_point(P):
 
 def point_from_bytes(b):
     x = int_from_bytes(b)
+    if x >= p:
+        return None
     y_sq = (pow(x, 3, p) + 7) % p
     y = pow(y_sq, (p + 1) // 4, p)
     if pow(y, 2, p) != y_sq:
