@@ -141,7 +141,7 @@ As the message for signature verification, transaction digest is ''hash<sub>TapS
 ** If the <code>SIGHASH_SINGLE</code> flag is set:
 *** <code>sha_single_output</code> (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-The total number of bytes hashed is at most ''211''<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''178 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>.
+The total number of bytes hashed is at most ''211'' (excluding sub-hashes such as `sha_prevouts`)<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''178 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>.  Sub-hashes may be cached across signatures of the same transaction.
 
 In summary, the semantics of the BIP143 sighash types remain unchanged, except the following:
 # The way and order of serialization is changed.<ref>'''Why is the serialization in the transaction digest changed?''' Hashes that go into the digest and the digest itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for transaction digests because there is no secret data. Therefore doubling SHA256 is a waste of resources. The digest computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the digest across different inputs using the SHA256 midstate. Additionally, digest computation avoids unnecessary hashing as opposed to BIP143 digests in which parts may be set zero and before hashing them. Despite that, collisions are made impossible by committing to the length of the data (implicit in <code>hash_type</code> and <code>spend_type</code>) before the variable length data.</ref>
@@ -270,7 +270,7 @@ A script path spend leaks that there is a script path and that the key path was 
 Moreover, the depth of a script in the Merkle root leaks information including the minimum depth of the tree, which suggests specific wallet software that created the output and helps clustering.
 Therefore, the privacy of script spends can be improved by deviating from the optimal tree determined by the probability distribution over the leaves.
 
-Just like other existing output types, taproot outputs should never reuse keys.
+Just like other existing output types, taproot outputs should never reuse keys, for privacy reasons.
 This does not only apply to the particular leaf that was used to spend an output but to all leaves committed to in the output.
 If leaves were reused, it could happen that spending a different output would reuse the same Merkle branches in the Merkle proof.
 Using fresh keys implies that taproot output construction does not need to take special measures to randomizing leaf positions because they are already randomized due to the branch-sorting Merkle tree construction used in taproot.
