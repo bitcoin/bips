@@ -9,6 +9,8 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
+* [Persian](Persian.txt)
+
 
 ## Wordlists (Special Considerations)
 
@@ -98,3 +100,16 @@ Words chosen using the following rules:
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+
+### Persian
+
+Credits: @mjsamadi
+
+Persian words chosen using the following rules:
+
+1.  Words are 4-8 letters long.
+2.  Words can be uniquely determined typing the first 4 letters.
+3.  Chosen words without "گچپژ" so these words can use in Arabic language as well.
+4.  Words are sorting according Persian alphabet.
+5.  Proper nouns are also chosen.
+6.  No words with more than one part.
