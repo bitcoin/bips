@@ -236,6 +236,20 @@ def taproot_output_script(internal_pubkey, script_tree):
 
 [[File:bip-taproot/tree.png|frame|This diagram shows the hashing structure to obtain the tweak from an internal key ''P'' and a Merkle tree consisting of 5 script leaves. ''A'', ''B'', ''C'' and ''E'' are ''TapLeaf'' hashes similar to ''D'' and ''AB'' is a ''TapBranch'' hash. Note that when ''CDE'' is computed ''E'' is hashed first because ''E'' is less than ''CD''.]]
 
+To spend this output using script ''D'', the control block would contain the following data in this order:
+
+     <control byte with leaf version> <internal key p> <C> <E> <AB>
+
+The TapTweak would then be computed as described in [[#script-validation-rules]] like so:
+
+<source>
+D = tagged_hash("TapLeaf", bytes([leaf_version]) + ser_script(script))
+CD = tagged_hash("TapBranch", C + D)
+CDE = tagged_hash("TapBranch", E + CD)
+ABCDE = tagged_hash("TapBranch", AB + CDE)
+TapTweak = tagged_hash("TapTweak", p + ABCDE)
+</source>
+
 '''Spending using the key path''' A Taproot output can be spent with the secret key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consists of a single element: a bip-schnorr signature on the signature hash as defined above, with the secret key tweaked by the same <code>h</code> as in the above snippet. See the code below:
 
 <source lang="python">
