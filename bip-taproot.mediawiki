@@ -59,19 +59,15 @@ The following rules only apply when such an output is being spent. Any other out
 
 * Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents a public key according to bip-schnorr.
 * Fail if the witness stack has 0 elements.
-* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' Like the choice to always set the top two bits of the control block's first byte the, <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y squareness, each leaf version needs two subsequent byte values that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the scriptPubKey of the output being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
+* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' The <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y squareness, each leaf version needs an even byte value and the immediately following odd byte value that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the scriptPubKey of the output being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
 * If there is exactly one element left in the witness stack, key path spending is used:
 ** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''q'' and taproot transaction digest (to be defined hereinafter) as message. Fail if it is not. Otherwise pass.
 * If there are at least two witness elements left, script path spending is used:
 ** Call the second-to-last stack element ''s'', the script.
 ** The last stack element is called the control block ''c'', and must have length ''33 + 32m'', for a value of ''m'' that is an integer between 0 and 128<ref>'''Why is the Merkle path length limited to 128?''' The optimally space-efficient Merkle tree can be constructed based on the probabilities of the scripts in the leaves, using the Huffman algorithm. This algorithm will construct branches with lengths approximately equal to ''log<sub>2</sub>(1/probability)'', but to have branches longer than 128 you would need to have scripts with an execution chance below 1 in ''2<sup>128</sup>''. As that is our security bound, scripts that truly have such a low chance can probably be removed entirely.</ref>, inclusive. Fail if it does not have such a length.
 ** Let ''p = c[1:33]'' and let ''P = point(p)'' where ''point'' and ''[:]'' are defined as in bip-schnorr. Fail if this point is not on the curve.
-** Call ''(c[0] ^ 0xc0) >> 1'' the leaf version<ref>'''What is the purpose of the first byte of the control block?''' The first byte of the control block has three distinct functions:
-* The low bit is used to denote whether the point represented by public key ''q'' is negated before verifying the taproot tweak.<ref>'''Why is it necessary to reveal a bit to indicate if the point represented by the output public key is negated in a script path spend?''' The ''point'' function (defined in bip-schnorr) always constructs a point with a square Y coordinate, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. Therefore, before verifying the taproot tweak the original point is restored by negating if necessary. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>
-* Some types of static analysis may benefit from the ability to analyse spends without access to the output being spent. We achieve that for leaf versions 0 to 31 via flipping the top two bits of the first byte of the control block and observing that this ensures they can be distinguished from P2WPKH and P2WSH spends -- as for P2WPKH, the last witness stack item is a public key, whose first byte is either 0x02 or 0x03, and for P2WSH, the last item is a script, and scripts must contain valid opcodes, but no value ≥ 0xc0 is a valid opcode.
-* The remaining five bits encode the leaf version, which can be used for introducing new script versions that are not observable unless actually executed.
-</ref>.
-** Let ''k<sub>0</sub> = hash<sub>TapLeaf</sub>(c[0] & 0xfe || compact_size(size of s) || s)''; also call it the ''tapleaf hash''.
+** Let ''v = c[0] & 0xfe'' and call it the ''leaf version''<ref>'''What constraints are there on the leaf version?''' First, the leaf version cannot be odd as ''c[0] & 0xfe'' will always be even, and cannot be ''0x50'' as that would result in ambiguity with the annex. In addition, in order to support some forms of static analysis that rely on being able to identify script spends without access to the output being spent, it is recommended to avoid using any leaf versions that would conflict with a valid first byte of either a valid P2WPKH pubkey or a valid P2WSH script (that is, both ''v'' and ''v | 1'' should be an undefined, invalid or disabled opcode or an opcode that is not valid as the first opcode). The values that comply to this rule are the 32 even values between ''0xc0'' and ''0xfe'' and also ''0x66'', ''0x7e'', ''0x80'', ''0x84'', ''0x96'', ''0x98'', ''0xba'', ''0xbc'', ''0xbe''. Note also that this constraint implies that leaf versions should be shared amongst different witness versions, as knowing the witness version requires access to the output being spent.</ref>.
+** Let ''k<sub>0</sub> = hash<sub>TapLeaf</sub>(v || compact_size(size of s) || s)''; also call it the ''tapleaf hash''.
 ** For ''j'' in ''[0,1,...,m-1]'':
 *** Let ''e<sub>j</sub> = c[33+32j:65+32j]''.
 *** Let ''k<sub>j+1</sub> depend on whether ''k<sub>j</sub> < e<sub>j</sub>'' (lexicographically)<ref>'''Why are child elements sorted before hashing in the Merkle tree?''' By doing so, it is not necessary to reveal the left/right directions along with the hashes in revealed Merkle branches. This is possible because we do not actually care about the position of specific scripts in the tree; only that they are actually committed to.</ref>:
@@ -79,9 +75,9 @@ The following rules only apply when such an output is being spent. Any other out
 **** If ''k<sub>j</sub> &ge; e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(e<sub>j</sub> || k<sub>j</sub>)''.
 ** Let ''t = hash<sub>TapTweak</sub>(p || k<sub>m</sub>)''.
 ** If ''t &ge; 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141'' (order of secp256k1), fail.
-** Let ''Q = point(q) if (c[0] & 1) = 1 and -point(q) otherwise''. Fail if this point is not on the curve.
+** Let ''Q = point(q) if (c[0] & 1) = 1 and -point(q) otherwise''<ref>'''Why is it necessary to reveal a bit to indicate if the point represented by the output public key is negated in a script path spend?''' The ''point'' function (defined in bip-schnorr) always constructs a point with a square Y coordinate, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. Therefore, before verifying the taproot tweak the original point is restored by negating if necessary. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>. Fail if this point is not on the curve.
 ** If ''Q &ne; P + int(t)G'', fail.
-** Execute the script, according to the applicable script rules<ref>'''What are the applicable script rules in script path spends?''' Bip-tapscript specifies validity rules that apply if the leaf version is 0, but future proposals can introduce rules for other leaf versions.</ref>, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack.
+** Execute the script, according to the applicable script rules<ref>'''What are the applicable script rules in script path spends?''' Bip-tapscript specifies validity rules that apply for leaf version 0xc0, but future proposals can introduce rules for other leaf versions.</ref>, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack.
 
 ''q'' is referred to as ''taproot output key'' and ''p'' as ''taproot internal key''.
 
@@ -209,7 +205,7 @@ The following function, <code>taproot_output_script</code>, returns a byte array
 def taproot_tree_helper(script_tree):
     if isinstance(script_tree, tuple):
         leaf_version, script = script_tree
-        h = tagged_hash("TapLeaf", bytes([(2 * leaf_version) ^ 0xc0]) + ser_script(script))
+        h = tagged_hash("TapLeaf", bytes([leaf_version]) + ser_script(script))
         return ([((leaf_version, script), bytes())], h)
     left, left_h = taproot_tree_helper(script_tree[0])
     right, right_h = taproot_tree_helper(script_tree[1])
@@ -221,8 +217,8 @@ def taproot_tree_helper(script_tree):
 def taproot_output_script(internal_pubkey, script_tree):
     """Given a internal public key and a tree of scripts, compute the output script.
     script_tree is either:
-     - a (leaf_version, script) tuple (leaf_version is 0 for bip-tapscript scripts)
-     - a list of two elements, each with the same structure as script_tree itself"""
+     - a (leaf_version, script) tuple (leaf_version is 0xc0 for bip-tapscript scripts)
+     - a list of two elements, each with the same structure as script_tree itself
      - None
     """
     if script_tree is None:
@@ -237,7 +233,7 @@ def taproot_output_script(internal_pubkey, script_tree):
 
 To spend this output using script ''D'', the control block would contain the following data in this order:
 
-     <control byte with leaf version> <internal key p> <C> <E> <AB>
+     <control byte with leaf version and negation bit> <internal key p> <C> <E> <AB>
 
 The TapTweak would then be computed as described in [[#script-validation-rules]] like so:
 
@@ -271,7 +267,7 @@ def taproot_sign_script(internal_pubkey, script_tree, script_num, inputs):
     (leaf_version, script), path = info[script_num]
     _, is_negated = taproot_tweak_pubkey(internal_pubkey, h)
     output_pubkey_tag = 0 if is_negated else 1
-    pubkey_data = bytes([output_pubkey_tag ^ (2 * leaf_version) ^ 0xc0]) + internal_pubkey
+    pubkey_data = bytes([output_pubkey_tag + leaf_version]) + internal_pubkey
     return inputs + [script, pubkey_data + path]
 </source>
 
