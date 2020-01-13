@@ -83,68 +83,61 @@ The following rules only apply when such an output is being spent. Any other out
 
 === Signature validation rules ===
 
-The following rules apply:
+We first define a reusable common signature message calculation function, followed by the actual signature validation as it's used in key path spending.
 
-* If the signature is not 64<ref>'''Why permit two signature lengths?''' By making the most common type of <code>hash_type</code> implicit, a byte can often be saved.</ref> or 65 bytes, fail.
-* If the signature size is 65 bytes:
-** If the final byte is not a valid <code>hash_type</code> (defined hereinafter), fail.
-** If the final byte is <code>0x00</code>, fail<ref>'''Why can the <code>hash_type</code> not be <code>0x00</code> in 65-byte signatures?''' Permitting that would enable malleating (by third parties, including miners) 64-byte signatures into 65-byte ones, resulting in a different `wtxid` and a different fee rate than the creator intended</ref>.
-** If the first 64 bytes are not a valid signature according to bip-schnorr for the public key and message set to the transaction digest with <code>hash_type</code> set as the final byte, fail.
-* If the signature size is 64 bytes:
-** If it is not a valid signature according to bip-schnorr for the public key and the <code>hash_type = 0x00</code> transaction digest as message, fail.
-* Otherwise the signature is valid.
+==== Common signature message ====
 
-==== hash_type ====
+The function ''SigMsg(hash_type, ext_flag)'' computes the message being signed as a byte array. It is implicitly also a function of the spending transaction and the outputs it spends, but these are not listed to keep notation simple. 
 
-<code>hash_type</code> is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are used, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>. Use of the default <code>hash_type = 0x00</code> results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>.
-
-The following use of <code>hash_type</code> are invalid, and fail execution:
-
+The parameter ''hash_type'' is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are reused, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>, plus a default ''hash_type'' (0) which results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>. The following restrictions apply, which cause validation failure if violated:
+* Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'', ''0x03'', ''0x81'', ''0x82'', or ''0x83''<ref>'''Why reject unknown ''hash_type'' values?''' By doing so, it is easier to reason about the worst case amount of signature hashing an implementation with adequate caching must perform.</ref>).
 * Using <code>SIGHASH_SINGLE</code> without a "corresponding output" (an output with the same index as the input being verified).
-* Using any <code>hash_type</code> value that is not <code>0x00</code>, <code>0x01</code>, <code>0x02</code>, <code>0x03</code>, <code>0x81</code>, <code>0x82</code>, or <code>0x83</code><ref>'''Why reject unknown <code>hash_type</code> values?''' By doing so, it is easier to reason about the worst case amount of signature hashing an implementation with adequate caching must perform.</ref>.
-* The signature has 65 bytes, and <code>hash_type</code> is <code>0x00</code>.
 
-==== Transaction digest ====
+The parameter ''ext_flag'' is an integer in range 0-127, and is used for indicating the presence of extensions.
 
-As the message for signature verification, transaction digest is ''hash<sub>TapSighash</sub>'' of the following values (size in byte) serialized. Numerical values in 2, 4, or 8-byte are encoded in little-endian.
+If the parameters take acceptable values, the message is the concatenation of the following data, in order(with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte are encoded in little-endian.
 
 * Control:
-** <code>epoch</code> (1): always 0. <ref>'''What's the purpose of the epoch?''' The <code>epoch</code> can be increased to allow securely creating new transaction digest algorithms with large changes to the structure or interpretation of <code>hash_type</code> if needed.</ref>
-** <code>hash_type</code> (1).
+** ''hash_type'' (1).
 * Transaction data:
-** <code>nVersion</code> (4): the <code>nVersion</code> of the transaction.
-** <code>nLockTime</code> (4): the <code>nLockTime</code> of the transaction.
-** If the <code>SIGHASH_ANYONECANPAY</code> flag is not set:
-*** <code>sha_prevouts</code> (32): the SHA256 of the serialization of all input outpoints.
-*** <code>sha_amounts</code> (32): the SHA256 of the serialization of all input amounts.
-*** <code>sha_sequences</code> (32): the SHA256 of the serialization of all input <code>nSequence</code>.
-** If neither the <code>SIGHASH_NONE</code> nor the <code>SIGHASH_SINGLE</code> flag is set:
-*** <code>sha_outputs</code> (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
+** ''nVersion'' (4): the ''nVersion'' of the transaction.
+** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
+** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
+*** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
+*** ''sha_amounts'' (32): the SHA256 of the serialization of all input amounts.
+*** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
+** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
+*** ''sha_outputs'' (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
 * Data about this input:
-** <code>spend_type</code> (1):
-*** Bit 0 is set if an annex is present (the original witness stack has two or more witness elements, and the first byte of the last element is <code>0x50</code>).
-*** The other bits are unset.
-** <code>scriptPubKey</code> (35): <code>scriptPubKey</code> of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
-** If the <code>SIGHASH_ANYONECANPAY</code> flag is set:
-*** <code>outpoint</code> (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
-*** <code>amount</code> (8): value of the previous output spent by this input.
-*** <code>nSequence</code> (4): <code>nSequence</code> of this input.
-** If the <code>SIGHASH_ANYONECANPAY</code> flag is not set:
-*** <code>input_index</code> (4): index of this input in the transaction input vector. Index of the first input is 0.
-** If bit 0 of <code>spend_type</code> is set:
-*** <code>sha_annex</code> (32): the SHA256 of (compact_size(size of annex) || annex).
+** ''spend_type'' (1): equal to ''(ext_flag * 2) + annex_present'', where ''annex_present'' is 0 if no annex is present, or 1 otherwise (the original witness stack has two or more witness elements, and the first byte of the last element is ''0x50'')
+** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
+** If ''hash_type & 0x80'' equals <code>SIGHASH_ANYONECANPAY</code>:
+*** ''outpoint'' (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
+*** ''amount'' (8): value of the previous output spent by this input.
+*** ''nSequence'' (4): ''nSequence'' of this input.
+** If ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
+*** ''input_index'' (4): index of this input in the transaction input vector. Index of the first input is 0.
+** If an annex is present (the lowest bit of ''spend_type'' is set):
+*** ''sha_annex'' (32): the SHA256 of ''(compact_size(size of annex) || annex)'', where ''annex'' includes the mandatory ''0x50'' prefix.
 * Data about this output:
-** If the <code>SIGHASH_SINGLE</code> flag is set:
-*** <code>sha_single_output</code> (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
+** If ''hash_type & 3'' equals <code>SIGHASH_SINGLE</code>:
+*** ''sha_single_output'' (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-The total number of bytes hashed is at most ''210'' (excluding sub-hashes such as `sha_prevouts`)<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''178 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>.  Sub-hashes may be cached across signatures of the same transaction.
+The total length of ''SigMsg()'' is at most ''209'' bytes<ref>'''What is the output length of ''SigMsg()''?''' The total length of ''SigMsg()'' can be computed using the following formula: ''177 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>. Note that this does not include the size of sub-hashes such as ''sha_prevouts'', which may be cached across signatures of the same transaction.
 
 In summary, the semantics of the [https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki BIP143] sighash types remain unchanged, except the following:
-# The way and order of serialization is changed.<ref>'''Why is the serialization in the transaction digest changed?''' Hashes that go into the digest and the digest itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for transaction digests because there is no secret data. Therefore doubling SHA256 is a waste of resources. The digest computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the digest across different inputs using the SHA256 midstate. Additionally, sub-hashes can be skipped when calculating the digest (for example `sha_prevouts` if <code>SIGHASH_ANYONECANPAY</code> is set) instead of setting them to zero and then hashing them as in BIP143. Despite that, collisions are made impossible by committing to the length of the data (implicit in <code>hash_type</code> and <code>spend_type</code>) before the variable length data.</ref>
-# The digest commits to the <code>scriptPubKey</code><ref>'''Why does the transaction digest commit to the <code>scriptPubKey</code>?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (<code>scriptCode</code> in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed.</ref>.
+# The way and order of serialization is changed.<ref>'''Why is the serialization in the transaction digest changed?''' Hashes that go into the digest and the digest itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for transaction digests because there is no secret data. Therefore doubling SHA256 is a waste of resources. The digest computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the digest across different inputs using the SHA256 midstate. Additionally, sub-hashes can be skipped when calculating the digest (for example `sha_prevouts` if <code>SIGHASH_ANYONECANPAY</code> is set) instead of setting them to zero and then hashing them as in BIP143. Despite that, collisions are made impossible by committing to the length of the data (implicit in ''hash_type'' and ''spend_type'') before the variable length data.</ref>
+# The digest commits to the ''scriptPubKey''<ref>'''Why does the transaction digest commit to the ''scriptPubKey''?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (''scriptCode'' in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed.</ref>.
 # If the <code>SIGHASH_ANYONECANPAY</code> flag is not set, the digest commits to the amounts of ''all'' transaction inputs.<ref>'''Why does the transaction digest commit to the amounts of all transaction inputs?''' This eliminates the possibility to lie to offline signing devices about the fee of a transaction.</ref>
-# The digest commits to all input <code>nSequence</code> if <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code> are set (unless <code>SIGHASH_ANYONECANPAY</code> is set as well).<ref>'''Why does the transaction digest commit to all input <code>nSequence</code> if <code>SIGHASH_SINGLE</code> or <code>SIGHASH_NONE</code> are set?''' Because setting them already makes the digest commit to the <code>prevouts</code> part of all transaction inputs, it is not useful to treat the <code>nSequence</code> any different. Moreover, this change makes <code>nSequence</code> consistent with the view that <code>SIGHASH_SINGLE</code> and <code>SIGHASH_NONE</code> only modify the digest with respect to transaction outputs and not inputs.</ref>
-# The digest commits to taproot-specific data <code>epoch</code>, <code>spend_type</code> and <code>annex</code> (if present).
+# The digest commits to all input ''nSequence'' if <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code> are set (unless <code>SIGHASH_ANYONECANPAY</code> is set as well).<ref>'''Why does the transaction digest commit to all input ''nSequence'' if <code>SIGHASH_SINGLE</code> or <code>SIGHASH_NONE</code> are set?''' Because setting them already makes the digest commit to the <code>prevouts</code> part of all transaction inputs, it is not useful to treat the ''nSequence'' any different. Moreover, this change makes ''nSequence'' consistent with the view that <code>SIGHASH_SINGLE</code> and <code>SIGHASH_NONE</code> only modify the digest with respect to transaction outputs and not inputs.</ref>
+# The message includes commitments to the taproot-specific data ''spend_type'' and ''annex'' (if present).
+
+==== Taproot key path spending signature validation ====
+
+To validate a signature ''sig'' with public key ''q'':
+* If the ''sig'' is 64 bytes long, return ''Verify(q, hash<sub>TapSigHash</sub>(0x00 || SigMsg(0x00, 0)), sig)''<ref>'''Why is the input to ''hash<sub>TapSigHash</sub>'' prefixed with 0x00?''' This prefix is called the sighash epoch, and allows reusing the ''hash<sub>TapSigHash</sub>'' tagged hash in future extensions that make invasive changes to how hashing is performed. An alternative is switching to a different tag, but supporting a growing number of tags may become undesirable.</ref>, where ''Verify'' is defined in bip-schnorr.
+* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00<ref>'''Why can the <code>hash_type</code> not be <code>0x00</code> in 65-byte signatures?''' Permitting that would enable malleating (by third parties, including miners) 64-byte signatures into 65-byte ones, resulting in a different `wtxid` and a different fee rate than the creator intended</ref> and Verify(q, hash<sub>TapSighash</sub>(0x00 || SigMsg(sig[64], 0)), sig[0:64])''.
+* Otherwise, fail<ref>'''Why permit two signature lengths?''' By making the most common type of <code>hash_type</code> implicit, a byte can often be saved.</ref>.
 
 == Constructing and spending Taproot outputs ==
 
