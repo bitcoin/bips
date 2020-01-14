@@ -34,8 +34,8 @@ Specifically, the goal is making '''Schnorr signatures''', '''batch validation''
 
 ==Design==
 
-In order to achieve these goals, signature opcodes <code>OP_CHECKSIG</code> and <code>OP_CHECKSIGVERIFY</code> are modified to verify Schnorr signatures as specified in bip-schnorr and to use a new transaction digest based on the taproot transaction digest.
-The tapscript transaction digest also simplifies <code>OP_CODESEPARATOR</code> handling and makes it more efficient.
+In order to achieve these goals, signature opcodes <code>OP_CHECKSIG</code> and <code>OP_CHECKSIGVERIFY</code> are modified to verify Schnorr signatures as specified in bip-schnorr and to use a signature message algorithm based on the common message calculation in bip-taproot.
+The tapscript signature message also simplifies <code>OP_CODESEPARATOR</code> handling and makes it more efficient.
 
 The inefficient <code>OP_CHECKMULTISIG</code> and <code>OP_CHECKMULTISIGVERIFY</code> opcodes are disabled.
 Instead, a new opcode <code>OP_CHECKSIGADD</code> is introduced to allow creating the same multisignature policies in a batch-verifiable way.
@@ -92,7 +92,7 @@ The following rules apply to <code>OP_CHECKSIG</code>, <code>OP_CHECKSIGVERIFY</
 ** If <code>n</code> is larger than 4 bytes, the script MUST fail and terminate immediately.
 * If the public key size is zero, the script MUST fail and terminate immediately.
 * If the public key size is 32 bytes, it is considered to be a public key as described in bip-schnorr:
-** If the signature is not the empty vector, the signature is validated against the public key (see the next subsection).
+** If the signature is not the empty vector, the signature is validated against the public key (see the next subsection). Validation failure in this case immediately terminates script execution with failure.
 * If the public key size is not zero and not 32 bytes, the public key is of an ''unknown public key type''<ref>'''Unknown public key types''' allow adding new signature validation rules through softforks. A softfork could add actual signature validation which either passes or makes the script fail and terminate immediately. This way, new <code>SIGHASH</code> modes can be added, as well as [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-December/016549.html NOINPUT-tagged public keys] and a public key constant which is replaced by the taproot internal key for signature validation.</ref> and no actual signature verification is applied. During script execution of signature opcodes they behave exactly as known public key types except that signature validation is considered to be successful.
 * If the script did not fail and terminate before this step, regardless of the public key type:
 ** If the signature is the empty vector:
@@ -107,18 +107,18 @@ The following rules apply to <code>OP_CHECKSIG</code>, <code>OP_CHECKSIGVERIFY</
 ===Signature validation===
 
 To validate a signature ''sig'' with public key ''p'':
-* Compute the tapscript message extension ''ext'', consisting of:
+* Compute the tapscript message extension ''ext'', consisting of the concatenation of:
 ** ''tapleaf_hash'' (32): the tapleaf hash as defined in bip-taproot
 ** ''key_version'' (1): a constant value ''0x00'' representing the current version of public keys in the tapscript signature opcode execution.
 ** ''codesep_pos'' (4): the opcode position of the last executed <code>OP_CODESEPARATOR</code> before the currently executed signature opcode, with the value in little endian (or ''0xffffffff'' if none executed). The first opcode in a script has a position of 0. A multi-byte push opcode is counted as one opcode, regardless of the size of data being pushed.
-* If the ''sig'' is 64 bytes long, return ''Verify(q, hash<sub>TapSigHash</sub>(0x00 || SigMsg(0x00, 1) || ext), sig)'', where ''Verify'' is defined in bip-schnorr.
-* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00 and Verify(q, hash<sub>TapSighash</sub>(0x00 || SigMsg(sig[64], 0) || ext), sig[0:64])''.
+* If the ''sig'' is 64 bytes long, return ''Verify(p, hash<sub>TapSigHash</sub>(0x00 || SigMsg(0x00, 1) || ext), sig)'', where ''Verify'' is defined in bip-schnorr.
+* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00 and Verify(p, hash<sub>TapSighash</sub>(0x00 || SigMsg(sig[64], 1) || ext), sig[0:64])''.
 * Otherwise, fail.
 
 In summary, the semantics of signature validation is identical to bip-taproot, except the following:
-# The digest commits to tapscript-specific data ''key_version''.<ref>'''Why does the transaction digest commit to the ''key_version''?''' This is for future extensions that define unknown public key types, making sure signatures can't be moved from one key type to another.</ref>
-# The digest commits to the executed script through the ''tapleaf_hash'' which includes the leaf version and script instead of ''scriptCode''. This implies that this commitment is unaffected by <code>OP_CODESEPARATOR</code>.
-# The digest commits to the opcode position of the last executed <code>OP_CODESEPARATOR</code>.<ref>'''Why does the transaction digest commit to the position of the last executed <code>OP_CODESEPARATOR</code>?''' This allows continuing to use <code>OP_CODESEPARATOR</code> to sign the executed path of the script. Because the <code>codeseparator_position</code> is the last input to the digest, the SHA256 midstate can be efficiently cached for multiple <code>OP_CODESEPARATOR</code>s in a single script. In contrast, the BIP143 handling of <code>OP_CODESEPARATOR</code> is to commit to the executed script only from the last executed <code>OP_CODESEPARATOR</code> onwards which requires unnecessary rehashing of the script. It should be noted that the one known <code>OP_CODESEPARATOR</code> use case of saving a second public key push in a script by sharing the first one between two code branches can be most likely expressed even cheaper by moving each branch into a separate taproot leaf.</ref>
+# The signature message includes the tapscript-specific data ''key_version''.<ref>'''Why does the signature message commit to the ''key_version''?''' This is for future extensions that define unknown public key types, making sure signatures can't be moved from one key type to another.</ref>
+# The signature message commits to the executed script through the ''tapleaf_hash'' which includes the leaf version and script instead of ''scriptCode''. This implies that this commitment is unaffected by <code>OP_CODESEPARATOR</code>.
+# The signature message includes the opcode position of the last executed <code>OP_CODESEPARATOR</code>.<ref>'''Why does the signature message include the position of the last executed <code>OP_CODESEPARATOR</code>?''' This allows continuing to use <code>OP_CODESEPARATOR</code> to sign the executed path of the script. Because the <code>codeseparator_position</code> is the last input to the hash, the SHA256 midstate can be efficiently cached for multiple <code>OP_CODESEPARATOR</code>s in a single script. In contrast, the BIP143 handling of <code>OP_CODESEPARATOR</code> is to commit to the executed script only from the last executed <code>OP_CODESEPARATOR</code> onwards which requires unnecessary rehashing of the script. It should be noted that the one known <code>OP_CODESEPARATOR</code> use case of saving a second public key push in a script by sharing the first one between two code branches can be most likely expressed even cheaper by moving each branch into a separate taproot leaf.</ref>
 
 ===Resource limits===
 
