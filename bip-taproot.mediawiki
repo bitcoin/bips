@@ -41,7 +41,7 @@ As a result we choose this combination of technologies:
 * Taproot's advantages become apparent under the assumption that most applications involve outputs that could be spent by all parties agreeing. That's where '''Schnorr''' signatures come in, as they permit [https://eprint.iacr.org/2018/068 key aggregation]: a public key can be constructed from multiple participant public keys, and which requires cooperation between all participants to sign for. Such multi-party public keys and signatures are indistinguishable from their single-party equivalents. This means that with taproot most applications can use the key-based spending path, which is both efficient and private. This can be generalized to arbitrary M-of-N policies, as Schnorr signatures support threshold signing, at the cost of more complex setup protocols.
 * As Schnorr signatures also permit '''batch validation''', allowing multiple signatures to be validated together more efficiently than validating each one independently, we make sure all parts of the design are compatible with this.
 * Where unused bits appear as a result of the above changes, they are reserved for mechanisms for '''future extensions'''. As a result, every script in the Merkle tree has an associated version such that new script versions can be introduced with a soft fork while remaining compatible with bip-taproot. Additionally, future soft forks can make use of the currently unused <code>annex</code> in the witness (see [[#Rationale]]).
-* While the core semantics of the '''signature hashing algorithm''' are not changed, a number of improvements are included in this proposal. The new signature hashing algorithm fixes the verification capabilities of offline signing devices by including amount and scriptPubKey in the digest, avoids unnecessary hashing, uses '''tagged hashes''' and defines a default sighash byte.
+* While the core semantics of the '''signature hashing algorithm''' are not changed, a number of improvements are included in this proposal. The new signature hashing algorithm fixes the verification capabilities of offline signing devices by including amount and scriptPubKey in the signature message, avoids unnecessary hashing, uses '''tagged hashes''' and defines a default sighash byte.
 * The '''public key is directly included in the output''' in contrast to typical earlier constructions which store a hash of the public key or script in the output. This has the same cost for senders and is more space efficient overall if the key-based spending path is taken. <ref>'''Why is the public key directly included in the output?''' While typical earlier constructions store a hash of a script or a public key in the output, this is rather wasteful when a public key is always involved. To guarantee batch verifiability, the public key must be known to every verifier, and thus only revealing its hash as an output would imply adding an additional 32 bytes to the witness. Furthermore, to maintain [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-January/012198.html 128-bit collision security] for outputs, a 256-bit hash would be required anyway, which is comparable in size (and thus in cost for senders) to revealing the public key directly. While the usage of public key hashes is often said to protect against ECDLP breaks or quantum computers, this protection is very weak at best: transactions are not protected while being confirmed, and a very [https://twitter.com/pwuille/status/1108097835365339136 large portion] of the currency's supply is not under such protection regardless. Actual resistance to such systems can be introduced by relying on different cryptographic assumptions, but this proposal focuses on improvements that do not change the security model.</ref>
 
 Informally, the resulting design is as follows: a new witness version is added (version 1), whose programs consist of 32-byte encodings of points ''Q''. ''Q'' is computed as ''P + hash(P||m)G'' for a public key ''P'', and the root ''m'' of a Merkle tree whose leaves consist of a version number and a script. These outputs can be spent directly by providing a signature for ''Q'', or indirectly by revealing ''P'', the script and leaf version, inputs that satisfy the script, and a Merkle path that proves ''Q'' committed to that leaf. All hashes in this construction (the hash for computing ''Q'' from ''P'', the hashes inside the Merkle tree's inner nodes, and the signature hashes used) are tagged to guarantee domain separation.
@@ -59,9 +59,9 @@ The following rules only apply when such an output is being spent. Any other out
 
 * Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents a public key according to bip-schnorr.
 * Fail if the witness stack has 0 elements.
-* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' The <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y squareness, each leaf version needs an even byte value and the immediately following odd byte value that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the scriptPubKey of the output being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the transaction digest and contributes to transaction weight, but is otherwise ignored during taproot validation.
+* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' The <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y squareness, each leaf version needs an even byte value and the immediately following odd byte value that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the scriptPubKey of the output being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the signature and contributes to transaction weight, but is otherwise ignored during taproot validation.
 * If there is exactly one element left in the witness stack, key path spending is used:
-** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''q'' and taproot transaction digest (to be defined hereinafter) as message. Fail if it is not. Otherwise pass.
+** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''q'' (see the next subsection).
 * If there are at least two witness elements left, script path spending is used:
 ** Call the second-to-last stack element ''s'', the script.
 ** The last stack element is called the control block ''c'', and must have length ''33 + 32m'', for a value of ''m'' that is an integer between 0 and 128<ref>'''Why is the Merkle path length limited to 128?''' The optimally space-efficient Merkle tree can be constructed based on the probabilities of the scripts in the leaves, using the Huffman algorithm. This algorithm will construct branches with lengths approximately equal to ''log<sub>2</sub>(1/probability)'', but to have branches longer than 128 you would need to have scripts with an execution chance below 1 in ''2<sup>128</sup>''. As that is our security bound, scripts that truly have such a low chance can probably be removed entirely.</ref>, inclusive. Fail if it does not have such a length.
@@ -83,68 +83,61 @@ The following rules only apply when such an output is being spent. Any other out
 
 === Signature validation rules ===
 
-The following rules apply:
+We first define a reusable common signature message calculation function, followed by the actual signature validation as it's used in key path spending.
 
-* If the signature is not 64<ref>'''Why permit two signature lengths?''' By making the most common type of <code>hash_type</code> implicit, a byte can often be saved.</ref> or 65 bytes, fail.
-* If the signature size is 65 bytes:
-** If the final byte is not a valid <code>hash_type</code> (defined hereinafter), fail.
-** If the final byte is <code>0x00</code>, fail<ref>'''Why can the <code>hash_type</code> not be <code>0x00</code> in 65-byte signatures?''' Permitting that would enable malleating (by third parties, including miners) 64-byte signatures into 65-byte ones, resulting in a different `wtxid` and a different fee rate than the creator intended</ref>.
-** If the first 64 bytes are not a valid signature according to bip-schnorr for the public key and message set to the transaction digest with <code>hash_type</code> set as the final byte, fail.
-* If the signature size is 64 bytes:
-** If it is not a valid signature according to bip-schnorr for the public key and the <code>hash_type = 0x00</code> transaction digest as message, fail.
-* Otherwise the signature is valid.
+==== Common signature message ====
 
-==== hash_type ====
+The function ''SigMsg(hash_type, ext_flag)'' computes the message being signed as a byte array. It is implicitly also a function of the spending transaction and the outputs it spends, but these are not listed to keep notation simple. 
 
-<code>hash_type</code> is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are used, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>. Use of the default <code>hash_type = 0x00</code> results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>.
-
-The following use of <code>hash_type</code> are invalid, and fail execution:
-
+The parameter ''hash_type'' is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are reused, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>, plus the default ''hash_type'' value ''0x00'' which results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>. The following restrictions apply, which cause validation failure if violated:
+* Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'', ''0x03'', ''0x81'', ''0x82'', or ''0x83''<ref>'''Why reject unknown ''hash_type'' values?''' By doing so, it is easier to reason about the worst case amount of signature hashing an implementation with adequate caching must perform.</ref>).
 * Using <code>SIGHASH_SINGLE</code> without a "corresponding output" (an output with the same index as the input being verified).
-* Using any <code>hash_type</code> value that is not <code>0x00</code>, <code>0x01</code>, <code>0x02</code>, <code>0x03</code>, <code>0x81</code>, <code>0x82</code>, or <code>0x83</code><ref>'''Why reject unknown <code>hash_type</code> values?''' By doing so, it is easier to reason about the worst case amount of signature hashing an implementation with adequate caching must perform.</ref>.
-* The signature has 65 bytes, and <code>hash_type</code> is <code>0x00</code>.
 
-==== Transaction digest ====
+The parameter ''ext_flag'' is an integer in range 0-127, and is used for indicating (in the message) that extensions are added at the end of the message<ref>'''What extensions use the ''ext_flag'' mechanism?''' Bip-tapscript reuses the same common signature message algorithm, but adds tapscript-specific data at the end, which is indicated using ''ext_flag = 1''.</ref>.
 
-As the message for signature verification, transaction digest is ''hash<sub>TapSighash</sub>'' of the following values (size in byte) serialized. Numerical values in 2, 4, or 8-byte are encoded in little-endian.
+If the parameters take acceptable values, the message is the concatenation of the following data, in order(with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte are encoded in little-endian.
 
 * Control:
-** <code>epoch</code> (1): always 0. <ref>'''What's the purpose of the epoch?''' The <code>epoch</code> can be increased to allow securely creating new transaction digest algorithms with large changes to the structure or interpretation of <code>hash_type</code> if needed.</ref>
-** <code>hash_type</code> (1).
+** ''hash_type'' (1).
 * Transaction data:
-** <code>nVersion</code> (4): the <code>nVersion</code> of the transaction.
-** <code>nLockTime</code> (4): the <code>nLockTime</code> of the transaction.
-** If the <code>SIGHASH_ANYONECANPAY</code> flag is not set:
-*** <code>sha_prevouts</code> (32): the SHA256 of the serialization of all input outpoints.
-*** <code>sha_amounts</code> (32): the SHA256 of the serialization of all input amounts.
-*** <code>sha_sequences</code> (32): the SHA256 of the serialization of all input <code>nSequence</code>.
-** If neither the <code>SIGHASH_NONE</code> nor the <code>SIGHASH_SINGLE</code> flag is set:
-*** <code>sha_outputs</code> (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
+** ''nVersion'' (4): the ''nVersion'' of the transaction.
+** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
+** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
+*** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
+*** ''sha_amounts'' (32): the SHA256 of the serialization of all input amounts.
+*** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
+** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
+*** ''sha_outputs'' (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
 * Data about this input:
-** <code>spend_type</code> (1):
-*** Bit 0 is set if an annex is present (the original witness stack has two or more witness elements, and the first byte of the last element is <code>0x50</code>).
-*** The other bits are unset.
-** <code>scriptPubKey</code> (35): <code>scriptPubKey</code> of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
-** If the <code>SIGHASH_ANYONECANPAY</code> flag is set:
-*** <code>outpoint</code> (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
-*** <code>amount</code> (8): value of the previous output spent by this input.
-*** <code>nSequence</code> (4): <code>nSequence</code> of this input.
-** If the <code>SIGHASH_ANYONECANPAY</code> flag is not set:
-*** <code>input_index</code> (4): index of this input in the transaction input vector. Index of the first input is 0.
-** If bit 0 of <code>spend_type</code> is set:
-*** <code>sha_annex</code> (32): the SHA256 of (compact_size(size of annex) || annex).
+** ''spend_type'' (1): equal to ''(ext_flag * 2) + annex_present'', where ''annex_present'' is 0 if no annex is present, or 1 otherwise (the original witness stack has two or more witness elements, and the first byte of the last element is ''0x50'')
+** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
+** If ''hash_type & 0x80'' equals <code>SIGHASH_ANYONECANPAY</code>:
+*** ''outpoint'' (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
+*** ''amount'' (8): value of the previous output spent by this input.
+*** ''nSequence'' (4): ''nSequence'' of this input.
+** If ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
+*** ''input_index'' (4): index of this input in the transaction input vector. Index of the first input is 0.
+** If an annex is present (the lowest bit of ''spend_type'' is set):
+*** ''sha_annex'' (32): the SHA256 of ''(compact_size(size of annex) || annex)'', where ''annex'' includes the mandatory ''0x50'' prefix.
 * Data about this output:
-** If the <code>SIGHASH_SINGLE</code> flag is set:
-*** <code>sha_single_output</code> (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
+** If ''hash_type & 3'' equals <code>SIGHASH_SINGLE</code>:
+*** ''sha_single_output'' (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-The total number of bytes hashed is at most ''210'' (excluding sub-hashes such as `sha_prevouts`)<ref>'''What is the number of bytes hashed for the signature hash?''' The total size of the input to ''hash<sub>TapSighash</sub>'' (excluding the initial 64-byte hash tag) can be computed using the following formula: ''178 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>.  Sub-hashes may be cached across signatures of the same transaction.
+The total length of ''SigMsg()'' is at most ''209'' bytes<ref>'''What is the output length of ''SigMsg()''?''' The total length of ''SigMsg()'' can be computed using the following formula: ''177 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>. Note that this does not include the size of sub-hashes such as ''sha_prevouts'', which may be cached across signatures of the same transaction.
 
 In summary, the semantics of the [https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki BIP143] sighash types remain unchanged, except the following:
-# The way and order of serialization is changed.<ref>'''Why is the serialization in the transaction digest changed?''' Hashes that go into the digest and the digest itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for transaction digests because there is no secret data. Therefore doubling SHA256 is a waste of resources. The digest computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the digest across different inputs using the SHA256 midstate. Additionally, sub-hashes can be skipped when calculating the digest (for example `sha_prevouts` if <code>SIGHASH_ANYONECANPAY</code> is set) instead of setting them to zero and then hashing them as in BIP143. Despite that, collisions are made impossible by committing to the length of the data (implicit in <code>hash_type</code> and <code>spend_type</code>) before the variable length data.</ref>
-# The digest commits to the <code>scriptPubKey</code><ref>'''Why does the transaction digest commit to the <code>scriptPubKey</code>?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (<code>scriptCode</code> in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed.</ref>.
-# If the <code>SIGHASH_ANYONECANPAY</code> flag is not set, the digest commits to the amounts of ''all'' transaction inputs.<ref>'''Why does the transaction digest commit to the amounts of all transaction inputs?''' This eliminates the possibility to lie to offline signing devices about the fee of a transaction.</ref>
-# The digest commits to all input <code>nSequence</code> if <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code> are set (unless <code>SIGHASH_ANYONECANPAY</code> is set as well).<ref>'''Why does the transaction digest commit to all input <code>nSequence</code> if <code>SIGHASH_SINGLE</code> or <code>SIGHASH_NONE</code> are set?''' Because setting them already makes the digest commit to the <code>prevouts</code> part of all transaction inputs, it is not useful to treat the <code>nSequence</code> any different. Moreover, this change makes <code>nSequence</code> consistent with the view that <code>SIGHASH_SINGLE</code> and <code>SIGHASH_NONE</code> only modify the digest with respect to transaction outputs and not inputs.</ref>
-# The digest commits to taproot-specific data <code>epoch</code>, <code>spend_type</code> and <code>annex</code> (if present).
+# The way and order of serialization is changed.<ref>'''Why is the serialization in the signature message changed?''' Hashes that go into the signature message and the message itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for signature messages because there is no secret data. Therefore doubling SHA256 is a waste of resources. The message computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the message across different inputs using the SHA256 midstate. Additionally, sub-hashes can be skipped when calculating the message (for example `sha_prevouts` if <code>SIGHASH_ANYONECANPAY</code> is set) instead of setting them to zero and then hashing them as in BIP143. Despite that, collisions are made impossible by committing to the length of the data (implicit in ''hash_type'' and ''spend_type'') before the variable length data.</ref>
+# The signature message commits to the ''scriptPubKey''<ref>'''Why does the signature message commit to the ''scriptPubKey''?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (''scriptCode'' in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed.</ref>.
+# If the <code>SIGHASH_ANYONECANPAY</code> flag is not set, the message commits to the amounts of ''all'' transaction inputs.<ref>'''Why does the signature message commit to the amounts of all transaction inputs?''' This eliminates the possibility to lie to offline signing devices about the fee of a transaction.</ref>
+# The signature message commits to all input ''nSequence'' if <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code> are set (unless <code>SIGHASH_ANYONECANPAY</code> is set as well).<ref>'''Why does the signature message commit to all input ''nSequence'' if <code>SIGHASH_SINGLE</code> or <code>SIGHASH_NONE</code> are set?''' Because setting them already makes the message commit to the <code>prevouts</code> part of all transaction inputs, it is not useful to treat the ''nSequence'' any different. Moreover, this change makes ''nSequence'' consistent with the view that <code>SIGHASH_SINGLE</code> and <code>SIGHASH_NONE</code> only modify the signature message with respect to transaction outputs and not inputs.</ref>
+# The signature message includes commitments to the taproot-specific data ''spend_type'' and ''annex'' (if present).
+
+==== Taproot key path spending signature validation ====
+
+To validate a signature ''sig'' with public key ''q'':
+* If the ''sig'' is 64 bytes long, return ''Verify(q, hash<sub>TapSigHash</sub>(0x00 || SigMsg(0x00, 0)), sig)''<ref>'''Why is the input to ''hash<sub>TapSigHash</sub>'' prefixed with 0x00?''' This prefix is called the sighash epoch, and allows reusing the ''hash<sub>TapSigHash</sub>'' tagged hash in future signature algorithms that make invasive changes to how hashing is performed (as opposed to the ''ext_flag'' mechanism that is used for incremental extensions). An alternative is having them use a different tag, but supporting a growing number of tags may become undesirable.</ref>, where ''Verify'' is defined in bip-schnorr.
+* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00<ref>'''Why can the <code>hash_type</code> not be <code>0x00</code> in 65-byte signatures?''' Permitting that would enable malleating (by third parties, including miners) 64-byte signatures into 65-byte ones, resulting in a different `wtxid` and a different fee rate than the creator intended</ref> and Verify(q, hash<sub>TapSighash</sub>(0x00 || SigMsg(sig[64], 0)), sig[0:64])''.
+* Otherwise, fail<ref>'''Why permit two signature lengths?''' By making the most common type of <code>hash_type</code> implicit, a byte can often be saved.</ref>.
 
 == Constructing and spending Taproot outputs ==
 
