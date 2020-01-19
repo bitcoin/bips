@@ -34,6 +34,7 @@ my %MiscField = (
 	'Discussions-To' => undef,
 	'Post-History' => undef,
 	'Replaces' => undef,
+	'Requires' => undef,
 	'Superseded-By' => undef,
 );
 
