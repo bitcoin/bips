@@ -1,0 +1,45 @@
+
+==== Two Withdrawals at Once ====
+
+Currently, the documentation and code describe a situation where only one withdrawal can proceed at a time. As a result, one "train" (carrying everyone's withdrawals) leaves the station every 3 months, and takes 3-6 months to reach its destination.
+
+Thus, if a withdrawing-user is very unlucky, and "just misses" the train, this user must wait double-long. First, (s)he must wait for the missed-train to reach its destination. Second, (s)he must board the new train, and wait for *it* to reach its destination. Each of these steps takes 3-6 months.
+
+So, even when withdrawals always go as quickly as possible (3 months each), the total time varies, from 3 months (0 months waiting + 3 months travel) to 6 months (3 months waiting + 3 months travel). The average is 4.5 months.
+
+To improve this, we allow for slightly different behavior if the highest-ACK-withdrawal [1st] has an ACK score >= 6575; and [2nd] is not tied with any other withdrawal.
+
+Basically: a second train can leave, if the furthest train is 50+% of the way to its destination.
+
+So, previously, for m trains, M4 could be any of the following:
+
+    abstain
+    alarm (move all trains backwards)
+    move train #1 forward (and others backwards)
+    move train #2 forward (and others backwards)
+    ...
+    move train #3 forward (and others backwards)
+
+If our new special conditions apply, we now double the (m-1) elements, to accommodate a second train:
+
+    |abstain
+    |alarm (move all trains backwards)
+
+    |advance furthest train + advance train #1 (regress all others)
+    |advance furthest train + advance train #2 (regress all others)
+    |...
+    |advance furthest train + advance train #(m-1)  (regress all others)
+     
+    |regress furthest train + advance train #1 (regress all others)
+    |regress furthest train + advance train #2 (regress all others)
+    |...
+    |regress furthest train + advance train #(m-1) (regress all others)
+    
+
+It is theoretically possible (but in practice probably impossible) to troll this rule, by getting two (or even three) withdrawals to have >6575 ACK scores, and then getting these to *tie* for first place. Then they'd both be furthest. Hence the second condition prohibiting this new behavior, if the furthest trains have any ACK-score ties.
+
+This simple change, which has almost zero impact on the security assumptions, improves the monthly total wait times drastically:
+
+    Worst-case:   6 --> 4.5
+    Average:    4.5 --> 3.75
+    Std Dev:   ~.91 --> ~.45
