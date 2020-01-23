@@ -49,7 +49,7 @@ def output_cmp(output_tuple1, output_tuple2):
 	elif (output_tuple1[0] > output_tuple2[0]):
 		return 1
 	#tie-breaker: scriptPubKey_byte_arr
-	return bytearray_cmp(output_tuple1[1], output_tuple2[1])
+	return bytearr_cmp(output_tuple1[1], output_tuple2[1])
 
 def sort_outputs(output_tuples):
 	return sorted(output_tuples, cmp=output_cmp)
