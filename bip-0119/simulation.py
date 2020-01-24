@@ -11,7 +11,7 @@ MAX_BLOCK_SIZE = 1e6
 AVG_INTERVAL = 10*60
 TXNS_PER_SEC = 0.5*MAX_BLOCK_SIZE/AVG_TX/AVG_INTERVAL
 MAX_MEMPOOL = MAX_BLOCK_SIZE * 100
-COMPRESSABLE = 0.05
+COMPRESSIBLE = 0.05
 
 
 
@@ -57,7 +57,7 @@ def compressed(rate_multiplier = 1):
             block_time = np.random.poisson(AVG_INTERVAL)
             total_time[i] = block_time
             txns = np.random.poisson(rate_multiplier*get_rate(phase)*block_time)
-            postponed = txns * COMPRESSABLE
+            postponed = txns * COMPRESSIBLE
             weight = (txns-postponed)*AVG_TX + backlog
             secondary_backlog += postponed*133 + postponed*34 # Total extra work
             if weight > MAX_BLOCK_SIZE:
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     compressed_txs2, unspendable2, blocktimes_c2 = compressed(2)
 
     fig, host = plt.subplots()
-    host.set_title("Transaction Compression Performance with %d%% Adoption During Spike"%(100*COMPRESSABLE))
+    host.set_title("Transaction Compression Performance with %d%% Adoption During Spike"%(100*COMPRESSIBLE))
     fig.subplots_adjust(right=0.75)
     par1 = host.twinx()
     par2 = host.twinx()
