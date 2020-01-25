@@ -1,7 +1,7 @@
 <pre>
   BIP: 42
   Layer: Consensus (soft fork)
-  Title: A finite monetary supply for Bitcoin
+  Title: Fix Platform Dependent Block Reward Issue
   Author: Pieter Wuille <pieter.wuille@gmail.com>
   Comments-Summary: Unanimously Recommended for implementation
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0042
@@ -13,54 +13,42 @@
 
 ==Abstract==
 
-Although it is widely believed that Satoshi was an inflation-hating goldbug he never said this, and in fact programmed Bitcoin's money supply to grow indefinitely, forever. He modeled the monetary supply as 4 gold mines being discovered per mibillenium (1024 years), with equal intervals between them, each one being depleted over the course of 140 years.
-
-This poses obvious problems, however. Prominent among them is the discussion on what to call 1 billion Bitcoin, which symbol color to use for it, and when wallet clients should switch to it by default.
-
-To combat this, this document proposes a controversial change: making Bitcoin's monetary supply finite.
+This BIP fixes a platform bug in the specification of the subsidy curve for Bitcoin.
 
 ==Details==
 
-As is well known, Satoshi was a master programmer whose knowledge of C++ was surpassed only by his knowledge of Japanese culture. The code below:
+The code below:
 
     int64_t nSubsidy = 50 * COIN;
     // Subsidy is cut in half every 210,000 blocks
     // which will occur approximately every 4 years.
     nSubsidy >>= (nHeight / 210000);
 
-is carefully written to rely on undefined behaviour in the C++ specification - perhaps so it can be hardware accelerated in future.
+contains undefined behaviour in the C++ specification.
 
-The block number is divided by 210000 (the "apparent" subsidy halving interval in blocks), and the result is used as input for a binary shift, applied to the original payout (50 BTC), expressed in base units. Thanks to the new-goldmine interval being exactly 64 times the halving interval, and 64 being the size in bits of the currency datatype, the cycle repeats itself every 64 halvings on all currently supported platforms.
+The block number is divided by 210000 (the "apparent" subsidy halving interval
+in blocks), and the result is used as input for a binary shift, applied to the
+original payout (50 BTC), expressed in base units. After 64 such halvings, the
+result of this expression is undefined as per the C++ specification.
 
-Despite the nice showoff of underhanded programming skills - we want Bitcoin to be well-specified. Otherwise, we're clearly in for a bumpy ride:
 
-<img src="bip-0042/inflation.png"></img>
+    In any case, if the value of the right operand is negative or is greater or
+    equal to the number of bits in the promoted left operand, the behavior is
+    undefined.
 
-Note that several other programming languages do not exhibit this behaviour, making new implementations likely to be slower and generally more bogus than Bitcoin Core. For example, Python unexpectedly returns 0 when shifting an integer beyond its size.
+This BIP fixes this undefined behavior to be well defined and in line with the
+intended subsidy curve.
 
-==Other solutions==
-
-===Floating-point approximation===
-
-An obvious solution would be to reimplement the shape of the subsidy curve using floating-point approximations, such as simulated annealing or quantitative easing, which have already proven their worth in consensus systems. Unfortunately, since the financial crisis everyone considers numbers with decimal points in them fishy, and integers are not well supported by Javascript. 
-
-===Truncation===
-
-An alternative solution would be to represent the total number of bitcoins as a string:
-
-    "21000000000000000000000"
-
-and then use string manipulation to remove the rightmost zero every 4 years, give or take a leap-year:
-
-    strSubsidy = strSubsidy.substr(0, strSubsidy.size() - 2);
-
-This style relies less heavily on clever C++ and is more familiar to the Core Dev Team who are primarily PHP programmers.
+Note that several other programming languages do not exhibit this behaviour,
+making alternative implementations likely to already be enforcing this rule. For
+example, Python returns 0 when shifting an integer beyond its size.
 
 ==Proposal==
 
-Instead, how about we stop thinking about long term issues when we'll all be dead (barring near lightspeed travel, cryogenic revival, or other technology— like cryptocurrency— which only exists in science fiction).
-
-A softfork (see BIP16, BIP34, BIP62) will take place on april 1st 2214, permanently setting the subsidy to zero. The result of this will be that the total currency supply will be limited to 42 halfmillion (including the genesis coinbase output, which is not actually spendable).
+A softfork (see BIP16, BIP34, BIP62) will take place when `nHeight/210000 ==
+64`, permanently setting the subsidy to zero. The result of this will be that
+the total currency supply will be limited to 21 Million Bitcoin, as originally
+intended.
 
 ==Implementation==
 
@@ -68,13 +56,20 @@ An implementation for the reference client can be found on https://github.com/bi
 
 ==Compatibility==
 
-Given the moderate time frame over which this change is to be implemented, we expect all miners to choose to screw themselves and deploy this change before 2214.
+Given the long time frame over which this change is to be activated, we
+expect all miners to use a client compatible with this before such a nHeight is
+reached.
 
-If they don't, and a minority remains on the old code base, a fork may occur. Essentially, they'll be mining fool's gold after that time.
+If they don't, and a minority remains on the old code base, the minority may
+mine invalid blocks but will not form the most work chain (as claiming the block
+reward is optional). If the majority of miners do not enforce this rule, then
+a fork (or many, depending on the contemporary hardware and software
+interpretations of undefined behavior) would occur.
 
 ==Acknowledgements==
 
-Thanks to Gregory Maxwell for proposing this solution, and to Mike Hearn for insights into web development. Also thanks to "ditto-b" on github to implement a prototype ahead of time.
+Thanks to Gregory Maxwell for proposing this solution. Thanks to "ditto-b" on
+github for discovering this issue.
 
 ==Copyright==
 
