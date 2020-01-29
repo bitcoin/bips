@@ -85,9 +85,9 @@ In the case of ''R'' the third option is slower at signing time but a bit faster
 for elliptic curve operations). The two other options require a possibly
 expensive conversion to affine coordinates first. This would even be the case if the sign or oddness were explicitly coded (option 2 in the list above). We therefore choose option 3.
 
-For ''P'' the speed of signing and verification does not significantly differ between any of the three options because affine coordinates of the point have to be computed anyway. For consistency reasons we choose the same option as for ''R''. The signing algorithm ensures that the signature is valid under the correct public key by negating the secret key if necessary.
+For ''P'', using the third option comes at the cost of computing a Jacobi symbol (test for squaredness) at key generation or signing time, without avoiding a conversion to affine coordinates (as public keys will use affine coordinates anyway). We choose the second option, making public keys implicitly have an even Y coordinate, to maximize compatibility with existing key generation algorithms and infrastructure.
 
-Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is a square by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is not a square. A proof sketch can be found [https://medium.com/blockstream/reducing-bitcoin-transaction-sizes-with-x-only-pubkeys-f86476af05d7 here].</ref>.
+Implicit Y coordinates are not a reduction in security when expressed as the number of elliptic curve operations an attacker is expected to perform to compute the secret key. An attacker can normalize any given public key to a point whose Y coordinate is even by negating the point if necessary. This is just a subtraction of field elements and not an elliptic curve operation<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is odd. A proof sketch can be found [https://medium.com/blockstream/reducing-bitcoin-transaction-sizes-with-x-only-pubkeys-f86476af05d7 here].</ref>.
 
 '''Tagged Hashes''' Cryptographic hash functions are used for multiple purposes in the specification below and in Bitcoin in general. To make sure hashes used in one context can't be reinterpreted in another one, hash functions can be tweaked with a context-dependent tag name, in such a way that collisions across contexts can be assumed to be infeasible. Such collisions obviously can not be ruled out completely, but only for schemes using tagging with a unique name. As for other schemes collisions are at least less likely with tagging than without.
 
@@ -95,7 +95,7 @@ For example, without tagged hashing a BIP340 signature could also be valid for a
 
 This proposal suggests to include the tag by prefixing the hashed data with ''SHA256(tag) || SHA256(tag)''. Because this is a 64-byte long context-specific constant and the ''SHA256'' block size is also 64 bytes, optimized implementations are possible (identical to SHA256 itself, but with a modified initial state). Using SHA256 of the tag name itself is reasonably simple and efficient for implementations that don't choose to use the optimization.
 
-'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is a square and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a square. The signature satisfies ''s⋅G = R + tagged_hash(r || pk || m)⋅P''.
+'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is even and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a square. The signature satisfies ''s⋅G = R + tagged_hash(r || pk || m)⋅P''.
 
 === Specification ===
 
@@ -117,16 +117,17 @@ The following conventions are used, with constants as defined for [https://www.s
 ** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte first encoding is ''x''.
 ** The function ''is_square(x)'', where ''x'' is an integer, returns whether or not ''x'' is a quadratic residue modulo ''p''. Since ''p'' is prime, it is equivalent to the [https://en.wikipedia.org/wiki/Legendre_symbol Legendre symbol] ''(x / p) = x<sup>(p-1)/2</sup> mod p'' being equal to ''1''<ref>For points ''P'' on the secp256k1 curve it holds that ''y(P)<sup>(p-1)/2</sup> &ne; 0 mod p''.</ref>.
 ** The function ''has_square_y(P)'', where ''P'' is a point, is defined as ''not is_infinite(P) and is_square(y(P))''<ref>For points ''P'' on the secp256k1 curve it holds that ''has_square_y(P) = not has_square_y(-P)''.</ref>.
-** The function ''lift_x(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x''<ref>
+** The function ''has_even_y(x)'', where ''P'' is a point, returns ''y(P) mod 2 = 0''.
+** The function ''lift_x_square_y(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x''<ref>
     Given a candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''. The valid Y coordinates for a given candidate ''x'' are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''.
 </ref> and ''has_square_y(P)''<ref>
-    If ''P := lift_x(x)'' does not fail, then ''y := y(P) = c<sup>(p+1)/4</sup> mod p'' is square. Proof: If ''lift_x'' does not fail, ''y'' is a square root of ''c'' and therefore the [https://en.wikipedia.org/wiki/Legendre_symbol Legendre symbol] ''(c / p)'' is ''c<sup>(p-1)/2</sup> = 1 mod p''. Because the Legendre symbol ''(y / p)'' is ''y<sup>(p-1)/2</sup> mod p = c<sup>((p+1)/4)((p-1)/2)</sup> mod p = 1<sup>((p+1)/4)</sup> mod p = 1 mod p'', ''y'' is square.
-</ref>, or fails if no such point exists. The function ''lift_x(x)'' is equivalent to the following pseudocode:
+    If ''P := lift_x_square_y(x)'' does not fail, then ''y := y(P) = c<sup>(p+1)/4</sup> mod p'' is square. Proof: If ''lift_x_square_y'' does not fail, ''y'' is a square root of ''c'' and therefore the [https://en.wikipedia.org/wiki/Legendre_symbol Legendre symbol] ''(c / p)'' is ''c<sup>(p-1)/2</sup> = 1 mod p''. Because the Legendre symbol ''(y / p)'' is ''y<sup>(p-1)/2</sup> mod p = c<sup>((p+1)/4)((p-1)/2)</sup> mod p = 1<sup>((p+1)/4)</sup> mod p = 1 mod p'', ''y'' is square.
+</ref>, or fails if no such point exists. The function ''lift_x_square_y(x)'' is equivalent to the following pseudocode:
 *** Let ''c = x<sup>3</sup> + 7 mod p''.
 *** Let ''y = c<sup>(p+1)/4</sup> mod p''.
 *** Fail if ''c &ne; y<sup>2</sup> mod p''.
 *** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'', or fail if no such point exists.
-** The function ''point(x)'', where ''x'' is a 32-byte array, returns the point ''P = lift_x(int(x))''.
+** The function ''lift_x_even_y(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x'' and ''has_even_y(P)'', or fails if no such point exists. If such a point does exist, it is always equal to either ''lift_x_square_y(x)'' or ''-lift_x_square_y(x)'', which suggests implementing it in terms of ''lift_x_square_y'', and optionally negating the result.
 ** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
 
 ==== Public Key Generation ====
@@ -153,7 +154,7 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''d' = int(sk)''
 * Fail if ''d' = 0'' or ''d' &ge; n''
 * Let ''P = d'⋅G''
-* Let ''d = d' '' if ''has_square_y(P)'', otherwise let ''d = n - d' ''.
+* Let ''d = d' '' if ''has_even_y(P)'', otherwise let ''d = n - d' ''.
 * Let ''rand = hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)''.
 * Let ''k' = int(rand) mod n''<ref>Note that in general, taking a uniformly random 256-bit integer modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
@@ -183,7 +184,7 @@ Input:
 * A signature ''sig'': a 64-byte array
 
 The algorithm ''Verify(pk, m, sig)'' is defined as:
-* Let ''P = point(pk)''; fail if ''point(pk)'' fails.
+* Let ''P = lift_x_even_y(int(pk))''; fail if that fails.
 * Let ''r = int(sig[0:32])''; fail if ''r &ge; p''.
 * Let ''s = int(sig[32:64])''; fail if ''s &ge; n''.
 * Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(r) || bytes(P) || m)) mod n''.
@@ -193,7 +194,7 @@ The algorithm ''Verify(pk, m, sig)'' is defined as:
 
 For every valid secret key ''sk'' and message ''m'', ''Verify(PubKey(sk),m,Sign(sk,m))'' will succeed.
 
-Note that the correctness of verification relies on the fact that ''point(pk)'' always returns a point with a square Y coordinate. A hypothetical verification algorithm that treats points as public keys, and takes the point ''P'' directly as input would fail any time a point with non-square Y is used. While it is possible to correct for this by negating points with non-square Y coordinate before further processing, this would result in a scheme where every (message, signature) pair is valid for two public keys (a type of malleability that exists for ECDSA as well, but we don't wish to retain). We avoid these problems by treating just the X coordinate as public key.
+Note that the correctness of verification relies on the fact that ''lift_x_even_y'' always returns a point with an even Y coordinate. A hypothetical verification algorithm that treats points as public keys, and takes the point ''P'' directly as input would fail any time a point with odd Y is used. While it is possible to correct for this by negating points with odd Y coordinate before further processing, this would result in a scheme where every (message, signature) pair is valid for two public keys (a type of malleability that exists for ECDSA as well, but we don't wish to retain). We avoid these problems by treating just the X coordinate as public key.
 
 ==== Batch Verification ====
 
@@ -206,11 +207,11 @@ Input:
 The algorithm ''BatchVerify(pk<sub>1..u</sub>, m<sub>1..u</sub>, sig<sub>1..u</sub>)'' is defined as:
 * Generate ''u-1'' random integers ''a<sub>2...u</sub>'' in the range ''1...n-1''. They are generated deterministically using a [https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator CSPRNG] seeded by a cryptographic hash of all inputs of the algorithm, i.e. ''seed = seed_hash(pk<sub>1</sub>..pk<sub>u</sub> || m<sub>1</sub>..m<sub>u</sub> || sig<sub>1</sub>..sig<sub>u</sub> )''. A safe choice is to instantiate ''seed_hash'' with SHA256 and use [https://tools.ietf.org/html/rfc8439 ChaCha20] with key ''seed'' as a CSPRNG to generate 256-bit integers, skipping integers not in the range ''1...n-1''.
 * For ''i = 1 .. u'':
-** Let ''P<sub>i</sub> = point(pk<sub>i</sub>)''; fail if ''point(pk<sub>i</sub>)'' fails.
+** Let ''P<sub>i</sub> = lift_x_even_y(int(pk<sub>i</sub>))''; fail if it fails.
 ** Let ''r<sub>i</sub> = int(sig<sub>i</sub>[0:32])''; fail if ''r<sub>i</sub> &ge; p''.
 ** Let ''s<sub>i</sub> = int(sig<sub>i</sub>[32:64])''; fail if ''s<sub>i</sub> &ge; n''.
 ** Let ''e<sub>i</sub> = int(hash<sub>BIPSchnorr</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
-** Let ''R<sub>i</sub> = lift_x(r<sub>i</sub>)''; fail if ''lift_x(r<sub>i</sub>)'' fails.
+** Let ''R<sub>i</sub> = lift_x_square_y(r<sub>i</sub>)''; fail if ''lift_x_square_y(r<sub>i</sub>)'' fails.
 * Fail if ''(s<sub>1</sub> + a<sub>2</sub>s<sub>2</sub> + ... + a<sub>u</sub>s<sub>u</sub>)⋅G &ne; R<sub>1</sub> + a<sub>2</sub>⋅R<sub>2</sub> + ... + a<sub>u</sub>⋅R<sub>u</sub> + e<sub>1</sub>⋅P<sub>1</sub> + (a<sub>2</sub>e<sub>2</sub>)⋅P<sub>2</sub> + ... + (a<sub>u</sub>e<sub>u</sub>)⋅P<sub>u</sub>''.
 * Return success iff no failure occurred before reaching this point.
 
