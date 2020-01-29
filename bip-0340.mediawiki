@@ -155,19 +155,19 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * Fail if ''d' = 0'' or ''d' &ge; n''
 * Let ''P = d'⋅G''
 * Let ''d = d' '' if ''has_even_y(P)'', otherwise let ''d = n - d' ''.
-* Let ''rand = hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m)''.
+* Let ''rand = hash<sub>BIP340/nonce</sub>(bytes(d) || m)''.
 * Let ''k' = int(rand) mod n''<ref>Note that in general, taking a uniformly random 256-bit integer modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
 * Let ''R = k'⋅G''.
 * Let ''k = k' '' if ''has_square_y(R)'', otherwise let ''k = n - k' ''.
-* Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(R) || bytes(P) || m)) mod n''.
+* Let ''e = int(hash<sub>BIP340/challenge</sub>(bytes(R) || bytes(P) || m)) mod n''.
 * Return the signature ''bytes(R) || bytes((k + ed) mod n)''.
 
 ==== Alternative Signing ====
 
 It should be noted that various alternative signing algorithms can be used to produce equally valid signatures. The algorithm in the previous section is deterministic, i.e., it will always produce the same signature for a given message and secret key. This method does not need a random number generator (RNG) at signing time and is thus trivially robust against failures of RNGs. Alternatively the 32-byte ''rand'' value may be generated in other ways, producing a different but still valid signature (in other words, this is not a ''unique'' signature scheme). '''No matter which method is used to generate the ''rand'' value, the value must be a fresh uniformly random 32-byte string which is not even partially predictable for the attacker.''' Nonce freshness with a derandomize nonce function implies that the same inputs must not be presented in another context. This can be most reliably accomplished by not reusing the same private key across different signing schemes. For example, if the ''rand'' value was computed as per RFC6979 and the same secret key is used in deterministic ECDSA with RFC6979, the signatures can leak the secret key through nonce reuse.
 
-'''Synthetic nonces''' For instance when a RNG is available, 32 bytes of RNG output can be appended to the input to ''hash<sub>BIPSchnorrDerive</sub>''. This will change the corresponding line in the signing algorithm to ''rand = hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m || get_32_bytes_from_rng())'', where ''get_32_bytes_from_rng()'' is the call to the RNG. It is safe to add the output of a low-entropy RNG. Adding high-entropy RNG output may improve protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks and side-channel attacks]. Therefore, '''synthetic nonces are recommended in settings where these attacks are a concern''' - in particular on offline signing devices.
+'''Synthetic nonces''' For instance when a RNG is available, 32 bytes of RNG output can be appended to the input to ''hash<sub>BIP340/nonce</sub>''. This will change the corresponding line in the signing algorithm to ''rand = hash<sub>BIPSchnorrDerive</sub>(bytes(d) || m || get_32_bytes_from_rng())'', where ''get_32_bytes_from_rng()'' is the call to the RNG. It is safe to add the output of a low-entropy RNG. Adding high-entropy RNG output may improve protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks and side-channel attacks]. Therefore, '''synthetic nonces are recommended in settings where these attacks are a concern''' - in particular on offline signing devices.
 
 '''Verifying the signing output''' To prevent random or attacker provoked computation errors, the signature can be verified with the verification algorithm defined below before leaving the signer. This prevents publishing invalid signatures which may leak information about the secret key. '''If the additional computational cost is not a concern, it is recommended to verify newly created signatures and reject them in case of failure.'''
 
@@ -187,7 +187,7 @@ The algorithm ''Verify(pk, m, sig)'' is defined as:
 * Let ''P = lift_x_even_y(int(pk))''; fail if that fails.
 * Let ''r = int(sig[0:32])''; fail if ''r &ge; p''.
 * Let ''s = int(sig[32:64])''; fail if ''s &ge; n''.
-* Let ''e = int(hash<sub>BIPSchnorr</sub>(bytes(r) || bytes(P) || m)) mod n''.
+* Let ''e = int(hash<sub>BIP340/challenge</sub>(bytes(r) || bytes(P) || m)) mod n''.
 * Let ''R = s⋅G - e⋅P''.
 * Fail if ''not has_square_y(R)'' or ''x(R) &ne; r''.
 * Return success iff no failure occurred before reaching this point.
@@ -210,7 +210,7 @@ The algorithm ''BatchVerify(pk<sub>1..u</sub>, m<sub>1..u</sub>, sig<sub>1..u</s
 ** Let ''P<sub>i</sub> = lift_x_even_y(int(pk<sub>i</sub>))''; fail if it fails.
 ** Let ''r<sub>i</sub> = int(sig<sub>i</sub>[0:32])''; fail if ''r<sub>i</sub> &ge; p''.
 ** Let ''s<sub>i</sub> = int(sig<sub>i</sub>[32:64])''; fail if ''s<sub>i</sub> &ge; n''.
-** Let ''e<sub>i</sub> = int(hash<sub>BIPSchnorr</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
+** Let ''e<sub>i</sub> = int(hash<sub>BIP340/challenge</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
 ** Let ''R<sub>i</sub> = lift_x_square_y(r<sub>i</sub>)''; fail if ''lift_x_square_y(r<sub>i</sub>)'' fails.
 * Fail if ''(s<sub>1</sub> + a<sub>2</sub>s<sub>2</sub> + ... + a<sub>u</sub>s<sub>u</sub>)⋅G &ne; R<sub>1</sub> + a<sub>2</sub>⋅R<sub>2</sub> + ... + a<sub>u</sub>⋅R<sub>u</sub> + e<sub>1</sub>⋅P<sub>1</sub> + (a<sub>2</sub>e<sub>2</sub>)⋅P<sub>2</sub> + ... + (a<sub>u</sub>e<sub>u</sub>)⋅P<sub>u</sub>''.
 * Return success iff no failure occurred before reaching this point.
