@@ -128,7 +128,6 @@ The following conventions are used, with constants as defined for [https://www.s
 *** Fail if ''c &ne; y<sup>2</sup> mod p''.
 *** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'', or fail if no such point exists.
 ** The function ''lift_x_even_y(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x'' and ''has_even_y(P)'', or fails if no such point exists. If such a point does exist, it is always equal to either ''lift_x_square_y(x)'' or ''-lift_x_square_y(x)'', which suggests implementing it in terms of ''lift_x_square_y'', and optionally negating the result.
-** The function ''extbytes(P)'', where ''P'' is a point, returns the compressed 33-byte encoding of P, that is ''0x02 || bytes(x(P))'' if ''has_even_y(P)'' or ''0x03 || bytes(x(P))'' otherwise.
 ** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
 
 ==== Public Key Generation ====
@@ -155,8 +154,8 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''d' = int(sk)''
 * Fail if ''d' = 0'' or ''d' &ge; n''
 * Let ''P = d'⋅G''
-* Let ''rand = hash<sub>BIP340/nonce</sub>(bytes(d') || extbytes(P) || m)''<ref>Including the [https://moderncrypto.org/mail-archive/curves/2020/001012.html public key as input to the nonce hash] helps ensure the robustness of the signing algorithm, preventing leakage of the secret key if the calculation of the public key ''P'' is performed incorrectly or maliciously, for example due to being left to the caller for performance reasons.</ref>.
 * Let ''d = d' '' if ''has_even_y(P)'', otherwise let ''d = n - d' ''.
+* Let ''rand = hash<sub>BIP340/nonce</sub>(bytes(d) || bytes(P) || m)''<ref>Including the [https://moderncrypto.org/mail-archive/curves/2020/001012.html public key as input to the nonce hash] helps ensure the robustness of the signing algorithm by preventing leakage of the secret key if the calculation of the public key ''P'' is performed incorrectly or maliciously, for example if it is left to the caller for performance reasons.</ref>.
 * Let ''k' = int(rand) mod n''<ref>Note that in general, taking a uniformly random 256-bit integer modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
 * Let ''R = k'⋅G''.
@@ -177,7 +176,7 @@ It should be noted that various alternative signing algorithms can be used to pr
 '''Multisignatures''' This signature scheme is compatible with various types of multisignature and threshold schemes such as [https://eprint.iacr.org/2018/068 MuSig], where a single public key requires holders of multiple secret keys to participate in signing (see Applications below).
 '''It is important to note that multisignature signing schemes in general are insecure with the ''rand'' generation from the default signing algorithm above (or any other deterministic method).'''
 
-'''Precomputed public key data''' For many uses the compressed 33-byte encoding of the public key may already be known, making it easy to evaluate ''extbytes(P)'', ''has_even_y(P)'' and ''bytes(P)''. As such, having signers supply this directly may be more efficient than calculating them from the secret key. However, if this optimization is used, signers must ensure the public key is correctly calculated and not taken from untrusted sources.
+'''Precomputed public key data''' For many uses the compressed 33-byte encoding of the public key corresponding to the secret key may already be known, making it easy to evaluate ''has_even_y(P)'' and ''bytes(P)''. As such, having signers supply this directly may be more efficient than recalculating the public key from the secret key. However, if this optimization is used, signers must ensure the public key is correctly calculated and not taken from untrusted sources.
 
 ==== Verification ====
 
