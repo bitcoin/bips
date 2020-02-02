@@ -51,7 +51,7 @@ def bytes_from_int(x):
 def bytes_from_point(P):
     return bytes_from_int(x(P))
 
-def point_from_bytes(b):
+def lift_x_square_y(b):
     x = int_from_bytes(b)
     if x >= p:
         return None
@@ -60,6 +60,13 @@ def point_from_bytes(b):
     if pow(y, 2, p) != y_sq:
         return None
     return [x, y]
+
+def lift_x_even_y(b):
+    P = lift_x_square_y(b)
+    if P is None:
+        return None
+    else:
+        return [x(P), y(P) if y(P) % 2 == 0 else p - y(P)]
 
 def int_from_bytes(b):
     return int.from_bytes(b, byteorder="big")
@@ -72,6 +79,9 @@ def is_square(x):
 
 def has_square_y(P):
     return not is_infinity(P) and is_square(y(P))
+
+def has_even_y(P):
+    return y(P) % 2 == 0
 
 def pubkey_gen(seckey):
     x = int_from_bytes(seckey)
@@ -87,13 +97,13 @@ def schnorr_sign(msg, seckey0):
     if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     P = point_mul(G, seckey0)
-    seckey = seckey0 if has_square_y(P) else n - seckey0
-    k0 = int_from_bytes(tagged_hash("BIPSchnorrDerive", bytes_from_int(seckey) + msg)) % n
+    seckey = seckey0 if has_even_y(P) else n - seckey0
+    k0 = int_from_bytes(tagged_hash("BIP340/nonce", bytes_from_int(seckey) + bytes_from_point(P) + msg)) % n
     if k0 == 0:
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
     k = n - k0 if not has_square_y(R) else k0
-    e = int_from_bytes(tagged_hash("BIPSchnorr", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
+    e = int_from_bytes(tagged_hash("BIP340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
 def schnorr_verify(msg, pubkey, sig):
@@ -103,14 +113,14 @@ def schnorr_verify(msg, pubkey, sig):
         raise ValueError('The public key must be a 32-byte array.')
     if len(sig) != 64:
         raise ValueError('The signature must be a 64-byte array.')
-    P = point_from_bytes(pubkey)
+    P = lift_x_even_y(pubkey)
     if (P is None):
         return False
     r = int_from_bytes(sig[0:32])
     s = int_from_bytes(sig[32:64])
     if (r >= p or s >= n):
         return False
-    e = int_from_bytes(tagged_hash("BIPSchnorr", sig[0:32] + pubkey + msg)) % n
+    e = int_from_bytes(tagged_hash("BIP340/challenge", sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
     if R is None or not has_square_y(R) or x(R) != r:
         return False

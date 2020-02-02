@@ -2,14 +2,24 @@ import sys
 from reference import *
 
 def vector0():
-    seckey = bytes_from_int(1)
+    seckey = bytes_from_int(3)
     msg = bytes_from_int(0)
     sig = schnorr_sign(msg, seckey)
     pubkey = pubkey_gen(seckey)
 
-    # The point reconstructed from the public key has an even Y coordinate.
-    pubkey_point = point_from_bytes(pubkey)
-    assert(pubkey_point[1] & 1 == 0)
+    # We should have at least one test vector where the seckey needs to be
+    # negated and one where it doesn't. In this one the seckey doesn't need to
+    # be negated.
+    x = int_from_bytes(seckey)
+    P = point_mul(G, x)
+    assert(y(P) % 2 == 0)
+
+    # For historic reasons (pubkey tiebreaker was squareness and not evenness)
+    # we should have at least one test vector where the the point reconstructed
+    # from the public key has a square and one where it has a non-square Y
+    # coordinate. In this one Y is non-square.
+    pubkey_point = lift_x_even_y(pubkey)
+    assert(not has_square_y(pubkey_point))
 
     return (seckey, pubkey, msg, sig, "TRUE", None)
 
@@ -17,28 +27,33 @@ def vector1():
     seckey = bytes_from_int(0xB7E151628AED2A6ABF7158809CF4F3C762E7160F38B4DA56A784D9045190CFEF)
     msg = bytes_from_int(0x243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89)
     sig = schnorr_sign(msg, seckey)
-    pubkey = pubkey_gen(seckey)
-
-    # The point reconstructed from the public key has an odd Y coordinate.
-    pubkey_point = point_from_bytes(pubkey)
-    assert(pubkey_point[1] & 1 == 1)
-
-    return (seckey, pubkey, msg, sig, "TRUE", None)
+    return (seckey, pubkey_gen(seckey), msg, sig, "TRUE", None)
 
 def vector2():
     seckey = bytes_from_int(0xC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C9)
-    msg = bytes_from_int(0x5E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C)
+    msg = bytes_from_int(0x7E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C)
     sig = schnorr_sign(msg, seckey)
+
+    # The point reconstructed from the public key has a square Y coordinate.
+    pubkey = pubkey_gen(seckey)
+    pubkey_point = lift_x_even_y(pubkey)
+    assert(has_square_y(pubkey_point))
 
     # This signature vector would not verify if the implementer checked the
     # squareness of the X coordinate of R instead of the Y coordinate.
-    R = point_from_bytes(sig[0:32])
+    R = lift_x_square_y(sig[0:32])
     assert(not is_square(R[0]))
 
-    return (seckey, pubkey_gen(seckey), msg, sig, "TRUE", None)
+    return (seckey, pubkey, msg, sig, "TRUE", None)
 
 def vector3():
     seckey = bytes_from_int(0x0B432B2677937381AEF05BB02A66ECD012773062CF3FA2549E44F58ED2401710)
+
+    # Need to negate this seckey before signing
+    x = int_from_bytes(seckey)
+    P = point_mul(G, x)
+    assert(y(P) % 2 != 0)
+
     msg = bytes_from_int(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
     sig = schnorr_sign(msg, seckey)
     return (seckey, pubkey_gen(seckey), msg, sig, "TRUE", "test fails if msg is reduced modulo p or n")
@@ -53,9 +68,9 @@ def insecure_schnorr_sign_fixed_nonce(msg, seckey0, k):
     if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     P = point_mul(G, seckey0)
-    seckey = seckey0 if has_square_y(P) else n - seckey0
+    seckey = seckey0 if has_even_y(P) else n - seckey0
     R = point_mul(G, k)
-    e = int_from_bytes(tagged_hash("BIPSchnorr", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
+    e = int_from_bytes(tagged_hash("BIP340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
 # Creates a singature with a small x(R) by using k = 1/2
@@ -78,7 +93,7 @@ def vector5():
     sig = schnorr_sign(msg, seckey)
 
     pubkey = bytes_from_int(0xEEFDEA4CDB677750A420FEE807EACF21EB9898AE79B9768766E4FAA04A2D4A34)
-    assert(point_from_bytes(pubkey) is None)
+    assert(lift_x_even_y(pubkey) is None)
 
     return (None, pubkey, msg, sig, "FALSE", "public key not on the curve")
 
@@ -156,7 +171,7 @@ def vector11():
 
     # Replace R's X coordinate with an X coordinate that's not on the curve
     x_not_on_curve = bytes_from_int(0x4A298DACAE57395A15D0795DDBFD1DCB564DA82B0F269BC70A74F8220429BA1D)
-    assert(point_from_bytes(x_not_on_curve) is None)
+    assert(lift_x_square_y(x_not_on_curve) is None)
     sig = x_not_on_curve + sig[32:64]
 
     return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sig[0:32] is not an X coordinate on the curve")
@@ -201,10 +216,10 @@ def vector14():
 
     pubkey_int = p + 1
     pubkey = bytes_from_int(pubkey_int)
-    assert(point_from_bytes(pubkey) is None)
+    assert(lift_x_even_y(pubkey) is None)
     # If an implementation would reduce a given public key modulo p then the
     # pubkey would be valid
-    assert(point_from_bytes(bytes_from_int(pubkey_int % p)) is not None)
+    assert(lift_x_even_y(bytes_from_int(pubkey_int % p)) is not None)
 
     return (None, pubkey, msg, sig, "FALSE", "public key is not a valid X coordinate because it exceeds the field size")
 
