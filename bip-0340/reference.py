@@ -51,6 +51,9 @@ def bytes_from_int(x):
 def bytes_from_point(P):
     return bytes_from_int(x(P))
 
+def xor_bytes(b0, b1):
+    return bytes(x ^ y for (x, y) in zip(b0, b1))
+
 def lift_x_square_y(b):
     x = int_from_bytes(b)
     if x >= p:
@@ -90,15 +93,18 @@ def pubkey_gen(seckey):
     P = point_mul(G, x)
     return bytes_from_point(P)
 
-def schnorr_sign(msg, seckey0):
+def schnorr_sign(msg, seckey0, aux_rand):
     if len(msg) != 32:
         raise ValueError('The message must be a 32-byte array.')
     seckey0 = int_from_bytes(seckey0)
     if not (1 <= seckey0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
+    if len(aux_rand) != 32:
+        raise ValueError('aux_rand must be 32 bytes instead of %i.' % len(aux_rand))
     P = point_mul(G, seckey0)
     seckey = seckey0 if has_even_y(P) else n - seckey0
-    k0 = int_from_bytes(tagged_hash("BIP340/nonce", bytes_from_int(seckey) + bytes_from_point(P) + msg)) % n
+    t = xor_bytes(bytes_from_int(seckey), tagged_hash("BIP340/aux", aux_rand))
+    k0 = int_from_bytes(tagged_hash("BIP340/nonce", t + bytes_from_point(P) + msg)) % n
     if k0 == 0:
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
@@ -137,7 +143,7 @@ def test_vectors():
         reader = csv.reader(csvfile)
         reader.__next__()
         for row in reader:
-            (index, seckey, pubkey, msg, sig, result, comment) = row
+            (index, seckey, pubkey, aux_rand, msg, sig, result, comment) = row
             pubkey = bytes.fromhex(pubkey)
             msg = bytes.fromhex(msg)
             sig = bytes.fromhex(sig)
@@ -150,7 +156,8 @@ def test_vectors():
                     print(' * Failed key generation.')
                     print('   Expected key:', pubkey.hex().upper())
                     print('     Actual key:', pubkey_actual.hex().upper())
-                sig_actual = schnorr_sign(msg, seckey)
+                aux_rand = bytes.fromhex(aux_rand)
+                sig_actual = schnorr_sign(msg, seckey, aux_rand)
                 if sig == sig_actual:
                     print(' * Passed signing test.')
                 else:

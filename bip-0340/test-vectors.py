@@ -4,7 +4,8 @@ from reference import *
 def vector0():
     seckey = bytes_from_int(3)
     msg = bytes_from_int(0)
-    sig = schnorr_sign(msg, seckey)
+    aux_rand = bytes_from_int(0)
+    sig = schnorr_sign(msg, seckey, aux_rand)
     pubkey = pubkey_gen(seckey)
 
     # We should have at least one test vector where the seckey needs to be
@@ -21,18 +22,21 @@ def vector0():
     pubkey_point = lift_x_even_y(pubkey)
     assert(not has_square_y(pubkey_point))
 
-    return (seckey, pubkey, msg, sig, "TRUE", None)
+    return (seckey, pubkey, aux_rand, msg, sig, "TRUE", None)
 
 def vector1():
     seckey = bytes_from_int(0xB7E151628AED2A6ABF7158809CF4F3C762E7160F38B4DA56A784D9045190CFEF)
     msg = bytes_from_int(0x243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89)
-    sig = schnorr_sign(msg, seckey)
-    return (seckey, pubkey_gen(seckey), msg, sig, "TRUE", None)
+    aux_rand = bytes_from_int(1)
+
+    sig = schnorr_sign(msg, seckey, aux_rand)
+    return (seckey, pubkey_gen(seckey), aux_rand, msg, sig, "TRUE", None)
 
 def vector2():
     seckey = bytes_from_int(0xC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C9)
     msg = bytes_from_int(0x7E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C)
-    sig = schnorr_sign(msg, seckey)
+    aux_rand = bytes_from_int(0xC87AA53824B4D7AE2EB035A2B5BBBCCC080E76CDC6D1692C4B0B62D798E6D906)
+    sig = schnorr_sign(msg, seckey, aux_rand)
 
     # The point reconstructed from the public key has a square Y coordinate.
     pubkey = pubkey_gen(seckey)
@@ -44,7 +48,7 @@ def vector2():
     R = lift_x_square_y(sig[0:32])
     assert(not is_square(R[0]))
 
-    return (seckey, pubkey, msg, sig, "TRUE", None)
+    return (seckey, pubkey, aux_rand, msg, sig, "TRUE", None)
 
 def vector3():
     seckey = bytes_from_int(0x0B432B2677937381AEF05BB02A66ECD012773062CF3FA2549E44F58ED2401710)
@@ -55,8 +59,10 @@ def vector3():
     assert(y(P) % 2 != 0)
 
     msg = bytes_from_int(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
-    sig = schnorr_sign(msg, seckey)
-    return (seckey, pubkey_gen(seckey), msg, sig, "TRUE", "test fails if msg is reduced modulo p or n")
+    aux_rand = bytes_from_int(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+
+    sig = schnorr_sign(msg, seckey, aux_rand)
+    return (seckey, pubkey_gen(seckey), aux_rand, msg, sig, "TRUE", "test fails if msg is reduced modulo p or n")
 
 # Signs with a given nonce. This can be INSECURE and is only INTENDED FOR
 # GENERATING TEST VECTORS. Results in an invalid signature if y(kG) is not
@@ -79,10 +85,11 @@ def vector4():
     seckey = bytes_from_int(0x763758E5CBEEDEE4F7D3FC86F531C36578933228998226672F13C4F0EBE855EB)
     msg = bytes_from_int(0x4DF3C3F68FCC83B27E9D42C90431A72499F17875C81A599B566C9889B9696703)
     sig = insecure_schnorr_sign_fixed_nonce(msg, seckey, one_half)
-    return (None, pubkey_gen(seckey), msg, sig, "TRUE", None)
+    return (None, pubkey_gen(seckey), None, msg, sig, "TRUE", None)
 
 default_seckey = bytes_from_int(0xB7E151628AED2A6ABF7158809CF4F3C762E7160F38B4DA56A784D9045190CFEF)
 default_msg = bytes_from_int(0x243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89)
+default_aux_rand = bytes_from_int(0xC87AA53824B4D7AE2EB035A2B5BBBCCC080E76CDC6D1692C4B0B62D798E6D906)
 
 # Public key is not on the curve
 def vector5():
@@ -90,12 +97,12 @@ def vector5():
     # public key.
     seckey = default_seckey
     msg = default_msg
-    sig = schnorr_sign(msg, seckey)
+    sig = schnorr_sign(msg, seckey, default_aux_rand)
 
     pubkey = bytes_from_int(0xEEFDEA4CDB677750A420FEE807EACF21EB9898AE79B9768766E4FAA04A2D4A34)
     assert(lift_x_even_y(pubkey) is None)
 
-    return (None, pubkey, msg, sig, "FALSE", "public key not on the curve")
+    return (None, pubkey, None, msg, sig, "FALSE", "public key not on the curve")
 
 def vector6():
     seckey = default_seckey
@@ -107,21 +114,21 @@ def vector6():
     R = point_mul(G, k)
     assert(not has_square_y(R))
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "has_square_y(R) is false")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "has_square_y(R) is false")
 
 def vector7():
     seckey = default_seckey
     msg = int_from_bytes(default_msg)
     neg_msg = bytes_from_int(n - msg)
-    sig = schnorr_sign(neg_msg, seckey)
-    return (None, pubkey_gen(seckey), bytes_from_int(msg), sig, "FALSE", "negated message")
+    sig = schnorr_sign(neg_msg, seckey, default_aux_rand)
+    return (None, pubkey_gen(seckey), None, bytes_from_int(msg), sig, "FALSE", "negated message")
 
 def vector8():
     seckey = default_seckey
     msg = default_msg
-    sig = schnorr_sign(msg, seckey)
+    sig = schnorr_sign(msg, seckey, default_aux_rand)
     sig = sig[0:32] + bytes_from_int(n - int_from_bytes(sig[32:64]))
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "negated s value")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "negated s value")
 
 def bytes_from_point_inf0(P):
     if P == None:
@@ -140,7 +147,7 @@ def vector9():
     sig = insecure_schnorr_sign_fixed_nonce(msg, seckey, k)
     bytes_from_point.__code__ = bytes_from_point_tmp
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if has_square_y(inf) is defined as true and x(inf) as 0")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if has_square_y(inf) is defined as true and x(inf) as 0")
 
 def bytes_from_point_inf1(P):
     if P == None:
@@ -159,7 +166,7 @@ def vector10():
     sig = insecure_schnorr_sign_fixed_nonce(msg, seckey, k)
     bytes_from_point.__code__ = bytes_from_point_tmp
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if has_square_y(inf) is defined as true and x(inf) as 1")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "sG - eP is infinite. Test fails in single verification if has_square_y(inf) is defined as true and x(inf) as 1")
 
 # It's cryptographically impossible to create a test vector that fails if run
 # in an implementation which merely misses the check that sig[0:32] is an X
@@ -167,14 +174,14 @@ def vector10():
 def vector11():
     seckey = default_seckey
     msg = default_msg
-    sig = schnorr_sign(msg, seckey)
+    sig = schnorr_sign(msg, seckey, default_aux_rand)
 
     # Replace R's X coordinate with an X coordinate that's not on the curve
     x_not_on_curve = bytes_from_int(0x4A298DACAE57395A15D0795DDBFD1DCB564DA82B0F269BC70A74F8220429BA1D)
     assert(lift_x_square_y(x_not_on_curve) is None)
     sig = x_not_on_curve + sig[32:64]
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sig[0:32] is not an X coordinate on the curve")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "sig[0:32] is not an X coordinate on the curve")
 
 # It's cryptographically impossible to create a test vector that fails if run
 # in an implementation which merely misses the check that sig[0:32] is smaller
@@ -182,12 +189,12 @@ def vector11():
 def vector12():
     seckey = default_seckey
     msg = default_msg
-    sig = schnorr_sign(msg, seckey)
+    sig = schnorr_sign(msg, seckey, default_aux_rand)
 
     # Replace R's X coordinate with an X coordinate that's equal to field size
     sig = bytes_from_int(p) + sig[32:64]
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sig[0:32] is equal to field size")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "sig[0:32] is equal to field size")
 
 # It's cryptographically impossible to create a test vector that fails if run
 # in an implementation which merely misses the check that sig[32:64] is smaller
@@ -195,12 +202,12 @@ def vector12():
 def vector13():
     seckey = default_seckey
     msg = default_msg
-    sig = schnorr_sign(msg, seckey)
+    sig = schnorr_sign(msg, seckey, default_aux_rand)
 
     # Replace s with a number that's equal to the curve order
     sig = sig[0:32] + bytes_from_int(n)
 
-    return (None, pubkey_gen(seckey), msg, sig, "FALSE", "sig[32:64] is equal to curve order")
+    return (None, pubkey_gen(seckey), None, msg, sig, "FALSE", "sig[32:64] is equal to curve order")
 
 # Test out of range pubkey
 # It's cryptographically impossible to create a test vector that fails if run
@@ -212,8 +219,7 @@ def vector14():
     # public key.
     seckey = default_seckey
     msg = default_msg
-    sig = schnorr_sign(msg, seckey)
-
+    sig = schnorr_sign(msg, seckey, default_aux_rand)
     pubkey_int = p + 1
     pubkey = bytes_from_int(pubkey_int)
     assert(lift_x_even_y(pubkey) is None)
@@ -221,7 +227,7 @@ def vector14():
     # pubkey would be valid
     assert(lift_x_even_y(bytes_from_int(pubkey_int % p)) is not None)
 
-    return (None, pubkey, msg, sig, "FALSE", "public key is not a valid X coordinate because it exceeds the field size")
+    return (None, pubkey, None, msg, sig, "FALSE", "public key is not a valid X coordinate because it exceeds the field size")
 
 vectors = [
         vector0(),
@@ -242,14 +248,14 @@ vectors = [
     ]
 
 # Converts the byte strings of a test vector into hex strings
-def bytes_to_hex(seckey, pubkey, msg, sig, result, comment):
-    return (seckey.hex().upper() if seckey is not None else None, pubkey.hex().upper(), msg.hex().upper(), sig.hex().upper(), result, comment)
+def bytes_to_hex(seckey, pubkey, aux_rand, msg, sig, result, comment):
+    return (seckey.hex().upper() if seckey is not None else None, pubkey.hex().upper(), aux_rand.hex().upper() if aux_rand is not None else None, msg.hex().upper(), sig.hex().upper(), result, comment)
 
-vectors = list(map(lambda vector: bytes_to_hex(vector[0], vector[1], vector[2], vector[3], vector[4], vector[5]), vectors))
+vectors = list(map(lambda vector: bytes_to_hex(vector[0], vector[1], vector[2], vector[3], vector[4], vector[5], vector[6]), vectors))
 
 def print_csv(vectors):
     writer = csv.writer(sys.stdout)
-    writer.writerow(("index", "secret key", "public key", "message", "signature", "verification result", "comment"))
+    writer.writerow(("index", "secret key", "public key", "aux_rand", "message", "signature", "verification result", "comment"))
     for (i,v) in enumerate(vectors):
         writer.writerow((i,)+v)
 
