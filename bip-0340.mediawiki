@@ -151,13 +151,14 @@ As an alternative to generating keys randomly, it is also possible and safe to r
 Input:
 * The secret key ''sk'': a 32-byte array
 * The message ''m'': a 32-byte array
+* Auxiliary data ''a'': a byte array of length 0 or more
 
 The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''d' = int(sk)''
 * Fail if ''d' = 0'' or ''d' &ge; n''
 * Let ''P = d'⋅G''
 * Let ''d = d' '' if ''has_even_y(P)'', otherwise let ''d = n - d' ''.
-* Let ''rand = hash<sub>BIP340/nonce</sub>(bytes(d) || bytes(P) || m)''<ref>Including the [https://moderncrypto.org/mail-archive/curves/2020/001012.html public key as input to the nonce hash] helps ensure the robustness of the signing algorithm by preventing leakage of the secret key if the calculation of the public key ''P'' is performed incorrectly or maliciously, for example if it is left to the caller for performance reasons.</ref>.
+* Let ''rand = hash<sub>BIP340/nonce</sub>(xor(bytes(d), H<sub>BIP340/aux</sub>(a)) || bytes(P) || m)''<ref>Including the [https://moderncrypto.org/mail-archive/curves/2020/001012.html public key as input to the nonce hash] helps ensure the robustness of the signing algorithm by preventing leakage of the secret key if the calculation of the public key ''P'' is performed incorrectly or maliciously, for example if it is left to the caller for performance reasons.</ref>, where ''xor(a,b)'' represents the byte-wise xor of ''a'' and ''b''.
 * Let ''k' = int(rand) mod n''<ref>Note that in general, taking a uniformly random 256-bit integer modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
 * Let ''R = k'⋅G''.
@@ -165,11 +166,11 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''e = int(hash<sub>BIP340/challenge</sub>(bytes(R) || bytes(P) || m)) mod n''.
 * Return the signature ''bytes(R) || bytes((k + ed) mod n)''.
 
+When an RNG is available at signing time, up to 32 bytes of its output should be included in ''a''. The result is then called a ''synthetic nonce''. Doing so may improve protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks and side-channel attacks]. Therefore, '''synthetic nonces are recommended in settings where these attacks are a concern''' - in particular on offline signing devices. Adding more than 32 bytes serves no security purpose. Note that while this means the resulting nonce is not deterministic, its normal security properties do not depend on the quality of the RNG, and in fact using a completely broken RNG is still secure.
+
 ==== Alternative Signing ====
 
-It should be noted that various alternative signing algorithms can be used to produce equally valid signatures. The algorithm in the previous section is deterministic, i.e., it will always produce the same signature for a given message and secret key. This method does not need a random number generator (RNG) at signing time and is thus trivially robust against failures of RNGs. Alternatively the 32-byte ''rand'' value may be generated in other ways, producing a different but still valid signature (in other words, this is not a ''unique'' signature scheme). '''No matter which method is used to generate the ''rand'' value, the value must be a fresh uniformly random 32-byte string which is not even partially predictable for the attacker.''' Nonce freshness with a derandomize nonce function implies that the same inputs must not be presented in another context. This can be most reliably accomplished by not reusing the same private key across different signing schemes. For example, if the ''rand'' value was computed as per RFC6979 and the same secret key is used in deterministic ECDSA with RFC6979, the signatures can leak the secret key through nonce reuse.
-
-'''Synthetic nonces''' For instance when a RNG is available, RNG output can be appended to the input to ''hash<sub>BIP340/nonce</sub>''. This will change the corresponding line in the signing algorithm to ''rand = hash<sub>BIP340/nonce</sub>(bytes(d') || extbytes(P) || m || get_bytes_from_rng())'', where ''get_bytes_from_rng()'' is the call to the RNG. It is safe to add the output of a low-entropy RNG. Adding high-entropy RNG output may improve protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks and side-channel attacks]. Therefore, '''synthetic nonces are recommended in settings where these attacks are a concern''' - in particular on offline signing devices. Note that adding up to 23 bytes comes with no performance penalty, while adding over 32 bytes serves no security purpose.
+It should be noted that various alternative signing algorithms can be used to produce equally valid signatures. The 32-byte ''rand'' value may be generated in other ways, producing a different but still valid signature (in other words, this is not a ''unique'' signature scheme). '''No matter which method is used to generate the ''rand'' value, the value must be a fresh uniformly random 32-byte string which is not even partially predictable for the attacker.''' Nonce freshness with a derandomized nonce function implies that the same inputs must not be presented in another context. This can be most reliably accomplished by not reusing the same private key across different signing schemes. For example, if the ''rand'' value was computed as per RFC6979 and the same secret key is used in deterministic ECDSA with RFC6979, the signatures can leak the secret key through nonce reuse.
 
 '''Verifying the signing output''' To prevent random or attacker provoked computation errors, the signature can be verified with the verification algorithm defined below before leaving the signer. This prevents publishing invalid signatures which may leak information about the secret key. '''If the additional computational cost is not a concern, it is recommended to verify newly created signatures and reject them in case of failure.'''
 
