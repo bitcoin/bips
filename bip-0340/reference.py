@@ -110,7 +110,10 @@ def schnorr_sign(msg, seckey0, aux_rand):
     R = point_mul(G, k0)
     k = n - k0 if not has_square_y(R) else k0
     e = int_from_bytes(tagged_hash("BIP340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
-    return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
+    sig = bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
+    if not schnorr_verify(msg, bytes_from_point(P), sig):
+        raise RuntimeError('The signature does not pass verification.')
+    return sig
 
 def schnorr_verify(msg, pubkey, sig):
     if len(msg) != 32:
