@@ -104,10 +104,6 @@ def create_sketch(shortids, capacity):
 
 The [https://github.com/sipa/minisketch/ minisketch] library implements the construction, merging, and decoding of these sketches efficiently.
 
-====Truncated transaction IDs====
-
-For announcing and relaying transaction outside of reconciliation, we need an unambiguous, unsalted way to refer to transactions to deduplicate transaction requests. As we're introducing a new scheme anyway, this is a good opportunity to switch to wtxid-based requests rather than txid-based ones. While using full 256-bit wtxids is possible, this is overkill as they contribute significantly to the total bandwidth as well. Instead, we truncate the wtxid to just their first 128 bits. These are referred to as truncated IDs.
-
 ===Intended Protocol Flow===
 
 Set reconciliation primarily consists of the transmission and decoding of a reconciliation set sketch upon request.
@@ -116,12 +112,12 @@ Set reconciliation primarily consists of the transmission and decoding of a reco
 
 ====Bisection====
 
-If a node is unable to reconstruct the set difference from the received sketch, the node then makes an additional reconciliation request, similar to the initial one, but this request is applied to only a fraction of possible transactions (e.g., in the range 0x0–0x8). Because of the linearity of sketches, a sketch of a subset of transactions would allow the node to compute a sketch for the remainder, which saves bandwidth.
+If a node is unable to reconstruct the set difference from the received sketch, the node then makes an additional reconciliation request, similar to the initial one, but this request is applied to only a fraction of possible transactions ("low chunk" corresponding to the values in range ''[0..(2^31)]''). Because of the linearity of sketches, a sketch of a subset of transactions would allow the node to compute a sketch for the remainder, which saves bandwidth.
 
 [[File:bip-0330/bisection.png|framed|300px|center|Bisection]]
 
 ===New messages===
-Several new protocol messages are added: sendrecon, reqreconcil, sketch, reqbisec, reconcildiff, invtx, gettx. This section describes their serialization, contents, and semantics.
+Several new protocol messages are added: sendrecon, reqreconcil, sketch, reqbisec, reconcildiff. This section describes their serialization, contents, and semantics.
 
 In what follows, all integers are serialized in little-endian byte order. Boolean values are encoded as a single byte that must be 0 or 1 exactly. Arrays are serialized with the CompactSize prefix that encodes their length, as is common in other P2P messages.
 
@@ -151,7 +147,7 @@ The reqreconcil message initiates a reconciliation round.
 |-
 | uint16 || set_size || Size of the sender's reconciliation set, used to estimate set difference.
 |-
-| uint8 || q || Coefficient used to estimate set difference. Multiplied by PRECISION=2^6 and rounded up by the sender and divided by PRECISION by the receiver.
+| uint16 || q || Coefficient used to estimate set difference. Multiplied by PRECISION=2^12 and rounded up by the sender and divided by PRECISION by the receiver.
 |}
 
 Upon receipt of a "reqreconcil" message, the receiver:
@@ -162,8 +158,8 @@ It is suggested to use ''c=1'' to avoid sending empty sketches and reduce the ov
 
 Intuitively, ''q'' represents the discrepancy in sets: the closer the sets are, the lower optimal ''q'' is.
 As suggested by Erlay, ''q'' should be derived as an optimal ''q'' value for the previous reconciliation with a given peer, once the actual set sizes and set difference are known. Alternatively, ''q=0.1'' should be used as a default value.
-For example, if in previous round ''set_size=30'' and ''local_set_size=20'', and the *actual* difference was ''4'', then a node should compute ''q'' as following:
-''q=(|30-20| - 1) / (30+20)=0.18''
+For example, if in previous round ''set_size=30'' and ''local_set_size=20'', and the *actual* difference was ''12'', then a node should compute ''q'' as following:
+''q=(12 - |30-20|) / (30+20)=0.04''
 The derivation of ''q'' can be changed according to the version of the protocol.
 
 No new "reqreconcil" message can be sent until a "reconcildiff" message is sent.
@@ -177,21 +173,21 @@ The sketch message is used to communicate a sketch required to perform set recon
 | byte[] || skdata || The sketch of the sender's reconciliation snapshot
 |}
 
-Upon receipt of a "sketch" message, a node computes the set difference by combining the receiver sketch with a sketch computed locally for a corresponding reconciliation set. If this is the 2nd time for this round a "sketch" message was received, the bisection approach is used, and by combining the new sketch with the previous one, two difference sketches are obtained, one for the first half and one for the second half of the short id range. The receiving node then tries to decode this sketch (or sketches), and based on the result:
 * If decoding fails, a "reconcildiff" message is sent with the failure flag set (success=false). If this was the first "sketch" in the round, a "reqbisec" message may be sent instead.
-* If decoding succeeds, a "reconcildiff" message is sent with the truncated IDs of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
+Upon receipt of a "sketch" message, a node computes the set difference by combining the receiver sketch with a sketch computed locally for a corresponding reconciliation set. If this is the 2nd time for this round a "sketch" message was received, the bisection approach is used, and by combining the new sketch with the previous one, two difference sketches are obtained, one for the first half (low chunk) and one for the second half (high chunk) of the short id range. The receiving node then tries to decode this sketch (or sketches), and based on the result:
+* If decoding succeeds, a "reconcildiff" message is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
 
 The receiver also makes snapshot of their current reconciliation set, and clears the set itself. The snapshot is kept until a "reconcildiff" message is sent by the node.
 
 ====reqbisec====
-The reqbisec message is used to signal that set reconciliation has failed and an extra sketch is needed to find set difference.
+The reqbisec message is used by reconciliation initiator to signal that initial set reconciliation has failed and an extra sketch is needed to find set difference.
 
 It has an empty payload.
 
 Upon receipt of a "reqbisec" message, a node responds to it with a "sketch" message, which contains a sketch of a subset of corresponding reconciliation set <b>snapshot</b> (stored when "reqreconcil" message for the current round was processed) (values in range ''[0..(2^31)]'').
 
 ====reconcildiff====
-The reconcildiff message is used to announce transactions which are found to be missing during set reconciliation on the sender's side.
+The reconcildiff message is used by reconciliation initiator to announce transactions which are found to be missing during set reconciliation on the sender's side.
 
 {|class="wikitable"
 ! Data type !! Name !! Description
@@ -201,43 +197,20 @@ The reconcildiff message is used to announce transactions which are found to be 
 | uint32[] || ask_shortids || The short IDs that the sender did not have.
 |}
 
-Upon receipt a "reconcildiff" message with ''success=1'', a node sends a "invtx" message for the transactions requested by 32-bit IDs (first vector) containing their 128-bit truncated IDs (with parent transactions occuring before their dependencies), and can request announced transactions (second vector) it does not have via a "gettx" message.
-Otherwise if ''success=0'', receiver should request bisection via ''reqbisec'' (if failure happened for the first time).
-If failure happened for the second time, receiver should announce the transactions from the reconciliation set via an "invtx" message, excluding the transactions announced from the sender.
+Upon receipt a "reconcildiff" message with ''success=3'' (full reconciliation success), a node sends an "inv" message for the transactions requested by 32-bit IDs (first vector) containing their wtxids (with parent transactions occuring before their dependencies), and can request announced transactions (second vector) it does not have via a "getdata" message.
+If ''success=0'' (full reconciliation failure), receiver should announce the transactions from the reconciliation set via an "inv" message, excluding the transactions announced from the sender.
+''success=1'' and ''success=2'' indicates that initial reconciliation has failed, and during bisection, only low or high chunk (respectively) was successfully reconciled. In this case, a node sends an "inv" with all transactions from the failed chunk and requested transactions by short ID from the successfully reconciled chunk.
 
 The <b>snapshot</b> of the corresponding reconciliation set is cleared by the sender and the receiver of the message.
 
-The sender should also send their own "invtx" message along with the reconcildiff message to announce transactions which are missing on the receiver's side.
-
-====invtx====
-The invtx message is used to announce transactions (both along with reconcildiff message and as a response to the reconcildiff message). It is the truncated ID analogue of "inv" (which cannot be used because it has 256-bit elements).
-
-{|class="wikitable"
-! Data type !! Name !! Description
-|-
-| uint128[] || inv_truncids || The truncated IDs of transactions the sender believes the receiver does not have.
-|}
-
-Upon receipt a "invtx" message, a node requests announced transactions it does not have.
-The <b>snapshot</b> of the corresponding reconciliation set is cleared by the sender of the message.
-
-====gettx====
-The gettx message is used to request transactions by 128-bit truncated IDs. It is the truncated ID analogue of "getdata".
-
-{|class="wikitable"
-! Data type !! Name !! Description
-|-
-| uint128[] || ask_truncids || The truncated IDs of transactions the sender wants the full transaction data for.
-|}
-
-Upon receipt a "gettx" message, a node sends "tx" messages for the requested transactions.
+The sender should also send their own "inv" message along with the reconcildiff message to announce transactions which are missing on the receiver's side.
 
 ==Local state==
 
 This BIP suggests a stateful protocol and it requires storing several variables at every node to operate properly.
 
 ====Reconciliation sets====
-Every node stores a set of 128-bit truncated IDs for every peer which supports transaction reconciliation, representing the transactions which would have been sent according to the regular flooding protocol.
+Every node stores a set of wtxids for every peer which supports transaction reconciliation, representing the transactions which would have been sent according to the regular flooding protocol.
 Incoming transactions are added to sets when those transactions are received (if they satisfy the policies such as minimum fee set by a peer).
 A reconciliation set is moved to the corresponding set snapshot after the transmission of the initial sketch.
 
@@ -271,13 +244,6 @@ PinSketch is as bandwidth efficient as CPISync, but PinSketch has quadratic deco
 To use Minisketch in practice, transaction IDs should be shortened (ideally, not more than 64 bits per element).
 Small number of bits per transaction also allows to save extra bandwidth and make operations over sketches faster.
 According to our estimates, 32 bits provides low collision rate in a non-adversarial model (which is enabled by using independent salts per-link).
-
-====Why using 128-bit short IDs?====
-
-To avoid problems caused by the delays in the network, our protocol requires extra round of announcing unsalted transaction IDs. [https://arxiv.org/pdf/1905.10518.pdf Erlay] protocol on top of this work also requires announcing unsalted transaction IDs for flooding. 
-Both of these measures allow to deduplicate transaction announcements across the peers.
-However, using full 256-bit IDs to uniquely identify transactions seems to be an overkill.
-128 is the highest power of 2 which provides good enough collision-resistance in an adversarial model, and trivially saves a significant portion of the bandwidth related to these announcements.
 
 ====Why using bisection instead of extending the sketch?====
 
