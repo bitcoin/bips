@@ -2,7 +2,7 @@
   BIP: 340
   Title: Schnorr Signatures for secp256k1
   Author: Pieter Wuille <pieter.wuille@gmail.com>
-          Jonas Nick <Jonas Nick <jonasd.nick@gmail.com>
+          Jonas Nick <jonasd.nick@gmail.com>
           Tim Ruffing <crypto@timruffing.de>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0340
@@ -40,7 +40,7 @@ propose a new standard, a number of improvements not specific to Schnorr signatu
 made:
 
 * '''Signature encoding''': Instead of using [https://en.wikipedia.org/wiki/X.690#DER_encoding DER]-encoding for signatures (which are variable size, and up to 72 bytes), we can use a simple fixed 64-byte format.
-* '''Public key encoding''': Instead of using ''compressed'' 33-byte encodings of elliptic curve points which are common in Bitcoin today, public keys in this proposal are encoded as 32 bytes.
+* '''Public key encoding''': Instead of using [https://www.secg.org/sec1-v2.pdf ''compressed''] 33-byte encodings of elliptic curve points which are common in Bitcoin today, public keys in this proposal are encoded as 32 bytes.
 * '''Batch verification''': The specific formulation of ECDSA signatures that is standardized cannot be verified more efficiently in batch compared to individually, unless additional witness data is added. Changing the signature scheme offers an opportunity to address this.
 * '''Completely specified''': To be safe for usage in consensus systems, the verification algorithm must be completely specified at the byte level. This guarantees that nobody can construct a signature that is valid to some verifiers but not all. This is traditionally not a requirement for digital signature schemes, and the lack of exact specification for the DER parsing of ECDSA signatures has caused problems for Bitcoin [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-July/009697.html in the past], needing [[bip-0066.mediawiki|BIP66]] to address it. In this document we aim to meet this property by design. For batch verification, which is inherently non-deterministic as the verifier can choose their batches, this property implies that the outcome of verification may only differ from individual verifications with negligible probability, even to an attacker who intentionally tries to make batch- and non-batch verification differ.
 
@@ -151,7 +151,7 @@ As an alternative to generating keys randomly, it is also possible and safe to r
 Input:
 * The secret key ''sk'': a 32-byte array
 * The message ''m'': a 32-byte array
-* Auxiliary random data ''a'': a byte array of length 0 to 32 (inclusive)
+* Auxiliary random data ''a'': a 32-byte array
 
 The algorithm ''Sign(sk, m)'' is defined as:
 * Let ''d' = int(sk)''
@@ -169,7 +169,7 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * If ''Verify(bytes(P), m, sig)'' (see below) returns failure, abort<ref>Verifying the signature before leaving the signer prevents random or attacker provoked computation errors. This prevents publishing invalid signatures which may leak information about the secret key. It is recommended, but can be omitted if the computation cost is prohibitive.</ref>.
 * Return the signature ''sig''.
 
-The auxiliary random data should be set to fresh randomness generated at signing time, resulting in what is called a ''synthetic nonce''. If no randomness is available, a simple counter can be used as well, or even nothing at all. Using any non-repeating value increases protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks]. Using unpredictable randomness additionally increases protection against other side-channel attacks, and is '''recommended whenever available'''. Note that while this means the resulting nonce is not deterministic, the randomness is only supplemental to security. The normal security properties (excluding side-channel attacks) do not depend on the quality of the signing-time RNG.
+The auxiliary random data should be set to fresh randomness generated at signing time, resulting in what is called a ''synthetic nonce''. Using 32 bytes of randomness is optimal. If obtaining randomness is expensive, 16 random bytes can be padded with 16 null bytes to obtain a 32-byte array. If randomness is not available at all at signing time, a simple counter wide enough to not repeat in practice (e.g., 64 bits or wider) and padded with null bytes to a 32 byte-array can be used, or even the constant array with 32 null bytes. Using any non-repeating value increases protection against [https://moderncrypto.org/mail-archive/curves/2017/000925.html fault injection attacks]. Using unpredictable randomness additionally increases protection against other side-channel attacks, and is '''recommended whenever available'''. Note that while this means the resulting nonce is not deterministic, the randomness is only supplemental to security. The normal security properties (excluding side-channel attacks) do not depend on the quality of the signing-time RNG.
 
 ==== Alternative Signing ====
 
@@ -180,7 +180,7 @@ It should be noted that various alternative signing algorithms can be used to pr
 '''Multisignatures''' This signature scheme is compatible with various types of multisignature and threshold schemes such as [https://eprint.iacr.org/2018/068 MuSig], where a single public key requires holders of multiple secret keys to participate in signing (see Applications below).
 '''It is important to note that multisignature signing schemes in general are insecure with the ''rand'' generation from the default signing algorithm above (or any other deterministic method).'''
 
-'''Precomputed public key data''' For many uses the compressed 33-byte encoding of the public key corresponding to the secret key may already be known, making it easy to evaluate ''has_even_y(P)'' and ''bytes(P)''. As such, having signers supply this directly may be more efficient than recalculating the public key from the secret key. However, if this optimization is used, signers must ensure the public key is correctly calculated and not taken from untrusted sources.
+'''Precomputed public key data''' For many uses the compressed 33-byte encoding of the public key corresponding to the secret key may already be known, making it easy to evaluate ''has_even_y(P)'' and ''bytes(P)''. As such, having signers supply this directly may be more efficient than recalculating the public key from the secret key. However, if this optimization is used and additionally the signature verification at the end of the signing algorithm is dropped for increased efficiency, signers must ensure the public key is correctly calculated and not taken from untrusted sources.
 
 ==== Verification ====
 
