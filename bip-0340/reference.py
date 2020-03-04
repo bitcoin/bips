@@ -1,6 +1,15 @@
 import hashlib
 import binascii
 
+# Set DEBUG to True to get a detailed debug output including
+# intermediate values during key generation, signing, and
+# verification. This is implemented via calls to the
+# debug_print_vars() function.
+#
+# If you want to print values on an individual basis, use
+# the pretty() function, e.g., print(pretty(foo)).
+DEBUG = False
+
 p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
@@ -62,7 +71,7 @@ def lift_x_square_y(b):
     y = pow(y_sq, (p + 1) // 4, p)
     if pow(y, 2, p) != y_sq:
         return None
-    return [x, y]
+    return (x, y)
 
 def lift_x_even_y(b):
     P = lift_x_square_y(b)
@@ -87,32 +96,37 @@ def has_even_y(P):
     return y(P) % 2 == 0
 
 def pubkey_gen(seckey):
-    x = int_from_bytes(seckey)
-    if not (1 <= x <= n - 1):
+    d0 = int_from_bytes(seckey)
+    if not (1 <= d0 <= n - 1):
+        debug_print_vars()
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
-    P = point_mul(G, x)
+    P = point_mul(G, d0)
     return bytes_from_point(P)
 
-def schnorr_sign(msg, seckey0, aux_rand):
+def schnorr_sign(msg, seckey, aux_rand):
     if len(msg) != 32:
+        debug_print_vars()
         raise ValueError('The message must be a 32-byte array.')
-    seckey0 = int_from_bytes(seckey0)
-    if not (1 <= seckey0 <= n - 1):
+    d0 = int_from_bytes(seckey)
+    if not (1 <= d0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     if len(aux_rand) != 32:
         raise ValueError('aux_rand must be 32 bytes instead of %i.' % len(aux_rand))
-    P = point_mul(G, seckey0)
-    seckey = seckey0 if has_even_y(P) else n - seckey0
-    t = xor_bytes(bytes_from_int(seckey), tagged_hash("BIP340/aux", aux_rand))
+    P = point_mul(G, d0)
+    d = d0 if has_even_y(P) else n - d0
+    t = xor_bytes(bytes_from_int(d), tagged_hash("BIP340/aux", aux_rand))
     k0 = int_from_bytes(tagged_hash("BIP340/nonce", t + bytes_from_point(P) + msg)) % n
     if k0 == 0:
+        debug_print_vars()
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
     k = n - k0 if not has_square_y(R) else k0
     e = int_from_bytes(tagged_hash("BIP340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
-    sig = bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
+    sig = bytes_from_point(R) + bytes_from_int((k + e * d) % n)
     if not schnorr_verify(msg, bytes_from_point(P), sig):
+        debug_print_vars()
         raise RuntimeError('The signature does not pass verification.')
+    debug_print_vars()
     return sig
 
 def schnorr_verify(msg, pubkey, sig):
@@ -123,26 +137,29 @@ def schnorr_verify(msg, pubkey, sig):
     if len(sig) != 64:
         raise ValueError('The signature must be a 64-byte array.')
     P = lift_x_even_y(pubkey)
-    if (P is None):
-        return False
     r = int_from_bytes(sig[0:32])
     s = int_from_bytes(sig[32:64])
-    if (r >= p or s >= n):
+    if (P is None) or (r >= p) or (s >= n):
+        debug_print_vars()
         return False
     e = int_from_bytes(tagged_hash("BIP340/challenge", sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
     if R is None or not has_square_y(R) or x(R) != r:
+        debug_print_vars()
         return False
+    debug_print_vars()
     return True
 
 #
 # The following code is only used to verify the test vectors.
 #
 import csv
+import os
+import sys
 
 def test_vectors():
     all_passed = True
-    with open('test-vectors.csv', newline='') as csvfile:
+    with open(os.path.join(sys.path[0], 'test-vectors.csv'), newline='') as csvfile:
         reader = csv.reader(csvfile)
         reader.__next__()
         for row in reader:
@@ -184,6 +201,27 @@ def test_vectors():
     else:
         print('Some test vectors failed.')
     return all_passed
+
+#
+# The following code is only used for debugging
+#
+import inspect
+
+def pretty(v):
+    if isinstance(v, bytes):
+        return '0x' + v.hex()
+    if isinstance(v, int):
+        return pretty(bytes_from_int(v))
+    if isinstance(v, tuple):
+        return tuple(map(pretty, v))
+    return v
+
+def debug_print_vars():
+    if DEBUG:
+        frame = inspect.currentframe().f_back
+        print('   Variables in function ', frame.f_code.co_name, ' at line ', frame.f_lineno, ':', sep='')
+        for var_name, var_val in frame.f_locals.items():
+            print('   ' + var_name.rjust(11, ' '), '==', pretty(var_val))
 
 if __name__ == '__main__':
     test_vectors()
