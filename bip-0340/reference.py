@@ -33,13 +33,13 @@ def y(P):
     return P[1]
 
 def point_add(P1, P2):
-    if (P1 is None):
+    if P1 is None:
         return P2
-    if (P2 is None):
+    if P2 is None:
         return P1
-    if (x(P1) == x(P2) and y(P1) != y(P2)):
+    if (x(P1) == x(P2)) and (y(P1) != y(P2)):
         return None
-    if (P1 == P2):
+    if P1 == P2:
         lam = (3 * x(P1) * x(P1) * pow(2 * y(P1), p - 2, p)) % p
     else:
         lam = ((y(P2) - y(P1)) * pow(x(P2) - x(P1), p - 2, p)) % p
@@ -49,7 +49,7 @@ def point_add(P1, P2):
 def point_mul(P, n):
     R = None
     for i in range(256):
-        if ((n >> i) & 1):
+        if (n >> i) & 1:
             R = point_add(R, P)
         P = point_add(P, P)
     return R
@@ -90,7 +90,7 @@ def is_square(x):
     return pow(x, (p - 1) // 2, p) == 1
 
 def has_square_y(P):
-    return not is_infinity(P) and is_square(y(P))
+    return (not is_infinity(P)) and (is_square(y(P)))
 
 def has_even_y(P):
     return y(P) % 2 == 0
@@ -144,7 +144,7 @@ def schnorr_verify(msg, pubkey, sig):
         return False
     e = int_from_bytes(tagged_hash("BIP340/challenge", sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
-    if R is None or not has_square_y(R) or x(R) != r:
+    if (R is None) or (not has_square_y(R)) or (x(R) != r):
         debug_print_vars()
         return False
     debug_print_vars()
@@ -168,7 +168,7 @@ def test_vectors():
             msg = bytes.fromhex(msg)
             sig = bytes.fromhex(sig)
             result = result == 'TRUE'
-            print('\nTest vector #%-3i: ' % int(index))
+            print('\nTest vector', ('#' + index).rjust(3, ' ') + ':')
             if seckey != '':
                 seckey = bytes.fromhex(seckey)
                 pubkey_actual = pubkey_gen(seckey)
