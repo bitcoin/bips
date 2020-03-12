@@ -15,7 +15,7 @@ def vector0():
     P = point_mul(G, x)
     assert(y(P) % 2 == 0)
 
-    # For historic reasons (pubkey tiebreaker was squareness and not evenness)
+    # For historical reasons (pubkey tiebreaker was squareness and not evenness)
     # we should have at least one test vector where the the point reconstructed
     # from the public key has a square and one where it has a non-square Y
     # coordinate. In this one Y is non-square.
