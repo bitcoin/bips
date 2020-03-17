@@ -122,7 +122,7 @@ def schnorr_sign(msg, seckey, aux_rand):
     sig = bytes_from_point(R) + bytes_from_int((k + e * d) % n)
     debug_print_vars()
     if not schnorr_verify(msg, bytes_from_point(P), sig):
-        raise RuntimeError('The signature does not pass verification.')
+        raise RuntimeError('The created signature does not pass verification.')
     return sig
 
 def schnorr_verify(msg, pubkey, sig):
@@ -173,13 +173,17 @@ def test_vectors():
                     print('   Expected key:', pubkey.hex().upper())
                     print('     Actual key:', pubkey_actual.hex().upper())
                 aux_rand = bytes.fromhex(aux_rand)
-                sig_actual = schnorr_sign(msg, seckey, aux_rand)
-                if sig == sig_actual:
-                    print(' * Passed signing test.')
-                else:
-                    print(' * Failed signing test.')
-                    print('   Expected signature:', sig.hex().upper())
-                    print('     Actual signature:', sig_actual.hex().upper())
+                try:
+                    sig_actual = schnorr_sign(msg, seckey, aux_rand)
+                    if sig == sig_actual:
+                        print(' * Passed signing test.')
+                    else:
+                        print(' * Failed signing test.')
+                        print('   Expected signature:', sig.hex().upper())
+                        print('     Actual signature:', sig_actual.hex().upper())
+                        all_passed = False
+                except RuntimeError as e:
+                    print(' * Signing test raised exception:', e)
                     all_passed = False
             result_actual = schnorr_verify(msg, pubkey, sig)
             if result == result_actual:
