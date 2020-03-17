@@ -78,7 +78,7 @@ def lift_x_even_y(b):
     if P is None:
         return None
     else:
-        return [x(P), y(P) if y(P) % 2 == 0 else p - y(P)]
+        return (x(P), y(P) if y(P) % 2 == 0 else p - y(P))
 
 def int_from_bytes(b):
     return int.from_bytes(b, byteorder="big")
@@ -90,7 +90,7 @@ def is_square(x):
     return pow(x, (p - 1) // 2, p) == 1
 
 def has_square_y(P):
-    return (not is_infinity(P)) and (is_square(y(P)))
+    return (not is_infinity(P)) and is_square(y(P))
 
 def has_even_y(P):
     return y(P) % 2 == 0
@@ -98,14 +98,12 @@ def has_even_y(P):
 def pubkey_gen(seckey):
     d0 = int_from_bytes(seckey)
     if not (1 <= d0 <= n - 1):
-        debug_print_vars()
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     P = point_mul(G, d0)
     return bytes_from_point(P)
 
 def schnorr_sign(msg, seckey, aux_rand):
     if len(msg) != 32:
-        debug_print_vars()
         raise ValueError('The message must be a 32-byte array.')
     d0 = int_from_bytes(seckey)
     if not (1 <= d0 <= n - 1):
@@ -117,16 +115,14 @@ def schnorr_sign(msg, seckey, aux_rand):
     t = xor_bytes(bytes_from_int(d), tagged_hash("BIP340/aux", aux_rand))
     k0 = int_from_bytes(tagged_hash("BIP340/nonce", t + bytes_from_point(P) + msg)) % n
     if k0 == 0:
-        debug_print_vars()
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
     k = n - k0 if not has_square_y(R) else k0
     e = int_from_bytes(tagged_hash("BIP340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     sig = bytes_from_point(R) + bytes_from_int((k + e * d) % n)
-    if not schnorr_verify(msg, bytes_from_point(P), sig):
-        debug_print_vars()
-        raise RuntimeError('The signature does not pass verification.')
     debug_print_vars()
+    if not schnorr_verify(msg, bytes_from_point(P), sig):
+        raise RuntimeError('The signature does not pass verification.')
     return sig
 
 def schnorr_verify(msg, pubkey, sig):
