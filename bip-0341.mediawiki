@@ -59,13 +59,13 @@ The following rules only apply when such an output is being spent. Any other out
 
 * Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents a public key according to [[bip-0340.mediawiki#design|BIP340]].
 * Fail if the witness stack has 0 elements.
-* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' The <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the public key's Y squareness, each leaf version needs an even byte value and the immediately following odd byte value that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the scriptPubKey of the output being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the signature and contributes to transaction weight, but is otherwise ignored during taproot validation.
+* If there are at least two witness elements, and the first byte of the last element is 0x50<ref>'''Why is the first byte of the annex <code>0x50</code>?''' The <code>0x50</code> is chosen as it could not be confused with a valid P2WPKH or P2WSH spending. As the control block's initial byte's lowest bit is used to indicate the parity of the public key's Y coordinate, each leaf version needs an even byte value and the immediately following odd byte value that are both not yet used in P2WPKH or P2WSH spending. To indicate the annex, only an "unpaired" available byte is necessary like <code>0x50</code>. This choice maximizes the available options for future script versions.</ref>, this last element is called ''annex'' ''a''<ref>'''What is the purpose of the annex?''' The annex is a reserved space for future extensions, such as indicating the validation costs of computationally expensive new opcodes in a way that is recognizable without knowing the scriptPubKey of the output being spent. Until the meaning of this field is defined by another softfork, users SHOULD NOT include <code>annex</code> in transactions, or it may lead to PERMANENT FUND LOSS.</ref> and is removed from the witness stack. The annex (or the lack of thereof) is always covered by the signature and contributes to transaction weight, but is otherwise ignored during taproot validation.
 * If there is exactly one element left in the witness stack, key path spending is used:
 ** The single witness stack element is interpreted as the signature and must be valid (see the next section) for the public key ''q'' (see the next subsection).
 * If there are at least two witness elements left, script path spending is used:
 ** Call the second-to-last stack element ''s'', the script.
 ** The last stack element is called the control block ''c'', and must have length ''33 + 32m'', for a value of ''m'' that is an integer between 0 and 128<ref>'''Why is the Merkle path length limited to 128?''' The optimally space-efficient Merkle tree can be constructed based on the probabilities of the scripts in the leaves, using the Huffman algorithm. This algorithm will construct branches with lengths approximately equal to ''log<sub>2</sub>(1/probability)'', but to have branches longer than 128 you would need to have scripts with an execution chance below 1 in ''2<sup>128</sup>''. As that is our security bound, scripts that truly have such a low chance can probably be removed entirely.</ref>, inclusive. Fail if it does not have such a length.
-** Let ''p = c[1:33]'' and let ''P = point(p)'' where ''point'' and ''[:]'' are defined as in [[bip-0340.mediawiki#design|BIP340]]. Fail if this point is not on the curve.
+** Let ''p = c[1:33]'' and let ''P = lift_x_even_y(int(p))'' where ''lift_x_even_y'' and ''[:]'' are defined as in [[bip-0340.mediawiki#design|BIP340]]. Fail if this point is not on the curve.
 ** Let ''v = c[0] & 0xfe'' and call it the ''leaf version''<ref>'''What constraints are there on the leaf version?''' First, the leaf version cannot be odd as ''c[0] & 0xfe'' will always be even, and cannot be ''0x50'' as that would result in ambiguity with the annex. In addition, in order to support some forms of static analysis that rely on being able to identify script spends without access to the output being spent, it is recommended to avoid using any leaf versions that would conflict with a valid first byte of either a valid P2WPKH pubkey or a valid P2WSH script (that is, both ''v'' and ''v | 1'' should be an undefined, invalid or disabled opcode or an opcode that is not valid as the first opcode). The values that comply to this rule are the 32 even values between ''0xc0'' and ''0xfe'' and also ''0x66'', ''0x7e'', ''0x80'', ''0x84'', ''0x96'', ''0x98'', ''0xba'', ''0xbc'', ''0xbe''. Note also that this constraint implies that leaf versions should be shared amongst different witness versions, as knowing the witness version requires access to the output being spent.</ref>.
 ** Let ''k<sub>0</sub> = hash<sub>TapLeaf</sub>(v || compact_size(size of s) || s)''; also call it the ''tapleaf hash''.
 ** For ''j'' in ''[0,1,...,m-1]'':
@@ -75,8 +75,8 @@ The following rules only apply when such an output is being spent. Any other out
 **** If ''k<sub>j</sub> &ge; e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(e<sub>j</sub> || k<sub>j</sub>)''.
 ** Let ''t = hash<sub>TapTweak</sub>(p || k<sub>m</sub>)''.
 ** If ''t &ge; 0xFFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141'' (order of secp256k1), fail.
-** Let ''Q = point(q) if (c[0] & 1) = 1 and -point(q) otherwise''<ref>'''Why is it necessary to reveal a bit to indicate if the point represented by the output public key is negated in a script path spend?''' The ''point'' function (defined in [[bip-0340.mediawiki#design|BIP340]]) always constructs a point with a square Y coordinate, but because ''Q'' is constructed by adding the taproot tweak to the internal public key ''P'', it cannot easily be guaranteed that ''Q'' in fact has such a Y coordinate. Therefore, before verifying the taproot tweak the original point is restored by negating if necessary. We can not ignore the Y coordinate because it would prevent batch verification. Trying out multiple internal keys until there's such a ''Q'' is possible but undesirable and unnecessary since this information about the Y coordinate only consumes an unused bit.</ref>. Fail if this point is not on the curve.
-** If ''Q &ne; P + int(t)G'', fail.
+** Let ''Q = P + int(t)G''.
+** If ''q &ne; x(Q)'' or ''c[0] & 1 &ne; y(Q) mod 2'', fail<ref>'''Why is it necessary to reveal a bit in a script path spend and check that it matches the parity of the Y coordinate of ''Q''?''' The parity of the Y coordinate is necessary to lift the X coordinate ''q'' to a unique point. While this is not strictly necessary for verifying the taproot commitment as described above, it is necessary to allow batch verification. Alternatively, ''Q'' could be forced to have an even Y coordinate, but that would require retrying with different internal public keys (or different messages) until ''Q'' has that property. There is no downside to adding the parity bit because otherwise the control block bit would be unused.</ref>.
 ** Execute the script, according to the applicable script rules<ref>'''What are the applicable script rules in script path spends?''' [[bip-0342.mediawiki|BIP342]] specifies validity rules that apply for leaf version 0xc0, but future proposals can introduce rules for other leaf versions.</ref>, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack.
 
 ''q'' is referred to as ''taproot output key'' and ''p'' as ''taproot internal key''.
@@ -87,7 +87,7 @@ We first define a reusable common signature message calculation function, follow
 
 ==== Common signature message ====
 
-The function ''SigMsg(hash_type, ext_flag)'' computes the message being signed as a byte array. It is implicitly also a function of the spending transaction and the outputs it spends, but these are not listed to keep notation simple. 
+The function ''SigMsg(hash_type, ext_flag)'' computes the message being signed as a byte array. It is implicitly also a function of the spending transaction and the outputs it spends, but these are not listed to keep notation simple.
 
 The parameter ''hash_type'' is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are reused, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>, plus the default ''hash_type'' value ''0x00'' which results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>. The following restrictions apply, which cause validation failure if violated:
 * Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'', ''0x03'', ''0x81'', ''0x82'', or ''0x83''<ref>'''Why reject unknown ''hash_type'' values?''' By doing so, it is easier to reason about the worst case amount of signature hashing an implementation with adequate caching must perform.</ref>).
@@ -95,7 +95,7 @@ The parameter ''hash_type'' is an 8-bit unsigned value. The <code>SIGHASH</code>
 
 The parameter ''ext_flag'' is an integer in range 0-127, and is used for indicating (in the message) that extensions are added at the end of the message<ref>'''What extensions use the ''ext_flag'' mechanism?''' [[bip-0342.mediawiki|BIP342]] reuses the same common signature message algorithm, but adds BIP342-specific data at the end, which is indicated using ''ext_flag = 1''.</ref>.
 
-If the parameters take acceptable values, the message is the concatenation of the following data, in order(with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte are encoded in little-endian.
+If the parameters take acceptable values, the message is the concatenation of the following data, in order (with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte are encoded in little-endian.
 
 * Control:
 ** ''hash_type'' (1).
@@ -150,7 +150,7 @@ Satisfying any of these conditions is sufficient to spend the output.
 '''Initial steps''' The first step is determining what the internal key and the organization of the rest of the scripts should be. The specifics are likely application dependent, but here are some general guidelines:
 * When deciding between scripts with conditionals (<code>OP_IF</code> etc.) and splitting them up into multiple scripts (each corresponding to one execution path through the original script), it is generally preferable to pick the latter.
 * When a single condition requires signatures with multiple keys, key aggregation techniques like MuSig can be used to combine them into a single key. The details are out of scope for this document, but note that this may complicate the signing procedure.
-* If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a point with unknown discrete logarithm. One example of such a point is ''H = point(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of the [https://www.secg.org/sec2-v2.pdf secp256k1] base point ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
+* If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a point with unknown discrete logarithm. One example of such a point is ''H = lift_x_even_y(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of the [https://www.secg.org/sec2-v2.pdf secp256k1] base point ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
 * If the spending conditions do not require a script path, the output key should commit to an unspendable script path instead of having no script path. This can be achieved by computing the output key point as ''Q = P + int(hash<sub>TapTweak</sub>(bytes(P)))G''. <ref>'''Why should the output key always have a taproot commitment, even if there is no script path?'''
 If the taproot output key is an aggregate of keys, there is the possibility for a malicious party to add a script path without being noticed by the other parties.
 This allows to bypass the multiparty policy and to steal the coin.
@@ -168,8 +168,8 @@ Alice will not be able to notice the script path, but Mallory can unilaterally s
 '''Computing the output script''' Once the spending conditions are split into an internal key <code>internal_pubkey</code> and a binary tree whose leaves are (leaf_version, script) tuples, the output script can be computed using the Python3 algorithms below. These algorithms take advantage of helper functions from the [bip-0340/referency.py BIP340 reference code] for integer conversion, point multiplication, and tagged hashes.
 
 First, we define <code>taproot_tweak_pubkey</code> for 32-byte [[bip-0340.mediawiki|BIP340]] public key arrays.
-In addition to the tweaked public key byte array, the function returns a boolean indicating whether the public key represents the tweaked point or its negation.
-This will be required for spending the output with a script path.
+The function returns a bit indicating the tweaked public key's Y coordinate as well as the public key byte array.
+The parity bit will be required for spending the output with a script path.
 In order to allow spending with the key path, we define <code>taproot_tweak_seckey</code> to compute the secret key for a tweaked public key.
 For any byte string <code>h</code> it holds that <code>taproot_tweak_pubkey(pubkey_gen(seckey), h)[0] == pubkey_gen(taproot_tweak_seckey(seckey, h))</code>.
 
@@ -178,13 +178,12 @@ def taproot_tweak_pubkey(pubkey, h):
     t = int_from_bytes(tagged_hash("TapTweak", pubkey + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
-    Q = point_add(point(pubkey), point_mul(G, t))
-    is_negated = not has_square_y(Q)
-    return bytes_from_int(x(Q)), is_negated
+    Q = point_add(lift_x_even_y(int_from_bytes(pubkey)), point_mul(G, t))
+    return 0 if has_even_y(Q) else 1, bytes_from_int(x(Q))
 
 def taproot_tweak_seckey(seckey0, h):
     P = point_mul(G, int_from_bytes(seckey0))
-    seckey = SECP256K1_ORDER - seckey0 if not has_square_y(P) else seckey
+    seckey = seckey0 if has_even_y(P) else SECP256K1_ORDER - seckey0
     t = int_from_bytes(tagged_hash("TapTweak", bytes_from_int(x(P)) + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
@@ -226,7 +225,7 @@ def taproot_output_script(internal_pubkey, script_tree):
 
 To spend this output using script ''D'', the control block would contain the following data in this order:
 
-     <control byte with leaf version and negation bit> <internal key p> <C> <E> <AB>
+     <control byte with leaf version and parity bit> <internal key p> <C> <E> <AB>
 
 The TapTweak would then be computed as described [[bip-0341.mediawiki#script-validation-rules|above]] like so:
 
@@ -258,9 +257,8 @@ This function returns the witness stack necessary and a <code>sighash</code> fun
 def taproot_sign_script(internal_pubkey, script_tree, script_num, inputs):
     info, h = taproot_tree_helper(script_tree)
     (leaf_version, script), path = info[script_num]
-    _, is_negated = taproot_tweak_pubkey(internal_pubkey, h)
-    output_pubkey_tag = 0 if is_negated else 1
-    pubkey_data = bytes([output_pubkey_tag + leaf_version]) + internal_pubkey
+    output_pubkey_y_parity, _ = taproot_tweak_pubkey(internal_pubkey, h)
+    pubkey_data = bytes([output_pubkey_y_parity + leaf_version]) + internal_pubkey
     return inputs + [script, pubkey_data + path]
 </source>
 
