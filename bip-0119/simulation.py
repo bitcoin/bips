@@ -24,6 +24,7 @@ def get_rate(phase):
         return 1.25**(phase)*TXNS_PER_SEC
 
 def normal():
+    np.random.seed(0)
     print("Max Txns Per Sec %f"%TXNS_PER_SEC)
     backlog = 0
     results_unconfirmed = [0]*SAMPLES
@@ -43,6 +44,7 @@ def normal():
             results_unconfirmed[i] = backlog/AVG_TX
     return results_unconfirmed, np.cumsum(total_time)/(60*60*24.0)
 def compressed(rate_multiplier = 1):
+    np.random.seed(0)
     print("Max Txns Per Sec %f"%TXNS_PER_SEC)
     backlog = 0
     secondary_backlog = 0
@@ -54,7 +56,7 @@ def compressed(rate_multiplier = 1):
     total_time = [0]*(SAMPLES)
     for phase in range(PHASES):
         for i in range(PHASE_LENGTH*phase, PHASE_LENGTH*(1+phase)):
-            block_time = np.random.poisson(AVG_INTERVAL)
+            block_time = np.random.exponential(AVG_INTERVAL)
             total_time[i] = block_time
             txns = np.random.poisson(rate_multiplier*get_rate(phase)*block_time)
             postponed = txns * COMPRESSABLE
