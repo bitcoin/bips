@@ -156,6 +156,7 @@ The receiver needs to do some check on the original PSBT before proceeding:
 * Non-interactive receivers (like a payment processor) need to check that the original PSBT is broadcastable. <code>*</code>
 * If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>invalid-transaction</code> or make sure they do not sign those inputs in the payjoin proposal.
 * If the sender's inputs are all from the same scriptPubKey type, the receiver must match the same type. If the receiver can't match the type, they must return error <code>unavailable</code>.
+* <code>maxadditionalfeecontribution=</code> and <code>minfeerate=</code> should be ignored in the [[#spare-change|spare change]] case.
 
 <code>*</code>: Interactive receivers are not required to validate the original PSBT because they are not exposed to probing attacks.
 
@@ -180,6 +181,7 @@ If the sent amount in the payjoin proposal is above the amount sent in the origi
 * Check that the estimated fee rate of the payjoin proposal is not more than the fee rate of the original PSBT. (fee estimation is hard, so we should allow ~2 satoshi per inputs as margin of error)
 * If <code>maxadditionalfeecontribution=</code> was specified, check the additional paid amount is less than or equal to this amount.
 * If <code>maxadditionalfeecontribution=</code> was not specified, the sender's software should ask an interactive confirmation to the user.
+* <code>maxadditionalfeecontribution=</code> and <code>minfeerate=</code> should be ignored in the [[#spare-change|spare change]] case.
 
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
@@ -191,6 +193,9 @@ Note:
 
 Our method of checking the fee allows the receiver and the sender to batch payments in the payjoin transaction.
 It also allows the receiver to pay the fee for batching adding his own outputs.
+
+On top of those check, it is recommended, but not required for the sender to check that:
+* If the sender is making a payjoin with a change (ie, not in the [[#spare-change|spare change]] case), make sure the receiver is paying for any change in the output list.
 
 ===Optional parameters===
 
@@ -213,12 +218,16 @@ If the receiver does not support the version of the sender, they should send an 
 * <code>additionalfeeoutputindex=</code>, the preferred output from which to increase the fee for the added inputs. (default: <code>-1</code>)
 
 If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the payment ouptut meant for the receiver, the receiver should ignore the parameter.
+Should be ignored in the [[#spare-change|spare change]] case.
 
 * <code>maxadditionalfeecontribution=</code>, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero. (default: -1)
 
 Note that if <code>maxadditionalfeecontribution</code> is too low, the sender should create a transaction with RBF disabled, as the original transaction could replace the payjoin transaction.
+Should be ignored in the [[#spare-change|spare change]] case.
 
 * <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
+
+Should be ignored in the [[#spare-change|spare change]] case.
 
 ==Rationale==
 
@@ -256,7 +265,7 @@ However, non-interactive receivers (like a payment processor) need to verify the
 
 This is not a concern for interactive receivers like Wasabi Wallet, because those receivers can just limit the number of original PSBT proposals of a specific address to one. With such wallets, the attacker has no way to generate new deposit addresses to probe the UTXOs.
 
-===Spare change donation===
+===<span id="spare-change"></span>Spare change donation===
 
 Small change inside wallets are detrimental to privacy. Mixers like Wasabi wallet, because of its protocol, eventually generate such [[https://docs.wasabiwallet.io/using-wasabi/ChangeCoins.html#first-round-coinjoin-change|small change]].
 
@@ -266,7 +275,7 @@ However, if you donate via payjoin, it will look like a normal transaction.
 
 On top of this the receiver can poison analysis by randomly faking a round amount of satoshi for the additional output.
 
-===Payment output substitution===
+===<span id="output-substitution"></span>Payment output substitution===
 
 The receiver is free to change the output paying to himself.
 For example, if the sender's scriptPubKey type is P2WPKH while the receiver's payment output in the original PSBT is P2SH, then the receiver can substitute the payment output to be P2WPKH to match the sender's scriptPubKey type.
@@ -286,13 +295,13 @@ This is now however a broken assumption, as the payjoin receiver has the freedom
 
 Alternatively, if the original address of Bob is P2WPKH and Alice's address is also P2WPKH, Bob can change the receiving address in the payjoin to P2SH. The heuristic would wrongfully identify the payjoin's receiving address as the change address of the transaction.
 
-See payment output substitution above.
+See [[#output-substitution|payment output substitution]].
 
 * Change identification from round change amount
 
 If Alice pays Bob, she might be tempted to pay him a round amount, like <code>1.23000000 BTC</code>. When this happens, blockchain analysis often identifies the output without the round amount as the change of the transaction.
 
-For this reason, during a [spare change](Payjoin-spec.md#spare-change-donation) situation, the receiver may add an output with a rounded amount randomly.
+For this reason, during a [[#spare-change|spare change]] case, the receiver may add an output with a rounded amount randomly.
 
 ==Attack vectors==
 
