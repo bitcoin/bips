@@ -13,6 +13,7 @@
   License: BSD-3-Clause
   Requires: 340
   Post-History: 2019-05-06: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2019-May/016914.html [bitcoin-dev] Taproot proposal
+                2019-10-09: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2019-October/017378.html [bitcoin-dev] Taproot updates
 </pre>
 
 ==Introduction==
@@ -104,16 +105,17 @@ If the parameters take acceptable values, the message is the concatenation of th
 ** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
 ** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
 *** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
-*** ''sha_amounts'' (32): the SHA256 of the serialization of all input amounts.
+*** ''sha_amounts'' (32): the SHA256 of the serialization of all spent output amounts.
+*** ''sha_scriptpubkeys'' (32): the SHA256 of the serialization of all spent output ''scriptPubKey''s.
 *** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
 ** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
 *** ''sha_outputs'' (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
 * Data about this input:
 ** ''spend_type'' (1): equal to ''(ext_flag * 2) + annex_present'', where ''annex_present'' is 0 if no annex is present, or 1 otherwise (the original witness stack has two or more witness elements, and the first byte of the last element is ''0x50'')
-** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
 ** If ''hash_type & 0x80'' equals <code>SIGHASH_ANYONECANPAY</code>:
 *** ''outpoint'' (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
 *** ''amount'' (8): value of the previous output spent by this input.
+*** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
 *** ''nSequence'' (4): ''nSequence'' of this input.
 ** If ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
 *** ''input_index'' (4): index of this input in the transaction input vector. Index of the first input is 0.
@@ -123,11 +125,11 @@ If the parameters take acceptable values, the message is the concatenation of th
 ** If ''hash_type & 3'' equals <code>SIGHASH_SINGLE</code>:
 *** ''sha_single_output'' (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-The total length of ''SigMsg()'' is at most ''209'' bytes<ref>'''What is the output length of ''SigMsg()''?''' The total length of ''SigMsg()'' can be computed using the following formula: ''177 - is_anyonecanpay * 52 - is_none * 32 + has_annex * 32''.</ref>. Note that this does not include the size of sub-hashes such as ''sha_prevouts'', which may be cached across signatures of the same transaction.
+The total length of ''SigMsg()'' is at most ''206'' bytes<ref>'''What is the output length of ''SigMsg()''?''' The total length of ''SigMsg()'' can be computed using the following formula: ''174 - is_anyonecanpay * 49 - is_none * 32 + has_annex * 32''.</ref>. Note that this does not include the size of sub-hashes such as ''sha_prevouts'', which may be cached across signatures of the same transaction.
 
 In summary, the semantics of the [[bip-0143.mediawiki|BIP143]] sighash types remain unchanged, except the following:
 # The way and order of serialization is changed.<ref>'''Why is the serialization in the signature message changed?''' Hashes that go into the signature message and the message itself are now computed with a single SHA256 invocation instead of double SHA256. There is no expected security improvement by doubling SHA256 because this only protects against length-extension attacks against SHA256 which are not a concern for signature messages because there is no secret data. Therefore doubling SHA256 is a waste of resources. The message computation now follows a logical order with transaction level data first, then input data and output data. This allows to efficiently cache the transaction part of the message across different inputs using the SHA256 midstate. Additionally, sub-hashes can be skipped when calculating the message (for example `sha_prevouts` if <code>SIGHASH_ANYONECANPAY</code> is set) instead of setting them to zero and then hashing them as in BIP143. Despite that, collisions are made impossible by committing to the length of the data (implicit in ''hash_type'' and ''spend_type'') before the variable length data.</ref>
-# The signature message commits to the ''scriptPubKey''<ref>'''Why does the signature message commit to the ''scriptPubKey''?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (''scriptCode'' in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed.</ref>.
+# The signature message commits to the ''scriptPubKey'' of the spent output and if the <code>SIGHASH_ANYONECANPAY</code> flag is not set, the message commits to the ''scriptPubKey''s of ''all'' outputs spent by the transaction. <ref>'''Why does the signature message commit to the ''scriptPubKey''?''' This prevents lying to offline signing devices about output being spent, even when the actually executed script (''scriptCode'' in BIP143) is correct. This means it's possible to compactly prove to a hardware wallet what (unused) execution paths existed. Moreover, committing to all spent ''scriptPubKey''s helps offline signing devices to determine the subset that belong to its own wallet. This is useful in [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-April/017801.html automated coinjoins].</ref>.
 # If the <code>SIGHASH_ANYONECANPAY</code> flag is not set, the message commits to the amounts of ''all'' transaction inputs.<ref>'''Why does the signature message commit to the amounts of all transaction inputs?''' This eliminates the possibility to lie to offline signing devices about the fee of a transaction.</ref>
 # The signature message commits to all input ''nSequence'' if <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code> are set (unless <code>SIGHASH_ANYONECANPAY</code> is set as well).<ref>'''Why does the signature message commit to all input ''nSequence'' if <code>SIGHASH_SINGLE</code> or <code>SIGHASH_NONE</code> are set?''' Because setting them already makes the message commit to the <code>prevouts</code> part of all transaction inputs, it is not useful to treat the ''nSequence'' any different. Moreover, this change makes ''nSequence'' consistent with the view that <code>SIGHASH_SINGLE</code> and <code>SIGHASH_NONE</code> only modify the signature message with respect to transaction outputs and not inputs.</ref>
 # The signature message includes commitments to the taproot-specific data ''spend_type'' and ''annex'' (if present).
