@@ -54,6 +54,7 @@ my %ValidStatus = (
 	Final => "background-color: #cfffcf",
 	Active => "background-color: #cfffcf",
 	Replaced => "background-color: #ffcfcf",
+	Obsolete => "background-color: #ffcfcf",
 );
 my %ValidType = (
 	'Standards Track' => 'Standard',
