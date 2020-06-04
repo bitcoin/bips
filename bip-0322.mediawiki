@@ -1,0 +1,246 @@
+<pre>
+  BIP: 322
+  Layer: Applications
+  Title: Generic Signed Message Format
+  Author: Karl-Johan Alm <karljohan-alm@garage.co.jp>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0322
+  Status: Draft
+  Type: Standards Track
+  Created: 2018-09-10
+  License: CC0-1.0
+</pre>
+
+== Abstract ==
+
+A standard for interoperable generic signed messages based on the Bitcoin Script format.
+
+== Background ==
+
+* Assume two actors, a prover <code>P</code> and a verifier <code>V</code>.
+* <code>P</code> wants to prove that they own the private key <code>k</code> associated with a given address <code>A</code> (which in turn is derived from the pubkey <code>kG</code>).
+* Let <code>V</code> generate a message <code>M</code> and hand this to <code>P</code>.
+* <code>P</code> generates a signature <code>S</code> by signing the message <code>M</code> using <code>k</code>. Given <code>S</code>, <code>V</code> can prove that <code>P</code> has the private key associated with <code>A</code>.
+
+The astute reader will notice that the above is missing a critical part, namely the pubkey <code>kG</code>, without which the verifier cannot actually verify the message. The current message signing standard solves this via a cryptographic trick, wherein the signature <code>S</code> above is a special "recoverable signature" type. Given the message <code>M</code> and the signature <code>S</code>, it is then possible to recover the pubkey <code>kG</code>. The system thus derives the address for the pubkey <code>kG</code>, and if it does not match <code>A</code>, the proof is deemed invalid.
+
+While this is a neat trick, it unnecessarily restricts and complicates the message signing mechanism; for instance, it is currently not possible to sign a message for a P2SH address, because there is no pubkey to recover from the resulting signature.
+
+== Motivation ==
+
+The current message signing standard only works for P2PKH (1...) addresses. By extending it to use a Bitcoin Script based approach, it could be made more generic without causing a too big burden on implementers, who most likely have access to Bitcoin Script interpreters already.
+
+== Specification ==
+
+A new structure <code>SignatureProof</code> is added, which is a simple serializable scriptSig & witness container.
+
+=== SignatureProof container ===
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Comment
+|-
+|VarInt||1-8||scriptsiglen||Number of bytes in scriptSig data
+|-
+|Uint8*||[scriptsiglen]||scriptsig||ScriptSig data
+|-
+|VarInt||1-8||witlen||Number of entries in witness stack
+|-
+|Uint8[]*||[witlen]||wit||Witness stack, as [witlen] uint8* vectors, each one prepended with a varint of its size
+|}
+
+In some cases, the scriptsig or wit may be empty. If both are empty, the proof is incomplete.
+
+=== Result Codes ===
+
+A verification call will return a result code according to the table below.
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Code
+!Description
+|-
+|INCOMPLETE||Empty proof.
+|-
+|INCONCLUSIVE||The given proof was consensus-valid but policy-invalid.
+|-
+|VALID||The proof was valid.
+|-
+|INVALID||The proof was invalid
+|-
+|ERROR||An error was encountered
+|}
+
+== Signing and Verifying ==
+
+If the challenge consists of an address is in the P2PKH (legacy) format, sign using the legacy format (further information below). Otherwise continue as stated below.
+
+For both cases, generate a sighash based on the given scriptPubKey and message as follows:
+
+# Define the message pre-image as the sequence "Bitcoin Signed Message:\n" concatenated with the message, encoded in UTF-8 using Normalization Form Compatibility Decomposition (NFKD)
+# Let sighash = sha256(sha256(scriptPubKey || pre-image))
+
+A private key may be used directly to sign a message. In this case, its P2WPKH bech32 address shall be derived, and used as the input.
+
+=== Signing ===
+
+The signature is generated as follows:
+
+# Derive the private key privkey for the scriptPubKey; FAIL if not VALID
+# Generate and return a signature sig with privkey=privkey, sighash=sighash
+
+=== Verifying ===
+
+Verify a proof, given a standard flags value, a script sig, an optional witness, and a derived sighash as described above.
+
+While omitted below, ERROR is returned if an unforeseen error occurs at any point in the process. A concrete example of this is if a legacy proof is given as input to a non-legacy address; the deserialization of the proof will fail in this case, and this should result in an ERROR result.
+
+# Verify Script with flags=consensus flags (currently P2SH, DERSIG, NULLDUMMY, CLTV, CSV, WITNESS), scriptSig=script sig, scriptPubKey=scriptPubKey, witness=witness, and sighash=sighash
+# Return INVALID if verification fails
+# Verify Script with flags=standard flags (above plus STRICTENC, MINIMALDATA, etc.), scriptSig=script sig, scriptPubKey=scriptPubKey, witness=witness, and sighash=sighash
+# Return VALID if verification succeeds, otherwise return INCONCLUSIVE
+
+== Legacy format ==
+
+The legacy format is restricted to the legacy P2PKH address format.
+
+Any other input (i.e. non-P2PKH address format) must be signed using the new format described above.
+
+=== Signing ===
+
+Given the P2PKH address <code>a</code> and the message <code>m</code>, and the pubkey-hash function <code>pkh(P) = ripemd160(sha256(P))</code>:
+
+# let <code>p</code> be the pubkey-hash <code>pkh(P)</code> for the pubkey <code>P</code>, contained in <code>a</code>
+# let <code>x</code> be the private key associated with <code>P</code> so that <code>pkh(xG) = p</code>
+# let <code>digest</code> be <code>SHA56d("Bitcoin Signed Message:\n"||m)</code>
+# create a compact signature <code>sig</code> (aka "recoverable ECDSA signature") using <code>x</code> on <code>digest</code>
+
+The resulting proof is <code>sig</code>, serialized using the base64 encoding.
+
+=== Verifying ===
+
+Given the P2PKH address <code>a</code>, the message <code>m</code>, the compact signature <code>sig</code>, and the pubkey-hash function <code>pkh(P) = ripemd160(sha256(P))</code>:
+
+# let <code>p</code> be the pubkey-hash <code>pkh(P)</code> for the pubkey <code>P</code>, contained in <code>a</code>
+# let <code>digest</code> be <code>SHA56d("Bitcoin Signed Message:\n"||m)</code>
+# attempt pubkey recovery for <code>digest</code> using the signature <code>sig</code> and store the resulting pubkey into <code>Q</code>
+## fail verification if pubkey recovery above fails
+# let <code>q</code> be the pubkey-hash <code>pkh(Q)</code> for the pubkey <code>Q</code>
+# if <code>p == q</code>, the proof is valid, otherwise it is invalid
+
+== Compatibility ==
+
+This specification is backwards compatible with the legacy signmessage/verifymessage specification through the special case as described above.
+
+== Reference implementation ==
+
+# Pull request to Bitcoin Core: https://github.com/bitcoin/bitcoin/pull/16440
+
+== Acknowledgements ==
+
+Thanks to David Harding, Jim Posen, Kalle Rosenbaum, Pieter Wuille, and many others for their feedback on the specification.
+
+== References ==
+
+# Original mailing list thread: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-March/015818.html
+
+== Copyright ==
+
+This document is licensed under the Creative Commons CC0 1.0 Universal license.
+
+== Consensus and standard flags ==
+
+Each flag is associated with some type of enforced rule (most often a soft fork). There are two sets of flags: consensus flags (which result in a block being rejected, if violated), and policy flags (which result in a transaction being accepted only if it is contained within an actual block, and rejected otherwise, if violated). The policy flags are a super-set of the consensus flags.
+
+BIP322 specifies that a proof that validates for both rulesets is valid, a proof that validates for consensus rules, but not for policy rules, is "inconclusive", and a proof that does not validate for consensus rules is "invalid" (regardless of policy rule validation).
+
+The ruleset sometimes changes. This BIP does not intend to be complete, nor does it indicate enforcement of rules, it simply lists the rules as they stand at the point of writing.
+
+=== Consensus rules ===
+
+* P2SH: evaluate P2SH ([https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki BIP16]) subscripts
+* DERSIG: enforce strict DER ([https://github.com/bitcoin/bips/blob/master/bip-0066.mediawiki BIP66]) compliance
+* NULLDUMMY: enforce NULLDUMMY ([https://github.com/bitcoin/bips/blob/master/bip-0147.mediawiki BIP147])
+* CHECKLOCKTIMEVERIFY: enable CHECKLOCKTIMEVERIFY ([https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP65])
+* CHECKSEQUENCEVERIFY: enable CHECKSEQUENCEVERIFY ([https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP112])
+* WITNESS: enable WITNESS ([https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141])
+
+=== Policy rules ===
+
+All of the above, plus (subject to change):
+
+* STRICTENC: non-strict DER signature or undefined hashtype
+* MINIMALDATA: require minimal encodings for all push operations
+* DISCOURAGE_UPGRADABLE_NOPS: discourage use of NOPs reserved for upgrades
+* CLEANSTACK: require that only a single stack element remains after evaluation
+* MINIMALIF: Segwit script only: require the argument of OP_IF/NOTIF to be exactly 0x01 or empty vector
+* NULLFAIL: signature(s) must be empty vector if a CHECK(MULTI)SIG operation failed
+* LOW_S: signature with S > order/2 in a checksig operation
+* DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM: v1-16 witness programs are non-standard (i.e. forbidden)
+* WITNESS_PUBKEYTYPE: public keys in segregated witness scripts must be compressed
+* CONST_SCRIPTCODE: OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
+
+== Test vectors ==
+
+(TODO: update test vectors, which are based on previous iteration where signature proofs contained additional data)
+
+== Native segwit test vector ==
+
+<pre>
+address      = bcrt1qe7nte4zk4ayly5tc53dtdjupgkz0lr8azx3rzz
+scriptpubkey = 0014cfa6bcd456af49f25178a45ab6cb814584ff8cfd
+message      = hello
+preimage     = 0014cfa6bcd456af49f25178a45ab6cb814584ff8cfd426974636f696e205369
+               676e6564204d6573736167653a0a68656c6c6f
+               (scriptpubkey || "Bitcoin Signed Message:\nhello")
+sighash      = 790eef86c204f0bff969ff822121317aa34eff0215dbd30ccf031e7b2f3f0cc1
+               (sha256d(preimage), displayed in big-endian)
+</pre>
+
+The proof becomes:
+
+<pre>
+HEX:    01000000010002473044022075b4fb40421d55c55462879cb352a85eeb3af2138d3f0290
+        2c9143f12870f5f70220119c2995c1661138142f3899c1fd6d1af7e790e0e081be72db9c
+        e7bf5b5b932901210290beccd02b73eca57467b2b6f1e47161a9b76a5e67586e7c1dee9e
+        a6e2dcd869
+
+Base64: AQAAAAEAAkcwRAIgdbT7QEIdVcVUYoecs1KoXus68hONPwKQLJFD8Shw9fcCIBGcKZXBZhE4
+        FC84mcH9bRr355Dg4IG+ctuc579bW5MpASECkL7M0Ctz7KV0Z7K28eRxYam3al5nWG58He6e
+        puLc2Gk=
+</pre>
+
+Split into components:
+
+{|class="wikitable" style="text-align: center;"
+|-
+!Type
+!Length
+!Name
+!Value
+!Comment
+|-
+|Uint32||4||flags||<code>01000000</code>||proof format version
+|-
+|Uint8||1||entries||<code>01</code>||1 entry
+|-
+|VarInt||1-8||scriptsiglen||<code>00</code>||0 byte scriptsig
+|-
+|VarInt||1-8||wit entries||<code>02</code>||2 witness stack entries
+|-
+|VarInt||1-8||entry1len||<code>47</code>||71 byte entry
+|-
+|Uint8[71]||71||entry1||<code>3044022075b4fb40421d55c55462879cb352a85eeb3af213
+8d3f02902c9143f12870f5f70220119c2995c1661138142f
+3899c1fd6d1af7e790e0e081be72db9ce7bf5b5b932901</code>||Witness stack item 1
+|-
+|VarInt||1-8||entry2len||<code>21</code>||33 byte entry
+|-
+|Uint8[33]||33||entry2||<code>0290beccd02b73eca57467b2b6f1e47161a9b76a5e67586e
+7c1dee9ea6e2dcd869</code>||Witness stack item 2
+|}
+
+The above test vector is for a bech32 P2WPKH (native segwit) address. (Once BIP solidifies, will add test vector for other types.)
