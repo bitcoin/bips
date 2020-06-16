@@ -99,7 +99,7 @@ To ensure compatibility with web-wallets and browser-based-tools, all responses 
 The sender must ensure that the url refers to a scheme or protocol using authenticated encryption, for example TLS with certificate validation, or a .onion link to a hidden service whose public key identifier has already been communicated via a TLS connection. Senders SHOULD NOT accept a url representing an unencrypted or unauthenticated connection.
 
 The original PSBT MUST:
-* Have all the `witnessUTXO` or `nonWitnessUTXO` information filled in.
+* Have all the <code>witnessUTXO</code> or <code>nonWitnessUTXO</code> information filled in.
 * Be finalized.
 * Not include fields unneeded for the receiver such as global xpubs or keypath information.
 * Be broadcastable.
@@ -110,7 +110,7 @@ The original PSBT MAY:
 The payjoin proposal MUST:
 * Use all the inputs from the original PSBT.
 * Only finalize the inputs added by the receiver.
-* Have all the `witnessUTXO` or `nonWitnessUTXO` information filled in.
+* Have all the <code>witnessUTXO</code> or <code>nonWitnessUTXO</code> information filled in.
 * Keep all the outputs unrelated to the payment.
 
 The payjoin proposal MAY:
@@ -172,30 +172,27 @@ The receiver needs to do some check on the original PSBT before proceeding:
 The sender should check the payjoin proposal before signing it to prevent a malicious receiver from stealing money.
 
 * Check that all the spent outpoints in the original PSBT still exist in the coinjoin PSBT.
-* Check that all the spent outpoints in the original PSBT do not have any partial signature.
+* Check that all the spent outpoints in the original PSBT do not have any partial signature and are not finalized.
 * If the sender is not using inputs with mixed types, check that the receiver inputs type match the inputs type of the sender. (ie. both using P2SH-P2WPKH or both using P2WPKH)
 * Check that any inputs added by the receiver are finalized.
 * Check that the transaction version, and nLockTime are unchanged.
 * Check that the sender's inputs' sequence numbers are unchanged.
 * If the sender's inputs' sequence numbers are all the same, check that the receiver's contributed inputs match those.
-* Check that the sender's own outputs have not been modified, except for paying increased fee, or by simple shuffling.
-* If sender specified <code>additionalfeeoutputindex=</code> (see later), the fee should have been subtracted from the output at the same index in the original PSBT.
 * If <code>minfeerate</code> was specified, check that the estimated fee rate of the payjoin proposal is not less than this value.
-* Check that the sent amount in the payjoin proposal is less than or equal to the sent amount of the original transaction. (Defined as the sum of the inputs' value to be signed minus the sender's ouput change)
+* Check that outputs from the original PSBT has not been modified except if:
+  * The output can contribute to fee (see below)
+  * The output does not belong to the sender.
 
-If the sent amount in the payjoin proposal is above the amount sent in the original PSBT
-* Check that the additional paid amount has been add paid to the fee.
-* Check that the estimated fee rate of the payjoin proposal is not more than the fee rate of the original PSBT. (fee estimation is hard, so we should allow ~2 satoshi per inputs as margin of error)
-* If <code>maxadditionalfeecontribution=</code> was specified, check the additional paid amount is less than or equal to this amount.
-* If <code>maxadditionalfeecontribution=</code> was not specified, the sender's software should ask an interactive confirmation to the user.
-* <code>maxadditionalfeecontribution=</code> and <code>minfeerate=</code> should be ignored in the [[#spare-change|spare change]] case.
+If a fee output exists, (ie, <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> have been set by the sender), the sender must checks:
+  * The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
+  * The <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT. (This make sure the contribution actually goes to fee)
+  * The <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (This make sure the contributiion only pays for additional inputs)
 
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
 Note:
-* The sender should allow the payment output to be modified by the receiver (The receiver may substitute a P2WPKH payment to P2SH payment to increase privacy)
-* The sender must allow the receiver to add outputs.
-* The sender must allow the receiver to not add any input. Useful for the receiver to change the paymout output scriptPubKey type.
+* The sender must allow the receiver to add/remove or modify his own outputs
+* The sender should allow the receiver to not add any input. Useful for the receiver to change the paymout output scriptPubKey type.
 * If no input have been added, the sender's wallet implementation should accept the payjoin proposal, but not mark the transaction as an actual payjoin in the user interface.
 
 Our method of checking the fee allows the receiver and the sender to batch payments in the payjoin transaction.
@@ -229,6 +226,7 @@ If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the
 * <code>maxadditionalfeecontribution=</code>, if the sender is willing to pay for increased fee, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero.
 
 Note that both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> must be specified and valid for the receiver to be allowed to decrease an output belonging to the sender.
+This fee contribution can't be used to pay for anything else than additional input's weight.
 
 * <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
 
@@ -246,7 +244,7 @@ To be properly relayed, a Bitcoin transaction needs to pay at least 1 satoshi pe
 When blocks are not full, the original transaction might already at the minimum relay fee rate (currently 1 satoshi per virtual byte), so if the receiver adds their own input, they need to make sure the fee is increased such that the rate does not drop below the minimum relay fee rate.
 In such case, the sender must set both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code>.
 
-The recommended value <code>maxadditionalfeecontribution=</code> is `minFeeRate * vsize(1 input)`.
+The recommended value <code>maxadditionalfeecontribution=</code> is <code>minFeeRate * vsize(1 input)</code>.
 
 We also recommend the sender to set <code>minfeerate=</code>, as the sender's node policy might be different from the receiver's policy.
 
@@ -258,7 +256,7 @@ If the payjoin transaction's fee was not increased by the added size, then those
 Not only would those transactions stand out by not having a round fee (like 1.87 sat/b), but any suspicion of payjoin could be confirmed by checking if removing one input would create a round fee rate.
 In such case, the sender must set both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code>.
 
-The recommended value <code>maxadditionalfeecontribution=</code> is `minFeeRate * vsize(1 input)`.
+The recommended value <code>maxadditionalfeecontribution=</code> is <code>feerate * vsize(1 input)</code>.
 We also recommend the sender to set <code>minfeerate=</code>, as the sender's node policy might be different from the receiver's policy.
 
 ===Receiver does not need to be a full node===
@@ -348,7 +346,7 @@ With payjoin, the maximum amount of money that can be lost is equal to two payme
 
 The receivers are advertising payjoin capabilities through [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki|BIP21's URI Scheme]].
 
-Senders not supporting payjoin will just ignore the `pj` variable and thus, will proceed to normal payment.
+Senders not supporting payjoin will just ignore the <code>pj</code> variable and thus, will proceed to normal payment.
 
 ==Special thanks==
 
