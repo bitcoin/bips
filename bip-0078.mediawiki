@@ -164,7 +164,6 @@ The receiver needs to do some check on the original PSBT before proceeding:
 * Non-interactive receivers (like a payment processor) need to check that the original PSBT is broadcastable. <code>*</code>
 * If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>invalid-transaction</code> or make sure they do not sign those inputs in the payjoin proposal.
 * If the sender's inputs are all from the same scriptPubKey type, the receiver must match the same type. If the receiver can't match the type, they must return error <code>unavailable</code>.
-* <code>maxadditionalfeecontribution=</code> and <code>minfeerate=</code> should be ignored in the [[#spare-change|spare change]] case.
 
 <code>*</code>: Interactive receivers are not required to validate the original PSBT because they are not exposed to probing attacks.
 
@@ -223,19 +222,15 @@ If the receiver does not support the version of the sender, they should send an 
 }
 </pre>
 
-* <code>additionalfeeoutputindex=</code>, the preferred output from which to increase the fee for the added inputs. (default: <code>-1</code>)
+* <code>additionalfeeoutputindex=</code>, if the sender is willing to pay for increased fee, this indicate output can have its value substracted to pay for it.
 
 If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the payment output meant for the receiver, the receiver should ignore the parameter.
-Should be ignored in the [[#spare-change|spare change]] case.
 
-* <code>maxadditionalfeecontribution=</code>, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero. (default: -1)
+* <code>maxadditionalfeecontribution=</code>, if the sender is willing to pay for increased fee, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero.
 
-Note that if <code>maxadditionalfeecontribution</code> is too low, the sender should create a transaction with RBF disabled, as the original transaction could replace the payjoin transaction.
-Should be ignored in the [[#spare-change|spare change]] case.
+Note that both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> must be specified and valid for the receiver to be allowed to decrease an output belonging to the sender.
 
 * <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
-
-Should be ignored in the [[#spare-change|spare change]] case.
 
 ==Rationale==
 
@@ -248,13 +243,12 @@ There is several consequences of our proposal:
 ===Respecting the minimum relay fee policy===
 
 To be properly relayed, a Bitcoin transaction needs to pay at least 1 satoshi per virtual byte.
-When fees are low, the original transaction is already 1 satoshi per virtual byte, so if the receiver adds their own input, they need to make sure the fee is increased such that the rate does not drop below 1 satoshi per virtual byte.
+When blocks are not full, the original transaction might already at the minimum relay fee rate (currently 1 satoshi per virtual byte), so if the receiver adds their own input, they need to make sure the fee is increased such that the rate does not drop below the minimum relay fee rate.
+In such case, the sender must set both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code>.
 
-===Preventing mempool replacement===
+The recommended value <code>maxadditionalfeecontribution=</code> is `minFeeRate * vsize(1 input)`.
 
-A safe way to implement payjoin, is for both the sender and receiver to try broadcasting the original transaction at some fixed interval period regardless of the state of the payjoin.
-
-If the receiver was not properly adding fees to the payjoin transaction, the original transaction would end up replacing the payjoin transaction in the mempool.
+We also recommend the sender to set <code>minfeerate=</code>, as the sender's node policy might be different from the receiver's policy.
 
 ===Defeating heuristics based on the fee calculation===
 
@@ -262,6 +256,10 @@ Most wallets are creating a round fee rate (like 2 sat/b).
 If the payjoin transaction's fee was not increased by the added size, then those payjoin transactions could easily be identifiable on the blockchain.
 
 Not only would those transactions stand out by not having a round fee (like 1.87 sat/b), but any suspicion of payjoin could be confirmed by checking if removing one input would create a round fee rate.
+In such case, the sender must set both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code>.
+
+The recommended value <code>maxadditionalfeecontribution=</code> is `minFeeRate * vsize(1 input)`.
+We also recommend the sender to set <code>minfeerate=</code>, as the sender's node policy might be different from the receiver's policy.
 
 ===Receiver does not need to be a full node===
 
