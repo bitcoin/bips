@@ -119,6 +119,35 @@ The payjoin proposal MAY:
 The payjoin proposal MUST NOT:
 * Shuffle the order of inputs or outputs, the additional outputs or additional inputs must be inserted at a random index.
 
+===Optional parameters===
+
+When the payjoin sender posts the original PSBT to the receiver, he can optionally specify the following HTTP query string parameters:
+
+* <code>v=</code>, the version number of the payjoin protocol that the sender is using. The current version is <code>1</code>.
+
+This can be used in the future so the receiver can reject a payjoin if the sender is using a version which is not supported via an error HTTP 400, <code>version-unsupported</code>.
+If not specified, the receiver will assume the sender is <code>v=1</code>.
+
+If the receiver does not support the version of the sender, they should send an error with the list of supported versions:
+<pre>
+{
+    "errorCode": "version-unsupported",
+    "supported" : [ 2, 3, 4 ],
+    "message": "The version is not supported anymore"
+}
+</pre>
+
+* <code>additionalfeeoutputindex=</code>, if the sender is willing to pay for increased fee, this indicate output can have its value substracted to pay for it.
+
+If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the payment output meant for the receiver, the receiver should ignore the parameter.
+
+* <code>maxadditionalfeecontribution=</code>, if the sender is willing to pay for increased fee, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero.
+
+Note that both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> must be specified and valid for the receiver to be allowed to decrease an output belonging to the sender.
+This fee contribution can't be used to pay for anything else than additional input's weight.
+
+* <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
+
 ===Receiver's well known errors===
 
 If for some reason the receiver is unable to create a payjoin proposal, it will reply with a HTTP code different than 200.
@@ -201,35 +230,6 @@ It also allows the receiver to pay the fee for batching adding his own outputs.
 
 On top of those check, it is recommended, but not required for the sender to check that:
 * If the sender is making a payjoin with a change (ie, not in the [[#spare-change|spare change]] case), make sure the receiver is paying for any batched output.
-
-===Optional parameters===
-
-When the payjoin sender posts the original PSBT to the receiver, he can optionally specify the following HTTP query string parameters:
-
-* <code>v=</code>, the version number of the payjoin protocol that the sender is using. The current version is <code>1</code>.
-
-This can be used in the future so the receiver can reject a payjoin if the sender is using a version which is not supported via an error HTTP 400, <code>version-unsupported</code>.
-If not specified, the receiver will assume the sender is <code>v=1</code>.
-
-If the receiver does not support the version of the sender, they should send an error with the list of supported versions:
-<pre>
-{
-    "errorCode": "version-unsupported",
-    "supported" : [ 2, 3, 4 ],
-    "message": "The version is not supported anymore"
-}
-</pre>
-
-* <code>additionalfeeoutputindex=</code>, if the sender is willing to pay for increased fee, this indicate output can have its value substracted to pay for it.
-
-If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the payment output meant for the receiver, the receiver should ignore the parameter.
-
-* <code>maxadditionalfeecontribution=</code>, if the sender is willing to pay for increased fee, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero.
-
-Note that both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> must be specified and valid for the receiver to be allowed to decrease an output belonging to the sender.
-This fee contribution can't be used to pay for anything else than additional input's weight.
-
-* <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
 
 ==Rationale==
 
