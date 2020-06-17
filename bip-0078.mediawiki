@@ -381,6 +381,238 @@ Without payjoin, the maximum amount of money that could be lost by a compromised
 
 With payjoin, the maximum amount of money that can be lost is equal to two payments.
 
+==Reference sender's implementation==
+
+Here is pseudo code of a sender implementation.
+<code>RequestPayjoin</code> takes the bip21 URI of the payment, the wallet and the <code>signedPSBT</code>.
+
+The <code>signedPSBT</code> represents a PSBT which has been fully signed, but not yet finalized.
+We then prepare <code>originalPSBT</code> from the <code>signedPSBT</code> via the <code>CreateOriginalPSBT</code> function and get back the <code>proposal</code>.
+
+While we verify the <code>proposal</code>, we also import into it informations about our own inputs and outputs from the <code>signedPSBT</code>.
+At the end of this <code>RequestPayjoin</code>, the proposal is verified and ready to be signed.
+
+We logged the different PSBT involved, and show the result in our [[#test-vectors|test vectors]].
+<pre>
+public async Task<PSBT> RequestPayjoin(
+    BIP21Uri bip21,
+    Wallet wallet,
+    PSBT signedPSBT,
+    PayjoinClientParameters optionalParameters)
+{
+    Log("signed PSBT" + signedPSBT);
+    var endpoint = bip21.ExtractPayjointEndpoint();
+    if (signedPSBT.IsAllFinalized())
+        throw new InvalidOperationException("The original PSBT should not be finalized.");
+    ScriptPubKeyType inputScriptType = wallet.ScriptPubKeyType();
+    PSBTOutput feePSBTOutput = null;
+    if (optionalParameters.AdditionalFeeOutputIndex != null && optionalParameters.MaxAdditionalFeeContribution != null)
+        feePSBTOutput = signedPSBT.Outputs[optionalParameters.AdditionalFeeOutputIndex];
+    decimal originalFee = signedPSBT.GetFee();
+    PSBT originalPSBT = CreateOriginalPSBT(signedPSBT);
+    Transaction originalGlobalTx = signedPSBT.GetGlobalTransaction();
+    TxOut feeOutput = feePSBTOutput == null ? null : originalGlobalTx.Outputs[feePSBTOutput.Index];
+    var ourInputs = new Queue<(TxIn OriginalTxIn, PSBTInput SignedPSBTInput)>();
+    for (int i = 0; i < originalGlobalTx.Inputs.Count; i++)
+    {
+        ourInputs.Enqueue((originalGlobalTx.Inputs[i], signedPSBT.Inputs[i]));
+    }
+    var ourOutputs = new Queue<(TxOut OriginalTxOut, PSBTOutput SignedPSBTOutput)>();
+    for (int i = 0; i < originalGlobalTx.Outputs.Count; i++)
+    {
+        if (signedPSBT.Outputs[i].ScriptPubKey != bip21.Address.ScriptPubKey)
+            ourOutputs.Enqueue((originalGlobalTx.Outputs[i], signedPSBT.Outputs[i]));
+    }
+    endpoint = ApplyOptionalParameters(endpoint, optionalParameters);
+    Log("original PSBT" + originalPSBT);
+    PSBT proposal = await SendOriginalTransaction(endpoint, originalPSBT, cancellationToken);
+    Log("payjoin proposal" + proposal);
+    // Checking that the PSBT of the receiver is clean
+    if (proposal.GlobalXPubs.Any())
+    {
+        throw new PayjoinSenderException("GlobalXPubs should not be included in the receiver's PSBT");
+    }
+    ////////////
+
+    if (proposal.CheckSanity() is List<PSBTError> errors && errors.Count > 0)
+        throw new PayjoinSenderException($"The proposal PSBT is not insance ({errors[0]})");
+
+    var proposalGlobalTx = proposal.GetGlobalTransaction();
+    // Verify that the transaction version, and nLockTime are unchanged.
+    if (proposalGlobalTx.Version != originalGlobalTx.Version)
+        throw new PayjoinSenderException($"The proposal PSBT changed the transaction version");
+    if (proposalGlobalTx.LockTime != originalGlobalTx.LockTime)
+        throw new PayjoinSenderException($"The proposal PSBT changed the nLocktime");
+
+    HashSet<Sequence> sequences = new HashSet<Sequence>();
+    // For each inputs in the proposal:
+    foreach (PSBTInput proposedPSBTInput in proposal.Inputs)
+    {
+        if (proposedPSBTInput.HDKeyPaths.Count != 0)
+            throw new PayjoinSenderException("The receiver added keypaths to an input");
+        if (proposedPSBTInput.PartialSigs.Count != 0)
+            throw new PayjoinSenderException("The receiver added partial signatures to an input");
+        PSBTInput proposedTxIn = proposalGlobalTx.Inputs.FindIndexedInput(proposedPSBTInput.PrevOut).TxIn;
+        bool isOurInput = ourInputs.Count > 0 && ourInputs.Peek().OriginalTxIn.PrevOut == proposedPSBTInput.PrevOut;
+        // If it is one of our input
+        if (isOurInput)
+        {
+            OutPoint inputPrevout = ourPrevouts.Dequeue();
+            TxIn originalTxin = originalGlobalTx.Inputs.FromOutpoint(inputPrevout);
+            PSBTInput originalPSBTInput = originalPSBT.Inputs.FromOutpoint(inputPrevout);
+            // Verify that sequence is unchanged.
+            if (input.OriginalTxIn.Sequence != proposedTxIn.Sequence)
+                throw new PayjoinSenderException("The proposedTxIn modified the sequence of one of our inputs")
+            // Verify the PSBT input is not finalized
+            if (proposedPSBTInput.IsFinalized())
+                throw new PayjoinSenderException("The receiver finalized one of our inputs");
+            // Verify that <code>non_witness_utxo</code> and <code>witness_utxo</code> are not specified.
+            if (proposedPSBTInput.NonWitnessUtxo != null || proposedPSBTInput.WitnessUtxo != null)
+                throw new PayjoinSenderException("The receiver added non_witness_utxo or witness_utxo to one of our inputs");
+            sequences.Add(proposedTxIn.Sequence);
+            
+            // Fill up the info from the original PSBT input so we can sign and get fees.
+            proposedPSBTInput.NonWitnessUtxo = input.SignedPSBTInput.NonWitnessUtxo;
+            proposedPSBTInput.WitnessUtxo = input.SignedPSBTInput.WitnessUtxo;
+            // We fill up information we had on the signed PSBT, so we can sign it.
+            foreach (var hdKey in input.SignedPSBTInput.HDKeyPaths)
+            proposedPSBTInput.HDKeyPaths.Add(hdKey.Key, hdKey.Value);
+            proposedPSBTInput.RedeemScript = signedPSBTInput.RedeemScript;
+            proposedPSBTInput.RedeemScript = input.SignedPSBTInput.RedeemScript;
+        }
+        else
+        {
+            // Verify the PSBT input is finalized
+            if (!proposedPSBTInput.IsFinalized())
+                throw new PayjoinSenderException("The receiver did not finalized one of their input");
+            // Verify that non_witness_utxo or witness_utxo are filled in.
+            if (proposedPSBTInput.NonWitnessUtxo == null && proposedPSBTInput.WitnessUtxo == null)
+                throw new PayjoinSenderException("The receiver did not specify non_witness_utxo or witness_utxo for one of their inputs");
+            sequences.Add(proposedTxIn.Sequence);
+            // Verify that the payjoin proposal did not introduced mixed input's type.
+            if (inputScriptType != proposedPSBTInput.GetInputScriptPubKeyType())
+                throw new PayjoinSenderException("Mixed input type detected in the proposal");
+        }
+    }
+
+    // Verify that all of sender's inputs from the original PSBT are in the proposal.
+    if (ourInputs.Count != 0)
+        throw new PayjoinSenderException("Some of our inputs are not included in the proposal");
+
+    // Verify that the payjoin proposal did not introduced mixed input's sequence.
+    if (sequences.Count != 1)
+        throw new PayjoinSenderException("Mixed sequence detected in the proposal");
+
+    // For each outputs in the proposal:
+    foreach (PSBTOutput proposedPSBTOutput in proposal.Outputs)
+    {
+        // Verify that no keypaths is in the PSBT output
+        if (proposedPSBTOutput.HDKeyPaths.Count != 0)
+            throw new PayjoinSenderException("The receiver added keypaths to an output");
+        bool isOurOutput = ourOutputs.Count > 0 && ourOutputs.Peek().OriginalTxOut.ScriptPubKey == proposedPSBTOutput.ScriptPubKey;
+        if (isOurOutput)
+        {
+            var output = ourOutputs.Dequeue();
+            if (output.OriginalTxOut == feeOutput)
+            {
+                var actualContribution = feeOutput.Value - proposedPSBTOutput.Value;
+                // The amount that was substracted from the output's value is less or equal to maxadditionalfeecontribution
+                if (actualContribution > optionalParameters.MaxAdditionalFeeContribution)
+                    throw new PayjoinSenderException("The actual contribution is more than maxadditionalfeecontribution");
+                decimal newFee = proposal.GetFee();
+                decimal additionalFee = newFee - originalFee;
+                // Make sure the actual contribution is only paying fee
+                if (actualContribution > additionalFee)
+                    throw new PayjoinSenderException("The actual contribution is not only paying fee");
+                // Make sure the actual contribution is only paying for fee incurred by additional inputs
+                int additionalInputsCount = proposalGlobalTx.Inputs.Count - originalGlobalTx.Inputs.Count;
+                if (actualContribution > originalFeeRate * GetVirtualSize(inputScriptType) * additionalInputsCount)
+                    throw new PayjoinSenderException("The actual contribution is not only paying for additional inputs");
+            }
+            else
+            {
+                if (output.OriginalTxOut.Value != proposedPSBTOutput.Value)
+                    throw new PayjoinSenderException("The receiver changed one of our outputs");
+            }
+            // We fill up information we had on the signed PSBT, so we can sign it.
+            foreach (var hdKey in output.SignedPSBTOutput.HDKeyPaths)
+                proposedPSBTOutput.HDKeyPaths.Add(hdKey.Key, hdKey.Value);
+            proposedPSBTOutput.RedeemScript = output.SignedPSBTOutput.RedeemScript;
+        }
+    }
+    // Verify that all of sender's outputs from the original PSBT are in the proposal.
+    if (ourOutputs.Count != 0)
+        throw new PayjoinSenderException("Some of our outputs are not included in the proposal");
+
+    // After signing this proposal, we should check if minfeerate is respected.
+    Log("payjoin proposal filled with sender's information" + proposal);
+    return proposal;
+}
+
+int GetVirtualSize(ScriptPubKeyType? scriptPubKeyType)
+{
+    switch (scriptPubKeyType)
+    {
+        case ScriptPubKeyType.Legacy:
+            return 148;
+        case ScriptPubKeyType.Segwit:
+            return 68;
+        case ScriptPubKeyType.SegwitP2SH:
+            return 91;
+        default:
+            return 110;
+    }
+}
+
+// Finalized the signedPSBT and remove confidential information
+PSBT CreateOriginalPSBT(PSBT signedPSBT)
+{
+    var original = signedPSBT.Clone();
+    original = original.Finalize();
+    foreach (var input in original.Inputs)
+    {
+        input.HDKeyPaths.Clear();
+        input.PartialSigs.Clear();
+        input.Unknown.Clear();
+    }
+    foreach (var output in original.Outputs)
+    {
+        output.Unknown.Clear();
+        output.HDKeyPaths.Clear();
+    }
+    original.GlobalXPubs.Clear();
+    return original;
+}
+</pre>
+
+==<span id="test-vectors"></span>Test vectors==
+
+A successful exchange with:
+
+{| class="wikitable"
+!InputScriptType
+!Orginal PSBT Fee rate
+!maxadditionalfeecontribution
+!additionalfeeoutputindex
+|-
+|P2SH-P2WSH
+|2 sat/vbyte
+|0.00000182
+|0
+|}
+
+<code>signed PSBT</code>
+<pre>cHNidP8BAHMCAAAAAY8nutGgJdyYGXWiBEb45Hoe9lWGbkxh/6bNiOJdCDuDAAAAAAD+////AtyVuAUAAAAAF6kUHehJ8GnSdBUOOv6ujXLrWmsJRDCHgIQeAAAAAAAXqRR3QJbbz0hnQ8IvQ0fptGn+votneofTAAAAAAEBIKgb1wUAAAAAF6kU3k4ekGHKWRNbA1rV5tR5kEVDVNCHAQQWABTHikVyU1WCjVZYB03VJg1fy2mFMCICAxWawBqg1YdUxLTYt9NJ7R7fzws2K09rVRBnI6KFj4UWRzBEAiB8Q+A6dep+Rz92vhy26lT0AjZn4PRLi8Bf9qoB/CMk0wIgP/Rj2PWZ3gEjUkTlhDRNAQ0gXwTO7t9n+V14pZ6oljUBIgYDFZrAGqDVh1TEtNi300ntHt/PCzYrT2tVEGcjooWPhRYYSFzWUDEAAIABAACAAAAAgAEAAAAAAAAAAAEAFgAURvYaK7pzgo7lhbSl/DeUan2MxRQiAgLKC8FYHmmul/HrXLUcMDCjfuRg/dhEkG8CO26cEC6vfBhIXNZQMQAAgAEAAIAAAACAAQAAAAEAAAAAAA==</pre>
+
+<code>original PSBT</code>
+<pre>cHNidP8BAHMCAAAAAY8nutGgJdyYGXWiBEb45Hoe9lWGbkxh/6bNiOJdCDuDAAAAAAD+////AtyVuAUAAAAAF6kUHehJ8GnSdBUOOv6ujXLrWmsJRDCHgIQeAAAAAAAXqRR3QJbbz0hnQ8IvQ0fptGn+votneofTAAAAAAEBIKgb1wUAAAAAF6kU3k4ekGHKWRNbA1rV5tR5kEVDVNCHAQcXFgAUx4pFclNVgo1WWAdN1SYNX8tphTABCGsCRzBEAiB8Q+A6dep+Rz92vhy26lT0AjZn4PRLi8Bf9qoB/CMk0wIgP/Rj2PWZ3gEjUkTlhDRNAQ0gXwTO7t9n+V14pZ6oljUBIQMVmsAaoNWHVMS02LfTSe0e388LNitPa1UQZyOihY+FFgABABYAFEb2Giu6c4KO5YW0pfw3lGp9jMUUAAA=</pre>
+
+<code>payjoin proposal</code>
+<pre>cHNidP8BAJwCAAAAAo8nutGgJdyYGXWiBEb45Hoe9lWGbkxh/6bNiOJdCDuDAAAAAAD+////jye60aAl3JgZdaIERvjkeh72VYZuTGH/ps2I4l0IO4MBAAAAAP7///8CJpW4BQAAAAAXqRQd6EnwadJ0FQ46/q6NcutaawlEMIcACT0AAAAAABepFHdAltvPSGdDwi9DR+m0af6+i2d6h9MAAAAAAAEBIICEHgAAAAAAF6kUyPLL+cphRyyI5GTUazV0hF2R2NWHAQcXFgAUX4BmVeWSTJIEwtUb5TlPS/ntohABCGsCRzBEAiBnu3tA3yWlT0WBClsXXS9j69Bt+waCs9JcjWtNjtv7VgIge2VYAaBeLPDB6HGFlpqOENXMldsJezF9Gs5amvDQRDQBIQJl1jz1tBt8hNx2owTm+4Du4isx0pmdKNMNIjjaMHFfrQAAAA==</pre>
+
+<code>payjoin proposal filled with sender's information</code>
+<pre>cHNidP8BAJwCAAAAAo8nutGgJdyYGXWiBEb45Hoe9lWGbkxh/6bNiOJdCDuDAAAAAAD+////jye60aAl3JgZdaIERvjkeh72VYZuTGH/ps2I4l0IO4MBAAAAAP7///8CJpW4BQAAAAAXqRQd6EnwadJ0FQ46/q6NcutaawlEMIcACT0AAAAAABepFHdAltvPSGdDwi9DR+m0af6+i2d6h9MAAAAAAQEgqBvXBQAAAAAXqRTeTh6QYcpZE1sDWtXm1HmQRUNU0IcBBBYAFMeKRXJTVYKNVlgHTdUmDV/LaYUwIgYDFZrAGqDVh1TEtNi300ntHt/PCzYrT2tVEGcjooWPhRYYSFzWUDEAAIABAACAAAAAgAEAAAAAAAAAAAEBIICEHgAAAAAAF6kUyPLL+cphRyyI5GTUazV0hF2R2NWHAQcXFgAUX4BmVeWSTJIEwtUb5TlPS/ntohABCGsCRzBEAiBnu3tA3yWlT0WBClsXXS9j69Bt+waCs9JcjWtNjtv7VgIge2VYAaBeLPDB6HGFlpqOENXMldsJezF9Gs5amvDQRDQBIQJl1jz1tBt8hNx2owTm+4Du4isx0pmdKNMNIjjaMHFfrQABABYAFEb2Giu6c4KO5YW0pfw3lGp9jMUUIgICygvBWB5prpfx61y1HDAwo37kYP3YRJBvAjtunBAur3wYSFzWUDEAAIABAACAAAAAgAEAAAABAAAAAAA=</pre>
+
 ==Implementations==
 
 * [[https://github.com/BlueWallet/BlueWallet|BlueWallet]] is in the process of implementing the protocol.
