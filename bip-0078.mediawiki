@@ -119,7 +119,7 @@ The payjoin proposal MAY:
 The payjoin proposal MUST NOT:
 * Shuffle the order of inputs or outputs, the additional outputs or additional inputs must be inserted at a random index.
 
-===Optional parameters===
+===<span id="optional-params"></span>Optional parameters===
 
 When the payjoin sender posts the original PSBT to the receiver, he can optionally specify the following HTTP query string parameters:
 
@@ -139,9 +139,9 @@ If the receiver does not support the version of the sender, they should send an 
 
 * <code>additionalfeeoutputindex=</code>, if the sender is willing to pay for increased fee, this indicate output can have its value substracted to pay for it.
 
-If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the payment output meant for the receiver, the receiver should ignore the parameter.
+If the <code>additionalfeeoutputindex</code> is out of bounds or pointing to the payment output meant for the receiver, the receiver should ignore the parameter. See [[#fee-output|fee output]] for more information.
 
-* <code>maxadditionalfeecontribution=</code>, if the sender is willing to pay for increased fee, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero.
+* <code>maxadditionalfeecontribution=</code>, if the sender is willing to pay for increased fee, an integer defining the maximum amount in satoshis that the sender is willing to contribute towards fees for the additional inputs. <code>maxadditionalfeecontribution</code> must be ignored if set to less than zero.  See [[#fee-output|fee output]] for more information.
 
 Note that both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> must be specified and valid for the receiver to be allowed to decrease an output belonging to the sender.
 This fee contribution can't be used to pay for anything else than additional input's weight.
@@ -187,6 +187,44 @@ Instead those errors or messages can only appear in debug logs.
 
 It is advised to hard code the description of the well known error codes into the sender's software.
 
+===<span id="fee-output"></span>Fee output===
+
+In some situation, the sender might want to pay some additional fee in the payjoin proposal.
+If such is the case, the sender must use both [[#optional-params|optional parameters]] <code>additionalfeeoutputindex=</code> and <code>maxadditionalfeecontribution=</code> to indicate which output and how much the receiver can substract fee.
+
+There is several cases where a fee output is useful:
+
+* The sender's original transaction's fee rate is at the minimum accepted by the network, aka <code>minimum relay transaction fee rate</code>, which is typically 1 satoshi per vbyte.
+
+In such case, the receiver will need to increase the fee of the transaction after adding his own inputs to not drop below the minimum relay transaction fee rate.
+
+* The sender's wallet software is using round fee rate.
+
+If the sender's fee rate is always round, then a blockchain analyst can easily spot the transactions of the sender involving payjoin by checking if, when removing a single input to the suspected payjoin transaction, the resulting fee rate is round.
+To prevent this, the sender can agree to pay more more fee so the receiver make sure that the payjoin transaction fee is also round.
+
+* The sender's transaction is time sensitive.
+
+When a sender pick a specific fee rate, the sender expects the transaction to be confirmed after a specific amount of time. But if the receiver adds an input without bumping the fee of the transaction, the payjoin transaction fee rate will be lower, and thus, longer to confirm.
+
+Our recommendation for <code>maxadditionalfeecontribution=</code> is <code>originalPSBTFeeRate * vsize(sender_input_type)</code>.
+
+{| class="wikitable"
+!sender_input_type
+!vsize(sender_input_type)
+|-
+|P2WPKH
+|68
+|-
+|P2PKH
+|148
+|-
+|P2SH-P2WPKH
+|91
+|}
+
+
+
 ===Receiver's original PSBT checklist===
 
 The receiver needs to do some check on the original PSBT before proceeding:
@@ -216,7 +254,7 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 If a fee output exists, (ie, <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code> have been set by the sender), the sender must checks:
   * The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
   * The <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT. (This make sure the contribution actually goes to fee)
-  * The <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (This make sure the contributiion only pays for additional inputs)
+  * The <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (This make sure the contribution only pays for additional inputs, see [[#fee-output|Fee output]] section)
 
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
@@ -245,7 +283,7 @@ To be properly relayed, a Bitcoin transaction needs to pay at least 1 satoshi pe
 When blocks are not full, the original transaction might already at the minimum relay fee rate (currently 1 satoshi per virtual byte), so if the receiver adds their own input, they need to make sure the fee is increased such that the rate does not drop below the minimum relay fee rate.
 In such case, the sender must set both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code>.
 
-The recommended value <code>maxadditionalfeecontribution=</code> is <code>minFeeRate * vsize(1 input)</code>.
+See the [[#fee-output|Fee output]] section for more information.
 
 We also recommend the sender to set <code>minfeerate=</code>, as the sender's node policy might be different from the receiver's policy.
 
@@ -257,7 +295,7 @@ If the payjoin transaction's fee was not increased by the added size, then those
 Not only would those transactions stand out by not having a round fee (like 1.87 sat/b), but any suspicion of payjoin could be confirmed by checking if removing one input would create a round fee rate.
 In such case, the sender must set both <code>maxadditionalfeecontribution=</code> and <code>additionalfeeoutputindex=</code>.
 
-The recommended value <code>maxadditionalfeecontribution=</code> is <code>feerate * vsize(1 input)</code>.
+The recommended value <code>maxadditionalfeecontribution=</code> is explained in the [[#fee-output|Fee output]] section.
 We also recommend the sender to set <code>minfeerate=</code>, as the sender's node policy might be different from the receiver's policy.
 
 ===Receiver does not need to be a full node===
