@@ -230,7 +230,7 @@ Our recommendation for <code>maxadditionalfeecontribution=</code> is <code>origi
 The receiver needs to do some check on the original PSBT before proceeding:
 
 * Non-interactive receivers (like a payment processor) need to check that the original PSBT is broadcastable. <code>*</code>
-* If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>invalid-transaction</code> or make sure they do not sign those inputs in the payjoin proposal.
+* If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>original-psbt-rejected</code> or make sure they do not sign those inputs in the payjoin proposal.
 * If the sender's inputs are all from the same scriptPubKey type, the receiver must match the same type. If the receiver can't match the type, they must return error <code>unavailable</code>.
 * Make sure that the inputs included in the original transaction has never been seen before. (Prevent [[#probing-attack|probing attacks]].)
 
@@ -240,22 +240,32 @@ The receiver needs to do some check on the original PSBT before proceeding:
 
 The sender should check the payjoin proposal before signing it to prevent a malicious receiver from stealing money.
 
-* Check that all the spent outpoints in the original PSBT still exist in the coinjoin PSBT.
-* Check that all the spent outpoints in the original PSBT do not have any partial signature and are not finalized.
-* If the sender is not using inputs with mixed types, check that the receiver inputs type match the inputs type of the sender. (ie. both using P2SH-P2WPKH or both using P2WPKH)
-* Check that any inputs added by the receiver are finalized.
-* Check that the transaction version, and nLockTime are unchanged.
+* Verify that the transaction version, and the nLockTime are unchanged.
 * Check that the sender's inputs' sequence numbers are unchanged.
-* If the sender's inputs' sequence numbers are all the same, check that the receiver's contributed inputs match those.
-* If <code>minfeerate</code> was specified, check that the estimated fee rate of the payjoin proposal is not less than this value.
-* Check that outputs from the original PSBT has not been modified except if:
-** The output can contribute to fee (see below)
-** The output does not belong to the sender.
-
-If a [[#fee-output|fee ouptut]] exists, the sender must checks:
-* The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
-* Make sure the contribution are only paying fee: The  <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT.
-* Make sure the contribution are only paying for fee incurred by additional inputs: <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (see [[#fee-output|Fee output]] section)
+* For each inputs in the proposal:
+** Verify that no keypaths is in the PSBT input
+** Verify that no partial signature has been filled
+** If it is one of the sender's input
+*** Verify that input's sequence is unchanged.
+*** Verify the PSBT input is not finalized
+*** Verify that <code>non_witness_utxo</code> and <code>witness_utxo</code> are not specified.
+** If it is one of the receiver's input
+*** Verify the PSBT input is finalized
+*** Verify that <code>non_witness_utxo</code> or <code>witness_utxo</code> are filled in.
+** Verify that the payjoin proposal did not introduced mixed input's sequence.
+** Verify that the payjoin proposal did not introduced mixed input's type.
+** Verify that all of sender's inputs from the original PSBT are in the proposal.
+* For each outputs in the proposal:
+** Verify that no keypaths is in the PSBT output
+** If it is one of the sender's output
+*** If that's the [[#fee-output|fee ouptut]]:
+**** The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
+**** Make sure the actual contribution is only paying fee: The <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT.
+**** Make sure the actual contribution is only paying for fee incurred by additional inputs: <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (see [[#fee-output|Fee output]] section)
+*** If it is not the fee output:
+**** Make sure the output's value did not changed.
+** Verify that all sender's outputs (ie, all outputs except the output actually paid to the receiver) from the original PSBT are in the proposal.
+* Once the proposal is signed, if <code>minfeerate</code> was specified, check that the fee rate of the payjoin transaction is not less than this value.
 
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
