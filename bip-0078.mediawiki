@@ -52,7 +52,6 @@ Another implementation proposal has been written: [[https://github.com/bitcoin/b
 
 We decided to deviate from it for several reasons:
 * It was not using PSBT, so if the receiver wanted to bump the fee, they would need the full UTXO set.
-* The receiver was responsible to pay the additional fee, not the sender.
 * Inability to change the payment output to match scriptPubKey type.
 * Lack of basic versioning negotiation if the protocol evolves.
 * No standardization of error condition for proper feedback to the sender.
@@ -232,7 +231,9 @@ The receiver needs to do some check on the original PSBT before proceeding:
 * Non-interactive receivers (like a payment processor) need to check that the original PSBT is broadcastable. <code>*</code>
 * If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>original-psbt-rejected</code> or make sure they do not sign those inputs in the payjoin proposal.
 * If the sender's inputs are all from the same scriptPubKey type, the receiver must match the same type. If the receiver can't match the type, they must return error <code>unavailable</code>.
-* Make sure that the inputs included in the original transaction has never been seen before. (Prevent [[#probing-attack|probing attacks]].)
+* Make sure that the inputs included in the original transaction have never been seen before.
+** This prevent [[#probing-attack|probing attacks]].
+** This prevent reentrant payjoin, where a sender attempts to use payjoin transaction as a new original transaction for a new payjoin.
 
 <code>*</code>: Interactive receivers are not required to validate the original PSBT because they are not exposed to [[#probing-attack|probing attacks]].
 
@@ -377,7 +378,7 @@ The sender's software wallet can verify that the payjoin proposal is legitimate 
 
 However, a hardware wallet can't verify that this is indeed the case. This means that the security guarantee of the hardware wallet is decreased. If the sender's software is compromised, the hardware wallet would sign two valid transactions, thus sending two payments.
 
-Without payjoin, the maximum amount of money that could be lost by a compromised software is equal to one payment (via address substitution).
+Without payjoin, the maximum amount of money that could be lost by a compromised software is equal to one payment (via [[#output-substitution|payment output substitution]]).
 
 With payjoin, the maximum amount of money that can be lost is equal to two payments.
 
