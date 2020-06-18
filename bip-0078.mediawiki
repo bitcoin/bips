@@ -147,6 +147,8 @@ This fee contribution can't be used to pay for anything else than additional inp
 
 * <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
 
+* <code>disableoutputsubstitution=</code>, a boolean indicating if the sender forbids the receiver to modify his own output, see [[#output-substitution|payment output substitution]]. (default to <code>false</code>)
+
 ===Receiver's well known errors===
 
 If for some reason the receiver is unable to create a payjoin proposal, it will reply with a HTTP code different than 200.
@@ -271,7 +273,7 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
 Note:
-* The sender must allow the receiver to add/remove or modify his own outputs
+* The sender must allow the receiver to add/remove or modify his own outputs (Except is explicitely disabled via the optional parameter <code>disableoutputsubstitution=</code>)
 * The sender should allow the receiver to not add any input. Useful for the receiver to change the paymout output scriptPubKey type.
 * If no input have been added, the sender's wallet implementation should accept the payjoin proposal, but not mark the transaction as an actual payjoin in the user interface.
 
@@ -421,7 +423,8 @@ public async Task<PSBT> RequestPayjoin(
     var ourOutputs = new Queue<(TxOut OriginalTxOut, PSBTOutput SignedPSBTOutput)>();
     for (int i = 0; i < originalGlobalTx.Outputs.Count; i++)
     {
-        if (signedPSBT.Outputs[i].ScriptPubKey != bip21.Address.ScriptPubKey)
+        if (optionalParameters.DisableOutputSubstitution ||
+            signedPSBT.Outputs[i].ScriptPubKey != bip21.Address.ScriptPubKey)
             ourOutputs.Enqueue((originalGlobalTx.Outputs[i], signedPSBT.Outputs[i]));
     }
     endpoint = ApplyOptionalParameters(endpoint, optionalParameters);
