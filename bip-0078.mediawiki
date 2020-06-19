@@ -64,7 +64,7 @@ Other than that, our proposal is very similar.
 
 In a payjoin payment, the following steps happen:
 
-* The receiver of the payment, presents a [[bip-021.mediawiki|BIP 21 URI]] to the sender with a parameter <code>pj</code> describing a payjoin endpoint.
+* The receiver of the payment, presents a [[bip-021.mediawiki|BIP 21 URI]] to the sender with a parameter <code>pj=</code> describing a payjoin endpoint.
 * The sender creates a signed, finalized PSBT with witness UTXO or previous transactions of the inputs. We call this PSBT the <code>original</code>.
 * The receiver replies back with a signed PSBT containing his own signed inputs/outputs and those of the sender. We call this PSBT <code>Payjoin proposal</code>.
 * The sender verifies the proposal, re-signs his inputs and broadcasts the transaction to the Bitcoin network. We call this transaction <code>Payjoin transaction</code>.
@@ -117,6 +117,12 @@ The payjoin proposal MAY:
 
 The payjoin proposal MUST NOT:
 * Shuffle the order of inputs or outputs, the additional outputs or additional inputs must be inserted at a random index.
+
+===BIP21 payjoin parameters===
+
+This proposal is defining the following new [[bip-021.mediawiki|BIP 21 URI]] parameters:
+* <code>pj=</code>: Represents an http(s) endpoint which the sender can POST the original PSBT.
+* <code>pjos=0</code>: Signal to the sender that they MUST disallow [[#output-substitution|payment output substitution]]. (See [[#unsecured-payjoin|Unsecured payjoin server]])
 
 ===<span id="optional-params"></span>Optional parameters===
 
@@ -242,7 +248,8 @@ The receiver needs to do some check on the original PSBT before proceeding:
 ===Sender's payjoin proposal checklist===
 
 The sender should check the payjoin proposal before signing it to prevent a malicious receiver from stealing money.
-
+ 
+* If the receiver's BIP21 signalled <code>pjos=0</code>, disable payment output substitution.
 * Verify that the transaction version, and the nLockTime are unchanged.
 * Check that the sender's inputs' sequence numbers are unchanged.
 * For each inputs in the proposal:
@@ -264,7 +271,7 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 *** The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
 *** Make sure the actual contribution is only paying fee: The <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT.
 *** Make sure the actual contribution is only paying for fee incurred by additional inputs: <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (see [[#fee-output|Fee output]] section)
-** If the output is the payment output and <code>disableoutputsubstitution=</code> is <code>false</code or not specified
+** If the output is the payment output and payment output substitution is disabled.
 *** Do not make any check
 ** Else
 *** Make sure the output's value did not changed.
@@ -274,7 +281,7 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
 Note:
-* The sender must allow the receiver to add/remove or modify the receiver's own outputs (Except if explicitly disabled via the optional parameter <code>disableoutputsubstitution=</code>)
+* The sender must allow the receiver to add/remove or modify the receiver's own outputs (if [[#output-substitution|payment output substitution]], the payment's output should not be modified)
 * The sender should allow the receiver to not add any inputs. This is useful for the receiver to change the paymout output scriptPubKey type.
 * If no input have been added, the sender's wallet implementation should accept the payjoin proposal, but not mark the transaction as an actual payjoin in the user interface.
 
@@ -335,6 +342,13 @@ On top of this the receiver can poison analysis by randomly faking a round amoun
 The receiver is free to change the output paying to himself.
 For example, if the sender's scriptPubKey type is P2WPKH while the receiver's payment output in the original PSBT is P2SH, then the receiver can substitute the payment output to be P2WPKH to match the sender's scriptPubKey type.
 
+===<span id="unsecured-payjoin"></span>Unsecured payjoin server===
+
+A receiver might run the payment server (generating the BIP21 invoice) on a different server than the payjoin server, which could be less trusted than the payment server.
+
+In such case, the payment server can signal to the sender, via the BIP21 parameter <code>pjos=0</code>, that they MUST disallow [[#output-substitution|payment output substitution]].
+A compromised payjoin server could still the hot wallet outputs of the receiver, but would not be able to re-route payment to himself.
+
 ===Impacted heuristics===
 
 Our proposal of payjoin is breaking the following blockchain heuristics:
@@ -382,7 +396,7 @@ The sender's software wallet can verify that the payjoin proposal is legitimate 
 However, a hardware wallet can't verify that this is indeed the case. This means that the security guarantee of the hardware wallet is decreased. If the sender's software is compromised, the hardware wallet would sign two valid transactions, thus sending two payments.
 
 Without payjoin, the maximum amount of money that could be lost by a compromised software is equal to one payment (via [[#output-substitution|payment output substitution]]).
-Note that the sender can opt out payment output substitution my using the optional parameter <code>disableoutputsubstitution=true</code>.
+Note that the sender can disallow [[#output-substitution|payment output substitution]] by using the optional parameter <code>disableoutputsubstitution=true</code>.
 
 With payjoin, the maximum amount of money that can be lost is equal to two payments.
 
@@ -412,6 +426,11 @@ public async Task<PSBT> RequestPayjoin(
         throw new InvalidOperationException("The original PSBT should not be finalized.");
     ScriptPubKeyType inputScriptType = wallet.ScriptPubKeyType();
     PSBTOutput feePSBTOutput = null;
+
+    bool allowOutputSubstitution = !optionalParameters.DisableOutputSubstitution;
+    if (bip21.Parameters.Contains("pjos") && bip21.Parameters["pjos"] == "0")
+        allowOutputSubstitution = false;
+
     if (optionalParameters.AdditionalFeeOutputIndex != null && optionalParameters.MaxAdditionalFeeContribution != null)
         feePSBTOutput = signedPSBT.Outputs[optionalParameters.AdditionalFeeOutputIndex];
     Script paymentScriptPubKey = bip21.Address == null ? null : bip21.Address.ScriptPubKey;
@@ -536,7 +555,7 @@ public async Task<PSBT> RequestPayjoin(
                 if (actualContribution > originalFeeRate * GetVirtualSize(inputScriptType) * additionalInputsCount)
                     throw new PayjoinSenderException("The actual contribution is not only paying for additional inputs");
             }
-            else if (!optionalParameters.DisableOutputSubstitution && output.OriginalTxOut.ScriptPubKey == paymentScriptPubKey)
+            else if (allowOutputSubstitution && output.OriginalTxOut.ScriptPubKey == paymentScriptPubKey)
             {
                 // That's the payment output, the receiver may have changed it.
             }
@@ -555,7 +574,7 @@ public async Task<PSBT> RequestPayjoin(
     if (originalOutputs.Count != 0)
     {
         // The payment output may have been substituted
-        if (optionalParameters.DisableOutputSubstitution ||
+        if (!allowOutputSubstitution ||
             originalOutputs.Count != 1 ||
             originalOutputs.Dequeue().OriginalTxOut.ScriptPubKey != paymentScriptPubKey)
             {
