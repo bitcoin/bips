@@ -117,6 +117,7 @@ The payjoin proposal MAY:
 
 The payjoin proposal MUST NOT:
 * Shuffle the order of inputs or outputs, the additional outputs or additional inputs must be inserted at a random index.
+* Decrease the absolute fee of the original transaction.
 
 ===BIP21 payjoin parameters===
 
@@ -249,6 +250,7 @@ The receiver needs to do some check on the original PSBT before proceeding:
 
 The sender should check the payjoin proposal before signing it to prevent a malicious receiver from stealing money.
  
+* Verify that the absolute fee of the payjoin proposal is equals or higher than the original PSBT.
 * If the receiver's BIP21 signalled <code>pjos=0</code>, disable payment output substitution.
 * Verify that the transaction version, and the nLockTime are unchanged.
 * Check that the sender's inputs' sequence numbers are unchanged.
@@ -529,6 +531,10 @@ public async Task<PSBT> RequestPayjoin(
     if (sequences.Count != 1)
         throw new PayjoinSenderException("Mixed sequence detected in the proposal");
 
+    decimal newFee = proposal.GetFee();
+    decimal additionalFee = newFee - originalFee;
+    if (additionalFee < 0)
+      throw new PayjoinSenderException("The receiver decreased absolute fee");
     // For each outputs in the proposal:
     foreach (PSBTOutput proposedPSBTOutput in proposal.Outputs)
     {
@@ -545,8 +551,6 @@ public async Task<PSBT> RequestPayjoin(
                 // The amount that was substracted from the output's value is less or equal to maxadditionalfeecontribution
                 if (actualContribution > optionalParameters.MaxAdditionalFeeContribution)
                     throw new PayjoinSenderException("The actual contribution is more than maxadditionalfeecontribution");
-                decimal newFee = proposal.GetFee();
-                decimal additionalFee = newFee - originalFee;
                 // Make sure the actual contribution is only paying fee
                 if (actualContribution > additionalFee)
                     throw new PayjoinSenderException("The actual contribution is not only paying fee");
