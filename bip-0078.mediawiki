@@ -260,7 +260,7 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 ** Verify that all of sender's inputs from the original PSBT are in the proposal.
 * For each outputs in the proposal:
 ** Verify that no keypaths is in the PSBT output
-** If the output is the [[#fee-output|fee ouptut]]:
+** If the output is the [[#fee-output|fee output]]:
 *** The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
 *** Make sure the actual contribution is only paying fee: The <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT.
 *** Make sure the actual contribution is only paying for fee incurred by additional inputs: <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (see [[#fee-output|Fee output]] section)
@@ -274,8 +274,8 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
 Note:
-* The sender must allow the receiver to add/remove or modify his own outputs (Except is explicitely disabled via the optional parameter <code>disableoutputsubstitution=</code>)
-* The sender should allow the receiver to not add any input. Useful for the receiver to change the paymout output scriptPubKey type.
+* The sender must allow the receiver to add/remove or modify the receiver's own outputs (Except if explicitly disabled via the optional parameter <code>disableoutputsubstitution=</code>)
+* The sender should allow the receiver to not add any inputs. This is useful for the receiver to change the paymout output scriptPubKey type.
 * If no input have been added, the sender's wallet implementation should accept the payjoin proposal, but not mark the transaction as an actual payjoin in the user interface.
 
 Our method of checking the fee allows the receiver and the sender to batch payments in the payjoin transaction.
@@ -413,22 +413,20 @@ public async Task<PSBT> RequestPayjoin(
     PSBTOutput feePSBTOutput = null;
     if (optionalParameters.AdditionalFeeOutputIndex != null && optionalParameters.MaxAdditionalFeeContribution != null)
         feePSBTOutput = signedPSBT.Outputs[optionalParameters.AdditionalFeeOutputIndex];
+    Script paymentScriptPubKey = bip21.Address == null ? null : bip21.Address.ScriptPubKey;
     decimal originalFee = signedPSBT.GetFee();
     PSBT originalPSBT = CreateOriginalPSBT(signedPSBT);
     Transaction originalGlobalTx = signedPSBT.GetGlobalTransaction();
     TxOut feeOutput = feePSBTOutput == null ? null : originalGlobalTx.Outputs[feePSBTOutput.Index];
-    var ourInputs = new Queue<(TxIn OriginalTxIn, PSBTInput SignedPSBTInput)>();
+    var originalInputs = new Queue<(TxIn OriginalTxIn, PSBTInput SignedPSBTInput)>();
     for (int i = 0; i < originalGlobalTx.Inputs.Count; i++)
     {
-        ourInputs.Enqueue((originalGlobalTx.Inputs[i], signedPSBT.Inputs[i]));
+        originalInputs.Enqueue((originalGlobalTx.Inputs[i], signedPSBT.Inputs[i]));
     }
-    var ourOutputs = new Queue<(TxOut OriginalTxOut, PSBTOutput SignedPSBTOutput)>();
+    var originalOutputs = new Queue<(TxOut OriginalTxOut, PSBTOutput SignedPSBTOutput)>();
     for (int i = 0; i < originalGlobalTx.Outputs.Count; i++)
     {
-        if (optionalParameters.DisableOutputSubstitution ||
-            bip21.Address == null ||
-            signedPSBT.Outputs[i].ScriptPubKey != bip21.Address.ScriptPubKey)
-            ourOutputs.Enqueue((originalGlobalTx.Outputs[i], signedPSBT.Outputs[i]));
+      originalOutputs.Enqueue((originalGlobalTx.Outputs[i], signedPSBT.Outputs[i]));
     }
     endpoint = ApplyOptionalParameters(endpoint, optionalParameters);
     Log("original PSBT" + originalPSBT);
@@ -460,7 +458,7 @@ public async Task<PSBT> RequestPayjoin(
         if (proposedPSBTInput.PartialSigs.Count != 0)
             throw new PayjoinSenderException("The receiver added partial signatures to an input");
         PSBTInput proposedTxIn = proposalGlobalTx.Inputs.FindIndexedInput(proposedPSBTInput.PrevOut).TxIn;
-        bool isOurInput = ourInputs.Count > 0 && ourInputs.Peek().OriginalTxIn.PrevOut == proposedPSBTInput.PrevOut;
+        bool isOurInput = originalInputs.Count > 0 && originalInputs.Peek().OriginalTxIn.PrevOut == proposedPSBTInput.PrevOut;
         // If it is one of our input
         if (isOurInput)
         {
@@ -496,17 +494,17 @@ public async Task<PSBT> RequestPayjoin(
             if (proposedPSBTInput.NonWitnessUtxo == null && proposedPSBTInput.WitnessUtxo == null)
                 throw new PayjoinSenderException("The receiver did not specify non_witness_utxo or witness_utxo for one of their inputs");
             sequences.Add(proposedTxIn.Sequence);
-            // Verify that the payjoin proposal did not introduced mixed input's type.
+            // Verify that the payjoin proposal did not introduced mixed inputs' type.
             if (inputScriptType != proposedPSBTInput.GetInputScriptPubKeyType())
                 throw new PayjoinSenderException("Mixed input type detected in the proposal");
         }
     }
 
     // Verify that all of sender's inputs from the original PSBT are in the proposal.
-    if (ourInputs.Count != 0)
+    if (originalInputs.Count != 0)
         throw new PayjoinSenderException("Some of our inputs are not included in the proposal");
 
-    // Verify that the payjoin proposal did not introduced mixed input's sequence.
+    // Verify that the payjoin proposal did not introduced mixed inputs' sequence.
     if (sequences.Count != 1)
         throw new PayjoinSenderException("Mixed sequence detected in the proposal");
 
@@ -516,10 +514,10 @@ public async Task<PSBT> RequestPayjoin(
         // Verify that no keypaths is in the PSBT output
         if (proposedPSBTOutput.HDKeyPaths.Count != 0)
             throw new PayjoinSenderException("The receiver added keypaths to an output");
-        bool isOurOutput = ourOutputs.Count > 0 && ourOutputs.Peek().OriginalTxOut.ScriptPubKey == proposedPSBTOutput.ScriptPubKey;
-        if (isOurOutput)
+        bool isOriginalOutput = originalOutputs.Count > 0 && originalOutputs.Peek().OriginalTxOut.ScriptPubKey == proposedPSBTOutput.ScriptPubKey;
+        if (isOriginalOutput)
         {
-            var output = ourOutputs.Dequeue();
+            var originalOutput = originalOutputs.Dequeue();
             if (output.OriginalTxOut == feeOutput)
             {
                 var actualContribution = feeOutput.Value - proposedPSBTOutput.Value;
@@ -536,9 +534,13 @@ public async Task<PSBT> RequestPayjoin(
                 if (actualContribution > originalFeeRate * GetVirtualSize(inputScriptType) * additionalInputsCount)
                     throw new PayjoinSenderException("The actual contribution is not only paying for additional inputs");
             }
+            else if (!optionalParameters.DisableOutputSubstitution && output.OriginalTxOut.ScriptPubKey == paymentScriptPubKey)
+            {
+                // That's the payment output, the receiver may have changed it.
+            }
             else
             {
-                if (output.OriginalTxOut.Value != proposedPSBTOutput.Value)
+                if (originalOutput.OriginalTxOut.Value != proposedPSBTOutput.Value)
                     throw new PayjoinSenderException("The receiver changed one of our outputs");
             }
             // We fill up information we had on the signed PSBT, so we can sign it.
@@ -548,8 +550,16 @@ public async Task<PSBT> RequestPayjoin(
         }
     }
     // Verify that all of sender's outputs from the original PSBT are in the proposal.
-    if (ourOutputs.Count != 0)
-        throw new PayjoinSenderException("Some of our outputs are not included in the proposal");
+    if (originalOutputs.Count != 0)
+    {
+        // The payment output may have been substituted
+        if (optionalParameters.DisableOutputSubstitution ||
+            originalOutputs.Count != 1 ||
+            originalOutputs.Dequeue().OriginalTxOut.ScriptPubKey != paymentScriptPubKey)
+            {
+                throw new PayjoinSenderException("Some of our outputs are not included in the proposal");
+            }
+    }
 
     // After signing this proposal, we should check if minfeerate is respected.
     Log("payjoin proposal filled with sender's information" + proposal);
