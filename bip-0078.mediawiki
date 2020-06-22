@@ -154,7 +154,7 @@ This fee contribution can't be used to pay for anything else than additional inp
 
 * <code>minfeerate=</code>, a decimal in satoshi per vbyte that the sender can use to constraint the receiver to not drop the minimum fee rate too much.
 
-* <code>disableoutputsubstitution=</code>, a boolean indicating if the sender forbids the receiver to modify his own output, see [[#output-substitution|payment output substitution]]. (default to <code>false</code>)
+* <code>disableoutputsubstitution=</code>, a boolean indicating if the sender forbids the receiver to substitute the receiver's output, see [[#output-substitution|payment output substitution]]. (default to <code>false</code>)
 
 ===Receiver's well known errors===
 
@@ -270,20 +270,20 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 * For each outputs in the proposal:
 ** Verify that no keypaths is in the PSBT output
 ** If the output is the [[#fee-output|fee output]]:
-*** The amount that was substracted from the output's value is less or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
-*** Make sure the actual contribution is only paying fee: The <code>actual contribution</code> is less or equals to the difference of absolute fee between the payjoin proposal and the original PSBT.
-*** Make sure the actual contribution is only paying for fee incurred by additional inputs: <code>actual contribution</code> is less or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (see [[#fee-output|Fee output]] section)
+*** The amount that was substracted from the output's value is less than or equal to <code>maxadditionalfeecontribution</code>. Let's call this amount <code>actual contribution</code>.
+*** Make sure the actual contribution is only paying fee: The <code>actual contribution</code> is less than or equals to the difference of absolute fee between the payjoin proposal and the original PSBT.
+*** Make sure the actual contribution is only paying for fee incurred by additional inputs: <code>actual contribution</code> is less than or equals to <code>originalPSBTFeeRate * vsize(sender_input_type) * (count(original_psbt_inputs) - count(payjoin_proposal_inputs))</code>. (see [[#fee-output|Fee output]] section)
 ** If the output is the payment output and payment output substitution is allowed.
 *** Do not make any check
 ** Else
-*** Make sure the output's value did not decreased.
+*** Make sure the output's value did not decrease.
 ** Verify that all sender's outputs (ie, all outputs except the output actually paid to the receiver) from the original PSBT are in the proposal.
 * Once the proposal is signed, if <code>minfeerate</code> was specified, check that the fee rate of the payjoin transaction is not less than this value.
 
 The sender must be careful to only sign the inputs that were present in the original PSBT and nothing else.
 
 Note:
-* The sender must allow the receiver to add/remove or modify the receiver's own outputs (if [[#output-substitution|payment output substitution]], the payment's output should not be modified)
+* The sender must allow the receiver to add/remove or modify the receiver's own outputs. (if payment output substitution is disabled, the receiver's outputs must not be removed or decreased in value)
 * The sender should allow the receiver to not add any inputs. This is useful for the receiver to change the paymout output scriptPubKey type.
 * If no input have been added, the sender's wallet implementation should accept the payjoin proposal, but not mark the transaction as an actual payjoin in the user interface.
 
@@ -341,7 +341,9 @@ On top of this the receiver can poison analysis by randomly faking a round amoun
 
 ===<span id="output-substitution"></span>Payment output substitution===
 
-The receiver is free to change the output paying to himself.
+Unless disallowed by sender explicitely via `disableoutputsubstitution=true` or by the BIP21 url via query parameter the `pjos=0`, the receiver is free to decrease the amount, remove, or change the scriptPubKey output paying to himself.
+Note that if payment output substitution is disallowed, the reveiver can still increase the amount of the output. (See [[#reference-impl|the reference implementation]])
+
 For example, if the sender's scriptPubKey type is P2WPKH while the receiver's payment output in the original PSBT is P2SH, then the receiver can substitute the payment output to be P2WPKH to match the sender's scriptPubKey type.
 
 ===<span id="unsecured-payjoin"></span>Unsecured payjoin server===
@@ -402,7 +404,7 @@ Note that the sender can disallow [[#output-substitution|payment output substitu
 
 With payjoin, the maximum amount of money that can be lost is equal to two payments.
 
-==Reference sender's implementation==
+==<span id="reference-impl"></span>Reference sender's implementation==
 
 Here is pseudo code of a sender implementation.
 <code>RequestPayjoin</code> takes the bip21 URI of the payment, the wallet and the <code>signedPSBT</code>.
@@ -548,7 +550,7 @@ public async Task<PSBT> RequestPayjoin(
             if (output.OriginalTxOut == feeOutput)
             {
                 var actualContribution = feeOutput.Value - proposedPSBTOutput.Value;
-                // The amount that was substracted from the output's value is less or equal to maxadditionalfeecontribution
+                // The amount that was substracted from the output's value is less than or equal to maxadditionalfeecontribution
                 if (actualContribution > optionalParameters.MaxAdditionalFeeContribution)
                     throw new PayjoinSenderException("The actual contribution is more than maxadditionalfeecontribution");
                 // Make sure the actual contribution is only paying fee
