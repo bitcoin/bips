@@ -2,6 +2,7 @@
   BIP: 8
   Title: Version bits with lock-in by height
   Author: Shaolin Fry <shaolinfry@protonmail.ch>
+          Luke Dashjr <luke+bip@dashjr.org>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0008
   Status: Rejected
@@ -13,7 +14,9 @@
 
 ==Abstract==
 
-This document specifies an alteration to [[bip-0009.mediawiki|BIP9]] that replaces time based activation with block height, as well as guaranteed activation of backward-compatible changes (further called "soft forks").
+This document specifies an alternative to [[bip-0009.mediawiki|BIP9]] that corrects for a number of perceived mistakes.
+Block heights are used for start and timeout rather than POSIX timestamps.
+It additionally introduces an additional activation parameter to guarantee activation of backward-compatible changes (further called "soft forks").
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
@@ -21,15 +24,11 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 BIP9 introduced a mechanism for doing parallel soft forking deployments based on repurposing the block nVersion field. Activation is dependent on near unanimous hashrate signalling which may be impractical and result in veto by a small minority of non-signalling hashrate. Super majority hashrate based activation triggers allow for accelerated activation where the majority hash power enforces the new rules in lieu of full nodes upgrading. Since all consensus rules are ultimately enforced by full nodes, eventually any new soft fork will be enforced by the economy. This proposal combines these two aspects to provide eventual flag day activation after a reasonable time (recommended a year), as well as for accelerated activation by majority of hash rate before the flag date.
 
+Due to using timestamps rather than block heights, it was found to be a risk that a sudden loss of siginificant hashrate could interfere with a late activation.
+
 Block time is somewhat unreliable and may be intentionally or unintentionally inaccurate, so thresholds based on block time are not ideal. Secondly, BIP9 specified triggers based on the first retarget after a given time, which is non-intuitive. Since each new block must increase the height by one, thresholds based on block height are much more reliable and intuitive and can be calculated exactly for difficulty retarget.
 
 ==Specification==
-
-===Summary===
-
-This specification is the same as [[bip-0009.mediawiki|BIP9]] except that MTP time based threshold are replaced with block height, and the state machine has no FAILED condition. The state transition from '''STARTED''' to '''LOCKED_IN''' will occur under two condition:
-
-The first is when the threshold of blocks signalling is reached as per BIP9, before '''LOCKED_IN''' state has been reached. The second condition is when the block height reaches the timeout block height while still being in the '''STARTED''' state.
 
 ===Parameters===
 
@@ -37,8 +36,9 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 
 # The '''name''' specifies a very brief description of the soft fork, reasonable for use as an identifier. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
-# The '''startheight''' specifies a minimum block height at which a block at which the bit gains its meaning.
-# The '''timeoutheight''' specifies a block height at which the deployment should lock-in if not already locked in or activated.
+# The '''startheight''' specifies the height of the first block at which the bit gains its meaning.
+# The '''timeoutheight''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is either considered failed on all descendants of the block (but see the exception during '''FAILING''' state), or, if '''lockinontimeout'' is true, transitions to the '''LOCKED_IN''' state.
+# The '''lockinontimeout''' boolean if set to true, will transition state to '''LOCKED_IN''' at timeoutheight if not already '''LOCKED_IN''' or '''ACTIVE'''.
 
 ===Selection guidelines===
 
@@ -46,30 +46,40 @@ The following guidelines are suggested for selecting these parameters for a soft
 
 # '''name''' should be selected such that no two softforks, concurrent or otherwise, ever use the same name.
 # '''bit''' should be selected such that no two concurrent softforks use the same bit.
-# '''startheight''' should be set to some block height in the future, approximately 30 days (or 4320 blocks) after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software. The startheight should be a retarget block height for simplicity.
+# '''startheight''' should be set to some block height in the future, approximately 30 days (or 4320 blocks) after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software, and ensures a reasonable number of full nodes have upgraded prior to activation. It should be rounded up to the next height which begins a retarget period for simplicity.
 # '''timeoutheight''' should be 1 year, or 52416 blocks (26 retarget intervals) after '''startheight'''.
+# '''lockinontimeout''' should be set to true for any softfork that is expected or found to have political opposition from a non-negligable percent of miners. (It can be set after the initial deployment, but cannot be cleared once set.)
 
-A later deployment using the same bit is possible as long as the startheight is after the previous one's timeoutheight or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
+A later deployment using the same bit is possible as long as the startheight is after the previous one's
+timeoutheight or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
 
 ===States===
 
 With each block and soft fork, we associate a deployment state. The possible states are:
 
 # '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
-# '''STARTED''' for blocks past the startheight.
-# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion.
+# '''STARTED''' for blocks at or beyond the startheight.
+# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion, or for one retarget period after the timeout when '''lockinontimeout''' is true.
 # '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
-# '''FAILED''' if block height is greater than or equal to timeoutheight during the DEFINED state.
+# '''FAILING''' for one retarget period after the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
+# '''FAILED''' for all blocks after the FAILING retarget period.
 
 ===Bit flags===
 
 The nVersion block header field is to be interpreted as a 32-bit little-endian integer (as present), and bits are selected within this integer as values (1 << N) where N is the bit number.
 
-Blocks in the STARTED state get an nVersion whose bit position bit is set to 1. The top 3 bits of such blocks must be 001, so the range of actually possible nVersion values is [0x20000000...0x3FFFFFFF], inclusive.
+Blocks in the STARTED state get an nVersion whose bit position bit is set to 1. The top 3 bits of such blocks must be
+001, so the range of actually possible nVersion values is [0x20000000...0x3FFFFFFF], inclusive.
 
-Due to the constraints set by BIP 34, BIP 66 and BIP 65, we only have 0x7FFFFFFB possible nVersion values available. This restricts us to at most 30 independent deployments. By restricting the top 3 bits to 001 we get 29 out of those for the purposes of this proposal, and support two future upgrades for different mechanisms (top bits 010 and 011). When a block nVersion does not have top bits 001, it is treated as if all bits are 0 for the purposes of deployments.
+Due to the constraints set by BIP 34, BIP 66 and BIP 65, we only have 0x7FFFFFFB possible nVersion values available.
+This restricts us to at most 30 independent deployments. By restricting the top 3 bits to 001 we get 29 out of those
+for the purposes of this proposal, and support two future upgrades for different mechanisms (top bits 010 and 011).
+When a block nVersion does not have top bits 001, it is treated as if all
+bits are 0 for the purposes of deployments.
 
-Miners should continue setting the bit in LOCKED_IN phase so uptake is visible, though this has no effect on consensus rules.
+Miners must continue setting the bit in LOCKED_IN phase so uptake is visible and acknowledged.
+Blocks without the applicable bit set are invalid during this period.
+For flexibility, this rule does NOT require the top 3 bits to be set any particular way.
 
 ===New consensus rules===
 
@@ -79,6 +89,8 @@ The new consensus rules for each soft fork are enforced for each block that has 
 
 <img src="bip-0008/states.png" align="middle"></img>
 
+During the STARTED state if the '''lockinontimeout''' is set to true, the state will transition to LOCKED_IN when '''timeoutheight''' is reached.
+
 The genesis block has state DEFINED for each deployment, by definition.
 
     State GetStateForBlock(block) {
@@ -86,7 +98,9 @@ The genesis block has state DEFINED for each deployment, by definition.
             return DEFINED;
         }
 
-All blocks within a retarget period have the same state. This means that if floor(block1.height / 2016) = floor(block2.height / 2016), they are guaranteed to have the same state for every deployment.
+All blocks within a retarget period have the same state. This means that if
+floor(block1.height / 2016) = floor(block2.height / 2016), they are guaranteed to have the same state for every
+deployment.
 
         if ((block.height % 2016) != 0) {
             return GetStateForBlock(block.parent);
@@ -94,31 +108,31 @@ All blocks within a retarget period have the same state. This means that if floo
 
 Otherwise, the next state depends on the previous state:
 
-    switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
+        switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
 
 We remain in the initial state until either we pass the start block height or the timeout height.
 
         case DEFINED:
             if (block.height >= timeoutheight) {
-                return FAILED;
+                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
             }
             if (block.height >= startheight) {
                 return STARTED;
             }
             return DEFINED;
 
-After a period in the STARTED state, if we're past the timeout, we switch to LOCKED_IN. If not, we tally the bits set,
+After a period in the STARTED state, if we're past the timeout, we switch to LOCKED_IN or FAILING. If not, we tally the bits set,
 and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
 version numbers. The threshold is ≥1916 blocks (95% of 2016), or ≥1512 for testnet (75% of 2016).
-
+The transition to FAILING takes precendence, as otherwise an ambiguity can arise.
 There could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN while the
 other one simultaneously transitions to STARTED, which would mean both would demand setting the bit.
 
 Note that a block's state never depends on its own nVersion; only on that of its ancestors.
 
         case STARTED:
-            if (block.height >= timeoutheight)
-                return LOCKED_IN;
+            if (block.height >= timeoutheight) {
+                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
 
             int count = 0;
             walk = block;
@@ -133,21 +147,42 @@ Note that a block's state never depends on its own nVersion; only on that of its
             }
             return STARTED;
 
+If the deployment is not LOCKED_IN by the timeout (or '''lockinontimeout'''), it has a single retarget period during which it may still become active, only by unanimous signalling in every block.
+This state exists such that if '''lockinontimeout''' is set to true later, it remains compatible with the original deployment.
+
+        case FAILING:
+            walk = block;
+            for (i = 0; i < 2016; i++) {
+                walk = walk.parent;
+                if (walk.nVersion & 0xE0000000 == 0x20000000 && ((walk.nVersion >> bit) & 1) != 1) {
+                    return FAILED;
+                }
+            }
+            return ACTIVE;
+
 After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
 
         case LOCKED_IN:
             return ACTIVE;
 
-And ACTIVE is terminal a state, which a deployment stays in once reached.
+And ACTIVE and FAILED are terminal states, which a deployment stays in once they're reached.
 
         case ACTIVE:
             return ACTIVE;
+
+        case FAILED:
+            return FAILED;
+        }
     }
 
 '''Implementation'''
-It should be noted that the states are maintained along block chain branches, but may need recomputation when a reorganization happens.
+It should be noted that the states are maintained along block chain
+branches, but may need recomputation when a reorganization happens.
 
-Given that the state for a specific block/deployment combination is completely determined by its ancestry before the current retarget period (i.e. up to and including its ancestor with height block.height - 1 - (block.height % 2016)), it is possible to implement the mechanism above efficiently and safely by caching the resulting state of every multiple-of-2016 block, indexed by its parent.
+Given that the state for a specific block/deployment combination is completely determined by its ancestry before the
+current retarget period (i.e. up to and including its ancestor with height block.height - 1 - (block.height % 2016)),
+it is possible to implement the mechanism above efficiently and safely by caching the resulting state of every multiple-of-2016
+block, indexed by its parent.
 
 ===Warning mechanism===
 
@@ -193,9 +228,15 @@ A client that does not understand a rule prefixed by '!' must not attempt to pro
 
 https://github.com/bitcoin/bitcoin/compare/master...shaolinfry:bip8-height
 
+==Contrasted with BIP 9==
+
+* The '''lockinontimeout''' flag is added. BIP 9 would only transition to the FAILED state when timeout was reached.
+* Block heights are used for the deployment monotonic clock, rather than median-time-past.
+* The last-ditch effort during a new FAILING state is added to allow '''lockinontimeout''' to be safely set after the initial deployment.
+
 ==Backwards compatibility==
 
-BIP8 and BIP9 deployments should not share concurrent active deployment bits. Nodes that only implement BIP9 will not activate a BIP8 soft fork if hashpower threshold is not reached by '''timeout''', however, those nodes will still accept the blocks generated by activated nodes.
+BIP8 and BIP9 deployments should not share concurrent active deployment bits. Nodes that only implement BIP9 will not activate a BIP8 soft fork if hashpower threshold is not reached by '''timeoutheight''', however, those nodes will still accept the blocks generated by activated nodes.
 
 ==Deployments==
 
