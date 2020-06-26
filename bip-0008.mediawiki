@@ -118,21 +118,16 @@ We remain in the initial state until we reach the start block height.
             }
             return DEFINED;
 
-After a period in the STARTED state, if we're past the timeout, we switch to LOCKED_IN or FAILING. If not, we tally the bits set,
+After a period in the STARTED state, we tally the bits set,
 and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
 version numbers. The threshold is ≥1916 blocks (95% of 2016), or ≥1512 for testnet (75% of 2016).
-The transition to FAILING takes precedence, as otherwise an ambiguity can arise.
-There could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN while the
-other one simultaneously transitions to STARTED, which would mean both would demand setting the bit.
+If the threshold hasn't been met, and we reach the timeout, then we either transition to LOCKED_IN state anyway (if lockinontimeout is true), or we transition to FAILING.
 
 Note that a block's state never depends on its own nVersion; only on that of its ancestors.
 
         case STARTED:
-            if (block.height >= timeoutheight) {
-                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
-
             int count = 0;
-            walk = block;
+            walk = block.parent;
             for (i = 0; i < 2016; i++) {
                 walk = walk.parent;
                 if (walk.nVersion & 0xE0000000 == 0x20000000 && (walk.nVersion >> bit) & 1 == 1) {
@@ -141,6 +136,8 @@ Note that a block's state never depends on its own nVersion; only on that of its
             }
             if (count >= threshold) {
                 return LOCKED_IN;
+            } else if (block.height >= timeoutheight) {
+                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
             }
             return STARTED;
 
