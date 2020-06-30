@@ -1,5 +1,8 @@
 # Wordlists
 
+It is discouraged to continue work on this document.
+Instead, please contribute to [Word Lists Improvement Proposals](https://github.com/p2w34/wlips) repository.
+
 * [English](english.txt)
 * [Japanese](japanese.txt)
 * [Korean](korean.txt)
