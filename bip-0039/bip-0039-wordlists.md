@@ -9,6 +9,7 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
+* [German](german.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -98,3 +99,18 @@ Words chosen using the following rules:
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+
+### German
+
+Credits: Christiane Ruetten @cr (christiane.ruetten@data4life.care), Florian Helmchen @docs4life (florian.helmchen@data4life.care), Matthias @Steinbrecher (matthias.steinbrecher@data4life.care)
+
+1. Just words with four or more letters
+1. Just words with a-z (no umlauts etc.)
+1. First four characters unique to word
+1. Each word unique among existing BIP-39 wordlists
+1. Strong focus on short and common words
+1. No names
+1. Avoiding low edit distance
+1. Avoiding homonyms
+1. No obscenities or negativity
+
