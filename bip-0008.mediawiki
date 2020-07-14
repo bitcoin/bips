@@ -39,6 +39,7 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 # The '''startheight''' specifies the height of the first block at which the bit gains its meaning.
 # The '''timeoutheight''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is either considered failed on all descendants of the block (but see the exception during '''FAILING''' state), or, if '''lockinontimeout'' is true, transitions to the '''LOCKED_IN''' state.
 # The '''lockinontimeout''' boolean if set to true, will transition state to '''LOCKED_IN''' at timeoutheight if not already '''LOCKED_IN''' or '''ACTIVE'''.
+# The '''earliestheight''' specifies a minimum block height at which a new rule may become active if locked in earlier.
 
 ===Selection guidelines===
 
@@ -49,6 +50,7 @@ The following guidelines are suggested for selecting these parameters for a soft
 # '''startheight''' should be set to some block height in the future, approximately 30 days (or 4320 blocks) after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software, and ensures a reasonable number of full nodes have upgraded prior to activation. It should be rounded up to the next height which begins a retarget period for simplicity.
 # '''timeoutheight''' should be 1 year, or 52416 blocks (26 retarget intervals) after '''startheight'''.
 # '''lockinontimeout''' should be set to true for any softfork that is expected or found to have political opposition from a non-negligible percent of miners. (It can be set after the initial deployment, but cannot be cleared once set.)
+# '''earliestheight''' should be 3 months, or 12096 blocks (6 retarget intervals) after '''startheight'''.
 
 A later deployment using the same bit is possible as long as the startheight is after the previous one's
 timeoutheight or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
@@ -60,7 +62,7 @@ With each block and soft fork, we associate a deployment state. The possible sta
 # '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
 # '''STARTED''' for blocks at or beyond the startheight.
 # '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion, or for one retarget period after the timeout when '''lockinontimeout''' is true.
-# '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
+# '''ACTIVE''' for all blocks after the LOCKED_IN retarget period at height greater than or equal to '''earliestheight'''.
 # '''FAILING''' for one retarget period after the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
 # '''FAILED''' for all blocks after the FAILING retarget period.
 
@@ -157,6 +159,8 @@ This state exists such that if '''lockinontimeout''' is set to true later, it re
 After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
 
         case LOCKED_IN:
+            if (block.height < earliestheight)
+                return LOCKED_IN;
             return ACTIVE;
 
 And ACTIVE and FAILED are terminal states, which a deployment stays in once they're reached.
