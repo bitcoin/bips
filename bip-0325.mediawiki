@@ -26,36 +26,48 @@ A new type of test network would be more suitable for integration testing by org
 
 A new type of network ("signet"), which takes an additional consensus parameter called the challenge (scriptPubKey). The challenge can be a simple pubkey (P2PKH style), or a k-of-n multisig, or any other script you would want.
 
-The witness commitment of the coinbase transaction is extended to include a secondary commitment (the signature/solution):
+The witness commitment of the coinbase transaction is extended to include a secondary commitment (the signature/solution) of either:
 
-    1-4 bytes - Push the following (x + 4) bytes
-    4 bytes - Signet header (0xecc7daa2)
-    x bytes - Solution (sigScript)
+    1-4 bytes - Push the following (4 + x + y) bytes
+    4 bytes - Signet scriptSig header (0xecc7daa2)
+    x bytes - scriptSig
+    y bytes - scriptWitness
 
-Any push operations that do not start with the 4 byte signet header are ignored. Multiple push operations with the 4 byte signet header are ignored except for the first entry.
+The scriptSig is serialized by first encoding its length as CompactSize. If the scriptWitness is empty, it is encoded as 0 bytes, otherwise it is encoded in the usual way (see BIP 141 "witness" encoding).
 
-Any signature operations contained within the challenge use SHA256d(modifiedBlockHash), i.e. the double-SHA256 digest of the following data as the sighash:
+Any push operations that do not start with the 4 byte Signet header are ignored. Multiple push operations with the 4 byte Signet header are ignored except for the first instance of the header.
 
-{|class="wikitable" style="text-align: center;"
-|-
-!Type
-!Size
-!Name
-|-
-|Int32||4||nVersion
-|-
-|Uint256||32||hashPrevBlock
-|-
-|Uint256||32||modifiedMerkleRoot
-|-
-|Uint32||4||nTime
-|-
-|Uint32||4||nBits
-|}
+To sign the block or verify a block signature, two virtual transactions, each with a single input and output are constructed from the block as follows.
 
-The <code>modifiedMerkleRoot</code> hash is obtained by generating the merkle root of the block transactions, with the coinbase witness commitment as is, without the signet extension. This means the merkle root of the block is different from the merkle root in the signet commitment. This is needed, because the signature can never be included in the very message (in this case, a block) that is being signed. Apart from the signature, to facilitate block generation (mining), the block nonce value is the only other component of the block that the signet signature does not commit to. When grinding proof of work, the extended nonce cannot be used as it would invalidate the signature. Instead, simply resigning the same (or an updated) block will give a new search space.
+The "to_spend" transaction is:
 
-A block is considered fully validated if the above commitment is found, and its solution is valid. It is recommended that this verification is done directly before or after the witness commitment verification, as the data required to do both is approximately the same.
+    nVersion = 0
+    nLockTime = 0
+    vin[0].prevout.hash = 0000...000
+    vin[0].prevout.n = 0xFFFFFFFF
+    vin[0].nSequence = 0
+    vin[0].scriptSig = OP_0 PUSH72[ block_data ]
+    vin[0].scriptWitness = []
+    vout[0].nValue = 0
+    vout[0].scriptPubKey = signet_challenge
+
+where block_data is the serialization of the block's nVersion, hashPrevBlock, signet_merkle_root, and nTime. The <code>signet_merkle_root</code> is obtained by generating the merkle root of the block transactions, after modifying the coinbase witness commitment by replacing the signet solution with an empty solution (that is, the witness commitment includes a four byte push of the Signet header with no additional solution data, and no prior pushes beginning with the Signet header). This means the merkle root of the block is different from the merkle root in the signet commitment. This is needed, because the signature can never be included in the very message (in this case, a block) that is being signed.
+
+The "to_sign" transaction is:
+
+    nVersion = 0
+    nLockTime = 0
+    vin[0].prevout.hash = to_spend.txid
+    vin[0].prevout.n = 0
+    vin[0].nSequence = 0
+    vout[0].nValue = 0
+    vout[0].scriptPubKey = signet_challenge
+
+The scriptSig and/or scriptWitness for <code>vin[0]</code> are filled in from the Signet header push above.
+
+To simplify block generation (mining), the signature also does not commit to the the block nonce value, so that rolling the nonce to generate proof-of-work does not also require regenerating signatures. When grinding proof of work, the extended nonce cannot be used as it would invalidate the signature. Instead, simply resigning the same (or an updated) block will give a new search space.
+
+A block is considered fully validated only if the to_sign transaction is a valid spend of the to_spend transaction. It is recommended that this verification is done directly before or after the witness commitment verification, as the data required to do both is approximately the same.
 
 == Genesis Block and Message Start ==
 
