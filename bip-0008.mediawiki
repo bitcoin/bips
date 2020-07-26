@@ -37,8 +37,8 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 # The '''name''' specifies a very brief description of the soft fork, reasonable for use as an identifier. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
 # The '''startheight''' specifies the height of the first block at which the bit gains its meaning.
-# The '''timeoutheight''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is either considered failed on all descendants of the block (but see the exception during '''FAILING''' state), or, if '''lockinontimeout'' is true, transitions to the '''LOCKED_IN''' state.
-# The '''lockinontimeout''' boolean if set to true, will transition state to '''LOCKED_IN''' at timeoutheight if not already '''LOCKED_IN''' or '''ACTIVE'''.
+# The '''timeoutheight''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is considered failed on all descendants of the block.
+# The '''lockinontimeout''' boolean if set to true, blocks are required to signal in the final period, ensuring the soft fork has locked in by timeoutheight.
 
 ===Selection guidelines===
 
@@ -59,10 +59,10 @@ With each block and soft fork, we associate a deployment state. The possible sta
 
 # '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
 # '''STARTED''' for blocks at or beyond the startheight.
-# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion, or for one retarget period after the timeout when '''lockinontimeout''' is true.
+# '''MUST_SIGNAL''' for one retarget period prior to the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is true.
+# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED blocks of which at least threshold have the associated bit set in nVersion.
 # '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
-# '''FAILING''' for one retarget period after the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is false.
-# '''FAILED''' for all blocks after the FAILING retarget period.
+# '''FAILED''' for all blocks after the timeoutheight if LOCKED_IN is not reached.
 
 ===Bit flags===
 
@@ -77,13 +77,13 @@ for the purposes of this proposal, and support two future upgrades for different
 When a block nVersion does not have top bits 001, it is treated as if all
 bits are 0 for the purposes of deployments.
 
-Miners must continue setting the bit in LOCKED_IN phase so uptake is visible and acknowledged.
-Blocks without the applicable bit set are invalid during this period.
-For flexibility, this rule does NOT require the top 3 bits to be set any particular way.
+Miners should continue setting the bit in LOCKED_IN phase so uptake is visible and acknowledged.
 
 ===New consensus rules===
 
 The new consensus rules for each soft fork are enforced for each block that has ACTIVE state.
+
+During the MUST_SIGNAL phase, if 100 blocks in the retarget period have already failed to signal, any further blocks that fail to signal are invalid.
 
 ===State transitions===
 
@@ -121,7 +121,8 @@ We remain in the initial state until we reach the start block height.
 After a period in the STARTED state, we tally the bits set,
 and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
 version numbers. The threshold is ≥1916 blocks (95% of 2016), or ≥1512 for testnet (75% of 2016).
-If the threshold hasn't been met, and we reach the timeout, then we either transition to LOCKED_IN state anyway (if lockinontimeout is true), or we transition to FAILING.
+If the threshold hasn't been met, and lockinontimeout is true and we are at the last period before the timeout, then we transition to MUST_SIGNAL.
+If the threshold hasn't been met and we reach the timeout, we transition directly to FAILED.
 
 Note that a block's state never depends on its own nVersion; only on that of its ancestors.
 
@@ -131,28 +132,22 @@ Note that a block's state never depends on its own nVersion; only on that of its
             for (i = 0; i < 2016; i++) {
                 walk = walk.parent;
                 if (walk.nVersion & 0xE0000000 == 0x20000000 && (walk.nVersion >> bit) & 1 == 1) {
-                    count++;
+                    ++count;
                 }
             }
             if (count >= threshold) {
                 return LOCKED_IN;
+            } else if (lockinontimeout && block.height + 2016 >= timeoutheight) {
+                return MUST_SIGNAL;
             } else if (block.height >= timeoutheight) {
-                return (lockinontimeout == true) ? LOCKED_IN : FAILING;
+                return FAILED;
             }
             return STARTED;
 
-If the deployment is not LOCKED_IN by the timeout (or '''lockinontimeout'''), it has a single retarget period during which it may still become active, only by unanimous signalling in every block.
-This state exists such that if '''lockinontimeout''' is set to true later, it remains compatible with the original deployment.
+If we have finished a period of MUST_SIGNAL, we transition directly to LOCKED_IN.
 
-        case FAILING:
-            walk = block;
-            for (i = 0; i < 2016; i++) {
-                walk = walk.parent;
-                if (walk.nVersion & 0xE0000000 == 0x20000000 && ((walk.nVersion >> bit) & 1) != 1) {
-                    return FAILED;
-                }
-            }
-            return ACTIVE;
+        case MUST_SIGNAL:
+            return LOCKED_IN;
 
 After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
 
@@ -177,6 +172,30 @@ Given that the state for a specific block/deployment combination is completely d
 current retarget period (i.e. up to and including its ancestor with height block.height - 1 - (block.height % 2016)),
 it is possible to implement the mechanism above efficiently and safely by caching the resulting state of every multiple-of-2016
 block, indexed by its parent.
+
+===Mandatory signalling===
+
+Blocks received while in MUST_SIGNAL must be checked to ensure that the threshold will be reached by the end of the period. For example:
+
+    if (GetStateForBlock(block) == MUST_SIGNAL) {
+        int nonsignal = 0;
+        int count = 1 + block.nHeight % 2016;
+        walk = block;
+        while (count > 0) {
+            --count;
+            if ((walk.nVersion & 0xE0000000) != 0x20000000 || ((walk.nVersion >> bit) & 1) != 1) {
+                ++nonsignal;
+                if (nonsignal + threshold > 2016) {
+                    return state.Invalid(BlockValidationResult::RECENT_CONSENSUS_CHANGE, "blk-bip8-must-signal");
+                }
+            } else if (nonsignal == 0) {
+                break;
+            }
+            walk = walk.parent;
+        }
+    }
+
+Implementations should be careful not to ban peers that send blocks that are invalid due to not signalling (or blocks that build on those blocks), as that would allow an incompatible chain that is only briefly longer than the compliant chain to cause a split of the p2p network. If that occurred, nodes that have not set ''lockinontimeout'' may not see new blocks in the compliant chain, and thus not reorg to it at the point when it has more work, and would thus not be following the valid chain with the most work.
 
 ===Warning mechanism===
 
@@ -211,7 +230,7 @@ The template Object is also extended:
 The "version" key of the template is retained, and used to indicate the server's preference of deployments.
 If versionbits is being used, "version" MUST be within the versionbits range of [0x20000000...0x3FFFFFFF].
 Miners MAY clear or set bits in the block version WITHOUT any special "mutable" key, provided they are listed among the template's "vbavailable" and (when clearing is desired) NOT included as a bit in "vbrequired".
-Servers MUST set bits in "vbrequired" for deployments in LOCKED_IN state, to ensure blocks produced are valid.
+Servers MUST set bits in "vbrequired" for deployments in MUST_SIGNAL state, to ensure blocks produced are valid.
 
 Softfork deployment names listed in "rules" or as keys in "vbavailable" may be prefixed by a '!' character.
 Without this prefix, GBT clients may assume the rule will not impact usage of the template as-is; typical examples of this would be when previously valid transactions cease to be valid, such as BIPs 16, 65, 66, 68, 112, and 113.
@@ -225,9 +244,8 @@ https://github.com/bitcoin/bitcoin/compare/master...luke-jr:bip8
 
 ==Contrasted with BIP 9==
 
-* The '''lockinontimeout''' flag is added. BIP 9 would only transition to the FAILED state when timeout was reached.
+* The '''lockinontimeout''' flag is added, providing a way to guarantee transition to LOCKED_IN.
 * Block heights are used for the deployment monotonic clock, rather than median-time-past.
-* The last-ditch effort during a new FAILING state is added to allow '''lockinontimeout''' to be safely set after the initial deployment.
 
 ==Backwards compatibility==
 
