@@ -143,13 +143,13 @@ The currently defined per-input types are defined as follows:
 * Type: Non-Witness UTXO <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
 ** Key: None. The key must only contain the 1 byte type.
 ***<tt>{0x00}</tt>
-** Value: The transaction in network serialization format the current input spends from. This should only be present for inputs which spend non-segwit outputs. However, if it is unknown whether an input spends a segwit output, this type should be used.
+** Value: The transaction in network serialization format the current input spends from. This should be present for inputs that spend non-segwit outputs and can be present for inputs that spend segwit outputs. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>. <ref>'''Why can both UTXO types be provided?''' Many wallets began requiring the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) for segwit inputs when PSBT was already in use. In order to be compatible with software which were expecting <tt>PSBT_IN_WITNESS_UTXO<tt>, both UTXO types must be allowed.</ref>
 *** <tt>{transaction}</tt>
 
 * Type: Witness UTXO <tt>PSBT_IN_WITNESS_UTXO = 0x01</tt>
 ** Key: None. The key must only contain the 1 byte type.
 *** <tt>{0x01}</tt>
-** Value: The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones.
+** Value: The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>
 *** <tt>{serialized transaction output({output value}|<scriptPubKey>)}</tt>
 
 * Type: Partial Signature <tt>PSBT_IN_PARTIAL_SIG = 0x02</tt>
@@ -349,6 +349,7 @@ The Signer must only accept a PSBT.
 The Signer must only use the UTXOs provided in the PSBT to produce signatures for inputs.
 Before signing a non-witness input, the Signer must verify that the TXID of the non-witness UTXO matches the TXID specified in the unsigned transaction.
 Before signing a witness input, the Signer must verify that the witnessScript (if provided) matches the hash specified in the UTXO or the redeemScript, and the redeemScript (if provided) matches the hash in the UTXO.
+The Signer may choose to fail to sign a segwit input if a non-witness UTXO is not provided. <ref>'''Why would non-witness UTXOs be provided for segwit inputs?''' The sighash algorithm for Segwit specified in BIP 173 is known to have an issue where an attacker could trick a user to sending Bitcoin to fees if they are able to convince the user to sign a malicious transaction multiple times. This is possible because the amounts in <tt>PSBT_IN_WITNESS_UTXO<tt> of other segwit inputs can be modified without effecting the signature for a particular input. In order to prevent this kind of attack, many wallets are requiring that the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) be provided to ensure that the amounts of other inputs are not being tampered with.</ref>
 The Signer should not need any additional data sources, as all necessary information is provided in the PSBT format.
 The Signer must only add data to a PSBT.
 Any signatures created by the Signer must be added as a "Partial Signature" key-value pair for the respective input it relates to.
