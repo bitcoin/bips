@@ -78,14 +78,9 @@ Using the first option would be slightly more efficient for verification (around
 '''Implicit Y coordinates''' In order to support efficient verification and batch verification, the Y coordinate of ''P'' and of ''R'' cannot be ambiguous (every valid X coordinate has two possible Y coordinates). We have a choice between several options for symmetry breaking:
 # Implicitly choosing the Y coordinate that is in the lower half.
 # Implicitly choosing the Y coordinate that is even<ref>Since ''p'' is odd, negation modulo ''p'' will map even numbers to odd numbers and the other way around. This means that for a valid X coordinate, one of the corresponding Y coordinates will be even, and the other will be odd.</ref>.
-# Implicitly choosing the Y coordinate that is a quadratic residue (has a square root modulo the field size, or "is a square" for short)<ref>A product of two numbers is a square when either both or none of the factors are squares. As ''-1'' is not a square modulo secp256k1's field size ''p'', and the two Y coordinates corresponding to a given X coordinate are each other's negation, this means exactly one of the two must be a square.</ref>.
+# Implicitly choosing the Y coordinate that is a quadratic residue (i.e. has a square root modulo ''p'').
 
-In the case of ''R'' the third option is slower at signing time but a bit faster to verify, as it is possible to directly compute whether the Y coordinate is a square when the points are represented in
-[https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates Jacobian coordinates] (a common optimization to avoid modular inverses
-for elliptic curve operations). The two other options require a possibly
-expensive conversion to affine coordinates first. This would even be the case if the sign or oddness were explicitly coded (option 2 in the list above). We therefore choose option 3.
-
-For ''P'', using the third option comes at the cost of computing whether the Y coordinate is square at key generation or signing time, without avoiding a conversion to affine coordinates (as public keys will use affine coordinates anyway). We choose the second option, making public keys implicitly have an even Y coordinate, to maximize compatibility with existing key generation algorithms and infrastructure.
+The second option offers the greatest compatibility with existing key generation systems, where the standard 33-byte compressed public key format consists of a byte indicating the oddness of the Y coordinate, plus the full X coordinate. To avoid gratuitous incompatibilities, we pick that option for ''P'', and thus our X-only public keys become equivalent to a compressed public key that is the X-only key prefixed by the byte 0x02. For consistency, the same is done for ''R''<ref>An earlier version of this draft used the third option instead, based on a belief that this would in general trade signing efficiency for verification efficiency. Determining if a Y coordinate is a quadratic residue can be done by computing the Legendre symbol directly in Jacobian coordinates (a common optimization), while determining oddness needs a conversion to affine coordinates first, which needs a modular inversion. As modular inverses and Legendre symbols have similar [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-August/018081.html performance] in practice, this trade-off is not worth it.</ref>.
 
 Despite halving the size of the set of valid public keys, implicit Y coordinates are not a reduction in security. Informally, if a fast algorithm existed to compute the discrete logarithm of an X-only public key, then it could also be used to compute the discrete logarithm of a full public key: apply it to the X coordinate, and then optionally negate the result. This shows that breaking an X-only public key can be at most a small constant term faster than breaking a full one.<ref>This can be formalized by a simple reduction that reduces an attack on Schnorr signatures with implicit Y coordinates to an attack to Schnorr signatures with explicit Y coordinates. The reduction works by reencoding public keys and negating the result of the hash function, which is modeled as random oracle, whenever the challenge public key has an explicit Y coordinate that is odd. A proof sketch can be found [https://medium.com/blockstream/reducing-bitcoin-transaction-sizes-with-x-only-pubkeys-f86476af05d7 here].</ref>.
 
@@ -95,7 +90,7 @@ For example, without tagged hashing a BIP340 signature could also be valid for a
 
 This proposal suggests to include the tag by prefixing the hashed data with ''SHA256(tag) || SHA256(tag)''. Because this is a 64-byte long context-specific constant and the ''SHA256'' block size is also 64 bytes, optimized implementations are possible (identical to SHA256 itself, but with a modified initial state). Using SHA256 of the tag name itself is reasonably simple and efficient for implementations that don't choose to use the optimization.
 
-'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is even and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is a square. The signature satisfies ''s⋅G = R + tagged_hash(r || pk || m)⋅P''.
+'''Final scheme''' As a result, our final scheme ends up using public key ''pk'' which is the X coordinate of a point ''P'' on the curve whose Y coordinate is even and signatures ''(r,s)'' where ''r'' is the X coordinate of a point ''R'' whose Y coordinate is even. The signature satisfies ''s⋅G = R + tagged_hash(r || pk || m)⋅P''.
 
 === Specification ===
 
@@ -115,19 +110,13 @@ The following conventions are used, with constants as defined for [https://www.s
 ** The function ''bytes(x)'', where ''x'' is an integer, returns the 32-byte encoding of ''x'', most significant byte first.
 ** The function ''bytes(P)'', where ''P'' is a point, returns ''bytes(x(P))''.
 ** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte first encoding is ''x''.
-** The function ''is_square(x)'', where ''x'' is an integer, returns whether or not ''x'' is a quadratic residue modulo ''p''. Since ''p'' is prime, it is equivalent to the [https://en.wikipedia.org/wiki/Legendre_symbol Legendre symbol] ''(x / p) = x<sup>(p-1)/2</sup> mod p'' being equal to ''1''<ref>For points ''P'' on the secp256k1 curve it holds that ''y(P)<sup>(p-1)/2</sup> &ne; 0 mod p''.</ref>.
-** The function ''has_square_y(P)'', where ''P'' is a point, is defined as ''not is_infinite(P) and is_square(y(P))''<ref>For points ''P'' on the secp256k1 curve it holds that ''has_square_y(P) = not has_square_y(-P)''.</ref>.
 ** The function ''has_even_y(P)'', where ''P'' is a point, returns ''y(P) mod 2 = 0''.
-** The function ''lift_x_square_y(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x''<ref>
-    Given a candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''. The valid Y coordinates for a given candidate ''x'' are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''.
-</ref> and ''has_square_y(P)''<ref>
-    If ''P := lift_x_square_y(x)'' does not fail, then ''y := y(P) = c<sup>(p+1)/4</sup> mod p'' is square. Proof: If ''lift_x_square_y'' does not fail, ''y'' is a square root of ''c'' and therefore the [https://en.wikipedia.org/wiki/Legendre_symbol Legendre symbol] ''(c / p)'' is ''c<sup>(p-1)/2</sup> = 1 mod p''. Because the Legendre symbol ''(y / p)'' is ''y<sup>(p-1)/2</sup> mod p = c<sup>((p+1)/4)((p-1)/2)</sup> mod p = 1<sup>((p+1)/4)</sup> mod p = 1 mod p'', ''y'' is square.
-</ref>, or fails if no such point exists. The function ''lift_x_square_y(x)'' is equivalent to the following pseudocode:
+** The function ''lift_x(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x''<ref>
+    Given a candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''. The valid Y coordinates for a given candidate ''x'' are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''.</ref> and ''has_even_y(P)'', or fails if no such point exists. The function ''lift_x(x)'' is equivalent to the following pseudocode:
 *** Let ''c = x<sup>3</sup> + 7 mod p''.
 *** Let ''y = c<sup>(p+1)/4</sup> mod p''.
 *** Fail if ''c &ne; y<sup>2</sup> mod p''.
-*** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'', or fail if no such point exists.
-** The function ''lift_x_even_y(x)'', where ''x'' is an integer in range ''0..p-1'', returns the point ''P'' for which ''x(P) = x'' and ''has_even_y(P)'', or fails if no such point exists. If such a point does exist, it is always equal to either ''lift_x_square_y(x)'' or ''-lift_x_square_y(x)'', which suggests implementing it in terms of ''lift_x_square_y'', and optionally negating the result.
+*** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'' if ''y mod 2 = 0'' or ''y(P) = p-y'' otherwise.
 ** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
 
 ==== Public Key Generation ====
@@ -158,13 +147,13 @@ The algorithm ''Sign(sk, m)'' is defined as:
 * Fail if ''d' = 0'' or ''d' &ge; n''
 * Let ''P = d'⋅G''
 * Let ''d = d' '' if ''has_even_y(P)'', otherwise let ''d = n - d' ''.
-* Let ''t'' be the byte-wise xor of ''bytes(d)'' and ''hash<sub>BIP340/aux</sub>(a)''<ref>The auxiliary random data is hashed (with a unique tag) as a precaution against situations where the randomness may be correlated with the private key itself. It is xored with the private key (rather than combined with it in a hash) to reduce the number of operations exposed to the actual secret key.</ref>.
-* Let ''rand = hash<sub>BIP340/nonce</sub>(t || bytes(P) || m)''<ref>Including the [https://moderncrypto.org/mail-archive/curves/2020/001012.html public key as input to the nonce hash] helps ensure the robustness of the signing algorithm by preventing leakage of the secret key if the calculation of the public key ''P'' is performed incorrectly or maliciously, for example if it is left to the caller for performance reasons.</ref>.
+* Let ''t'' be the byte-wise xor of ''bytes(d)'' and ''hash<sub>BIP0340/aux</sub>(a)''<ref>The auxiliary random data is hashed (with a unique tag) as a precaution against situations where the randomness may be correlated with the private key itself. It is xored with the private key (rather than combined with it in a hash) to reduce the number of operations exposed to the actual secret key.</ref>.
+* Let ''rand = hash<sub>BIP0340/nonce</sub>(t || bytes(P) || m)''<ref>Including the [https://moderncrypto.org/mail-archive/curves/2020/001012.html public key as input to the nonce hash] helps ensure the robustness of the signing algorithm by preventing leakage of the secret key if the calculation of the public key ''P'' is performed incorrectly or maliciously, for example if it is left to the caller for performance reasons.</ref>.
 * Let ''k' = int(rand) mod n''<ref>Note that in general, taking a uniformly random 256-bit integer modulo the curve order will produce an unacceptably biased result. However, for the secp256k1 curve, the order is sufficiently close to ''2<sup>256</sup>'' that this bias is not observable (''1 - n / 2<sup>256</sup>'' is around ''1.27 * 2<sup>-128</sup>'').</ref>.
 * Fail if ''k' = 0''.
 * Let ''R = k'⋅G''.
-* Let ''k = k' '' if ''has_square_y(R)'', otherwise let ''k = n - k' ''.
-* Let ''e = int(hash<sub>BIP340/challenge</sub>(bytes(R) || bytes(P) || m)) mod n''.
+* Let ''k = k' '' if ''has_even_y(R)'', otherwise let ''k = n - k' ''.
+* Let ''e = int(hash<sub>BIP0340/challenge</sub>(bytes(R) || bytes(P) || m)) mod n''.
 * Let ''sig = bytes(R) || bytes((k + ed) mod n)''.
 * If ''Verify(bytes(P), m, sig)'' (see below) returns failure, abort<ref>Verifying the signature before leaving the signer prevents random or attacker provoked computation errors. This prevents publishing invalid signatures which may leak information about the secret key. It is recommended, but can be omitted if the computation cost is prohibitive.</ref>.
 * Return the signature ''sig''.
@@ -190,17 +179,17 @@ Input:
 * A signature ''sig'': a 64-byte array
 
 The algorithm ''Verify(pk, m, sig)'' is defined as:
-* Let ''P = lift_x_even_y(int(pk))''; fail if that fails.
+* Let ''P = lift_x(int(pk))''; fail if that fails.
 * Let ''r = int(sig[0:32])''; fail if ''r &ge; p''.
 * Let ''s = int(sig[32:64])''; fail if ''s &ge; n''.
-* Let ''e = int(hash<sub>BIP340/challenge</sub>(bytes(r) || bytes(P) || m)) mod n''.
+* Let ''e = int(hash<sub>BIP0340/challenge</sub>(bytes(r) || bytes(P) || m)) mod n''.
 * Let ''R = s⋅G - e⋅P''.
-* Fail if ''not has_square_y(R)'' or ''x(R) &ne; r''.
+* Fail if ''not has_even_y(R)'' or ''x(R) &ne; r''.
 * Return success iff no failure occurred before reaching this point.
 
 For every valid secret key ''sk'' and message ''m'', ''Verify(PubKey(sk),m,Sign(sk,m))'' will succeed.
 
-Note that the correctness of verification relies on the fact that ''lift_x_even_y'' always returns a point with an even Y coordinate. A hypothetical verification algorithm that treats points as public keys, and takes the point ''P'' directly as input would fail any time a point with odd Y is used. While it is possible to correct for this by negating points with odd Y coordinate before further processing, this would result in a scheme where every (message, signature) pair is valid for two public keys (a type of malleability that exists for ECDSA as well, but we don't wish to retain). We avoid these problems by treating just the X coordinate as public key.
+Note that the correctness of verification relies on the fact that ''lift_x'' always returns a point with an even Y coordinate. A hypothetical verification algorithm that treats points as public keys, and takes the point ''P'' directly as input would fail any time a point with odd Y is used. While it is possible to correct for this by negating points with odd Y coordinate before further processing, this would result in a scheme where every (message, signature) pair is valid for two public keys (a type of malleability that exists for ECDSA as well, but we don't wish to retain). We avoid these problems by treating just the X coordinate as public key.
 
 ==== Batch Verification ====
 
@@ -213,25 +202,15 @@ Input:
 The algorithm ''BatchVerify(pk<sub>1..u</sub>, m<sub>1..u</sub>, sig<sub>1..u</sub>)'' is defined as:
 * Generate ''u-1'' random integers ''a<sub>2...u</sub>'' in the range ''1...n-1''. They are generated deterministically using a [https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator CSPRNG] seeded by a cryptographic hash of all inputs of the algorithm, i.e. ''seed = seed_hash(pk<sub>1</sub>..pk<sub>u</sub> || m<sub>1</sub>..m<sub>u</sub> || sig<sub>1</sub>..sig<sub>u</sub> )''. A safe choice is to instantiate ''seed_hash'' with SHA256 and use [https://tools.ietf.org/html/rfc8439 ChaCha20] with key ''seed'' as a CSPRNG to generate 256-bit integers, skipping integers not in the range ''1...n-1''.
 * For ''i = 1 .. u'':
-** Let ''P<sub>i</sub> = lift_x_even_y(int(pk<sub>i</sub>))''; fail if it fails.
+** Let ''P<sub>i</sub> = lift_x(int(pk<sub>i</sub>))''; fail if it fails.
 ** Let ''r<sub>i</sub> = int(sig<sub>i</sub>[0:32])''; fail if ''r<sub>i</sub> &ge; p''.
 ** Let ''s<sub>i</sub> = int(sig<sub>i</sub>[32:64])''; fail if ''s<sub>i</sub> &ge; n''.
-** Let ''e<sub>i</sub> = int(hash<sub>BIP340/challenge</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
-** Let ''R<sub>i</sub> = lift_x_square_y(r<sub>i</sub>)''; fail if ''lift_x_square_y(r<sub>i</sub>)'' fails.
+** Let ''e<sub>i</sub> = int(hash<sub>BIP0340/challenge</sub>(bytes(r<sub>i</sub>) || bytes(P<sub>i</sub>) || m<sub>i</sub>)) mod n''.
+** Let ''R<sub>i</sub> = lift_x(r<sub>i</sub>)''; fail if ''lift_x(r<sub>i</sub>)'' fails.
 * Fail if ''(s<sub>1</sub> + a<sub>2</sub>s<sub>2</sub> + ... + a<sub>u</sub>s<sub>u</sub>)⋅G &ne; R<sub>1</sub> + a<sub>2</sub>⋅R<sub>2</sub> + ... + a<sub>u</sub>⋅R<sub>u</sub> + e<sub>1</sub>⋅P<sub>1</sub> + (a<sub>2</sub>e<sub>2</sub>)⋅P<sub>2</sub> + ... + (a<sub>u</sub>e<sub>u</sub>)⋅P<sub>u</sub>''.
 * Return success iff no failure occurred before reaching this point.
 
 If all individual signatures are valid (i.e., ''Verify'' would return success for them), ''BatchVerify'' will always return success. If at least one signature is invalid, ''BatchVerify'' will return success with at most a negligible probability.
-
-=== Optimizations ===
-
-Many techniques are known for optimizing elliptic curve implementations. Several of them apply here, but are out of scope for this document. Two are listed below however, as they are relevant to the design decisions:
-
-'''Squareness testing''' The function ''is_square(x)'' is defined as above, but can be computed more efficiently using an [https://en.wikipedia.org/wiki/Jacobi_symbol#Calculating_the_Jacobi_symbol extended GCD algorithm].
-
-'''Jacobian coordinates''' Elliptic Curve operations can be implemented more efficiently by using [https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates Jacobian coordinates]. Elliptic Curve operations implemented this way avoid many intermediate modular inverses (which are computationally expensive), and the scheme proposed in this document is in fact designed to not need any inversions at all for verification. When operating on a point ''P'' with Jacobian coordinates ''(x,y,z)'' which is not the point at infinity and for which ''x(P)'' is defined as ''x / z<sup>2</sup>'' and ''y(P)'' is defined as ''y / z<sup>3</sup>'':
-* ''has_square_y(P)'' can be implemented as ''is_square(yz mod p)''.
-* ''x(P) &ne; r'' can be implemented as ''(0 &le; r < p) and (x &ne; z<sup>2</sup>r mod p)''.
 
 == Applications ==
 

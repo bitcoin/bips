@@ -66,7 +66,7 @@ def bytes_from_point(P: Point) -> bytes:
 def xor_bytes(b0: bytes, b1: bytes) -> bytes:
     return bytes(x ^ y for (x, y) in zip(b0, b1))
 
-def lift_x_square_y(b: bytes) -> Optional[Point]:
+def lift_x(b: bytes) -> Optional[Point]:
     x = int_from_bytes(b)
     if x >= p:
         return None
@@ -74,29 +74,13 @@ def lift_x_square_y(b: bytes) -> Optional[Point]:
     y = pow(y_sq, (p + 1) // 4, p)
     if pow(y, 2, p) != y_sq:
         return None
-    return (x, y)
-
-def lift_x_even_y(b: bytes) -> Optional[Point]:
-    P = lift_x_square_y(b)
-    if P is None:
-        return None
-    else:
-        return (x(P), y(P) if y(P) % 2 == 0 else p - y(P))
+    return (x, y if y & 1 == 0 else p-y)
 
 def int_from_bytes(b: bytes) -> int:
     return int.from_bytes(b, byteorder="big")
 
 def hash_sha256(b: bytes) -> bytes:
     return hashlib.sha256(b).digest()
-
-def is_square(x: int) -> bool:
-    return int(pow(x, (p - 1) // 2, p)) == 1
-
-def has_square_y(P: Optional[Point]) -> bool:
-    infinity = is_infinity(P)
-    if infinity: return False
-    assert P is not None
-    return is_square(y(P))
 
 def has_even_y(P: Point) -> bool:
     return y(P) % 2 == 0
@@ -120,14 +104,14 @@ def schnorr_sign(msg: bytes, seckey: bytes, aux_rand: bytes) -> bytes:
     P = point_mul(G, d0)
     assert P is not None
     d = d0 if has_even_y(P) else n - d0
-    t = xor_bytes(bytes_from_int(d), tagged_hash("BIP340/aux", aux_rand))
-    k0 = int_from_bytes(tagged_hash("BIP340/nonce", t + bytes_from_point(P) + msg)) % n
+    t = xor_bytes(bytes_from_int(d), tagged_hash("BIP0340/aux", aux_rand))
+    k0 = int_from_bytes(tagged_hash("BIP0340/nonce", t + bytes_from_point(P) + msg)) % n
     if k0 == 0:
         raise RuntimeError('Failure. This happens only with negligible probability.')
     R = point_mul(G, k0)
     assert R is not None
-    k = n - k0 if not has_square_y(R) else k0
-    e = int_from_bytes(tagged_hash("BIP340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
+    k = n - k0 if not has_even_y(R) else k0
+    e = int_from_bytes(tagged_hash("BIP0340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     sig = bytes_from_point(R) + bytes_from_int((k + e * d) % n)
     debug_print_vars()
     if not schnorr_verify(msg, bytes_from_point(P), sig):
@@ -141,15 +125,15 @@ def schnorr_verify(msg: bytes, pubkey: bytes, sig: bytes) -> bool:
         raise ValueError('The public key must be a 32-byte array.')
     if len(sig) != 64:
         raise ValueError('The signature must be a 64-byte array.')
-    P = lift_x_even_y(pubkey)
+    P = lift_x(pubkey)
     r = int_from_bytes(sig[0:32])
     s = int_from_bytes(sig[32:64])
     if (P is None) or (r >= p) or (s >= n):
         debug_print_vars()
         return False
-    e = int_from_bytes(tagged_hash("BIP340/challenge", sig[0:32] + pubkey + msg)) % n
+    e = int_from_bytes(tagged_hash("BIP0340/challenge", sig[0:32] + pubkey + msg)) % n
     R = point_add(point_mul(G, s), point_mul(P, n - e))
-    if (R is None) or (not has_square_y(R)) or (x(R) != r):
+    if (R is None) or (not has_even_y(R)) or (x(R) != r):
         debug_print_vars()
         return False
     debug_print_vars()
