@@ -26,13 +26,15 @@ def tagged_hash(tag: str, msg: bytes) -> bytes:
     tag_hash = hashlib.sha256(tag.encode()).digest()
     return hashlib.sha256(tag_hash + tag_hash + msg).digest()
 
-def is_infinity(P: Optional[Point]) -> bool:
+def is_infinite(P: Optional[Point]) -> bool:
     return P is None
 
 def x(P: Point) -> int:
+    assert not is_infinite(P)
     return P[0]
 
 def y(P: Point) -> int:
+    assert not is_infinite(P)
     return P[1]
 
 def point_add(P1: Optional[Point], P2: Optional[Point]) -> Optional[Point]:
@@ -83,6 +85,7 @@ def hash_sha256(b: bytes) -> bytes:
     return hashlib.sha256(b).digest()
 
 def has_even_y(P: Point) -> bool:
+    assert not is_infinite(P)
     return y(P) % 2 == 0
 
 def pubkey_gen(seckey: bytes) -> bytes:

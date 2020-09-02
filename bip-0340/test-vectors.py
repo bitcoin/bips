@@ -6,7 +6,7 @@ def is_square(x):
 
 def has_square_y(P):
     """Determine if P has a square Y coordinate. Used in an earlier draft of BIP340."""
-    assert not is_infinity(P)
+    assert not is_infinite(P)
     return is_square(P[1])
 
 def vector0():
