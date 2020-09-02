@@ -34,6 +34,7 @@ my %MiscField = (
 	'Discussions-To' => undef,
 	'Post-History' => undef,
 	'Replaces' => undef,
+	'Requires' => undef,
 	'Superseded-By' => undef,
 );
 
@@ -53,6 +54,7 @@ my %ValidStatus = (
 	Final => "background-color: #cfffcf",
 	Active => "background-color: #cfffcf",
 	Replaced => "background-color: #ffcfcf",
+	Obsolete => "background-color: #ffcfcf",
 );
 my %ValidType = (
 	'Standards Track' => 'Standard',

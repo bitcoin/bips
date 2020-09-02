@@ -1,0 +1,140 @@
+<pre>
+  BIP: 342
+  Layer: Consensus (soft fork)
+  Title: Validation of Taproot Scripts
+  Author: Pieter Wuille <pieter.wuille@gmail.com>
+          Jonas Nick <jonasd.nick@gmail.com>
+          Anthony Towns <aj@erisian.com.au>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0342
+  Status: Draft
+  Type: Standards Track
+  Created: 2020-01-19
+  License: BSD-3-Clause
+  Requires: 340, 341
+  Post-History: 2019-05-06: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2019-May/016914.html [bitcoin-dev] Taproot proposal
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document specifies the semantics of the initial scripting system under [[bip-0341.mediawiki|BIP341]].
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+[[bip-0341.mediawiki|BIP341]] proposes improvements to just the script structure, but some of its goals are incompatible with the semantics of certain opcodes within the scripting language itself.
+While it is possible to deal with these in separate optional improvements, their impact is not guaranteed unless they are addressed simultaneously with [[bip-0341.mediawiki|BIP341]] itself.
+
+Specifically, the goal is making '''Schnorr signatures''', '''batch validation''', and '''signature hash''' improvements available to spends that use the script system as well.
+
+==Design==
+
+In order to achieve these goals, signature opcodes <code>OP_CHECKSIG</code> and <code>OP_CHECKSIGVERIFY</code> are modified to verify Schnorr signatures as specified in [[bip-0340.mediawiki|BIP340]] and to use a signature message algorithm based on the common message calculation in [[bip-0341.mediawiki|BIP341]].
+The tapscript signature message also simplifies <code>OP_CODESEPARATOR</code> handling and makes it more efficient.
+
+The inefficient <code>OP_CHECKMULTISIG</code> and <code>OP_CHECKMULTISIGVERIFY</code> opcodes are disabled.
+Instead, a new opcode <code>OP_CHECKSIGADD</code> is introduced to allow creating the same multisignature policies in a batch-verifiable way.
+Tapscript uses a new, simpler signature opcode limit fixing complicated interactions with transaction weight.
+Furthermore, a potential malleability vector is eliminated by requiring MINIMALIF.
+
+Tapscript can be upgraded through soft forks by defining unknown key types, for example to add new <code>hash_types</code> or signature algorithms.
+Additionally, the new tapscript <code>OP_SUCCESS</code> opcodes allow introducing new opcodes more cleanly than through <code>OP_NOP</code>.
+
+==Specification==
+
+The rules below only apply when validating a transaction input for which all of the conditions below are true:
+* The transaction input is a '''segregated witness spend''' (i.e., the scriptPubKey contains a witness program as defined in [[bip-0141.mediawiki|BIP141]]).
+* It is a '''taproot spend''' as defined in [[bip-0341.mediawiki#design|BIP341]] (i.e., the witness version is 1, the witness program is 32 bytes, and it is not P2SH wrapped).
+* It is a '''script path spend''' as defined in [[bip-0341.mediawiki#design|BIP341]] (i.e., after removing the optional annex from the witness stack, two or more stack elements remain).
+* The leaf version is ''0xc0'' (i.e. the first byte of the last witness element after removing the optional annex is ''0xc0'' or ''0xc1''), marking it as a '''tapscript spend'''.
+
+Validation of such inputs must be equivalent to performing the following steps in the specified order.
+# If the input is invalid due to BIP141 or BIP341, fail.
+# The script as defined in BIP341 (i.e., the penultimate witness stack element after removing the optional annex) is called the '''tapscript''' and is decoded into opcodes, one by one:
+## If any opcode numbered ''80, 98, 126-129, 131-134, 137-138, 141-142, 149-153, 187-254'' is encountered, validation succeeds (none of the rules below apply). This is true even if later bytes in the tapscript would fail to decode otherwise. These opcodes are renamed to <code>OP_SUCCESS80</code>, ..., <code>OP_SUCCESS254</code>, and collectively known as <code>OP_SUCCESSx</code><ref>'''<code>OP_SUCCESSx</code>''' <code>OP_SUCCESSx</code> is a mechanism to upgrade the Script system. Using an <code>OP_SUCCESSx</code> before its meaning is defined by a softfork is insecure and leads to fund loss. The inclusion of <code>OP_SUCCESSx</code> in a script will pass it unconditionally. It precedes any script execution rules to avoid the difficulties in specifying various edge cases, for example: <code>OP_SUCCESSx</code> in a script with an input stack larger than 1000 elements, <code>OP_SUCCESSx</code> after too many signature opcodes, or even scripts with conditionals lacking <code>OP_ENDIF</code>. The mere existence of an <code>OP_SUCCESSx</code> anywhere in the script will guarantee a pass for all such cases. <code>OP_SUCCESSx</code> are similar to the <code>OP_RETURN</code> in very early bitcoin versions (v0.1 up to and including v0.3.5). The original <code>OP_RETURN</code> terminates script execution immediately, and return pass or fail based on the top stack element at the moment of termination. This was one of a major design flaws in the original bitcoin protocol as it permitted unconditional third party theft by placing an <code>OP_RETURN</code> in <code>scriptSig</code>. This is not a concern in the present proposal since it is not possible for a third party to inject an <code>OP_SUCCESSx</code> to the validation process, as the <code>OP_SUCCESSx</code> is part of the script (and thus committed to by the taproot output), implying the consent of the coin owner. <code>OP_SUCCESSx</code> can be used for a variety of upgrade possibilities:
+* An <code>OP_SUCCESSx</code> could be turned into a functional opcode through a softfork. Unlike <code>OP_NOPx</code>-derived opcodes which only have read-only access to the stack, <code>OP_SUCCESSx</code> may also write to the stack. Any rule changes to an <code>OP_SUCCESSx</code>-containing script may only turn a valid script into an invalid one, and this is always achievable with softforks.
+* Since <code>OP_SUCCESSx</code> precedes size check of initial stack and push opcodes, an <code>OP_SUCCESSx</code>-derived opcode requiring stack elements bigger than 520 bytes may uplift the limit in a softfork.
+* <code>OP_SUCCESSx</code> may also redefine the behavior of existing opcodes so they could work together with the new opcode. For example, if an <code>OP_SUCCESSx</code>-derived opcode works with 64-bit integers, it may also allow the existing arithmetic opcodes in the ''same script'' to do the same.
+* Given that <code>OP_SUCCESSx</code> even causes potentially unparseable scripts to pass, it can be used to introduce multi-byte opcodes, or even a completely new scripting language when prefixed with a specific <code>OP_SUCCESSx</code> opcode.</ref>.
+## If any push opcode fails to decode because it would extend past the end of the tapscript, fail.
+# If the '''initial stack''' as defined in BIP341 (i.e., the witness stack after removing both the optional annex and the two last stack elements after that) violates any resource limits (stack size, and size of the elements in the stack; see "Resource Limits" below), fail. Note that this check can be bypassed using <code>OP_SUCCESSx</code>.
+# The tapscript is executed according to the rules in the following section, with the initial stack as input.
+## If execution fails for any reason, fail.
+## If the execution results in anything but exactly one element on the stack which evaluates to true with <code>CastToBool()</code>, fail.
+# If this step is reached without encountering a failure, validation succeeds.
+
+===Script execution===
+
+The execution rules for tapscript are based on those for P2WSH according to BIP141, including the <code>OP_CHECKLOCKTIMEVERIFY</code> and <code>OP_CHECKSEQUENCEVERIFY</code> opcodes defined in [[bip-0065.mediawiki|BIP65]] and [[bip-0112.mediawiki|BIP112]], but with the following modifications:
+* '''Disabled script opcodes''' The following script opcodes are disabled in tapscript: <code>OP_CHECKMULTISIG</code> and <code>OP_CHECKMULTISIGVERIFY</code><ref>'''Why are <code>OP_CHECKMULTISIG</code> and <code>OP_CHECKMULTISIGVERIFY</code> disabled, and not turned into OP_SUCCESSx?''' This is a precaution to make sure people who accidentally keep using <code>OP_CHECKMULTISIG</code> in Tapscript notice a problem immediately. It also avoids the complication of script disassemblers needing to become context-dependent.</ref>. The disabled opcodes behave in the same way as <code>OP_RETURN</code>, by failing and terminating the script immediately when executed, and being ignored when found in unexecuted branch of the script.
+* '''Consensus-enforced MINIMALIF''' The MINIMALIF rules, which are only a standardness rule in P2WSH, are consensus enforced in tapscript. This means that the input argument to the <code>OP_IF</code> and <code>OP_NOTIF</code> opcodes must be either exactly 0 (the empty vector) or exactly 1 (the one-byte vector with value 1)<ref>'''Why make MINIMALIF consensus?''' This makes it considerably easier to write non-malleable scripts that take branch information from the stack.</ref>.
+* '''OP_SUCCESSx opcodes''' As listed above, some opcodes are renamed to <code>OP_SUCCESSx</code>, and make the script unconditionally valid.
+* '''Signature opcodes'''. The <code>OP_CHECKSIG</code> and <code>OP_CHECKSIGVERIFY</code> are modified to operate on Schnorr public keys and signatures (see [[bip-0340.mediawiki|BIP340]]) instead of ECDSA, and a new opcode <code>OP_CHECKSIGADD</code> is added.
+** The opcode 186 (<code>0xba</code>) is named as <code>OP_CHECKSIGADD</code>. <ref>'''<code>OP_CHECKSIGADD</code>''' This opcode is added to compensate for the loss of <code>OP_CHECKMULTISIG</code>-like opcodes, which are incompatible with batch verification. <code>OP_CHECKSIGADD</code> is functionally equivalent to <code>OP_ROT OP_SWAP OP_CHECKSIG OP_ADD</code>, but only takes 1 byte. All <code>CScriptNum</code>-related behaviours of <code>OP_ADD</code> are also applicable to <code>OP_CHECKSIGADD</code>.</ref><ref>'''Alternatives to <code>CHECKMULTISIG</code>''' There are multiple ways of implementing a threshold ''k''-of-''n'' policy using Taproot and Tapscript:
+* '''Using a single <code>OP_CHECKSIGADD</code>-based script''' A <code>CHECKMULTISIG</code> script <code>m <pubkey_1> ... <pubkey_n> n CHECKMULTISIG</code> with witness <code>0 <signature_1> ... <signature_m></code> can be rewritten as script <code><pubkey_1> CHECKSIG <pubkey_2> CHECKSIGADD ... <pubkey_n> CHECKSIGADD m NUMEQUAL</code> with witness <code><w_n> ... <w_1></code>. Every witness element <code>w_i</code> is either a signature corresponding to <code>pubkey_i</code> or an empty vector. A similar <code>CHECKMULTISIGVERIFY</code> script can be translated to BIP342 by replacing <code>NUMEQUAL</code> with <code>NUMEQUALVERIFY</code>. This approach has very similar characteristics to the existing <code>OP_CHECKMULTISIG</code>-based scripts.
+* '''Using a ''k''-of-''k'' script for every combination''' A ''k''-of-''n'' policy can be implemented by splitting the script into several leaves of the Merkle tree, each implementing a ''k''-of-''k'' policy using <code><pubkey_1> CHECKSIGVERIFY ... <pubkey_(n-1)> CHECKSIGVERIFY <pubkey_n> CHECKSIG</code>. This may be preferable for privacy reasons over the previous approach, as it only exposes the participating public keys, but it is only more cost effective for small values of ''k'' (1-of-''n'' for any ''n'', 2-of-''n'' for ''n &ge; 6'', 3-of-''n'' for ''n &ge; 9'', ...). Furthermore, the signatures here commit to the branch used, which means signers need to be aware of which other signers will be participating, or produce signatures for each of the tree leaves.
+* '''Using an aggregated public key for every combination''' Instead of building a tree where every leaf consists of ''k'' public keys, it is possible instead build a tree where every leaf contains a single ''aggregate'' of those ''k'' keys using [https://eprint.iacr.org/2018/068 MuSig]. This approach is far more efficient, but does require a 3-round interactive signing protocol to jointly produce the (single) signature.
+* '''Native Schnorr threshold signatures''' Multisig policies can also be realized with [http://cacr.uwaterloo.ca/techreports/2001/corr2001-13.ps threshold signatures] using verifiable secret sharing. This results in outputs and inputs that are indistinguishable from single-key payments, but at the cost of needing an interactive protocol (and associated backup procedures) before determining the address to send to.</ref>
+
+===Rules for signature opcodes===
+
+The following rules apply to <code>OP_CHECKSIG</code>, <code>OP_CHECKSIGVERIFY</code>, and <code>OP_CHECKSIGADD</code>.
+
+* For <code>OP_CHECKSIGVERIFY</code> and <code>OP_CHECKSIG</code>, the public key (top element) and a signature (second to top element) are popped from the stack.
+** If fewer than 2 elements are on the stack, the script MUST fail and terminate immediately.
+* For <code>OP_CHECKSIGADD</code>, the public key (top element), a <code>CScriptNum</code> <code>n</code> (second to top element), and a signature (third to top element) are popped from the stack.
+** If fewer than 3 elements are on the stack, the script MUST fail and terminate immediately.
+** If <code>n</code> is larger than 4 bytes, the script MUST fail and terminate immediately.
+* If the public key size is zero, the script MUST fail and terminate immediately.
+* If the public key size is 32 bytes, it is considered to be a public key as described in BIP340:
+** If the signature is not the empty vector, the signature is validated against the public key (see the next subsection). Validation failure in this case immediately terminates script execution with failure.
+* If the public key size is not zero and not 32 bytes, the public key is of an ''unknown public key type''<ref>'''Unknown public key types''' allow adding new signature validation rules through softforks. A softfork could add actual signature validation which either passes or makes the script fail and terminate immediately. This way, new <code>SIGHASH</code> modes can be added, as well as [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-December/016549.html NOINPUT-tagged public keys] and a public key constant which is replaced by the taproot internal key for signature validation.</ref> and no actual signature verification is applied. During script execution of signature opcodes they behave exactly as known public key types except that signature validation is considered to be successful.
+* If the script did not fail and terminate before this step, regardless of the public key type:
+** If the signature is the empty vector:
+*** For <code>OP_CHECKSIGVERIFY</code>, the script MUST fail and terminate immediately.
+*** For <code>OP_CHECKSIG</code>, an empty vector is pushed onto the stack, and execution continues with the next opcode.
+*** For <code>OP_CHECKSIGADD</code>, a <code>CScriptNum</code> with value <code>n</code> is pushed onto the stack, and execution continues with the next opcode.
+** If the signature is not the empty vector, the opcode is counted towards the sigops budget (see further).
+*** For <code>OP_CHECKSIGVERIFY</code>, execution continues without any further changes to the stack.
+*** For <code>OP_CHECKSIG</code>, a 1-byte value <code>0x01</code> is pushed onto the stack.
+*** For <code>OP_CHECKSIGADD</code>, a <code>CScriptNum</code> with value of <code>n + 1</code> is pushed onto the stack.
+
+===Signature validation===
+
+To validate a signature ''sig'' with public key ''p'':
+* Compute the tapscript message extension ''ext'', consisting of the concatenation of:
+** ''tapleaf_hash'' (32): the tapleaf hash as defined in [[bip-0341.mediawiki#design|BIP341]]
+** ''key_version'' (1): a constant value ''0x00'' representing the current version of public keys in the tapscript signature opcode execution.
+** ''codesep_pos'' (4): the opcode position of the last executed <code>OP_CODESEPARATOR</code> before the currently executed signature opcode, with the value in little endian (or ''0xffffffff'' if none executed). The first opcode in a script has a position of 0. A multi-byte push opcode is counted as one opcode, regardless of the size of data being pushed. Opcodes in parsed but unexecuted branches count towards this value as well.
+* If the ''sig'' is 64 bytes long, return ''Verify(p, hash<sub>TapSighash</sub>(0x00 || SigMsg(0x00, 1) || ext), sig)'', where ''Verify'' is defined in [[bip-0340.mediawiki#design|BIP340]].
+* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00 and Verify(p, hash<sub>TapSighash</sub>(0x00 || SigMsg(sig[64], 1) || ext), sig[0:64])''.
+* Otherwise, fail.
+
+In summary, the semantics of signature validation is identical to BIP340, except the following:
+# The signature message includes the tapscript-specific data ''key_version''.<ref>'''Why does the signature message commit to the ''key_version''?''' This is for future extensions that define unknown public key types, making sure signatures can't be moved from one key type to another.</ref>
+# The signature message commits to the executed script through the ''tapleaf_hash'' which includes the leaf version and script instead of ''scriptCode''. This implies that this commitment is unaffected by <code>OP_CODESEPARATOR</code>.
+# The signature message includes the opcode position of the last executed <code>OP_CODESEPARATOR</code>.<ref>'''Why does the signature message include the position of the last executed <code>OP_CODESEPARATOR</code>?''' This allows continuing to use <code>OP_CODESEPARATOR</code> to sign the executed path of the script. Because the <code>codeseparator_position</code> is the last input to the hash, the SHA256 midstate can be efficiently cached for multiple <code>OP_CODESEPARATOR</code>s in a single script. In contrast, the BIP143 handling of <code>OP_CODESEPARATOR</code> is to commit to the executed script only from the last executed <code>OP_CODESEPARATOR</code> onwards which requires unnecessary rehashing of the script. It should be noted that the one known <code>OP_CODESEPARATOR</code> use case of saving a second public key push in a script by sharing the first one between two code branches can be most likely expressed even cheaper by moving each branch into a separate taproot leaf.</ref>
+
+===Resource limits===
+
+In addition to changing the semantics of a number of opcodes, there are also some changes to the resource limitations:
+* '''Script size limit''' The maximum script size of 10000 bytes does not apply. Their size is only implicitly bounded by the block weight limit.<ref>'''Why is a limit on script size no longer needed?''' Since there is no <code>scriptCode</code> directly included in the signature hash (only indirectly through a precomputable tapleaf hash), the CPU time spent on a signature check is no longer proportional to the size of the script being executed.</ref>
+* '''Non-push opcodes limit''' The maximum non-push opcodes limit of 201 per script does not apply.<ref>'''Why is a limit on the number of opcodes no longer needed?''' An opcode limit only helps to the extent that it can prevent data structures from growing unboundedly during execution (both because of memory usage, and because of time that may grow in proportion to the size of those structures). The size of stack and altstack is already independently limited. By using O(1) logic for <code>OP_IF</code>, <code>OP_NOTIF</code>, <code>OP_ELSE</code>, and <code>OP_ENDIF</code> as suggested [https://bitslog.com/2017/04/17/new-quadratic-delays-in-bitcoin-scripts/ here] and implemented [https://github.com/bitcoin/bitcoin/pull/16902 here], the only other instance can be avoided as well.</ref>
+* '''Sigops limit''' The sigops in tapscripts do not count towards the block-wide limit of 80000 (weighted). Instead, there is a per-script sigops ''budget''. The budget equals 50 + the total serialized size in bytes of the transaction input's witness (including the <code>CCompactSize</code> prefix). Executing a signature opcode (<code>OP_CHECKSIG</code>, <code>OP_CHECKSIGVERIFY</code>, or <code>OP_CHECKSIGADD</code>) with a non-empty signature decrements the budget by 50. If that brings the budget below zero, the script fails immediately. Signature opcodes with unknown public key type and non-empty signature are also counted.<ref>'''The tapscript sigop limit''' The signature opcode limit protects against scripts which are slow to verify due to excessively many signature operations. In tapscript the number of signature opcodes does not count towards the BIP141 or legacy sigop limit. The old sigop limit makes transaction selection in block construction unnecessarily difficult because it is a second constraint in addition to weight. Instead, the number of tapscript signature opcodes is limited by witness weight. Additionally, the limit applies to the transaction input instead of the block and only actually executed signature opcodes are counted. Tapscript execution allows one signature opcode per 50 witness weight units plus one free signature opcode.</ref><ref>'''Parameter choice of the sigop limit''' Regular witnesses are unaffected by the limit as their weight is composed of public key and (<code>SIGHASH_ALL</code>) signature pairs with ''33 + 65'' weight units each (which includes a 1 weight unit <code>CCompactSize</code> tag). This is also the case if public keys are reused in the script because a signature's weight alone is 65 or 66 weight units. However, the limit increases the fees of abnormal scripts with duplicate signatures (and public keys) by requiring additional weight. The weight per sigop factor 50 corresponds to the ratio of BIP141 block limits: 4 mega weight units divided by 80,000 sigops. The "free" signature opcode permitted by the limit exists to account for the weight of the non-witness parts of the transaction input.</ref><ref>'''Why are only signature opcodes counted toward the budget, and not for example hashing opcodes or other expensive operations?''' It turns out that the CPU cost per witness byte for verification of a script consisting of the maximum density of signature checking opcodes (taking the 50 WU/sigop limit into account) is already very close to that of scripts packed with other opcodes, including hashing opcodes (taking the 520 byte stack element limit into account) and <code>OP_ROLL</code> (taking the 1000 stack element limit into account). That said, the construction is very flexible, and allows adding new signature opcodes like <code>CHECKSIGFROMSTACK</code> to count towards the limit through a soft fork. Even if in the future new opcodes are introduced which change normal script cost there is no need to stuff the witness with meaningless data. Instead, the taproot annex can be used to add weight to the witness without increasing the actual witness size.</ref>.
+* '''Stack + altstack element count limit''' The existing limit of 1000 elements in the stack and altstack together after every executed opcode remains. It is extended to also apply to the size of initial stack.
+* '''Stack element size limit''' The existing limit of maximum 520 bytes per stack element remains, both in the initial stack and in push opcodes.
+
+==Rationale==
+
+<references />
+
+==Examples==
+
+==Acknowledgements==
+
+This document is the result of many discussions and contains contributions by a number of people. The authors wish to thank all those who provided valuable feedback and reviews, including the participants of the [https://github.com/ajtowns/taproot-review structured reviews].

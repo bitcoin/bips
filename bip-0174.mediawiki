@@ -69,7 +69,7 @@ the length of that data. <tt>{..}</tt> indicates the raw data itself.
 |-
 | Key
 | byte[]
-| The key itself with the first byte being the type of the key-value pair
+| The Key itself
 |-
 | Value Length
 | Compact Size Unsigned Integer
@@ -103,11 +103,13 @@ The format of each key-value map is as follows:
 | separator
 | char
 | <tt>0x00</tt>
-| Must be <tt>0x00</tt>.
+| Must be <tt>0x00</tt> at the end of the map.
 |}
 
-The first byte of each key specifies the type of the key-value pair. There are global types,
-per-input types, and per-output types.
+At the beginning of each key is a compact size unsigned integer representing the type.
+This compact size unsigned integer must be minimally encoded, i.e. if the value can be represented using one byte, it must be represented as one byte.
+For convenience, this BIP will specify types using their full serialization, so a multi-byte type will have it's full prefix and zero padding as necessary.
+There are global types, per-input types, and per-output types.
 
 The currently defined global types are as follows:
 
@@ -121,21 +123,33 @@ The currently defined global types are as follows:
 * Type: Extended Public Key <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
 ** Key: The type followed by the 78 byte serialized extended public key as defined by BIP 32. Extended public keys are those that can be used to derive public keys used in the inputs and outputs of this transaction. It should be the public key at the highest hardened derivation index so that the unhardened child keys used in the transaction can be derived.
 *** <tt>{0x01}|{xpub}</tt>
-** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
-*** <tt>{master key fingerprint}|{32-bit int}|...|{32-bit int}</tt>
+** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
+*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
+
+* Type: Version Number <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
+** Key: None. The key must only contain the 1 byte type.
+*** <tt>{0xFB}</tt>
+** Value: The 32-bit little endian unsigned integer representing the version number of this PSBT. If ommitted, the version number is 0.
+*** <tt>{32-bit uint}</tt>
+
+* Type: Proprietary Use Type <tt>PSBT_GLOBAL_PROPRIETARY = 0xFC</tt>
+** Key: Variable length identifier prefix, followed by a subtype, followed by the key data itself.
+*** <tt>{0xFC}|<prefix>|{subtype}|{key data}</tt>
+** Value: Any value data as defined by the proprietary type user.
+*** <tt><data></tt>
 
 The currently defined per-input types are defined as follows:
 
 * Type: Non-Witness UTXO <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
 ** Key: None. The key must only contain the 1 byte type.
 ***<tt>{0x00}</tt>
-** Value: The transaction in network serialization format the current input spends from. This should only be present for inputs which spend non-segwit outputs. However, if it is unknown whether an input spends a segwit output, this type should be used.
+** Value: The transaction in network serialization format the current input spends from. This should be present for inputs that spend non-segwit outputs and can be present for inputs that spend segwit outputs. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>. <ref>'''Why can both UTXO types be provided?''' Many wallets began requiring the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) for segwit inputs when PSBT was already in use. In order to be compatible with software which were expecting <tt>PSBT_IN_WITNESS_UTXO</tt>, both UTXO types must be allowed.</ref>
 *** <tt>{transaction}</tt>
 
 * Type: Witness UTXO <tt>PSBT_IN_WITNESS_UTXO = 0x01</tt>
 ** Key: None. The key must only contain the 1 byte type.
 *** <tt>{0x01}</tt>
-** Value: The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones.
+** Value: The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>
 *** <tt>{serialized transaction output({output value}|<scriptPubKey>)}</tt>
 
 * Type: Partial Signature <tt>PSBT_IN_PARTIAL_SIG = 0x02</tt>
@@ -166,7 +180,7 @@ The currently defined per-input types are defined as follows:
 ** Key: The public key
 *** <tt>{0x06}|{public key}</tt>
 ** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. Public keys are those that will be needed to sign this input.
-*** <tt>{master key fingerprint}|{32-bit int}|...|{32-bit int}</tt>
+*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
 
 * Type: Finalized scriptSig <tt>PSBT_IN_FINAL_SCRIPTSIG = 0x07</tt>
 ** Key: None. The key must only contain the 1 byte type.
@@ -185,6 +199,36 @@ The currently defined per-input types are defined as follows:
 *** <tt>{0x09}</tt>
 ** Value: The UTF-8 encoded commitment message string for the proof-of-reserves.  See [[bip-0127.mediawiki|BIP 127]] for more information.
 *** <tt>{porCommitment}</tt>
+
+* Type: RIPEMD160 preimage <tt>PSBT_RIPEMD160 = 0x0a</tt>
+** Key: The resulting hash of the preimage
+*** <tt>{0x0a}|{20-byte hash}</tt>
+** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `RIPEMD160` algorithm
+*** <tt>{preimage}</tt>
+
+* Type: SHA256 preimage <tt>PSBT_SHA256 = 0x0b</tt>
+** Key: The resulting hash of the preimage
+*** <tt>{0x0b}|{32-byte hash}</tt>
+** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm
+*** <tt>{preimage}</tt>
+
+* Type: HASH160 preimage <tt>PSBT_HASH160 = 0x0c</tt>
+** Key: The resulting hash of the preimage
+*** <tt>{0x0c}|{20-byte hash}</tt>
+** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm followed by the `RIPEMD160` algorithm
+*** <tt>{preimage}</tt>
+
+* Type: HASH256 preimage <tt>PSBT_HASH256 = 0x0d</tt>
+** Key: The resulting hash of the preimage
+*** <tt>{0x0d}|{32-byte hash}</tt>
+** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm twice
+*** <tt>{preimage}</tt>
+
+* Type: Proprietary Use Type <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
+** Key: Variable length identifier prefix, followed by a subtype, followed by the key data itself.
+*** <tt>{0xFC}|<prefix>|{subtype}|{key data}</tt>
+** Value: Any value data as defined by the proprietary type user.
+*** <tt><data></tt>
 
 The currently defined per-output <ref>'''Why do we need per-output data?''' Per-output data allows signers
 to verify that the outputs are going to the intended recipient. The output data can also be use by signers to
@@ -205,8 +249,14 @@ determine which outputs are change outputs and verify that the change is returni
 * Type:  BIP 32 Derivation Path <tt>PSBT_OUT_BIP32_DERIVATION = 0x02</tt>
 ** Key: The public key
 *** <tt>{0x02}|{public key}</tt>
-** Value: The master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. This must omit the index of the master key. Public keys are those needed to spend this output.
-*** <tt>{master key fingerprint}|{32-bit int}|...|{32-bit int}</tt>
+** Value: The master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output.
+*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
+
+* Type: Proprietary Use Type <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
+** Key: Variable length identifier prefix, followed by a subtype, followed by the key data itself.
+*** <tt>{0xFC}|<prefix>|{subtype}|{key data}</tt>
+** Value: Any value data as defined by the proprietary type user.
+*** <tt><data></tt>
 
 The transaction format is specified as follows:
 
@@ -283,6 +333,23 @@ whichever value it wishes.<ref>'''Why can the values be arbitrarily chosen?''' W
 valid or invalid. If the values are invalid, a signer would simply produce an invalid signature and the final transaction itself would be invalid. If the
 values are valid, then it does not matter which is chosen as either way the transaction is still valid.</ref>
 
+===Proprietary Use Type===
+
+For all global, per-input, and per-output maps, the types <tt>0xFC</tt> is reserved for proprietary use.
+The proprietary use type requires keys that follow the type with a variable length string identifer, then a subtype.
+
+The identifier can be any variable length string that software can use to identify whether the particular data in the proprietary type can be used by it.
+It can also be the empty string and just be a single <tt>0x00</tt> byte although this is not recommended.
+
+The subtype is defined by the proprietary type user and can mean whatever they want it to mean.
+The subtype must also be a compact size unsigned integer in the same form as the normal types.
+The key data and value data are defined by the proprietary type user.
+
+The proprietary use types is for private use by individuals and organizations who wish to use PSBT in their processes.
+It is useful when there are additional data that they need attached to a PSBT but such data are not useful or available for the general public.
+The proprietary use type is not to be used by any public specification and there is no expectation that any publicly available software be able to understand any specific meanings of it and the subtypes.
+This type must be used for internal processes only.
+
 ==Responsibilities==
 
 Using the transaction format involves many different responsibilities. Multiple responsibilities can be handled by a single entity, but each responsibility is specialized in what it should be capable of doing.
@@ -306,6 +373,7 @@ The Signer must only accept a PSBT.
 The Signer must only use the UTXOs provided in the PSBT to produce signatures for inputs.
 Before signing a non-witness input, the Signer must verify that the TXID of the non-witness UTXO matches the TXID specified in the unsigned transaction.
 Before signing a witness input, the Signer must verify that the witnessScript (if provided) matches the hash specified in the UTXO or the redeemScript, and the redeemScript (if provided) matches the hash in the UTXO.
+The Signer may choose to fail to sign a segwit input if a non-witness UTXO is not provided. <ref>'''Why would non-witness UTXOs be provided for segwit inputs?''' The sighash algorithm for Segwit specified in BIP 173 is known to have an issue where an attacker could trick a user to sending Bitcoin to fees if they are able to convince the user to sign a malicious transaction multiple times. This is possible because the amounts in <tt>PSBT_IN_WITNESS_UTXO<tt> of other segwit inputs can be modified without effecting the signature for a particular input. In order to prevent this kind of attack, many wallets are requiring that the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) be provided to ensure that the amounts of other inputs are not being tampered with.</ref>
 The Signer should not need any additional data sources, as all necessary information is provided in the PSBT format.
 The Signer must only add data to a PSBT.
 Any signatures created by the Signer must be added as a "Partial Signature" key-value pair for the respective input it relates to.
@@ -313,7 +381,7 @@ If a Signer cannot sign a transaction, it must not add a Partial Signature.
 
 The Signer can additionally compute the addresses and values being sent, and the transaction fee,  optionally showing this data to the user as a confirmation of intent and the consequences of signing the PSBT.
 
-Signers do not need to sign for all possible input types. For example, a signer may choose to only sign only Segwit inputs.
+Signers do not need to sign for all possible input types. For example, a signer may choose to only sign Segwit inputs.
 
 A single entity is likely to be both a Signer and an Updater as it can update a PSBT with necessary information prior to signing it.
 
@@ -349,7 +417,7 @@ sign_non_witness(script_code, i):
 
 for input,i in enumerate(psbt.inputs):
     if non_witness_utxo.exists:
-        assert(sha256d(non_witness_utxo) == psbt.tx.innput[i].prevout.hash)
+        assert(sha256d(non_witness_utxo) == psbt.tx.input[i].prevout.hash)
         if redeemScript.exists:
             assert(non_witness_utxo.vout[psbt.tx.input[i].prevout.n].scriptPubKey == P2SH(redeemScript))
             sign_non_witness(redeemScript)
@@ -404,7 +472,7 @@ Or, for participants performing fA(psbt) and fB(psbt): Combine(fA(psbt), fB(psbt
 ===Input Finalizer===
 
 The Input Finalizer must only accept a PSBT.
-For each input, the Input Finalizer determines if the input has enough data to pass validation. If it does, it must construct the scriptSig and scriptWitness and place them into the input key-value map.
+For each input, the Input Finalizer determines if the input has enough data to pass validation. If it does, it must construct the <tt>0x07</tt> Finalized scriptSig and <tt>0x08</tt> Finalized scriptWitness and place them into the input key-value map.
 All other data except the UTXO and unknown fields in the input key-value map should be cleared from the PSBT. The UTXO should be kept to allow Transaction Extractors to verify the final network serialized transaction.
 
 ===Transaction Extractor===
@@ -430,7 +498,16 @@ The Partially Signed Transaction format can be extended in the future by adding
 new types for key-value pairs. Backwards compatibilty will still be maintained as those new
 types will be ignored and passed-through by signers which do not know about them.
 
-If one byte type fields were to ever run out, new extensions can still be added by defining multi-byte types where the first byte signals that the next byte indicates the type and so on.
+===Version Numbers===
+
+The Version number field exists only as a safeguard in the event that a backwards incompatible change is introduced to PSBT.
+If a parser encounters a version number it does not recognize, it should exit immediately as this indicates that the PSBT will contain types that it does not know about and cannot be ignored.
+Current PSBTs are Version 0. Any PSBT that does not have the version field is version 0.
+It is not expected that any backwards incompatible change will be introduced to PSBT, so it is not expected that the version field will ever actually be seen.
+
+Updaters and combiners that need to add a version number to a PSBT should use the highest version number required.
+For example, if a combiner sees two PSBTs for the same transaction, one with version 0, and the other with version 1, then it should combine them and produce a PSBT with version 1.
+If an updater is updating a PSBT and needs to add a field that is only available in version 1, then it should set the PSBT version number to 1 unless a version higher than that is already specified.
 
 ==Compatibility==
 
@@ -521,8 +598,8 @@ The following are invalid PSBTs:
 ** Base64 String: <pre>cHNidP8BAHMCAAAAATAa6YblFqHsisW0vGVz0y+DtGXiOtdhZ9aLOOcwtNvbAAAAAAD/////AnR7AQAAAAAAF6kUA6oXrogrXQ1Usl1jEE5P/s57nqKHYEOZOwAAAAAXqRS5IbG6b3IuS/qDtlV6MTmYakLsg4cAAAAAAAEBHwDKmjsAAAAAFgAU0tlLZK4IWH7vyO6xh8YB6Tn5A3wAAgAAFgAUYunpgv/zTdgjlhAxawkM0qO3R8sAAQAiACCHa62DLx0WgBXtQSMqnqZaGBXZ7xPA74dZ9ktbKyeKZQEBJVEhA7fOI6AcW0vwCmQlN836uzFbZoMyhnR471EwnSvVf4qHUa4A</pre>
 
 * Case: PSBT With invalid output witnessScript typed key
-** Bytes in Hex: <pre>70736274ff0100730200000001301ae986e516a1ec8ac5b4bc6573d32f83b465e23ad76167d68b38e730b4dbdb0000000000ffffffff02747b01000000000017a91403aa17ae882b5d0d54b25d63104e4ffece7b9ea2876043993b0000000017a914b921b1ba6f722e4bfa83b6557a3139986a42ec8387000000000001011f00ca9a3b00000000160014d2d94b64ae08587eefc8eeb187c601e939f9037c00010016001462e9e982fff34dd8239610316b090cd2a3b747cb000100220020876bad832f1d168015ed41232a9ea65a1815d9ef13c0ef8759f64b5b2b278a6521010025512103b7ce23a01c5b4bf00a642537cdfabb315b668332867478ef51309d2bd57f8a8751ae00</pre>
-** Base64 String: <pre>cHNidP8BAHMCAAAAATAa6YblFqHsisW0vGVz0y+DtGXiOtdhZ9aLOOcwtNvbAAAAAAD/////AnR7AQAAAAAAF6kUA6oXrogrXQ1Usl1jEE5P/s57nqKHYEOZOwAAAAAXqRS5IbG6b3IuS/qDtlV6MTmYakLsg4cAAAAAAAEBHwDKmjsAAAAAFgAU0tlLZK4IWH7vyO6xh8YB6Tn5A3wAAQAWABRi6emC//NN2COWEDFrCQzSo7dHywABACIAIIdrrYMvHRaAFe1BIyqeploYFdnvE8Dvh1n2S1srJ4plIQEAJVEhA7fOI6AcW0vwCmQlN836uzFbZoMyhnR471EwnSvVf4qHUa4A</pre>
+** Bytes in Hex: <pre>70736274ff0100730200000001301ae986e516a1ec8ac5b4bc6573d32f83b465e23ad76167d68b38e730b4dbdb0000000000ffffffff02747b01000000000017a91403aa17ae882b5d0d54b25d63104e4ffece7b9ea2876043993b0000000017a914b921b1ba6f722e4bfa83b6557a3139986a42ec8387000000000001011f00ca9a3b00000000160014d2d94b64ae08587eefc8eeb187c601e939f9037c00010016001462e9e982fff34dd8239610316b090cd2a3b747cb000100220020876bad832f1d168015ed41232a9ea65a1815d9ef13c0ef8759f64b5b2b278a6521010025512103b7ce23a01c5b4bf00a642537cdfabb315b668332867478ef51309d06d57f8a8751ae00</pre>
+** Base64 String: <pre>cHNidP8BAHMCAAAAATAa6YblFqHsisW0vGVz0y+DtGXiOtdhZ9aLOOcwtNvbAAAAAAD/////AnR7AQAAAAAAF6kUA6oXrogrXQ1Usl1jEE5P/s57nqKHYEOZOwAAAAAXqRS5IbG6b3IuS/qDtlV6MTmYakLsg4cAAAAAAAEBHwDKmjsAAAAAFgAU0tlLZK4IWH7vyO6xh8YB6Tn5A3wAAQAWABRi6emC//NN2COWEDFrCQzSo7dHywABACIAIIdrrYMvHRaAFe1BIyqeploYFdnvE8Dvh1n2S1srJ4plIQEAJVEhA7fOI6AcW0vwCmQlN836uzFbZoMyhnR471EwnQbVf4qHUa4A</pre>
 
 The following are valid PSBTs:
 
@@ -546,9 +623,17 @@ The following are valid PSBTs:
 ** Bytes in Hex: <pre>70736274ff0100550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac0000000000010120955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87220203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4646304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a010104220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d5681010547522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae220603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4610b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAEBIJVe6gsAAAAAF6kUY0UgD2jRieGtwN8cTRbqjxTA2+uHIgIDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUZGMEMCIAQktY7/qqaU4VWepck7v9SokGQiQFXN8HC2dxRpRC0HAh9cjrD+plFtYLisszrWTt5g6Hhb+zqpS5m9+GFR25qaAQEEIgAgdx/RitRZZm3Unz1WTj28QvTIR3TjYK2haBao7UiNVoEBBUdSIQOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RiED3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg71SriIGA7E0HMunaDtq9PEjjNbpfnFn1Wn6xH8eSNR1QYRDVb1GELSmumcAAACAAAAAgAQAAIAiBgPeVdHh2sgF4/iljB+/m5TALz26r+En/vykmV8m+CCDvRC0prpnAAAAgAAAAIAFAACAAAA=</pre>
 
+* Case: PSBT with one P2WSH input of a 2-of-2 multisig. witnessScript, keypaths, and global xpubs are available. Contains no signatures. Outputs filled.
+** Bytes in Hex: <pre>70736274ff01005202000000019dfc6628c26c5899fe1bd3dc338665bfd55d7ada10f6220973df2d386dec12760100000000ffffffff01f03dcd1d000000001600147b3a00bfdc14d27795c2b74901d09da6ef133579000000004f01043587cf02da3fd0088000000097048b1ad0445b1ec8275517727c87b4e4ebc18a203ffa0f94c01566bd38e9000351b743887ee1d40dc32a6043724f2d6459b3b5a4d73daec8fbae0472f3bc43e20cd90c6a4fae000080000000804f01043587cf02da3fd00880000001b90452427139cd78c2cff2444be353cd58605e3e513285e528b407fae3f6173503d30a5e97c8adbc557dac2ad9a7e39c1722ebac69e668b6f2667cc1d671c83cab0cd90c6a4fae000080010000800001012b0065cd1d000000002200202c5486126c4978079a814e13715d65f36459e4d6ccaded266d0508645bafa6320105475221029da12cdb5b235692b91536afefe5c91c3ab9473d8e43b533836ab456299c88712103372b34234ed7cf9c1fea5d05d441557927be9542b162eb02e1ab2ce80224c00b52ae2206029da12cdb5b235692b91536afefe5c91c3ab9473d8e43b533836ab456299c887110d90c6a4fae0000800000008000000000220603372b34234ed7cf9c1fea5d05d441557927be9542b162eb02e1ab2ce80224c00b10d90c6a4fae0000800100008000000000002202039eff1f547a1d5f92dfa2ba7af6ac971a4bd03ba4a734b03156a256b8ad3a1ef910ede45cc500000080000000800100008000</pre>
+** Base64 String: <pre>cHNidP8BAFICAAAAAZ38ZijCbFiZ/hvT3DOGZb/VXXraEPYiCXPfLTht7BJ2AQAAAAD/////AfA9zR0AAAAAFgAUezoAv9wU0neVwrdJAdCdpu8TNXkAAAAATwEENYfPAto/0AiAAAAAlwSLGtBEWx7IJ1UXcnyHtOTrwYogP/oPlMAVZr046QADUbdDiH7h1A3DKmBDck8tZFmztaTXPa7I+64EcvO8Q+IM2QxqT64AAIAAAACATwEENYfPAto/0AiAAAABuQRSQnE5zXjCz/JES+NTzVhgXj5RMoXlKLQH+uP2FzUD0wpel8itvFV9rCrZp+OcFyLrrGnmaLbyZnzB1nHIPKsM2QxqT64AAIABAACAAAEBKwBlzR0AAAAAIgAgLFSGEmxJeAeagU4TcV1l82RZ5NbMre0mbQUIZFuvpjIBBUdSIQKdoSzbWyNWkrkVNq/v5ckcOrlHPY5DtTODarRWKZyIcSEDNys0I07Xz5wf6l0F1EFVeSe+lUKxYusC4ass6AIkwAtSriIGAp2hLNtbI1aSuRU2r+/lyRw6uUc9jkO1M4NqtFYpnIhxENkMak+uAACAAAAAgAAAAAAiBgM3KzQjTtfPnB/qXQXUQVV5J76VQrFi6wLhqyzoAiTACxDZDGpPrgAAgAEAAIAAAAAAACICA57/H1R6HV+S36K6evaslxpL0DukpzSwMVaiVritOh75EO3kXMUAAACAAAAAgAEAAIAA</pre>
+
 * Case: PSBT with unknown types in the inputs.
 ** Bytes in Hex: <pre>70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000a0f0102030405060708090f0102030405060708090a0b0c0d0e0f0000</pre>
 ** Base64 String: <pre>cHNidP8BAD8CAAAAAf//////////////////////////////////////////AAAAAAD/////AQAAAAAAAAAAA2oBAAAAAAAACg8BAgMEBQYHCAkPAQIDBAUGBwgJCgsMDQ4PAAA=</pre>
+
+* Case: PSBT with `PSBT_GLOBAL_XPUB`.
+** Bytes in Hex: <pre>70736274ff01009d0100000002710ea76ab45c5cb6438e607e59cc037626981805ae9e0dfd9089012abb0be5350100000000ffffffff190994d6a8b3c8c82ccbcfb2fba4106aa06639b872a8d447465c0d42588d6d670000000000ffffffff0200e1f505000000001976a914b6bc2c0ee5655a843d79afedd0ccc3f7dd64340988ac605af405000000001600141188ef8e4ce0449eaac8fb141cbf5a1176e6a088000000004f010488b21e039e530cac800000003dbc8a5c9769f031b17e77fea1518603221a18fd18f2b9a54c6c8c1ac75cbc3502f230584b155d1c7f1cd45120a653c48d650b431b67c5b2c13f27d7142037c1691027569c503100008000000080000000800001011f00e1f5050000000016001433b982f91b28f160c920b4ab95e58ce50dda3a4a220203309680f33c7de38ea6a47cd4ecd66f1f5a49747c6ffb8808ed09039243e3ad5c47304402202d704ced830c56a909344bd742b6852dccd103e963bae92d38e75254d2bb424502202d86c437195df46c0ceda084f2a291c3da2d64070f76bf9b90b195e7ef28f77201220603309680f33c7de38ea6a47cd4ecd66f1f5a49747c6ffb8808ed09039243e3ad5c1827569c5031000080000000800000008000000000010000000001011f00e1f50500000000160014388fb944307eb77ef45197d0b0b245e079f011de220202c777161f73d0b7c72b9ee7bde650293d13f095bc7656ad1f525da5fd2e10b11047304402204cb1fb5f869c942e0e26100576125439179ae88dca8a9dc3ba08f7953988faa60220521f49ca791c27d70e273c9b14616985909361e25be274ea200d7e08827e514d01220602c777161f73d0b7c72b9ee7bde650293d13f095bc7656ad1f525da5fd2e10b1101827569c5031000080000000800000008000000000000000000000220202d20ca502ee289686d21815bd43a80637b0698e1fbcdbe4caed445f6c1a0a90ef1827569c50310000800000008000000080000000000400000000</pre>
+** Base64 String: <pre>cHNidP8BAJ0BAAAAAnEOp2q0XFy2Q45gflnMA3YmmBgFrp4N/ZCJASq7C+U1AQAAAAD/////GQmU1qizyMgsy8+y+6QQaqBmObhyqNRHRlwNQliNbWcAAAAAAP////8CAOH1BQAAAAAZdqkUtrwsDuVlWoQ9ea/t0MzD991kNAmIrGBa9AUAAAAAFgAUEYjvjkzgRJ6qyPsUHL9aEXbmoIgAAAAATwEEiLIeA55TDKyAAAAAPbyKXJdp8DGxfnf+oVGGAyIaGP0Y8rmlTGyMGsdcvDUC8jBYSxVdHH8c1FEgplPEjWULQxtnxbLBPyfXFCA3wWkQJ1acUDEAAIAAAACAAAAAgAABAR8A4fUFAAAAABYAFDO5gvkbKPFgySC0q5XljOUN2jpKIgIDMJaA8zx9446mpHzU7NZvH1pJdHxv+4gI7QkDkkPjrVxHMEQCIC1wTO2DDFapCTRL10K2hS3M0QPpY7rpLTjnUlTSu0JFAiAthsQ3GV30bAztoITyopHD2i1kBw92v5uQsZXn7yj3cgEiBgMwloDzPH3jjqakfNTs1m8fWkl0fG/7iAjtCQOSQ+OtXBgnVpxQMQAAgAAAAIAAAACAAAAAAAEAAAAAAQEfAOH1BQAAAAAWABQ4j7lEMH63fvRRl9CwskXgefAR3iICAsd3Fh9z0LfHK57nveZQKT0T8JW8dlatH1Jdpf0uELEQRzBEAiBMsftfhpyULg4mEAV2ElQ5F5rojcqKncO6CPeVOYj6pgIgUh9JynkcJ9cOJzybFGFphZCTYeJb4nTqIA1+CIJ+UU0BIgYCx3cWH3PQt8crnue95lApPRPwlbx2Vq0fUl2l/S4QsRAYJ1acUDEAAIAAAACAAAAAgAAAAAAAAAAAAAAiAgLSDKUC7iiWhtIYFb1DqAY3sGmOH7zb5MrtRF9sGgqQ7xgnVpxQMQAAgAAAAIAAAACAAAAAAAQAAAAA</pre>
 
 Fails Signer checks
 
@@ -688,6 +773,21 @@ Any data types, their associated scope and BIP number must be defined here
 | PSBT_GLOBAL_UNSIGNED_TX
 | BIP 174
 |-
+| Global
+| 1
+| PSBT_GLOBAL_XPUB
+| BIP 174
+|-
+| Global
+| 251
+| PSBT_GLOBAL_VERSION
+| BIP 174
+|-
+| Global
+| 252
+| PSBT_GLOBAL_PROPRIETARY
+| BIP 174
+|-
 | Input
 | 0
 | PSBT_IN_NON_WITNESS_UTXO
@@ -738,6 +838,11 @@ Any data types, their associated scope and BIP number must be defined here
 | PSBT_IN_POR_COMMITMENT
 | [[bip-0127.mediawiki|BIP 127]]
 |-
+| Input
+| 252
+| PSBT_IN_PROPRIETARY
+| BIP 174
+|-
 | Output
 | 0
 | PSBT_OUT_REDEEM_SCRIPT
@@ -751,5 +856,10 @@ Any data types, their associated scope and BIP number must be defined here
 | Output
 | 2
 | PSBT_OUT_BIP32_DERIVATION
+| BIP 174
+|-
+| Output
+| 252
+| PSBT_OUT_PROPRIETARY
 | BIP 174
 |}
