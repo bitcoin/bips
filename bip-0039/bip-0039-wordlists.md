@@ -9,6 +9,7 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
+* [Romnian](romanian.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -98,3 +99,20 @@ Words chosen using the following rules:
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+
+### Romanian
+
+Credits: @stefantds @raresct
+
+1. Priority was given to common words.
+1. Words are 4-8 letters long.
+1. Words can be uniquely identified by the first 4 letters.
+1. Only words without accents or special characters.
+1. Only nouns, adjectives (including some pronominal adjectives) and adverbs. All words are in basic form (nouns and adjectives are not declined, in singular, masculine form).
+1. Only common nouns included (no proper nouns).
+1. Every word in the list has an edit distance (allowing permutations) of at least 2 to any other word in the list.
+1. No obscenities or negativity.
+1. Only the standard version of a word, no regional/archaic variants.
+1. No foreign words that use different writing rules - they are difficult to write correctly without speaking the source language (e.g. "cocktail", "thriller" from English).
+1. No words containing double letters, as they can cause confusion to some.
+1. No words already included in the Spanish set.
