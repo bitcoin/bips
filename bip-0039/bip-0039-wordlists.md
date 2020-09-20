@@ -9,6 +9,7 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
+* [Portuguese](portuguese.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -98,3 +99,16 @@ Words chosen using the following rules:
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+
+### portuguese
+
+Credits: @dkdaniz (Daniel Marques daniel@descentralizado.com.br)
+
+Words chosen using the following rules:
+
+1. Length between 4 and 8 characters.
+2. First 4 letters must be unique between all words.
+3. No accents or special characters.
+4. No complex verb forms.
+5. No plural words.
+6. No words that remind negative/sad/bad things.
