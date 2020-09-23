@@ -78,8 +78,8 @@ This means that the message contains a serialized <code>std::vector</code> of th
 
 One message can contain up to 1,000 addresses. Clients SHOULD reject messages with more addresses.
 
-Field <code>addr</code> has a variable length, with a maximum of 32 bytes (256 bits). Clients SHOULD reject
-longer addresses.
+Field <code>addr</code> has a variable length, with a maximum of 512 bytes (4096 bits).
+Clients SHOULD reject messages with longer addresses, irrespective of the network ID.
 
 The list of reserved network IDs is as follows:
 
@@ -120,21 +120,23 @@ The list of reserved network IDs is as follows:
 | Cjdns overlay network address
 |}
 
-To allow for future extensibility, clients MUST ignore address types that they do not know about.
-Client MAY store and gossip address formats that they do not know about. Further network ID numbers MUST be reserved in a new BIP document.
+Clients are RECOMMENDED to gossip addresses from all known networks even if they are currently not connected to some of them. That could help multi-homed nodes and make it more difficult for an observer to tell which networks a node is connected to.
 
-Clients SHOULD reject addresses that have a different length than specified in this table for a specific address ID, as these are meaningless.
+Clients SHOULD NOT gossip addresses from unknown networks because they have no means to validate those addresses and so can be tricked to gossip invalid addresses.
+
+Further network ID numbers MUST be reserved in a new BIP document.
+
+Clients SHOULD reject messages that contain addresses that have a different length than specified in this table for a specific network ID, as these are meaningless.
 
 See the appendices for the address encodings to be used for the various networks.
 
-==Compatibility==
+==Signaling support and compatibility==
 
-Send <code>addrv2</code> messages only, and exclusively, when the peer has a certain protocol version (or higher):
-<source lang="c++">
-//! gossiping using `addrv2` messages starts with this version
-static const int GOSSIP_ADDRV2_VERSION = 70016;
-</source>
-For older peers keep sending the legacy <code>addr</code> message, ignoring addresses with the newly introduced address types.
+Introduce a new message type <code>sendaddrv2</code>. Sending such a message indicates that a node can understand and prefers to receive <code>addrv2</code> messages instead of <code>addr</code> messages. I.e. "Send me addrv2".
+
+<code>sendaddrv2</code> SHOULD be sent after receiving the <code>verack</code> message from the peer.
+
+For older peers, that did not emit <code>sendaddrv2</code>, keep sending the legacy <code>addr</code> message, ignoring addresses with the newly introduced address types.
 
 ==Reference implementation==
 
