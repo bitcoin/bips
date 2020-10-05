@@ -93,8 +93,8 @@ Words chosen using the following rules:
 1.  Words are 4-8 letters long.
 2.  Words can be uniquely determined typing the first 4 letters.
 3.  Only words containing all letters without diacritical marks. (It was the hardest task, because in one third of all Czech letters has diacritical marks.)
-4.  Only nouns, werbs and adverbs, no other word types. All words are in basic form.
-5.  No personal names or geografical names.
+4.  Only nouns, verbs and adverbs, no other word types. All words are in basic form.
+5.  No personal names or geographical names.
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
