@@ -1,0 +1,467 @@
+<pre>
+  BIP: 324
+  Layer: Peer Services
+  Title: Version 2 Peer-to-Peer Message Transport Protocol
+  Author: Jonas Schnelli <dev@jonasschnelli.ch>
+  Status: Draft
+  Type: Standards Track
+  Created: 2019-03-08
+  License: PD
+</pre>
+
+== Abstract ==
+
+This BIP describes a new Bitcoin peer to peer transport protocol with opportunistic encryption.
+
+== Motivation ==
+
+The current peer-to-peer protocol is partially inefficient and in plaintext.
+
+With the current unencrypted message transport, BGP hijack, block delay attacks and message tampering are inexpensive and can be executed covertly (undetectable MITM)<ref>[https://btc-hijack.ethz.ch/files/btc_hijack.pdf Hijacking Bitcoin: Routing Attacks on Cryptocurrencies - M. Apostolaki, A. Zohar, L.Vanbever]</ref>.
+
+Adding opportunistic encryption introduces a high risk for attackers of being detected. Peer operators can compare encryption session IDs or use other form of authentication schemes <ref name="bip150">[https://github.com/bitcoin/bips/blob/master/bip-0150.mediawiki BIP150]</ref> to identify an attack.
+
+Each current version 1 Bitcoin peer-to-peer message uses a double-SHA256 checksum truncated to 4 bytes. Roughly the same amount of computation power would be required for encrypting and authenticating a peer-to-peer message with ChaCha20 & Poly1305.
+
+Additionally, this BIP describes a way to identify data which has been manipulated by peers (intercepting, then blocking or tampering with messages).
+
+Encrypting traffic between peers is already possible with VPN, tor, stunnel, curveCP or any other encryption mechanism on a deeper OSI level, however, most of those solutions require significant technical experience in setting up a secure channel and are therefore not widely deployed.
+
+== Specification ==
+
+<blockquote>
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
+"SHOULD NOT", "RECOMMENDED",  "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in RFC 2119<ref>[https://tools.ietf.org/html/rfc2119 RFC 2119]</ref>.
+</blockquote>
+
+A peer that supports the message transport protocol as defined in this proposal MUST accept encryption requests from all peers.
+
+Both communication directions share the same shared-secret but have different symmetric cipher keys.
+
+The encryption handshake MUST happen before sending any other messages to the responding peer.
+
+If the responding peer closes the connection after sending the handshake request, the initiating peer MAY try to connect again with the v1 peer-to-peer transport protocol. Such reconnects allow an attacker to "downgrade" the encryption to plaintext communication and thus, accepting v1 connections MUST not be done when the Bitcoin peer-to-peer network has almost entirely embraced v2 communication.
+
+
+=== NODE_P2P_V2 ===
+
+Peers supporting the transport protocol after this proposal MUST signal <code>NODE_P2P_V2</code>
+<pre>
+NODE_P2P_V2 = (1 << 11)
+</pre>
+
+A peer usually learns an address along with the expected service flags which MAY be used to filter possible outbound peers.
+
+A peer signaling <code>NODE_P2P_V2</code> MUST accept encrypted communication specified in this proposal.
+
+Peers MAY only make outbound connections to peers supporting <code>NODE_P2P_V2</code>.
+
+=== Handshake ===
+
+<pre>
+ ----------------------------------------------------------------------------------------
+ | Initiator                             Responder                                      |
+ |                                                                                      |
+ | x, X         := SECP256k1_KEYGEN()                                                   |
+ | CLIENT_HDATA := X                                                                    |
+ |                                                                                      |
+ |               --- CLIENT_HDATA --->                                                  |
+ |                                                                                      |
+ |                                       y, Y           := SECP256k1_KEYGEN()           |
+ |                                       ECDH_KEY       := SECP256k1_ECDH(X,y)          |
+ |                                       SERVER_HDATA   := Y                            |
+ |                                                                                      |
+ |               <-- SERVER_HDATA ----                                                  |
+ |                                                                                      |
+ | ECDH_KEY     := SECP256k1_ECDH(x,Y)                                                  |
+ ----------------------------------------------------------------------------------------
+</pre>
+
+To request encrypted communication (only possible if yet no other messages have been sent or received), the initiating peer generates an EC secp256k1 ephemeral key and sends the corresponding 32-byte public key to the responding peer and waits for the remote 32-byte public key from the counterparty.
+
+ODD secp256k1 public keys MUST be used (public keys starting with 0x02). If the public key from the generated ephemeral key is an EVEN public key (starting with 0x03), its public key SHOULD be negated and then recalculated.
+Only using ODD public keys makes it more complex to identify the handshake based on analyzing the traffic.
+
+The handshake request and response message are raw 32byte payloads containing no header, length or checksum (the pure 32byte payload) and MUST be sent before anything else.
+
+Public keys starting with the 4-byte network magic are forbidden and MUST lead to local regeneration of an ephemeral-key.
+
+Pseudocode for the ephemeral-key generation
+<pre>
+do {
+    ecdh_key.MakeNewKey();
+    if (ecdh_key.GetPubKey()[0] == 3) {
+        ecdh_key.Negate();
+    }
+} while (m_ecdh_key.GetPubKey()[0..3] == NETWORK_MAGIC);
+</pre>
+
+Once a peer has received the public key from its counterparty, the shared secret MUST be calculated by using secp256k1 ECDH.
+
+Private keys will never be transmitted. The shared secret can only be calculated if an attacker knows at least one private key and the counterparty's public key. This key-exchange is based on the discrete log problem and thus not sufficiently strong against known forms of possible quantum computer algorithms. Adding an additional quantum resistant key exchange like NewHope is possible but out of scope for this proposal.
+
+After a successful handshake, messages MUST use the "v2 messages structure". Non-encrypted v1 messages from the initiating peer MUST lead to an immediate connection termination.
+
+After a successful handshake, both peers MUST wipe the ephemeral-session-key from memory and/or persistence storage.
+
+A peer not supporting this proposal will not perform the described handshake and thus send a v1 version message.
+Peers supporting this BIP MAY optionally allow unencrypted v1 communication by detecting a v1 version message by the initial 11-byte sequence of <code>4byte net magic || "version"</code>.
+
+=== Symmetric Encryption Cipher Keys ===
+
+Once the ECDH secret (<code>ECDH_KEY</code>) is calculated on each side, the symmetric encryption cipher keys MUST be derived with HKDF <ref>[https://tools.ietf.org/html/rfc5869 HKDF (RFC 5869)]</ref> after the following specification:
+
+1. HKDF extraction
+<code>PRK = HKDF_EXTRACT(hash=SHA256, salt="BitcoinSharedSecret||INITIATOR_32BYTES_PUBKEY||RESPONDER_32BYTES_PUBKEY||NETWORK_MAGIC", ikm=ECDH_KEY)</code>.
+
+2. Derive Key_1_A (K_1 communication direction A)
+<code>K1A = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinK_1_A", L=32)</code>
+
+2. Derive Key_2_A (K_2 communication direction A)
+<code>K1B = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinK_2_A", L=32)</code>
+
+3. Derive Key_1_B (K_1 communication direction B)
+<code>K2 = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinK_1_B", L=32)</code>
+
+3. Derive Key_2_B (K_2 communication direction B)
+<code>K2 = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinK_2_B", L=32)</code>
+
+=== Session ID ===
+
+Both parties MUST also calculate the 256bit session-id using <code>SID = HKDF_EXPAND(prk=PRK, hash=SHA256, info="BitcoinSessionID", L=32)</code>. The session-id can be used for authenticating the encryption-session (identity check).
+
+The session-id MUST be presented to the user on request.
+
+=== ChaCha20-Poly1305@Bitcoin Cipher Suite ===
+
+==== Background ====
+
+ChaCha20-Poly1305@Bitcoin AEAD is almost identical to the openSSH version <ref>[https://github.com/jhcloos/openssh-chacha-poly1305/blob/master/PROTOCOL.chacha20poly1305]</ref>. The only difference to the @openSSH version is that the @Bitcoin version has a 3 byte package length (instead 4) and reuses the remaining bytes of the ChaCha20 round (21 length field encryption per ChaCha20 round; 21 x 3 < 64).
+
+ChaCha20 is a stream cipher designed by Daniel Bernstein and described in <ref>[http://cr.yp.to/chacha/chacha-20080128.pdf ChaCha20]</ref>. It operates by permuting 128 fixed bits, 128 or 256 bits of key, a 64 bit nonce and a 64 bit counter into 64 bytes of output. This output is used as a keystream, with any unused bytes simply discarded.
+
+Poly1305 <ref>[http://cr.yp.to/mac/poly1305-20050329.pdf Poly1305]</ref>, also by Daniel Bernstein, is a one-time Carter-Wegman MAC that computes a 128 bit integrity tag given a message and a single-use 256 bit secret key.
+
+The chacha20-poly1305@bitcoin combines these two primitives into an authenticated encryption mode. The construction used is based on that proposed for TLS by Adam Langley in <ref>[http://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-03 "ChaCha20 and Poly1305 based Cipher Suites for TLS", Adam Langley]</ref>, but differs in the layout of data passed to the MAC and in the addition of encryption of the packet lengths.
+
+==== Detailed Construction ====
+
+The chacha20-poly1305@bitcoin cipher requires two 256 bits of key material as output from the key exchange. Each key (K_1 and K_2) are used by two separate instances of chacha20.
+
+The instance keyed by K_1 is a stream cipher that is used only to encrypt the 3 byte packet length field and has its own sequence number. The second instance, keyed by K_2, is used in conjunction with poly1305 to build an AEAD (Authenticated Encryption with Associated Data) that is used to encrypt and authenticate the entire packet.
+
+Two separate cipher instances are used here so as to keep the packet lengths confidential (best effort; for passive observing) but not create an oracle for the packet payload cipher by decrypting and using the packet length prior to checking the MAC. By using an independently-keyed cipher instance to encrypt the length, an active attacker seeking to exploit the packet input handling as a decryption oracle can learn nothing about the payload contents or its MAC (assuming key derivation, ChaCha20 and Poly1305 are secure). Active observers can still obtain the message length (ex. active ciphertext bit flipping or traffic shemantics analysis)
+
+The AEAD is constructed as follows: for each packet, generate a Poly1305 key by taking the first 256 bits of ChaCha20 stream output generated using K_2, an IV consisting of the packet sequence number encoded as an LE uint64 and a ChaCha20 block counter of zero. The K_2 ChaCha20 block counter is then set to the little-endian encoding of 1 (i.e. {1, 0, 0, 0, 0, 0, 0, 0}) and this instance is used for encryption of the packet payload.
+
+==== Packet Handling ====
+
+When receiving a packet, the length must be decrypted first. When 3 bytes of ciphertext length have been received, they may be decrypted.
+
+A ChaCha20 round always calculates 64bytes which is sufficient to encrypt a 3 bytes length field 21 times (21*3 = 63). The length field sequence number can thus be used 21 times (keystream caching).
+
+The length field must be enc-/decrypted with the ChaCha20 keystream keyed with K_1 defined by block counter 0, the length field sequence number in little endian and a keystream position from 0 to 60.
+
+Pseudo code example:
+<pre>
+// init
+sequence_nr_payload = 0; //payload sequence number
+sequence_nr_length_field = 0; //length field sequence number (will be reused)
+aad_length_field_pos = 0; //position in the length field cipher instance keystream chunk
+
+...
+
+// actual encryption
+if cache_length_field_sequence_number != sequence_nr_length_field {
+  cache_keystream_64_bytes = ChaCha20(key=K_1, iv=little_endian(sequence_nr_length_field), counter=0);
+  cache_length_field_sequence_number = sequence_nr_length_field
+}
+packet_length = XOR_TO_LE(cache_length_field_sequence_number[aad_length_field_pos - aad_length_field_pos+3], ciphertext[0-3])
+
+sequence_nr_payload++;
+aad_length_field_pos += 3; //skip 3 bytes in keystream
+if (aad_length_field_pos + 3 > 64) { //if we are outside of the 64byte keystream...
+  aad_length_field_pos = 0; // reset at position 0
+  sequence_nr_length_field++; // increase length field sequence number
+}
+</pre>
+
+Once the entire packet has been received, the MAC MUST be checked before decryption. A per-packet Poly1305 key is generated as described above and the MAC tag is calculated using Poly1305 with this key over the ciphertext of the packet length and the payload together. The calculated MAC is then compared in constant time with the one appended to the packet and the packet decrypted using ChaCha20 as described above (with K_2, the packet sequence number as nonce and a starting block counter of 1).
+
+Detection of an invalid MAC MUST lead to immediate connection termination.
+
+To send a packet, first encode the 3 byte length and encrypt it using K_1 as described above. Encrypt the packet payload (using K_2) and append it to the encrypted length. Finally, calculate a MAC tag and append it.
+
+The initiating peer MUST use <code>K_1_A, K_2_A</code> to encrypt messages on the send channel, <code>K_1_B, K_2_B</code> MUST be used to decrypt messages on the receive channel.
+
+The responding peer MUST use <code>K_1_A, K_2_A</code> to decrypt messages on the receive channel, <code>K_1_B, K_2_B</code> MUST be used to encrypt messages on the send channel.
+
+Optimized implementations of ChaCha20-Poly1305@bitcoin are relatively fast, therefore it is very likely that encrypted messages will not require additional CPU cycles per byte when compared to the current unencrypted p2p message format (ChaCha20/Poly1305 versus double SHA256).
+
+The initial packet sequence numbers are 0.
+
+K_2 ChaCha20 cipher instance (payload) must never reuse a {key, nonce} for encryption nor may it be used to encrypt more than 2^70 bytes under the same {key, nonce}.
+
+K_1 ChaCha20 cipher instance (length field/AAD) must never reuse a {key, nonce, position-in-keystream} for encryption nor may it be used to encrypt more than 2^70 bytes under the same {key, nonce}.
+
+We use message sequence numbers for both communication directions.
+
+<pre>
+ ------------------------------------------------------------------------------------------
+ | Initiator                          Responder                                           |
+ |                                                                                        |
+ | AEAD() = ChaCha20Poly1305Bitcoin()                                                     |
+ | MSG_A_CIPH = AEAD(k=K_1_A, K_2_A, payload_nonce=0, aad_nonce=0, aad_pos=0, msg)        |
+ |                                                                                        |
+ |                         --- MSG_CIPH --->                                              |
+ |                                                                                        |
+ |                                    msg   := AEAD(k=K_1_A,K_2_A, n=0, ..., MSG_A_CIPH)  |
+ |                                                                                        |
+ ------------------------------------------------------------------------------------------
+</pre>
+
+==== AEAD Test Vectors ====
+
+<pre>
+message   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+k1 (DATA) 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+k2 (AAD)  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+AAD keystream
+76 b8 e0 ad a0 f1 3d 90 40 5d 6a e5 53 86 bd 28 bd d2 19 b8 a0 8d ed 1a a8 36 ef cc 8b 77 0d c7 da 41 59 7c 51 57 48 8d 77 24 e0 3f b8 d8 4a 37 6a 43 b8 f4 15 18 a1 1c c3 87 b6 69 b2 ee 65 86
+
+ciphertext
+76 b8 e0 9f 07 e7 be 55 51 38 7a 98 ba 97 7c 73 2d 08 0d cb 0f 29 a0 48 e3 65 69 12 c6 53 3e 32
+
+MAC
+d2 fc 11 82 9c 1b 6c 1d f1 f5 51 cd 61 31 ff 08
+</pre>
+
+<pre>
+message   01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+k1 (DATA) 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+k2 (AAD)  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+AAD keystream
+76 b8 e0 ad a0 f1 3d 90 40 5d 6a e5 53 86 bd 28 bd d2 19 b8 a0 8d ed 1a a8 36 ef cc 8b 77 0d c7 da 41 59 7c 51 57 48 8d 77 24 e0 3f b8 d8 4a 37 6a 43 b8 f4 15 18 a1 1c c3 87 b6 69 b2 ee 65 86
+
+ciphertext
+77 b8 e0 9f 07 e7 be 55 51 38 7a 98 ba 97 7c 73 2d 08 0d cb 0f 29 a0 48 e3 65 69 12 c6 53 3e 32
+
+MAC
+ba f0 c8 5b 6d ff 86 02 b0 6c f5 2a 6a ef c6 2e
+</pre>
+
+<pre>
+message
+ff 00 00 f1 95 e6 69 82 10 5f fb 64 0b b7 75 7f 57 9d a3 16 02 fc 93 ec 01 ac 56 f8 5a c3 c1 34 a4 54 7b 73 3b 46 41 30 42 c9 44 00 49 17 69 05 d3 be 59 ea 1c 53 f1 59 16 15 5c 2b e8 24 1a 38 00 8b 9a 26 bc 35 94 1e 24 44 17 7c 8a de 66 89 de 95 26 49 86 d9 58 89 fb 60 e8 46 29 c9 bd 9a 5a cb 1c c1 18 be 56 3e b9 b3 a4 a4 72 f8 2e 09 a7 e7 78 49 2b 56 2e f7 13 0e 88 df e0 31 c7 9d b9 d4 f7 c7 a8 99 15 1b 9a 47 50 32 b6 3f c3 85 24 5f e0 54 e3 dd 5a 97 a5 f5 76 fe 06 40 25 d3 ce 04 2c 56 6a b2 c5 07 b1 38 db 85 3e 3d 69 59 66 09 96 54 6c c9 c4 a6 ea fd c7 77 c0 40 d7 0e af 46 f7 6d ad 39 79 e5 c5 36 0c 33 17 16 6a 1c 89 4c 94 a3 71 87 6a 94 df 76 28 fe 4e aa f2 cc b2 7d 5a aa e0 ad 7a d0 f9 d4 b6 ad 3b 54 09 87 46 d4 52 4d 38 40 7a 6d eb 3a b7 8f ab 78 c9
+
+k1 (DATA) 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f
+k2 (AAD)  ff 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f
+
+AAD keystream
+c6 40 c1 71 1e 3e e9 04 ac 35 c5 7a b9 79 1c 8a 1c 40 86 03 a9 0b 77 a8 3b 54 f6 c8 44 cb 4b 06 d9 4e 7f c6 c8 00 e1 65 ac d6 61 47 e8 0e c4 5a 56 7f 6c e6 6d 05 ec 0c ae 67 9d ce eb 89 00 17
+
+ciphertext
+39 40 c1 e9 2d a4 58 2f f6 f9 2a 77 6a eb 14 d0 14 d3 84 ee b3 0f 66 0d ac f7 0a 14 a2 3f d3 1e 91 21 27 01 33 4e 2c e1 ac f5 19 9d c8 4f 4d 61 dd be 65 71 bc a5 af 87 4b 4c 92 26 c2 6e 65 09 95 d1 57 64 4e 18 48 b9 6e d6 c2 10 2d 54 89 a0 50 e7 1d 29 a5 a6 6e ce 11 de 5f b5 c9 55 8d 54 da 28 fe 45 b0 bc 4d b4 e5 b8 80 30 bf c4 a3 52 b4 b7 06 8e cc f6 56 ba e7 ad 6a 35 61 53 15 fc 7c 49 d4 20 03 88 d5 ec a6 7c 2e 82 2e 06 93 36 c6 9b 40 db 67 e0 f3 c8 12 09 c5 0f 32 16 a4 b8 9f b3 ae 1b 98 4b 78 51 a2 ec 6f 68 ab 12 b1 01 ab 12 0e 1e a7 31 3b b9 3b 5a 0f 71 18 5c 7f ea 01 7d db 92 76 98 61 c2 9d ba 4f bc 43 22 80 d5 df f2 1b 36 d1 c4 c7 90 12 8b 22 69 99 50 bb 18 bf 74 c4 48 cd fe 54 7d 8e d4 f6 57 d8 00 5f dc 0c d7 a0 50 c2 d4 60 50 a4 4c 43 76 35 58 58 
+
+MAC
+98 1f be 8b 18 42 88 27 6e 7a 93 ea bc 89 9c 4a
+</pre>
+
+
+=== v2 Messages Structure ===
+
+{|class="wikitable"
+! Field Size !! Description !! Data type !! Comments
+|-
+| 3 || length & flag || 23 + 1 bits || Encrypted length of ciphertext payload (not counting the MAC tag) in number of bytes (only 2^23 is usable, most significant bit is the rekey-flag)
+|-
+| 1-13 || encrypted message-type || variable || ASCII message-type (or one byte message-type-ID)
+|-
+| ? || encrypted payload || ? || The actual data
+|-
+| 16 || MAC tag || ? || 128bit MAC-tag
+|}
+
+Encrypted messages do not have the 4byte network magic.
+
+The maximum message size is 2^23 (8,388,608) bytes. Future communication MAY exceed this limit and thus MUST be split into different messages.
+
+Decrypting and processing the message MUST take place only AFTER successful authentication (MAC verification).
+
+The 4byte sha256 checksum is no longer required because the AEAD (MAC).
+
+Both peers MUST keep track of the message sequence numbers (uint32) of sent and received messages for building a 64-bit symmetric cipher IV.
+
+The message-type field MUST start with a byte that defines the length of the ASCII message-type string up to 12 chars (1 to 12) or a message-type-ID (see below).
+
+==== Message-Type-ID ====
+
+To save valuable bandwidth, the v2 message format supports message-type-IDs. The ID/string mapping is a peer to peer arrangement and MAY be negotiated between the initiating and responding peer. A peer conforming to this proposal MUST support message-type-IDs based on the table below and SHOULD use message-type-IDs for outgoing messages.
+
+{|class="wikitable"
+! Number !! Message Type
+|-
+| 13 || ADDR
+|-
+| 14 || BLOCK
+|-
+| 15 || BLOCKTXN
+|-
+| 16 || CMPCTBLOCK
+|-
+| 17 || FEEFILTER
+|-
+| 18 || FILTERADD
+|-
+| 19 || FILTERCLEAR
+|-
+| 20 || FILTERLOAD
+|-
+| 21 || GETADDR
+|-
+| 22 || GETBLOCKS
+|-
+| 23 || GETBLOCKTXN
+|-
+| 24 || GETDATA
+|-
+| 25 || GETHEADERS
+|-
+| 26 || HEADERS
+|-
+| 27 || INV
+|-
+| 28 || MEMPOOL
+|-
+| 29 || MERKLEBLOCK
+|-
+| 30 || NOTFOUND
+|-
+| 31 || PING
+|-
+| 32 || PONG
+|-
+| 33 || REJECT
+|-
+| 34 || SENDCMPCT
+|-
+| 35 || SENDHEADERS
+|-
+| 36 || TX
+|-
+| 37 || VERACK
+|-
+| 38 || VERSION
+|-
+| 39 || GETCFILTERS
+|-
+| 40 || CFILTER
+|-
+| 41 || GETCFHEADERS
+|-
+| 42 || CFHEADERS
+|-
+| 43 || GETCFCHECKPT
+|-
+| 44 || CFCHECKPT
+|-
+| 45 || WTXIDRELAY
+|-
+|}
+
+==== Length comparisons between v1 and v2 messages ====
+
+<pre>
+v1 in: 4(Magic)+12(Message-Type)+4(MessageSize)+4(Checksum)+37(Payload) == 61
+v2 inv: 3(MessageSize&Flag)+1(Message-Type)+37(Payload)+16(MAC) == 57
+(93.44%)
+</pre>
+
+<pre>
+v1 ping: 4(Magic)+12(Message-Type)+4(MessageSize)+4(Checksum)+8(Payload) == 32
+v2 pong: 3(MessageSize&Flag)+1(Message-Type)+8(Payload)+16(MAC) == 28
+(87.5%)
+</pre>
+
+<pre>
+v1 block: 4(Magic)+12(Message-Type)+4(MessageSize)+4(Checksum)+1’048’576(Payload) = 1’048’600
+v2 block: 3(MessageSize&Flag)+1(Message-Type)+1’048’576(Payload)+16(MAC) = 1’048’596
+(99.9996%)
+</pre>
+
+=== Re-Keying ===
+
+Re-keying can be signaled by setting the most significant bit in the length field before encryption. A peer signaling a rekey MUST use the next key for encrypted messages AFTER the message where the signaling has been done.
+
+A peer identifying a rekey by checking the most significant bit in the envelope length must use the next key to decrypt messages AFTER the message where the signaling has been detected.
+
+The next symmetric cipher key MUST be calculated by <code>SHA256(SHA256(session ID || old_symmetric_cipher_key))</code> and the packet sequence numbers of the corresponding encryption direction must be set to 0.
+
+Re-Keying interval is a peer policy with a minimum timespan of 10 seconds.
+
+The Re-Keying must be done after every 1GB of data sent (recommended by RFC4253 SSH Transport) or if the last rekey was more than an hour ago.
+
+Peers calculate the counterparty limits and MUST disconnect immediately if a violation of the limits has been detected.
+
+=== Test Vectors ===
+
+<pre>
+message   verack
+k1 (DATA) 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+k2 (AAD)  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Payload seq-nr:   0
+AAD seq-nr: 0
+AAD pos: 0
+
+Message before encryption
+01 00 00 25
+
+Ciphertext (3byte AD, 1byte message-type, 16 bytes MAC)
+77 b8 e0 ba 1c 01 4b e6 1d 0c 66 81 f6 b8 d1 dc b4 cc 0e bf
+</pre>
+
+<pre>
+message   PING (nonce=123456)
+k1 (DATA) 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+k2 (AAD)  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Payload seq-nr:   335
+AAD seq-nr: 15
+AAD pos: 60
+
+Message before encryption (3 bytes packet length, 1byte message-type-ID, 4 byte message payload [ping nonce])
+05 00 00 1f 40 e2 01 00
+
+Ciphertext (3byte AD, 1byte message-type-id, 4 byte message payload [ping nonce], 16 bytes MAC)
+16 43 15 a8 21 f0 a0 ce 24 25 42 8a d4 7a 24 50 d0 dd a6 b0 20 46 5f af
+</pre>
+
+=== Risks ===
+
+The encryption does not include an authentication scheme. This BIP does not cover a proposal to avoid MITM attacks during the encryption initialization. However, peers MUST show the session-id to the user on request which allows to identify a MITM by a manual verification on a secure channel.
+
+Optional authentication schemes may be covered by other proposals <ref name="bip150">[https://github.com/bitcoin/bips/blob/master/bip-0150.mediawiki BIP150]</ref>.
+
+An attacker could delay or halt v2 protocol enforcement by providing a reasonable amount of peers not supporting the v2 protocol.
+
+== Compatibility ==
+
+This proposal is backward compatible (as long as not enforced). Non-supporting peers can still use unencrypted communications.
+
+== Reference implementation ==
+* Complete Bitcoin Core implementation: https://github.com/bitcoin/bitcoin/pull/14032
+* Reference implementation of the AEAD in C: https://github.com/jonasschnelli/chacha20poly1305
+
+== References ==
+
+<references/>
+
+== Acknowledgments ==
+* Pieter Wuille and Gregory Maxwell for most of the ideas in this BIP.
+* Tim Ruffing for the review and the hint for the enhancement of the symmetric key derivation.
+* Jonathan Cross for re-wording and grammar corrections
+
+== Copyright ==
+This work is placed in the public domain.
