@@ -25,6 +25,8 @@ As HD keychains are essentially derived from initial entropy, this proposal prov
 
 ==Definitions==
 
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
+
 The terminology related to keychains used in the wild varies widely, for example `seed` has various different meanings. In this document we define the terms
 
 # '''BIP32 root key''' is the root extended private key that is represented as the top root of the keychain in BIP32.
@@ -69,19 +71,41 @@ OUTPUT
 * DERIVED KEY=503776919131758bb7de7beb6c0ae24894f4ec042c26032890c29359216e21ba
 * DERIVED ENTROPY=70c6e3e8ebee8dc4c0dbba66076819bb8c09672527c4277ca8729532ad711872218f826919f6b67218adde99018a6df9095ab2b58d803b5b93ec9802085a690e
 
+==BIP85-DRNG==
+
+BIP85-DRNG-SHAKE256 is a deterministic random number generator for cryptographic functions that require deterministic outputs, but where the input to that function requires more than the 64 bytes provided by BIP85's HMAC output. BIP85-DRNG-SHAKE256 uses BIP85 to seed a SHAKE256 stream (from the SHA-3 standard). The input must be exactly 64 bytes long (from the BIP85 HMAC output).
+
+RSA key generation is an example of a function that requires orders of magnitude more than 64 bytes of random input. Further, it is not possible to precalculate the amount of random input required until the function has completed.
+
+    drng_reader = BIP85DRNG.new(bip85_entropy)
+    rsa_key = RSA.generate_key(4096, drng_reader.read())
+
+===Test Vectors===
+INPUT:
+xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* MASTER BIP32 ROOT KEY: m/83696968'/0'/0'
+
+OUTPUT
+* DERIVED KEY=cca20ccb0e9a90feb0912870c3323b24874b0ca3d8018c4b96d0b97c0e82ded0
+* DERIVED ENTROPY=6bea85e51a05e6dbaf2ccee05097758213807997ba936589cef01c8f19c0079f395a0cd045efa3438677f3ef9ad34c9a68506626c5a17e51ed5e177852ee7fdc
+
+* DRNG(80 bytes)=b78b1ee6b345eae6836c2d53d33c64cdaf9a696487be81b03e822dc84b3f1cd883d7559e53d175f243e4c349e822a957bbff9224bc5dde9492ef54e8a439f6bc8c7355b87a925a37ee405a7502991111
+
 ==Reference Implementation==
 
-Python library implementation: [https://github.com/ethankosakovsky/bipentropy python-bipentropy]
+Python library implementation: [https://github.com/ethankosakovsky/bip85]
 
 ===Other Implementations===
 
-Coldcard Firmware: [https://github.com/Coldcard/firmware/pull/39]
+* JavaScript library implementation: [https://github.com/hoganri/bip85-js]
+
+* Coldcard Firmware: [https://github.com/Coldcard/firmware/pull/39]
 
 ==Applications==
 
 Application number define how entropy will be used post processing. Some basic examples follow:
 
-Derivation path uses the format <code>m/83696968/' + /app_no' + /index'</code> where ''app_no'' path for the application, and `index` in the index.
+Derivation path uses the format <code>m/83696968/{app_no}'/{index}'</code> where ''{app_no}'' path for the application, and ''{index}'' in the index.
 
 ===BIP39===
 Application number: 39'
@@ -230,6 +254,36 @@ INPUT:
 
 OUTPUT
 * DERIVED ENTROPY=492db4698cf3b73a5a24998aa3e9d7fa96275d85724a91e71aa2d645442f878555d078fd1f1f67e368976f04137b1f7a0d19232136ca50c44614af72b5582a5c
+
+===RSA===
+
+Application number: 828365'
+
+The derivation path format is: <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code>
+
+The RSA key generator should use BIP85-DRNG as the input RNG function.
+
+===RSA GPG===
+
+Keys allocated for RSA-GPG purposes use the following scheme:
+
+ - Main key <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code>
+ - Sub keys:  <code>m/83696968'/828365'/{key_bits}'/{key_index}'/{sub_key}'</code>
+
+    - key_index is the parent key for CERTIFY capability
+    - sub_key <code>0'</code> is used as the ENCRYPTION key
+    - sub_key <code>1'</code> is used as the AUTHENTICATION key
+    - sub_key <code>2'</code> is usually used as SIGNATURE key
+
+Note on timestamps:
+
+The resulting RSA key can be used to create a GPG key where the creation date MUST be fixed to unix Epoch timestamp 1231006505 (the Bitcoin genesis block time <code>'2009-01-03 18:05:05'</code> UTC) because the key fingerprint is affected by the creation date (Epoch timestamp 0 was not chosen because of legacy behavior in GNUPG implementations for older keys). Additionally, when importing sub-keys under a key in GNUPG, the system time must be frozen to the same timestamp before importing (e.g. by use of <code>faketime</code>).
+
+Note on GPG key capabilities on smartcard/hardware devices:
+
+GPG capable smart-cards SHOULD be be loaded as follows: The encryption slot SHOULD be loaded with the ENCRYPTION capable key; the authentication slot SHOULD be loaded with the AUTHENTICATION capable key. The signature capable slot SHOULD be loaded with the SIGNATURE capable key.
+
+However, depending on available slots on the smart-card, and preferred policy, the CERTIFY capable key MAY be flagged with CERTIFY and SIGNATURE capabilities and loaded into the SIGNATURE capable slot (for example where the smart-card has only three slots and the CERTIFY capability is required on the same card). In this case, the SIGNATURE capable sub-key would be disregarded because the CERTIFY capable key serves dual purpose.
 
 ==Backwards Compatibility==
 
