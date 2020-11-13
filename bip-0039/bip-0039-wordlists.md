@@ -9,6 +9,7 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
+* [Polish](polish.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -98,3 +99,20 @@ Words chosen using the following rules:
 6.  No very similar words with 1 letter of difference.
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+
+### Polish
+
+Credits @KTrzeszczkowski (Karol Trzeszczkowski)
+
+Words chosen using the following rules:
+
+1. Words are 4-8 letters long.
+2. Words can be uniquely determined typing the first 4 letters.
+3. Special Polish characters like 'ą', 'ę', 'ć', etc... are considered equal to 'a', 'e', 'c', etc... in terms of identifying a word. Therefore, there is no need to use a Polish keyboard to introduce the passphrase, an application with the Polish wordlist will be able to identify the words after the first 4 chars have been typed even if the chars with accents have been replaced with the equivalent without accents.
+4. All words are in basic form.
+5. No personal names or geographical names.
+6. No very similar words with 2 letter of difference.
+7. Words are sorted according English alphabet ignoring diacritic signs.
+8. No words already used in other language mnemonic sets (english, italian, french, spanish, czech).
+9. Built with the most popular Polish words based on the [Open frequency dictionary of lexems](https://web.archive.org/web/20091116122442/http://www.open-dictionaries.com/slownikfrleks.pdf)
+10. Words include negative and bad things as those are easier to remember.
