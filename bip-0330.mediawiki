@@ -173,12 +173,16 @@ The sketch message is used to communicate a sketch required to perform set recon
 | byte[] || skdata || The sketch of the sender's reconciliation snapshot
 |}
 
-* If decoding fails, a "reconcildiff" message is sent with the failure flag set (success=false). If this was the first "sketch" in the round, a "reqsketchext" message may be sent instead.
-Upon receipt of a "sketch" message, a node computes the set difference by combining the receiver sketch with a sketch computed locally for a corresponding reconciliation set. If this is the 2nd time for this round a "sketch" message was received, the extension approach is used, and by combining the new sketch with the previous one, an extended sketch is obtained. The receiving node then tries to decode this sketch and based on the result:
-* If decoding succeeds, a "reconcildiff" message is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
+The sketch message may be received in two cases.
 
-The receiver also makes snapshot of their current reconciliation set, and clears the set itself. The snapshot is kept until a "reconcildiff" message is sent by the node.
+1. Initial sketch. Upon receipt of a "sketch" message, a node computes the difference sketch by combining the received sketch with a sketch computed locally for a corresponding reconciliation set. The receiving node then tries to decode the difference sketch and based on the result:
+* If the decoding failed, the receiving node requests an extension sketch by sending a "reqsketchext" message. Alternatively, the node may terminate the reconciliation right away by sending a "reconcildiff" message is sent with the failure flag set (success=false).
+* If the decoding succeeded, a "reconcildiff" message with success=true is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
+The receiver also makes snapshot of their current reconciliation set, and clears the set itself. The snapshot is kept until a "reconcildiff" message is sent by the node. It is needed to enable sketch extension.
 
+2. Sketch extension. By combining the sketch extension with the initially received sketch, an extended sketch is obtained. The receiving node then computes the extended difference sketch by combining the received extended sketch with an extended sketch computed locally over a corresponding reconciliation set snapshot. The receiving node then tries to decode the extended difference sketch and based on the result:
+* If the decoding failed, the receiving node terminates the reconciliation right away by sending a "reconcildiff" message is sent with the failure flag set (success=false).
+* If the decoding succeeded, a "reconcildiff" message with success=true is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
 
 ====reqsketchext====
 The reqsketchext message is used by reconciliation initiator to signal that initial set reconciliation has failed and a sketch extension is needed to find set difference.
