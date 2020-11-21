@@ -110,14 +110,14 @@ Set reconciliation primarily consists of the transmission and decoding of a reco
 
 [[File:bip-0330/recon_scheme_merged.png|framed|center|Set reconciliation protocol flow]]
 
-====Bisection====
+====Sketch extension====
 
-If a node is unable to reconstruct the set difference from the received sketch, the node then makes an additional reconciliation request, similar to the initial one, but this request is applied to only a fraction of possible transactions ("low chunk" corresponding to the values in range ''[0..(2^31)]''). Because of the linearity of sketches, a sketch of a subset of transactions would allow the node to compute a sketch for the remainder, which saves bandwidth.
+If a node is unable to reconstruct the set difference from the received sketch, the node then makes a request for sketch extension. The peer would then send an extension, which is a sketch of a higher capacity (allowing to decode more differences) over the same transactions minus the part which was already sent initially (to save bandwidth). This is possible because extending a sketch is just concatenating new elements to an array.
 
 [[File:bip-0330/bisection.png|framed|300px|center|Bisection]]
 
 ===New messages===
-Several new protocol messages are added: sendrecon, reqreconcil, sketch, reqbisec, reconcildiff. This section describes their serialization, contents, and semantics.
+Several new protocol messages are added: sendrecon, reqreconcil, sketch, reqsketchext, reconcildiff. This section describes their serialization, contents, and semantics.
 
 In what follows, all integers are serialized in little-endian byte order. Boolean values are encoded as a single byte that must be 0 or 1 exactly. Arrays are serialized with the CompactSize prefix that encodes their length, as is common in other P2P messages.
 
@@ -173,18 +173,19 @@ The sketch message is used to communicate a sketch required to perform set recon
 | byte[] || skdata || The sketch of the sender's reconciliation snapshot
 |}
 
-* If decoding fails, a "reconcildiff" message is sent with the failure flag set (success=false). If this was the first "sketch" in the round, a "reqbisec" message may be sent instead.
-Upon receipt of a "sketch" message, a node computes the set difference by combining the receiver sketch with a sketch computed locally for a corresponding reconciliation set. If this is the 2nd time for this round a "sketch" message was received, the bisection approach is used, and by combining the new sketch with the previous one, two difference sketches are obtained, one for the first half (low chunk) and one for the second half (high chunk) of the short id range. The receiving node then tries to decode this sketch (or sketches), and based on the result:
+* If decoding fails, a "reconcildiff" message is sent with the failure flag set (success=false). If this was the first "sketch" in the round, a "reqsketchext" message may be sent instead.
+Upon receipt of a "sketch" message, a node computes the set difference by combining the receiver sketch with a sketch computed locally for a corresponding reconciliation set. If this is the 2nd time for this round a "sketch" message was received, the extension approach is used, and by combining the new sketch with the previous one, an extended sketch is obtained. The receiving node then tries to decode this sketch and based on the result:
 * If decoding succeeds, a "reconcildiff" message is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
 
 The receiver also makes snapshot of their current reconciliation set, and clears the set itself. The snapshot is kept until a "reconcildiff" message is sent by the node.
 
-====reqbisec====
-The reqbisec message is used by reconciliation initiator to signal that initial set reconciliation has failed and an extra sketch is needed to find set difference.
+
+====reqsketchext====
+The reqsketchext message is used by reconciliation initiator to signal that initial set reconciliation has failed and a sketch extension is needed to find set difference.
 
 It has an empty payload.
 
-Upon receipt of a "reqbisec" message, a node responds to it with a "sketch" message, which contains a sketch of a subset of corresponding reconciliation set <b>snapshot</b> (stored when "reqreconcil" message for the current round was processed) (values in range ''[0..(2^31)]'').
+Upon receipt of a "reqsketchext" message, a node responds to it with a "sketch" message, which contains a sketch extension: a sketch (of the same transactions sketched initially) of higher capacity without the part sent initially.
 
 ====reconcildiff====
 The reconcildiff message is used by reconciliation initiator to announce transactions which are found to be missing during set reconciliation on the sender's side.
@@ -197,9 +198,8 @@ The reconcildiff message is used by reconciliation initiator to announce transac
 | uint32[] || ask_shortids || The short IDs that the sender did not have.
 |}
 
-Upon receipt a "reconcildiff" message with ''success=3'' (full reconciliation success), a node sends an "inv" message for the transactions requested by 32-bit IDs (first vector) containing their wtxids (with parent transactions occuring before their dependencies), and can request announced transactions (second vector) it does not have via a "getdata" message.
-If ''success=0'' (full reconciliation failure), receiver should announce the transactions from the reconciliation set via an "inv" message, excluding the transactions announced from the sender.
-''success=1'' and ''success=2'' indicates that initial reconciliation has failed, and during bisection, only low or high chunk (respectively) was successfully reconciled. In this case, a node sends an "inv" with all transactions from the failed chunk and requested transactions by short ID from the successfully reconciled chunk.
+Upon receipt a "reconcildiff" message with ''success=1'' (reconciliation success), a node sends an "inv" message for the transactions requested by 32-bit IDs (first vector) containing their wtxids (with parent transactions occuring before their dependencies), and can request announced transactions (second vector) it does not have via a "getdata" message.
+If ''success=0'' (reconciliation failure), receiver should announce the transactions from the reconciliation set via an "inv" message, excluding the transactions announced from the sender.
 
 The <b>snapshot</b> of the corresponding reconciliation set is cleared by the sender and the receiver of the message.
 
@@ -216,8 +216,7 @@ A reconciliation set is moved to the corresponding set snapshot after the transm
 
 ====Reconciliation set snapshot====
 After the transmitting of the initial sketch (either sending or receiving of reconcildiff message), every node should store the snapshot of the current reconciliation set, and clear the set.
-This is important to make bisection more stable during the reconciliation round (bisection should be applied to the snapshot).
-The snapshot is also used to efficiently lookup the transactions requested by short ID.
+This is important to make sketch extension more stable (extension should be computed over the set snapshot). Otherwise, extension would contain transactions received after sending out the initial sketch.
 The snapshot is cleared after the end of the reconciliation round (sending or receiving of the reconcildiff message).
 
 ====q-coefficient====
@@ -245,10 +244,21 @@ To use Minisketch in practice, transaction IDs should be shortened (ideally, not
 Small number of bits per transaction also allows to save extra bandwidth and make operations over sketches faster.
 According to our estimates, 32 bits provides low collision rate in a non-adversarial model (which is enabled by using independent salts per-link).
 
-====Why using bisection instead of extending the sketch?====
+====Why using sketch extensions instead of bisection?====
 
-Unlike extended sketches, bisection does not require operating over sketches of higher order.
-This allows to avoid the high computational cost caused by quadratic decoding complexity.
+Bisection is an alternative to sketch extensions, per which a second sketch with the same initial capacity is computed over half of the txID space.
+Due to the linearity of sketches, transmitting just this one allows a reconciliation requestor to compute the sketch of the same capacity of another half. Two sketches allow a requestor to reconstruct twice as many differences as was allowed by an initial sketch.
+
+In practice this allows a requestor to amortize the bandwidth overhead of initial reconciliation failure, similarly to extension sketches, making the overhead negligible.
+
+The main benefit of sketch extensions is a much simpler implementation. Implementing bisection is hard (see [https://github.com/naumenkogs/bitcoin/commit/b5c92a41e4cc0599504cf838d20212f1a403e573 implementation]) because, in the end, we have to operate with two sketches and handle scenarios where one sketch decoded and another sketch failed.
+
+It becomes even more difficult if in the future we decide to allow more than one extension/bisection. Bisection in this case have to be recursive (and spawn 4/8/16/... sketches), while for extensions we always end up with one extended sketch.
+
+Sketch extensions are also more flexible: extending a sketch of capacity 10 with 4 more means just computing a sketch of capacity 14 and sending the extension, while for bisection increasing the capacity to something different than 10*2/10*4/10*8/... is sophisticated implementation-wise.
+
+The only advantage of bisection is that it doesn't require computing sketches of higher capacities (exponential cost). We believe that since
+the protocol is currently designed to operate in the conditions where sketches usually have at most the capacity of 20, this efficiency is not crucial.
 
 ==Implementation==
 
