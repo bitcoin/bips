@@ -177,12 +177,15 @@ The sketch message may be received in two cases.
 
 1. Initial sketch. Upon receipt of a "sketch" message, a node computes the difference sketch by combining the received sketch with a sketch computed locally for a corresponding reconciliation set. The receiving node then tries to decode the difference sketch and based on the result:
 * If the decoding failed, the receiving node requests an extension sketch by sending a "reqsketchext" message. Alternatively, the node may terminate the reconciliation right away by sending a "reconcildiff" message is sent with the failure flag set (success=false).
-* If the decoding succeeded, a "reconcildiff" message with success=true is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
+* If the decoding succeeded, a "reconcildiff" message with success=true.
 The receiver also makes snapshot of their current reconciliation set, and clears the set itself. The snapshot is kept until a "reconcildiff" message is sent by the node. It is needed to enable sketch extension.
 
 2. Sketch extension. By combining the sketch extension with the initially received sketch, an extended sketch is obtained. The receiving node then computes the extended difference sketch by combining the received extended sketch with an extended sketch computed locally over a corresponding reconciliation set snapshot. The receiving node then tries to decode the extended difference sketch and based on the result:
 * If the decoding failed, the receiving node terminates the reconciliation right away by sending a "reconcildiff" message is sent with the failure flag set (success=false).
-* If the decoding succeeded, a "reconcildiff" message with success=true is sent with the wtxids of all locally known transactions that appear in the decode result, and the short IDs of the unrecognized ones.
+* If the decoding succeeded, a "reconcildiff" message with success=true.
+
+In either cases, a "reconcildiff" with success=false should also be accompanied with announcing all transactions from the reconciliation set (or set snapshot if failed after extension) as a fallback to flooding.
+A "reconcildiff" with success=true should *contain* unknown short IDs of the transactions from the decoded difference, corresponding to the transactions missing on the sender's side. Known short IDs from the difference correspond to what the receiver of the message is missing, and they should be announced via an "inv" message.
 
 ====reqsketchext====
 The reqsketchext message is used by reconciliation initiator to signal that initial set reconciliation has failed and a sketch extension is needed to find set difference.
@@ -202,8 +205,10 @@ The reconcildiff message is used by reconciliation initiator to announce transac
 | uint32[] || ask_shortids || The short IDs that the sender did not have.
 |}
 
-Upon receipt a "reconcildiff" message with ''success=1'' (reconciliation success), a node sends an "inv" message for the transactions requested by 32-bit IDs (first vector) containing their wtxids (with parent transactions occuring before their dependencies), and can request announced transactions (second vector) it does not have via a "getdata" message.
-If ''success=0'' (reconciliation failure), receiver should announce the transactions from the reconciliation set via an "inv" message, excluding the transactions announced from the sender.
+Upon receipt a "reconcildiff" message with ''success=1'' (reconciliation success), a node sends an "inv" message for the transactions requested by 32-bit IDs (first vector) containing their wtxids (with parent transactions occuring before their dependencies).
+If ''success=0'' (reconciliation failure), receiver should announce the transactions from the reconciliation set via an "inv" message.
+In both cases, transactions the sender of the message thinks the receiver is missing are announced via an "inv" message.
+The regular "inv" deduplication should apply.
 
 The <b>snapshot</b> of the corresponding reconciliation set is cleared by the sender and the receiver of the message.
 
