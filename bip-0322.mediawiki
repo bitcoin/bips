@@ -49,7 +49,7 @@ Full signatures follow an analogous specification to the BIP-325 challenges and 
 
 Let there be two virtual transactions <code>to_spend</code> and <code>to_sign</code>.
 
-The "to_spend" transaction is:
+The <code>to_spend</code> transaction is:
 
     nVersion = 0
     nLockTime = 0
@@ -61,10 +61,9 @@ The "to_spend" transaction is:
     vout[0].nValue = 0
     vout[0].scriptPubKey = message_challenge
 
-where message_hash is a BIP340-tagged hash of the message, i.e. sha256_tag(m), where tag = "BIP0322-signed-message", and message_challenge is the to be proven (public) key script.
-For proving funds, message_challenge shall be simply OP_TRUE.
+where <code>message_hash</code> is a BIP340-tagged hash of the message, i.e. sha256_tag(m), where tag = <code>BIP0322-signed-message</code>, and <code>message_challenge</code> is the to be proven (public) key script.
 
-The "to_sign" transaction is:
+The <code>to_sign</code> transaction is:
 
     nVersion = 0 or as appropriate (e.g. 2, for time locks)
     nLockTime = 0 or as appropriate (for time locks)
@@ -75,13 +74,7 @@ The "to_sign" transaction is:
     vout[0].nValue = 0
     vout[0].scriptPubKey = OP_RETURN
 
-When a proof of funds is being created, additional inputs should be included for virtually spending transaction outputs of desired value.
-
-* All signatures must use the SIGHASH_ALL flag.
-* The proof is considered valid, inconclusive, or invalid based on whether the to_sign transaction is a valid spend of the to_spend transaction or not, according to the rules specified in the "Consensus and standard flags" section below.
-* Proofs of funds may be encumbered with the in_future flag, according to the rules specified in the "Locktime and Sequence" section below, in which case we refer to the result in text form as "valid_in_future", "inconclusive_in_future", etc.
-
-Proofs of funds are the base64-encoding of the to_spend and to_sign transactions concatenated in standard network serialisation, and proofs without additional inputs or time locks (simple proofs) are the base64-encoding of the to_sign script witness.
+A full signature consists of the base64-encoding of the <code>to_spend</code> and <code>to_sign</code> transactions concatenated in standard network serialisation.
 
 === Full (Proof of Funds) ===
 
@@ -93,47 +86,58 @@ A signer may construct a proof of funds, demonstrating control of a set of UTXOs
 
 Unlike an ordinary signature, validators of a proof of funds need access to the current UTXO set, to learn that the claimed inputs exist on the blockchain, and to learn their scriptPubKeys.
 
-A validator must verify it is valid and meets the description of virtual transactions as specified above. See "Validation" below.
+== Detailed Specification ==
 
-=== Validation ===
+For all signature types, except legacy, the <code>to_spend</code> and <code>to_sign</code> transactions must be valid transactions which pass all consensus checks, except of course that the output with prevout <code>000...000:FFFFFFFF</code> does not exist.
 
-To validate a simple proof, the following steps must be taken:
+=== Verification ===
 
-# construct the to_spend and to_sign transactions, based on the specification above
-# check the signature using consensus rules, then upgradable rules
+A validator is given as input an address ''A'' (which may be omitted in a proof-of-funds), signature ''s'' and message ''m'', and outputs one of three states
+* ''valid at time T and age S'' indicates that the signature has set timelocks but is otherwise valid
+* ''inconclusive'' means the validator was unable to check the scripts
+* ''invalid'' means that some check failed
 
-To validate a proof of funds, the following steps must be taken:
+==== Verification Process ====
 
-# deserialize the to_spend and to_sign transactions from the proof, and fail if the proof contains extraneous bytes
-# verify that the to_sign transaction uses all inputs covered by the proof of funds, exactly once
-# reconstruct the to_spend' and to_sign' transactions, based on the specification above, copying the version, lock time, and sequence values
-# verify that to_spend = to_spend', that to_sign has at least 1 input, has exactly 1 output, and that to_sign.vin[0] = to_sign'.vin[0]
-# set the "in_future" flag if the transaction's lock time is in the future according to consensus rules
-# establish a "coins map", a mapping of outpoints (hash, vout) to coins (scriptPubKey, amount), initialized to coins_map(to_spend.txid, 0) = (to_spend.vout[0], 0)
-# for each proof of fund input, set the corresponding values in the coins map; abort if the input cannot be found
-# check the signature of each input using consensus rules, then upgradable rules
+Validation consists of the following steps:
+
+# Basic validation
+## Decode ''s'' as the transactions <code>to_sign</code> and <code>to_spend</code>
+## Confirm that <code>message_hash</code> is the correct hash of ''m''
+## Confirm that <code>message_challenge</code> is the scriptPubKey corresponding to ''A'' if ''A'' is present, and otherwise must be <code>OP_TRUE</code>
+## Confirm that all other fields are set as specified above; in particular that
+##* <code>to_spend</code> has exactly one input and one output
+##* <code>to_sign</code> has at least one input and its first input spends the output of </code>to_spend</code>
+##* <code>to_sign</code> has exactly one output, as specified above
+## Confirm that the two transactions together satisfy all consensus rules, except for <code>to_spend</code>'s missing input, and except that ''nSequence'' of <code>to_sign</code>'s first input and ''nLockTime'' of <code>to_sign</code> are not checked.
+# (Optional) If the validator does not have a full script interpreter, it should check that it understands all scripts being satisfied. If not, it should stop here and output ''inconclusive''.
+# Check the **required rules**:
+## All signatures must use the SIGHASH_ALL flag.
+## The use of <code>CODESEPARATOR</code> or <code>FindAndDelete</code> is forbidden.
+## <code>LOW_S</code>, <code>STRICTENC</code> and <code>NULLFAIL</code>: valid ECDSA signatures must be strictly DER-encoded and have a low-S value; invalid ECDSA signature must be the empty push
+## <code>MINIMALDATA</code>: all pushes must be minimally encoded
+## <code>CLEANSTACK</code>: require that only a single stack element remains after evaluation
+## <code>MINIMALIF</code>: the argument of <code>IF</code>/<code>NOTIF</code> must be exactly 0x01 or empty push
+## If any of the above steps failed, the validator should stop and output the ''invalid'' state.
+# Check the **upgradeable rules**
+## The use of NOPs reserved for upgrades is forbidden.
+## The use of segwit versions greater than 0 are forbidden.
+## If any of the above steps failed, the validator should stop and output the ''inconclusive'' state.
+# Let ''T'' by the nLockTime of <code>to_sign</code> and ''S'' be the nSequence of the first input of <code>to_sign</code>. Output the state ''valid at time T and age S''.
 
 === Signing ===
 
-Given the P2PKH invoice address <code>a</code> and the message <code>m</code>, and the pubkey-hash function <code>pkh(P) = ripemd160(sha256(P))</code>:
+Signers who control an address ''A'' who wish to sign a message ''m'' act as follows:
 
-# let <code>p</code> be the pubkey-hash <code>pkh(P)</code> for the pubkey <code>P</code>, contained in <code>a</code>
-# let <code>x</code> be the private key associated with <code>P</code> so that <code>pkh(xG) = p</code>
-# let <code>digest</code> be <code>SHA56d(0x18||"Bitcoin Signed Message:\n"||compactint(len(m))||m)</code>
-# create a compact signature <code>sig</code> (aka "recoverable ECDSA signature") using <code>x</code> on <code>digest</code>
+# They construct <code>to_spend</code> and <code>to_sign</code> as specified above, using the scriptPubKey of ''A'' for <code>message_challenge</code> and tagged hash of ''m'' as <code>message_hash</code>.
+# Optionally, they may set nLockTime of <code>to_sign</code> or nSequence of its first input.
+# Optionally, they may add any additional outputs to <code>to_sign</code> that they wish to prove control of.
+# They satisfy <code>to_sign</code> as they would any other transaction.
 
-The resulting proof is <code>sig</code>, serialized using the base64 encoding.
+They then encode their signature, choosing either ''simple'' or ''full'' as follows:
 
-=== Verifying ===
-
-Given the P2PKH invoice address <code>a</code>, the message <code>m</code>, the compact signature <code>sig</code>, and the pubkey-hash function <code>pkh(P) = ripemd160(sha256(P))</code>:
-
-# let <code>p</code> be the pubkey-hash <code>pkh(P)</code> for the pubkey <code>P</code>, contained in <code>a</code>
-# let <code>digest</code> be <code>SHA56d(0x18||"Bitcoin Signed Message:\n"||compactint(len(m))||m)</code>
-# attempt pubkey recovery for <code>digest</code> using the signature <code>sig</code> and store the resulting pubkey into <code>Q</code>
-## fail verification if pubkey recovery above fails
-# let <code>q</code> be the pubkey-hash <code>pkh(Q)</code> for the pubkey <code>Q</code>
-# if <code>p == q</code>, the proof is valid, otherwise it is invalid
+* If they added no inputs to <code>to_sign</code>, left nSequence and nLockTime at 0, and ''A'' is a Segwit address (either pure or P2SH-wrapped), then they may base64-encode <code>message_signature</code>
+* Otherwise they must base64-encode the concatenation of <code>to_spend</code> followed by <code>to_sign</code>.
 
 == Compatibility ==
 
@@ -154,38 +158,6 @@ Thanks to David Harding, Jim Posen, Kalle Rosenbaum, Pieter Wuille, Andrew Poels
 == Copyright ==
 
 This document is licensed under the Creative Commons CC0 1.0 Universal license.
-
-== Consensus and standard flags ==
-
-Each flag is associated with some type of enforced rule (most often a soft fork). There are two sets of flags: consensus flags (which result in a block being rejected, if violated), and upgradable flags (which are typically policy-rejected by nodes specifically for the purpose of future network upgrades). The upgradable flags are a super-set of the consensus flags.
-
-This BIP specifies that a proof that validates for both rulesets is valid, a proof that validates for consensus rules, but not for upgradable rules, is "inconclusive", and a proof that does not validate for consensus rules is "invalid" (regardless of upgradable rule validation).
-
-The ruleset sometimes changes. This BIP does not intend to be complete, nor does it indicate enforcement of rules, it simply lists the rules as they stand at the point of writing.
-
-=== Consensus rules ===
-
-* P2SH: evaluate P2SH ([https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki BIP16]) subscripts
-* DERSIG: enforce strict DER ([https://github.com/bitcoin/bips/blob/master/bip-0066.mediawiki BIP66]) compliance
-* NULLDUMMY: enforce NULLDUMMY ([https://github.com/bitcoin/bips/blob/master/bip-0147.mediawiki BIP147])
-* CHECKLOCKTIMEVERIFY: enable CHECKLOCKTIMEVERIFY ([https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP65])
-* CHECKSEQUENCEVERIFY: enable CHECKSEQUENCEVERIFY ([https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP112])
-* WITNESS: enable WITNESS ([https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141])
-
-=== Upgradable rules ===
-
-All of the above, plus (subject to change):
-
-* STRICTENC: non-strict DER signature or undefined hashtype
-* MINIMALDATA: require minimal encodings for all push operations
-* DISCOURAGE_UPGRADABLE_NOPS: discourage use of NOPs reserved for upgrades
-* CLEANSTACK: require that only a single stack element remains after evaluation
-* MINIMALIF: Segwit script only: require the argument of OP_IF/NOTIF to be exactly 0x01 or empty vector
-* NULLFAIL: signature(s) must be empty vector if a CHECK(MULTI)SIG operation failed
-* LOW_S: signature with S > order/2 in a checksig operation
-* DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM: v1-16 witness programs are non-standard (i.e. forbidden)
-* WITNESS_PUBKEYTYPE: public keys in segregated witness scripts must be compressed
-* CONST_SCRIPTCODE: OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
 
 == Test vectors ==
 
