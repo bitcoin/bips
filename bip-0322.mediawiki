@@ -23,11 +23,31 @@ Additionally, the current message signature format uses ECDSA signatures which d
 
 Ultimately no message signing protocol can actually prove control of funds, both because a signature is obsolete as soon as it is created, and because the possessor of a secret key may be willing to sign messages on others' behalf even if it would not sign actual transactions. No signmessage protocol can fix these limitations.
 
-== Specification ==
+== Types of Signatures ==
 
-This BIP follows the specification of BIP-325 challenges and solutions (see Signet comparison below).
+This BIP specifies three formats for signing messages: ''legacy'', ''simple'' and ''full''. Additionally, a variant of the ''full'' format can be used to demonstrate control over a set of UTXOs.
 
-Let there be two virtual transactions to_spend and to_sign.
+=== Legacy ===
+
+New proofs should use the new format for all invoice address formats, including P2PKH.
+
+The legacy format MAY be used, but must be restricted to the legacy P2PKH invoice address format.
+
+=== Simple ===
+
+A ''simple'' signature consists of a witness stack, consensus encoded as a vector of vectors of bytes, and base64-encoded. Validators should construct <code>to_spend</code> and <code>to_sign</code> as defined below, with default values for all fields except that
+
+* <code>message_hash</code> is a BIP340-tagged hash of the message, as specified below
+* <code>message_challenge</code> in <code>to_spend</code> is set to the scriptPubKey being signed with
+* <code>message_signature</code> in <code>to_sign</code> is set to the provided simple signature.
+
+and then proceed as they would for a full signature.
+
+=== Full ===
+
+Full signatures follow an analogous specification to the BIP-325 challenges and solutions used by Signet.
+
+Let there be two virtual transactions <code>to_spend</code> and <code>to_sign</code>.
 
 The "to_spend" transaction is:
 
@@ -63,6 +83,16 @@ When a proof of funds is being created, additional inputs should be included for
 
 Proofs of funds are the base64-encoding of the to_spend and to_sign transactions concatenated in standard network serialisation, and proofs without additional inputs or time locks (simple proofs) are the base64-encoding of the to_sign script witness.
 
+=== Full (Proof of Funds) ===
+
+A signer may construct a proof of funds, demonstrating control of a set of UTXOs, by constructing a full signature as above, with the following modifications.
+
+* <code>message_challenge</code> is unused and shall be set to <code>OP_TRUE</code>
+* Similarly, <code>message_signature</code> is then empty.
+* All outputs that the signer wishes to demonstrate control of are included as additional inputs of <code>to_sign</code>, and their witness and scriptSig data should be set as though these outputs were actually being spent.
+
+Unlike an ordinary signature, validators of a proof of funds need access to the current UTXO set, to learn that the claimed inputs exist on the blockchain, and to learn their scriptPubKeys.
+
 A validator must verify it is valid and meets the description of virtual transactions as specified above. See "Validation" below.
 
 === Validation ===
@@ -82,12 +112,6 @@ To validate a proof of funds, the following steps must be taken:
 # establish a "coins map", a mapping of outpoints (hash, vout) to coins (scriptPubKey, amount), initialized to coins_map(to_spend.txid, 0) = (to_spend.vout[0], 0)
 # for each proof of fund input, set the corresponding values in the coins map; abort if the input cannot be found
 # check the signature of each input using consensus rules, then upgradable rules
-
-== Legacy format ==
-
-New proofs should use the new format for all invoice address formats, including P2PKH.
-
-The legacy format MAY be used, but must be restricted to the legacy P2PKH invoice address format.
 
 === Signing ===
 
