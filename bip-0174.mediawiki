@@ -48,272 +48,233 @@ is the separator here <tt>0x00</tt> instead of <tt>0xff</tt>?'''
 The separator here is used to distinguish between each chunk of data. A separator of 0x00 would mean that
 the unserializer can read it as a key length of 0, which would never occur with actual keys. It can thus
 be used as a separator and allow for easier unserializer implementation.</ref>.
-Each key-value pair must have a unique key within its scope; duplicates are not allowed. The format
-of a record is as follows:
 
-Note: <tt><..></tt> indicates that the data is prefixed by a compact size unsigned integer representing
-the length of that data. <tt>{..}</tt> indicates the raw data itself.
 
-<pre>
-<key>|<value>
-</pre>
+ <psbt> := <magic> <global-map> <input-map>* <output-map>*
+ <magic> := 0x70 0x73 0x62 0x74 0xFF
+ <global-map> := <keypair>* 0x00
+ <input-map> := <keypair>* 0x00
+ <output-map> := <keypair>* 0x00
+ <keypair> := <key> <value>
+ <key> := <keylen> <keytype> <keydata>
+ <value> := <valuelen> <valuedata>
 
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Name
-!Type
-!Description
-|-
-| Key Length
-| Compact Size Unsigned Integer
-| Specify how long the key is
-|-
-| Key
-| byte[]
-| The Key itself
-|-
-| Value Length
-| Compact Size Unsigned Integer
-| Specify how long the value is
-|-
-| Value
-| byte[]
-| The Value itself
-|}
+Where:
 
-The format of each key-value map is as follows:
-
-<pre>
-{key-value pair}|{key-value pair}|...|{0x00}
-</pre>
-
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Field Size
-!Name
-!Type
-!Value
-!Description
-|-
-| 1+
-| Key-value pairs
-| Array of key-value pairs
-| varies
-| The key-value pairs.
-|-
-| 1
-| separator
-| char
-| <tt>0x00</tt>
-| Must be <tt>0x00</tt> at the end of the map.
-|}
-
-At the beginning of each key is a compact size unsigned integer representing the type.
-This compact size unsigned integer must be minimally encoded, i.e. if the value can be represented using one byte, it must be represented as one byte.
-For convenience, this BIP will specify types using their full serialization, so a multi-byte type will have it's full prefix and zero padding as necessary.
-There are global types, per-input types, and per-output types.
+;<tt><keytype></tt>
+: A compact size unsigned integer representing the type. This compact size unsigned integer must be minimally encoded, i.e. if the value can be represented using one byte, it must be represented as one byte. This must be unique within a specific <tt><map></tt>.
+;<tt><keylen></tt>
+: The compact size unsigned integer containing the combined length of <tt><keytype></tt> and <tt><keydata></tt>
+;<tt><valuelen></tt>
+: The compact size unsigned integer containing the length of <tt><valuedata></tt>.
+;<tt><magic></tt>
+: Magic bytes which are ASCII for psbt <ref>'''Why use 4 bytes for psbt?''' The
+transaction format needed to start with a 5 byte header which uniquely identifies
+it. The first bytes were chosen to be the ASCII for psbt because that stands for
+Partially Signed Bitcoin Transaction. </ref> followed by a separator of <tt>0xFF</tt>
+<ref>'''Why Use a separator after the magic bytes?''' The separator
+is part of the 5 byte header for PSBT. This byte is a separator of <tt>0xff</tt> because
+this will cause any non-PSBT unserializer to fail to properly unserialize the PSBT
+as a normal transaction. Likewise, since the 5 byte header is fixed, no transaction
+in the non-PSBT format will be able to be unserialized by a PSBT unserializer.</ref>. This integer must be serialized
+in most significant byte order.
 
 The currently defined global types are as follows:
 
-* Type: Unsigned Transaction <tt>PSBT_GLOBAL_UNSIGNED_TX = 0x00</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x00}</tt>
-** Value: The transaction in network serialization. The scriptSigs and witnesses for each input must be empty. The transaction must be in the old serialization format (without witnesses). A PSBT must have a transaction, otherwise it is invalid.
-*** <tt>{transaction}</tt>
-** Note: Every PSBT must have a field with this type.
-
-* Type: Extended Public Key <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
-** Key: The type followed by the 78 byte serialized extended public key as defined by BIP 32. Extended public keys are those that can be used to derive public keys used in the inputs and outputs of this transaction. It should be the public key at the highest hardened derivation index so that the unhardened child keys used in the transaction can be derived.
-*** <tt>{0x01}|{xpub}</tt>
-** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
-*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
-
-* Type: Version Number <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0xFB}</tt>
-** Value: The 32-bit little endian unsigned integer representing the version number of this PSBT. If ommitted, the version number is 0.
-*** <tt>{32-bit uint}</tt>
-
-* Type: Proprietary Use Type <tt>PSBT_GLOBAL_PROPRIETARY = 0xFC</tt>
-** Key: Compact size unsigned integer, followed by identifier prefix of that length, followed by a subtype, followed by the key data itself.
-*** <tt>{0xFC}|{prefixlen}|<prefix>|{subtype}|{key data}</tt>
-** Value: Any value data as defined by the proprietary type user.
-*** <tt><data></tt>
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Unsigned Transaction
+| <tt>PSBT_GLOBAL_UNSIGNED_TX = 0x00</tt>
+| None
+| No key data
+| <tt><transaction></tt>
+| The transaction in network serialization. The scriptSigs and witnesses for each input must be empty. The transaction must be in the old serialization format (without witnesses). A PSBT must have a transaction, otherwise it is invalid.
+|-
+| Extended Public Key
+| <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
+| <tt><xpub></tt>
+| The 78 byte serialized extended public key as defined by BIP 32. Extended public keys are those that can be used to derive public keys used in the inputs and outputs of this transaction. It should be the public key at the highest hardened derivation index so that the unhardened child keys used in the transaction can be derived.
+| <tt><32-bit uint> <32-bit uint>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
+|-
+| PSBT Version Number
+| <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
+| None
+| No key data
+| <tt><32-bit uint></tt>
+| The 32-bit little endian unsigned integer representing the version number of this PSBT. If ommitted, the version number is 0.
+|-
+| Proprietary Use Type
+| <tt>PSBT_GLOBAL_PROPRIETARY = 0xFC</tt>
+| <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
+| Compact size unsigned integer <tt><identifierlen></tt>, followed by identifier prefix of that length <tt><identifer></tt>, followed by a subtype <tt><subtype></tt>, followed by the key data itself <tt><subkeydata></tt>.
+| <tt><data></tt>
+| Any value data as defined by the proprietary type user.
+|}
 
 The currently defined per-input types are defined as follows:
 
-* Type: Non-Witness UTXO <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
-** Key: None. The key must only contain the 1 byte type.
-***<tt>{0x00}</tt>
-** Value: The transaction in network serialization format the current input spends from. This should be present for inputs that spend non-segwit outputs and can be present for inputs that spend segwit outputs. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>. <ref>'''Why can both UTXO types be provided?''' Many wallets began requiring the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) for segwit inputs when PSBT was already in use. In order to be compatible with software which were expecting <tt>PSBT_IN_WITNESS_UTXO</tt>, both UTXO types must be allowed.</ref>
-*** <tt>{transaction}</tt>
-
-* Type: Witness UTXO <tt>PSBT_IN_WITNESS_UTXO = 0x01</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x01}</tt>
-** Value: The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>
-*** <tt>{serialized transaction output({output value}|<scriptPubKey>)}</tt>
-
-* Type: Partial Signature <tt>PSBT_IN_PARTIAL_SIG = 0x02</tt>
-** Key: The public key which corresponds to this signature.
-*** <tt>{0x02}|{public key}</tt>
-** Value: The signature as would be pushed to the stack from a scriptSig or witness.
-*** <tt>{signature}</tt>
-
-* Type: Sighash Type <tt>PSBT_IN_SIGHASH_TYPE = 0x03</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x03}</tt>
-** Value: The 32-bit unsigned integer specifying the sighash type to be used for this input. Signatures for this input must use the sighash type, finalizers must fail to finalize inputs which have signatures that do not match the specified sighash type. Signers who cannot produce signatures with the sighash type must not provide a signature.
-*** <tt>{sighash type}</tt>
-
-* Type: Redeem Script <tt>PSBT_IN_REDEEM_SCRIPT = 0x04</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x04}</tt>
-** Value: The redeemScript for this input if it has one.
-*** <tt>{redeemScript}</tt>
-
-* Type: Witness Script <tt>PSBT_IN_WITNESS_SCRIPT = 0x05</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x05}</tt>
-** Value: The witnessScript for this input if it has one.
-*** <tt>{witnessScript}</tt>
-
-* Type:  BIP 32 Derivation Path <tt>PSBT_IN_BIP32_DERIVATION = 0x06</tt>
-** Key: The public key
-*** <tt>{0x06}|{public key}</tt>
-** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. Public keys are those that will be needed to sign this input.
-*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
-
-* Type: Finalized scriptSig <tt>PSBT_IN_FINAL_SCRIPTSIG = 0x07</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x07}</tt>
-** Value: The Finalized scriptSig contains a fully constructed scriptSig with signatures and any other scripts necessary for the input to pass validation.
-*** <tt>{scriptSig}</tt>
-
-* Type: Finalized scriptWitness <tt>PSBT_IN_FINAL_SCRIPTWITNESS = 0x08</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x08}</tt>
-** Value: The Finalized scriptWitness contains a fully constructed scriptWitness with signatures and any other scripts necessary for the input to pass validation.
-*** <tt>{scriptWitness}</tt>
-
-* Type: Proof-of-reserves commitment <tt>PSBT_IN_POR_COMMITMENT = 0x09</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x09}</tt>
-** Value: The UTF-8 encoded commitment message string for the proof-of-reserves.  See [[bip-0127.mediawiki|BIP 127]] for more information.
-*** <tt>{porCommitment}</tt>
-
-* Type: RIPEMD160 preimage <tt>PSBT_IN_RIPEMD160 = 0x0a</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0a}|{20-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `RIPEMD160` algorithm
-*** <tt>{preimage}</tt>
-
-* Type: SHA256 preimage <tt>PSBT_IN_SHA256 = 0x0b</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0b}|{32-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm
-*** <tt>{preimage}</tt>
-
-* Type: HASH160 preimage <tt>PSBT_IN_HASH160 = 0x0c</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0c}|{20-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm followed by the `RIPEMD160` algorithm
-*** <tt>{preimage}</tt>
-
-* Type: HASH256 preimage <tt>PSBT_IN_HASH256 = 0x0d</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0d}|{32-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm twice
-*** <tt>{preimage}</tt>
-
-* Type: Proprietary Use Type <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
-** Key: Compact size unsigned integer, followed by identifier prefix of that length, followed by a subtype, followed by the key data itself.
-*** <tt>{0xFC}|{prefixlen}|<prefix>|{subtype}|{key data}</tt>
-** Value: Any value data as defined by the proprietary type user.
-*** <tt><data></tt>
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Non-Witness UTXO
+| <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
+| None
+| No key data
+| <tt><transaction></tt>
+| The transaction in network serialization format the current input spends from. This should be present for inputs that spend non-segwit outputs and can be present for inputs that spend segwit outputs. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>. <ref>'''Why can both UTXO types be provided?''' Many wallets began requiring the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) for segwit inputs when PSBT was already in use. In order to be compatible with software which were expecting <tt>PSBT_IN_WITNESS_UTXO</tt>, both UTXO types must be allowed.</ref>
+|-
+| Witness UTXO
+| <tt>PSBT_IN_WITNESS_UTXO = 0x01</tt>
+| None
+| No key data
+| <tt><64-bit uint> <scriptPubKeylen> <scriptPubKey></tt>
+| The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>
+|-
+| Partial Signature
+| <tt>PSBT_IN_PARTIAL_SIG = 0x02</tt>
+| <tt><pubkey></tt>
+| The public key which corresponds to this signature.
+| <tt><signature></tt>
+| The signature as would be pushed to the stack from a scriptSig or witness.
+|-
+| Sighash Type
+| <tt>PSBT_IN_SIGHASH_TYPE = 0x03</tt>
+| None
+| No key data
+| <tt><32-bit uint></tt>
+| The 32-bit unsigned integer specifying the sighash type to be used for this input. Signatures for this input must use the sighash type, finalizers must fail to finalize inputs which have signatures that do not match the specified sighash type. Signers who cannot produce signatures with the sighash type must not provide a signature.
+|-
+| Redeem Script
+| <tt>PSBT_IN_REDEEM_SCRIPT = 0x04</tt>
+| None
+| No key data
+| <tt><redeemScript></tt>
+| The redeemScript for this input if it has one.
+|-
+| Witness Script
+| <tt>PSBT_IN_WITNESS_SCRIPT = 0x05</tt>
+| None
+| No key data
+| <tt><witnessScript></tt>
+| The witnessScript for this input if it has one.
+|-
+| BIP 32 Derivation Path
+| <tt>PSBT_IN_BIP32_DERIVATION = 0x06</tt>
+| <tt><pubkey></tt>
+| The public key
+| <tt><32-bit uint> <32-bit uint>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. Public keys are those that will be needed to sign this input.
+|-
+| Finalized scriptSig
+| <tt>PSBT_IN_FINAL_SCRIPTSIG = 0x07</tt>
+| None
+| No key data
+| <tt><scriptSig></tt>
+| The Finalized scriptSig contains a fully constructed scriptSig with signatures and any other scripts necessary for the input to pass validation.
+|-
+| Finalized scriptWitness
+| <tt>PSBT_IN_FINAL_SCRIPTWITNESS = 0x08</tt>
+| None
+| No key data
+| <tt><scriptWitness></tt>
+| The Finalized scriptWitness contains a fully constructed scriptWitness with signatures and any other scripts necessary for the input to pass validation.
+|-
+| Proof-of-reserves commitment
+| <tt>PSBT_IN_POR_COMMITMENT = 0x09</tt>
+| None
+| No key data
+| <tt><porCommitment></tt>
+| The UTF-8 encoded commitment message string for the proof-of-reserves.  See [[bip-0127.mediawiki|BIP 127]] for more information.
+|-
+| RIPEMD160 preimage
+| <tt>PSBT_IN_RIPEMD160 = 0x0a</tt>
+| <tt><20-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>RIPEMD160</tt> algorithm
+|-
+| SHA256 preimage
+| <tt>PSBT_IN_SHA256 = 0x0b</tt>
+| <tt><32-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>SHA256</tt> algorithm
+|-
+| HASH160 preimage
+| <tt>PSBT_IN_HASH160 = 0x0c</tt>
+| <tt><20-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>SHA256</tt> algorithm followed by the <tt>RIPEMD160</tt> algorithm
+|-
+| HASH256 preimage
+| <tt>PSBT_IN_HASH256 = 0x0d</tt>
+| <tt><32-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>SHA256</tt> algorithm twice
+|-
+| Proprietary Use Type
+| <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
+| <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
+| Compact size unsigned integer <tt><identifierlen></tt>, followed by identifier prefix of that length <tt><identifer></tt>, followed by a subtype <tt><subtype></tt>, followed by the key data itself <tt><subkeydata></tt>.
+| <tt><data></tt>
+| Any value data as defined by the proprietary type user.
+|}
 
 The currently defined per-output <ref>'''Why do we need per-output data?''' Per-output data allows signers
 to verify that the outputs are going to the intended recipient. The output data can also be use by signers to
 determine which outputs are change outputs and verify that the change is returning to the correct place.</ref> types are defined as follows:
 
-* Type: Redeem Script <tt>PSBT_OUT_REDEEM_SCRIPT = 0x00</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x00}</tt>
-** Value: The redeemScript for this output if it has one.
-*** <tt>{redeemScript}</tt>
-
-* Type: Witness Script <tt>PSBT_OUT_WITNESS_SCRIPT = 0x01</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x01}</tt>
-** Value: The witnessScript for this output if it has one.
-*** <tt>{witnessScript}</tt>
-
-* Type:  BIP 32 Derivation Path <tt>PSBT_OUT_BIP32_DERIVATION = 0x02</tt>
-** Key: The public key
-*** <tt>{0x02}|{public key}</tt>
-** Value: The master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output.
-*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
-
-* Type: Proprietary Use Type <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
-** Key: Compact size unsigned integer, followed by identifier prefix of that length, followed by a subtype, followed by the key data itself.
-*** <tt>{0xFC}|{prefixlen}|<prefix>|{subtype}|{key data}</tt>
-** Value: Any value data as defined by the proprietary type user.
-*** <tt><data></tt>
-
-The transaction format is specified as follows:
-
-
-<pre>
-    {0x70736274}|{0xff}|{global key-value map}|{input key-value map}|...|{input key-value map}|{output key-value map}|...|{output key-value map}|
-</pre>
-
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Field Size
-!Name
-!Type
-!Value
-!Description
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
 |-
-| 4
-| Magic Bytes
-| int32_t
-| <tt>0x70736274</tt>
-| Magic bytes which are ASCII for psbt. <ref>'''Why use 4 bytes for psbt?''' The
-transaction format needed to start with a 5 byte header which uniquely identifies
-it. The first bytes were chosen to be the ASCII for psbt because that stands for
-Partially Signed Bitcoin Transaction. </ref> This integer should be serialized
-in most significant byte order.
+| Redeem Script
+| <tt>PSBT_OUT_REDEEM_SCRIPT = 0x00</tt>
+| None
+| No key data
+| <tt><redeemScript></tt>
+| The redeemScript for this output if it has one.
 |-
-| 1
-| separator
-| char
-| <tt>0xff</tt>
-| Must be <tt>0xff</tt> <ref>'''Why Use a separator after the magic bytes?''' The separator
-is part of the 5 byte header for PSBT. This byte is a separator of <tt>0xff</tt> because
-this will cause any non-PSBT unserializer to fail to properly unserialize the PSBT
-as a normal transaction. Likewise, since the 5 byte header is fixed, no transaction
-in the non-PSBT format will be able to be unserialized by a PSBT unserializer.</ref>
+| Witness Script
+| <tt>PSBT_OUT_WITNESS_SCRIPT = 0x01</tt>
+| None
+| No key data
+| <tt><witnessScript></tt>
+| The witnessScript for this output if it has one.
 |-
-| 1+
-| Global data
-| Key-value Map
-| varies
-| The key-value pairs for all global data.
+| BIP 32 Derivation Path
+| <tt>PSBT_OUT_BIP32_DERIVATION = 0x02</tt>
+| <tt><public key></tt>
+| The public key
+| <tt><{32-bit uint> <32-bit uint>*</tt>
+| The master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output.
 |-
-| 1+
-| Inputs
-| Array of key-value maps
-| varies
-| The key-value pairs for each input as described above. Every input in the unsigned transaction must have a corresponding input map.
-|-
-| 1+
-| Outputs
-| Array of key-value maps
-| varies
-| The key-value pairs for each output as described above. Every output in the unsigned transaction must have a corresponding output map.
+| Proprietary Use Type
+| <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
+| <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
+| Compact size unsigned integer <tt><identifierlen></tt>, followed by identifier prefix of that length <tt><identifer></tt>, followed by a subtype <tt><subtype></tt>, followed by the key data itself <tt><subkeydata></tt>.
+| <tt><data></tt>
+| Any value data as defined by the proprietary type user.
 |}
 
-Each block of data between separators can be viewed as a scope, and all separators
-are required<ref>'''Why are all separators required?''' The separators are required
-so that the unserializer knows which input it is unserializing data for.</ref>.
 Types can be skipped when they are unnecessary. For example, if an input is a witness
 input, then it should not have a Non-Witness UTXO key-value pair.
 
