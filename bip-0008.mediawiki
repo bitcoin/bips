@@ -85,7 +85,7 @@ Miners should continue setting the bit in LOCKED_IN phase so uptake is visible, 
 
 The new consensus rules for each soft fork are enforced for each block that has ACTIVE state.
 
-During the MUST_SIGNAL phase, blocks that fail to signal are invalid.
+During the MUST_SIGNAL phase, if '''(2016 - threshold)''' blocks in the retarget period have already failed to signal, any further blocks that fail to signal are invalid.
 
 ===State transitions===
 
@@ -177,11 +177,23 @@ block, indexed by its parent.
 
 ===Mandatory signalling===
 
-Blocks received while in the MUST_SIGNAL phase must be checked to ensure that they signal. For example:
+Blocks received while in the MUST_SIGNAL phase must be checked to ensure that they signal as required. For example:
 
     if (GetStateForBlock(block) == MUST_SIGNAL) {
-        if ((block.nVersion & 0xE0000000) != 0x20000000 || ((block.nVersion >> bit) & 1) != 1) {
-            return state.Invalid(BlockValidationResult::RECENT_CONSENSUS_CHANGE, "bad-version-bip8-must-signal");
+        int nonsignal = 0;
+        int count = 1 + (block.nHeight % 2016);
+        walk = block;
+        while (count > 0) {
+            --count;
+            if ((walk.nVersion & 0xE0000000) != 0x20000000 || ((walk.nVersion >> bit) & 1) != 1) {
+                ++nonsignal;
+                if (nonsignal + threshold > 2016) {
+                    return state.Invalid(BlockValidationResult::RECENT_CONSENSUS_CHANGE, "bad-version-bip8-must-signal");
+                }
+            } else if (nonsignal == 0) {
+                break;
+            }
+            walk = walk.parent;
         }
     }
 
