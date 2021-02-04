@@ -77,9 +77,10 @@ def bech32_bech32m_verify_checksum(hrp, data):
     check = bech32_polymod(bech32_hrp_expand(hrp) + data)
     if check == 1:
         return Encoding.BECH32
-    if const == BECH32M_CONST:
+    elif check == BECH32M_CONST:
         return Encoding.BECH32M
-    return None
+    else:
+        return None
 </pre>
 
 which returns either None for failure, or one of the BECH32 / BECH32M enumeration values to indicate successful decoding according to the respective standard.
@@ -234,7 +235,7 @@ The table below shows the error detection properties of Bech32m, and a compariso
 * '''errors''' The maximum number of individual errors considered
 * '''of type''' What type of errors are considered (either "subst. only" for just substitutions, or "any" to also include deletions, swaps, insertions, and duplications)
 * '''window''' The maximum size of the window in which the errors have to occur<ref>'''What is an error pattern’s window size?''' The window size of an error pattern is the length of the smallest consecutive range of characters that contains all modified characters (on input or output; whichever is larger). For example, an error pattern that turns "abcdef" into "accdbef" has a window size of 4, as it is replacing "bcd" with "ccdb", a 4 character string. Window size is only meaningful when the pattern consists of two or more errors.</ref>
-* '''code/verifier''' Whether it is about Bech32 or Bech32m encoded strings, and whether they are evaluated regarding their probability of being accepted by either a Bech32 or a Bech32m verifier.<ref>'''Why do we care about probability of accepting Bech32m strings in Bech32 verifiers?''' For applications where Bech32m replaces an existing use of Bech32 (such as segregated witness addresses), we want to make sure that a Bech32m string created by new software won’t be erroneously accepted by old software that assumes Bech32 - even when a small number of errors were introduced as well.</ref><ref>'''Should we also take into account failures that occur due to taking a valid Bech32m string, and after errors it becoming acceptable to a Bech32 verifier?''' This situation may in theory occur for segregated witness addresses when errors occur that change the version number in a v1+ address to v0. Due to the specificity of this type of error, plus the additional constraints that apply for v0 addresses, this is both unlikely and hard to analyze.</ref>
+* '''code/verifier''' Whether this line is about Bech32 or Bech32m encoded strings, and whether those are evaluated regarding their probability of being accepted by either a Bech32 or a Bech32m verifier.<ref>'''Why do we care about probability of accepting Bech32m strings in Bech32 verifiers?''' For applications where Bech32m replaces an existing use of Bech32 (such as segregated witness addresses), we want to make sure that a Bech32m string created by new software won’t be erroneously accepted by old software that assumes Bech32 - even when a small number of errors were introduced as well.</ref><ref>'''Should we also take into account failures that occur due to taking a valid Bech32m string, and after errors it becoming acceptable to a Bech32 verifier?''' This situation may in theory occur for segregated witness addresses when errors occur that change the version number in a v1+ address to v0. Due to the specificity of this type of error, plus the additional constraints that apply for v0 addresses, this is both unlikely and hard to analyze.</ref>
 * '''error patterns with failure probability''' For each probability (''0'', ''2<sup>-30</sup>'', ''2<sup>-25</sup>'', ''2<sup>-20</sup>'', ''2<sup>-15</sup>'', and ''2<sup>-10</sup>'') this reports what percentage of error patterns restricted by the constraints in the previous columns have those probabilities of being incorrectly accepted.
 
 The properties are divided into two classes: those that hold over all strings when averaged over all possible HRPs (human readable parts), and those specific to the "bc1" HRP with the length restrictions imposed by segregated witness addresses<ref>'''What restrictions were taken into account for the "bc1"-specific analysis?''' The minimum length (due to witness programs being at least 2 bytes), the maximum length (due to witness programs being at most 40 bytes), and the fact that the witness programs are a multiple of 8 bits. The fact that the first data symbol cannot be over 16, or that the padding has to be 0, is not taken into account.</ref>.
@@ -274,9 +275,9 @@ The properties are divided into two classes: those that hold over all strings wh
 |-
 | &leq; 3 || any         || any      || 6.66%|| 92.19%|| 0.59%|| 0.52%|| 0.041%|| 0.00053%
 |-
-| &leq; 1 || any         || -        || rowspan="3" | Bech32m/Bech32 ||  46.53%|| 53.46%|| colspan="4" | none<sup>(b)</sup>
+|       0 || -           || -        || rowspan="3" | Bech32m/Bech32 ||  100.00%|| colspan="5" | none<sup>(a)</sup>
 |-
-| 0       || -           || -        || 100.00%|| colspan="5" | none<sup>(a)</sup>
+|       1 || any         || -        || 46.53%|| 53.46%|| colspan="4" | none<sup>(b)</sup>
 |-
 | &leq; 2 || any         || any      || 22.18%|| 77.77%|| 0.048%|| colspan="3" | none<sup>(b)</sup>
 |-
@@ -284,31 +285,31 @@ The properties are divided into two classes: those that hold over all strings wh
 |-
 | &leq; 4 || only subst. || any      || rowspan="6" | Bech32m/Bech32m || 100.00%|| colspan="5" | none<sup>(a)</sup>
 |-
-| &leq; 1 || any         || -        ||  24.34%|| 75.66%|| colspan="4" | none<sup>(c)</sup>
+|       1 || any         || -        ||  24.34%|| 75.66%|| colspan="4" | none<sup>(c)</sup>
 |-
 | &leq; 2 || any         || &leq; 28 ||  16.85%|| 83.15%|| colspan="4" | none<sup>(c)</sup>
 |-
-| &leq; 2 || any         || any      ||  15.72%|| 84.23%|| 0.038%|| 0.0053%|| colspan="2" | none<sup>(c)</sup>
+| any     || any         || &leq; 4  ||  74.74%|| 25.25%|| 0.0016%|| colspan="3" | none<sup>(c)</sup>
 |-
-| any     || any         || &leq; 4  ||  74.74%|| 25.25%|| 0.0015%|| colspan="3" | none<sup>(c)</sup>
+| &leq; 2 || any         || any      ||  15.72%|| 84.23%|| 0.039%|| 0.0053%|| colspan="2" | none<sup>(c)</sup>
 |-
 | &leq; 3 || any         || any      ||  13.98%|| 85.94%|| 0.078%|| 0.00063%|| colspan="2" | none<sup>(c)</sup>
 |-
 | &leq; 4 || only subst. || any      || rowspan="6" | Bech32/Bech32 || 100.00%|| colspan="5" | none
 |-
-| &leq; 1 || any         || -        ||  14.63%|| 75.71%|| 2.43%|| 2.43%|| 2.43%|| 2.38%
+|       1 || any         || -        ||  14.63%|| 75.71%|| 2.43%|| 2.43%|| 2.43%|| 2.38%
 |-
 | &leq; 2 || any         || &leq; 28 ||  14.22%|| 83.15%|| 0.94%|| 0.84%|| 0.79%|| 0.054%
 |-
-| &leq; 2 || any         || any      ||  12.79%|| 84.24%|| 1.06%|| 0.95%|| 0.92%|| 0.041%
-|-
 | any     || any         || &leq; 4  ||  73.23%|| 25.26%|| 0.76%|| 0.63%|| 0.12%|| 0.0064%
+|-
+| &leq; 2 || any         || any      ||  12.79%|| 84.24%|| 1.06%|| 0.95%|| 0.92%|| 0.041%
 |-
 | &leq; 3 || any         || any      ||  13.00%|| 85.94%|| 0.57%|| 0.45%|| 0.044%|| 0.00067%
 |-
 | &leq; 3 || only subst. || any      || rowspan="3" | Bech32m/Bech32 || 100.00%|| colspan="5" | none<sup>(c)</sup>
 |-
-| &leq; 1 || any         || -        ||  70.89%|| 29.11%|| colspan="4" | none<sup>(c)</sup>
+|       1 || any         || -        ||  70.89%|| 29.11%|| colspan="4" | none<sup>(c)</sup>
 |-
 | &leq; 2 || any         || any      ||  36.12%|| 63.79%|| 0.092%|| 0.00049%|| colspan="2" | none<sup>(c)</sup>
 |}
@@ -330,4 +331,6 @@ The details of the selection process can be found [https://gist.github.com/sipa/
 
 ==Acknowledgements==
 
-Thanks to Rusty Russell for starting the discussion around intentionally breaking compatibility with existing senders, which is used in this specification. Thanks to Greg Maxwell for doing most of the computation for code selection and analysis.
+Thanks to Greg Maxwell for doing most of the computation for code selection and analysis, and comments.
+Thanks to Mark Erhardt for help with writing and editing this document.
+Thanks to Rusty Russell and others on the bitcoin-dev list for the discussion around intentionally breaking compatibility with existing senders, which is used in this specification.
