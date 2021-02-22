@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [German](german.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,19 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+### German
+
+Credits: 
+
+1. Words can be uniquely determined typing the first 4 characters.
+2. Words contain between 3 to 8 letters per word
+3. No words with 1 letter of difference (no levenshtein distance substitution, addition or permutation lower than 2)
+4. No words already used in other official BIP-0039-Wordlists
+5. No accents or special characters.
+6. Orthography based on German spelling reform of 2006 and based on the German Duden 2021
+7. Only singular nouns and plural tantum nouns (if no singular exists).
+8. All-Caps in order to address nouns not written in lowercase in German and keep number of characters to 26 (A-Z) only.No Ä,Ö,Ü,ß
+9. If a homophone for a word exists, only one of these words is allowed in the wordlist under condition that using grammatical gender ensures unambiguous spelling.
+10. No offensive words and no words implying negative, sad or bad feelings.
+
