@@ -5,7 +5,7 @@
   Author: Andrew Chow <achow101@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0174
-  Status: Proposed
+  Status: Final
   Type: Standards Track
   Created: 2017-07-12
   License: BSD-2-Clause
@@ -20,6 +20,9 @@ necessary for a signer to produce signatures for the transaction and holds the
 signatures for an input while the input does not have a complete set of signatures.
 The signer can be offline as all necessary information will be provided in the
 transaction.
+
+The generic format is described here in addition to the specification for version 0
+of this format.
 
 ===Copyright===
 
@@ -48,272 +51,337 @@ is the separator here <tt>0x00</tt> instead of <tt>0xff</tt>?'''
 The separator here is used to distinguish between each chunk of data. A separator of 0x00 would mean that
 the unserializer can read it as a key length of 0, which would never occur with actual keys. It can thus
 be used as a separator and allow for easier unserializer implementation.</ref>.
-Each key-value pair must have a unique key within its scope; duplicates are not allowed. The format
-of a record is as follows:
 
-Note: <tt><..></tt> indicates that the data is prefixed by a compact size unsigned integer representing
-the length of that data. <tt>{..}</tt> indicates the raw data itself.
 
-<pre>
-<key>|<value>
-</pre>
+ <psbt> := <magic> <global-map> <input-map>* <output-map>*
+ <magic> := 0x70 0x73 0x62 0x74 0xFF
+ <global-map> := <keypair>* 0x00
+ <input-map> := <keypair>* 0x00
+ <output-map> := <keypair>* 0x00
+ <keypair> := <key> <value>
+ <key> := <keylen> <keytype> <keydata>
+ <value> := <valuelen> <valuedata>
 
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Name
-!Type
-!Description
-|-
-| Key Length
-| Compact Size Unsigned Integer
-| Specify how long the key is
-|-
-| Key
-| byte[]
-| The Key itself
-|-
-| Value Length
-| Compact Size Unsigned Integer
-| Specify how long the value is
-|-
-| Value
-| byte[]
-| The Value itself
-|}
+Where:
 
-The format of each key-value map is as follows:
-
-<pre>
-{key-value pair}|{key-value pair}|...|{0x00}
-</pre>
-
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Field Size
-!Name
-!Type
-!Value
-!Description
-|-
-| 1+
-| Key-value pairs
-| Array of key-value pairs
-| varies
-| The key-value pairs.
-|-
-| 1
-| separator
-| char
-| <tt>0x00</tt>
-| Must be <tt>0x00</tt> at the end of the map.
-|}
-
-At the beginning of each key is a compact size unsigned integer representing the type.
-This compact size unsigned integer must be minimally encoded, i.e. if the value can be represented using one byte, it must be represented as one byte.
-For convenience, this BIP will specify types using their full serialization, so a multi-byte type will have it's full prefix and zero padding as necessary.
-There are global types, per-input types, and per-output types.
+;<tt><keytype></tt>
+: A compact size unsigned integer representing the type. This compact size unsigned integer must be minimally encoded, i.e. if the value can be represented using one byte, it must be represented as one byte. This must be unique within a specific <tt><map></tt>.
+;<tt><keylen></tt>
+: The compact size unsigned integer containing the combined length of <tt><keytype></tt> and <tt><keydata></tt>
+;<tt><valuelen></tt>
+: The compact size unsigned integer containing the length of <tt><valuedata></tt>.
+;<tt><magic></tt>
+: Magic bytes which are ASCII for psbt <ref>'''Why use 4 bytes for psbt?''' The
+transaction format needed to start with a 5 byte header which uniquely identifies
+it. The first bytes were chosen to be the ASCII for psbt because that stands for
+Partially Signed Bitcoin Transaction. </ref> followed by a separator of <tt>0xFF</tt>
+<ref>'''Why Use a separator after the magic bytes?''' The separator
+is part of the 5 byte header for PSBT. This byte is a separator of <tt>0xff</tt> because
+this will cause any non-PSBT unserializer to fail to properly unserialize the PSBT
+as a normal transaction. Likewise, since the 5 byte header is fixed, no transaction
+in the non-PSBT format will be able to be unserialized by a PSBT unserializer.</ref>. This integer must be serialized
+in most significant byte order.
 
 The currently defined global types are as follows:
 
-* Type: Unsigned Transaction <tt>PSBT_GLOBAL_UNSIGNED_TX = 0x00</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x00}</tt>
-** Value: The transaction in network serialization. The scriptSigs and witnesses for each input must be empty. The transaction must be in the old serialization format (without witnesses). A PSBT must have a transaction, otherwise it is invalid.
-*** <tt>{transaction}</tt>
-** Note: Every PSBT must have a field with this type.
-
-* Type: Extended Public Key <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
-** Key: The type followed by the 78 byte serialized extended public key as defined by BIP 32. Extended public keys are those that can be used to derive public keys used in the inputs and outputs of this transaction. It should be the public key at the highest hardened derivation index so that the unhardened child keys used in the transaction can be derived.
-*** <tt>{0x01}|{xpub}</tt>
-** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
-*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
-
-* Type: Version Number <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0xFB}</tt>
-** Value: The 32-bit little endian unsigned integer representing the version number of this PSBT. If ommitted, the version number is 0.
-*** <tt>{32-bit uint}</tt>
-
-* Type: Proprietary Use Type <tt>PSBT_GLOBAL_PROPRIETARY = 0xFC</tt>
-** Key: Variable length identifier prefix, followed by a subtype, followed by the key data itself.
-*** <tt>{0xFC}|<prefix>|{subtype}|{key data}</tt>
-** Value: Any value data as defined by the proprietary type user.
-*** <tt><data></tt>
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+! Parent BIP
+|-
+| Unsigned Transaction
+| <tt>PSBT_GLOBAL_UNSIGNED_TX = 0x00</tt>
+| None
+| No key data
+| <tt><transaction></tt>
+| The transaction in network serialization. The scriptSigs and witnesses for each input must be empty. The transaction must be in the old serialization format (without witnesses).
+| 0
+|
+| 0
+| 174
+|-
+| Extended Public Key
+| <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
+| <tt><xpub></tt>
+| The 78 byte serialized extended public key as defined by BIP 32. Extended public keys are those that can be used to derive public keys used in the inputs and outputs of this transaction. It should be the public key at the highest hardened derivation index so that the unhardened child keys used in the transaction can be derived.
+| <tt><32-bit uint> <32-bit uint>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. The number of 32 bit unsigned integer indexes must match the depth provided in the extended public key.
+|
+|
+| 0
+| 174
+|-
+| PSBT Version Number
+| <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
+| None
+| No key data
+| <tt><32-bit uint></tt>
+| The 32-bit little endian unsigned integer representing the version number of this PSBT. If omitted, the version number is 0.
+|
+|
+| 0
+| 174
+|-
+| Proprietary Use Type
+| <tt>PSBT_GLOBAL_PROPRIETARY = 0xFC</tt>
+| <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
+| Compact size unsigned integer <tt><identifierlen></tt>, followed by identifier prefix of that length <tt><identifer></tt>, followed by a subtype <tt><subtype></tt>, followed by the key data itself <tt><subkeydata></tt>.
+| <tt><data></tt>
+| Any value data as defined by the proprietary type user.
+|
+|
+| 0
+| 174
+|}
 
 The currently defined per-input types are defined as follows:
 
-* Type: Non-Witness UTXO <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
-** Key: None. The key must only contain the 1 byte type.
-***<tt>{0x00}</tt>
-** Value: The transaction in network serialization format the current input spends from. This should be present for inputs that spend non-segwit outputs and can be present for inputs that spend segwit outputs. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>. <ref>'''Why can both UTXO types be provided?''' Many wallets began requiring the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) for segwit inputs when PSBT was already in use. In order to be compatible with software which were expecting <tt>PSBT_IN_WITNESS_UTXO</tt>, both UTXO types must be allowed.</ref>
-*** <tt>{transaction}</tt>
-
-* Type: Witness UTXO <tt>PSBT_IN_WITNESS_UTXO = 0x01</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x01}</tt>
-** Value: The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>
-*** <tt>{serialized transaction output({output value}|<scriptPubKey>)}</tt>
-
-* Type: Partial Signature <tt>PSBT_IN_PARTIAL_SIG = 0x02</tt>
-** Key: The public key which corresponds to this signature.
-*** <tt>{0x02}|{public key}</tt>
-** Value: The signature as would be pushed to the stack from a scriptSig or witness.
-*** <tt>{signature}</tt>
-
-* Type: Sighash Type <tt>PSBT_IN_SIGHASH_TYPE = 0x03</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x03}</tt>
-** Value: The 32-bit unsigned integer specifying the sighash type to be used for this input. Signatures for this input must use the sighash type, finalizers must fail to finalize inputs which have signatures that do not match the specified sighash type. Signers who cannot produce signatures with the sighash type must not provide a signature.
-*** <tt>{sighash type}</tt>
-
-* Type: Redeem Script <tt>PSBT_IN_REDEEM_SCRIPT = 0x04</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x04}</tt>
-** Value: The redeemScript for this input if it has one.
-*** <tt>{redeemScript}</tt>
-
-* Type: Witness Script <tt>PSBT_IN_WITNESS_SCRIPT = 0x05</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x05}</tt>
-** Value: The witnessScript for this input if it has one.
-*** <tt>{witnessScript}</tt>
-
-* Type:  BIP 32 Derivation Path <tt>PSBT_IN_BIP32_DERIVATION = 0x06</tt>
-** Key: The public key
-*** <tt>{0x06}|{public key}</tt>
-** Value: The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. Public keys are those that will be needed to sign this input.
-*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
-
-* Type: Finalized scriptSig <tt>PSBT_IN_FINAL_SCRIPTSIG = 0x07</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x07}</tt>
-** Value: The Finalized scriptSig contains a fully constructed scriptSig with signatures and any other scripts necessary for the input to pass validation.
-*** <tt>{scriptSig}</tt>
-
-* Type: Finalized scriptWitness <tt>PSBT_IN_FINAL_SCRIPTWITNESS = 0x08</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x08}</tt>
-** Value: The Finalized scriptWitness contains a fully constructed scriptWitness with signatures and any other scripts necessary for the input to pass validation.
-*** <tt>{scriptWitness}</tt>
-
-* Type: Proof-of-reserves commitment <tt>PSBT_IN_POR_COMMITMENT = 0x09</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x09}</tt>
-** Value: The UTF-8 encoded commitment message string for the proof-of-reserves.  See [[bip-0127.mediawiki|BIP 127]] for more information.
-*** <tt>{porCommitment}</tt>
-
-* Type: RIPEMD160 preimage <tt>PSBT_IN_RIPEMD160 = 0x0a</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0a}|{20-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `RIPEMD160` algorithm
-*** <tt>{preimage}</tt>
-
-* Type: SHA256 preimage <tt>PSBT_IN_SHA256 = 0x0b</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0b}|{32-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm
-*** <tt>{preimage}</tt>
-
-* Type: HASH160 preimage <tt>PSBT_IN_HASH160 = 0x0c</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0c}|{20-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm followed by the `RIPEMD160` algorithm
-*** <tt>{preimage}</tt>
-
-* Type: HASH256 preimage <tt>PSBT_IN_HASH256 = 0x0d</tt>
-** Key: The resulting hash of the preimage
-*** <tt>{0x0d}|{32-byte hash}</tt>
-** Value: The hash preimage, encoded as a byte vector, which must equal the key when run through the `SHA256` algorithm twice
-*** <tt>{preimage}</tt>
-
-* Type: Proprietary Use Type <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
-** Key: Variable length identifier prefix, followed by a subtype, followed by the key data itself.
-*** <tt>{0xFC}|<prefix>|{subtype}|{key data}</tt>
-** Value: Any value data as defined by the proprietary type user.
-*** <tt><data></tt>
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+! Parent BIP
+|-
+| Non-Witness UTXO
+| <tt>PSBT_IN_NON_WITNESS_UTXO = 0x00</tt>
+| None
+| No key data
+| <tt><transaction></tt>
+| The transaction in network serialization format the current input spends from. This should be present for inputs that spend non-segwit outputs and can be present for inputs that spend segwit outputs. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>. <ref>'''Why can both UTXO types be provided?''' Many wallets began requiring the full previous transaction (i.e. <tt>PSBT_IN_NON_WITNESS_UTXO</tt>) for segwit inputs when PSBT was already in use. In order to be compatible with software which were expecting <tt>PSBT_IN_WITNESS_UTXO</tt>, both UTXO types must be allowed.</ref>
+|
+|
+| 0
+| 174
+|-
+| Witness UTXO
+| <tt>PSBT_IN_WITNESS_UTXO = 0x01</tt>
+| None
+| No key data
+| <tt><64-bit uint> <scriptPubKeylen> <scriptPubKey></tt>
+| The entire transaction output in network serialization which the current input spends from. This should only be present for inputs which spend segwit outputs, including P2SH embedded ones. An input can have both <tt>PSBT_IN_NON_WITNESS_UTXO</tt> and <tt>PSBT_IN_WITNESS_UTXO</tt>
+|
+|
+| 0
+| 174
+|-
+| Partial Signature
+| <tt>PSBT_IN_PARTIAL_SIG = 0x02</tt>
+| <tt><pubkey></tt>
+| The public key which corresponds to this signature.
+| <tt><signature></tt>
+| The signature as would be pushed to the stack from a scriptSig or witness.
+|
+|
+| 0
+| 174
+|-
+| Sighash Type
+| <tt>PSBT_IN_SIGHASH_TYPE = 0x03</tt>
+| None
+| No key data
+| <tt><32-bit uint></tt>
+| The 32-bit unsigned integer specifying the sighash type to be used for this input. Signatures for this input must use the sighash type, finalizers must fail to finalize inputs which have signatures that do not match the specified sighash type. Signers who cannot produce signatures with the sighash type must not provide a signature.
+|
+|
+| 0
+| 174
+|-
+| Redeem Script
+| <tt>PSBT_IN_REDEEM_SCRIPT = 0x04</tt>
+| None
+| No key data
+| <tt><redeemScript></tt>
+| The redeemScript for this input if it has one.
+|
+|
+| 0
+| 174
+|-
+| Witness Script
+| <tt>PSBT_IN_WITNESS_SCRIPT = 0x05</tt>
+| None
+| No key data
+| <tt><witnessScript></tt>
+| The witnessScript for this input if it has one.
+|
+|
+| 0
+| 174
+|-
+| BIP 32 Derivation Path
+| <tt>PSBT_IN_BIP32_DERIVATION = 0x06</tt>
+| <tt><pubkey></tt>
+| The public key
+| <tt><32-bit uint> <32-bit uint>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the public key. The derivation path is represented as 32 bit unsigned integer indexes concatenated with each other. Public keys are those that will be needed to sign this input.
+|
+|
+| 0
+| 174
+|-
+| Finalized scriptSig
+| <tt>PSBT_IN_FINAL_SCRIPTSIG = 0x07</tt>
+| None
+| No key data
+| <tt><scriptSig></tt>
+| The Finalized scriptSig contains a fully constructed scriptSig with signatures and any other scripts necessary for the input to pass validation.
+|
+|
+| 0
+| 174
+|-
+| Finalized scriptWitness
+| <tt>PSBT_IN_FINAL_SCRIPTWITNESS = 0x08</tt>
+| None
+| No key data
+| <tt><scriptWitness></tt>
+| The Finalized scriptWitness contains a fully constructed scriptWitness with signatures and any other scripts necessary for the input to pass validation.
+|
+|
+| 0
+| 174
+|-
+| Proof-of-reserves commitment
+| <tt>PSBT_IN_POR_COMMITMENT = 0x09</tt>
+| None
+| No key data
+| <tt><porCommitment></tt>
+| The UTF-8 encoded commitment message string for the proof-of-reserves.  See [[bip-0127.mediawiki|BIP 127]] for more information.
+|
+|
+| 0
+| [[bip-0127.mediawiki|127]]
+|-
+| RIPEMD160 preimage
+| <tt>PSBT_IN_RIPEMD160 = 0x0a</tt>
+| <tt><20-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>RIPEMD160</tt> algorithm
+|
+|
+| 0
+| 174
+|-
+| SHA256 preimage
+| <tt>PSBT_IN_SHA256 = 0x0b</tt>
+| <tt><32-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>SHA256</tt> algorithm
+|
+|
+| 0
+| 174
+|-
+| HASH160 preimage
+| <tt>PSBT_IN_HASH160 = 0x0c</tt>
+| <tt><20-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>SHA256</tt> algorithm followed by the <tt>RIPEMD160</tt> algorithm
+|
+|
+| 0
+| 174
+|-
+| HASH256 preimage
+| <tt>PSBT_IN_HASH256 = 0x0d</tt>
+| <tt><32-byte hash></tt>
+| The resulting hash of the preimage
+| <tt><preimage></tt>
+| The hash preimage, encoded as a byte vector, which must equal the key when run through the <tt>SHA256</tt> algorithm twice
+|
+|
+| 0
+| 174
+|-
+| Proprietary Use Type
+| <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
+| <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
+| Compact size unsigned integer <tt><identifierlen></tt>, followed by identifier prefix of that length <tt><identifer></tt>, followed by a subtype <tt><subtype></tt>, followed by the key data itself <tt><subkeydata></tt>.
+| <tt><data></tt>
+| Any value data as defined by the proprietary type user.
+|
+|
+| 0
+| 174
+|}
 
 The currently defined per-output <ref>'''Why do we need per-output data?''' Per-output data allows signers
 to verify that the outputs are going to the intended recipient. The output data can also be use by signers to
 determine which outputs are change outputs and verify that the change is returning to the correct place.</ref> types are defined as follows:
 
-* Type: Redeem Script <tt>PSBT_OUT_REDEEM_SCRIPT = 0x00</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x00}</tt>
-** Value: The redeemScript for this output if it has one.
-*** <tt>{redeemScript}</tt>
-
-* Type: Witness Script <tt>PSBT_OUT_WITNESS_SCRIPT = 0x01</tt>
-** Key: None. The key must only contain the 1 byte type.
-*** <tt>{0x01}</tt>
-** Value: The witnessScript for this output if it has one.
-*** <tt>{witnessScript}</tt>
-
-* Type:  BIP 32 Derivation Path <tt>PSBT_OUT_BIP32_DERIVATION = 0x02</tt>
-** Key: The public key
-*** <tt>{0x02}|{public key}</tt>
-** Value: The master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output.
-*** <tt>{master key fingerprint}|{32-bit uint}|...|{32-bit uint}</tt>
-
-* Type: Proprietary Use Type <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
-** Key: Variable length identifier prefix, followed by a subtype, followed by the key data itself.
-*** <tt>{0xFC}|<prefix>|{subtype}|{key data}</tt>
-** Value: Any value data as defined by the proprietary type user.
-*** <tt><data></tt>
-
-The transaction format is specified as follows:
-
-
-<pre>
-    {0x70736274}|{0xff}|{global key-value map}|{input key-value map}|...|{input key-value map}|{output key-value map}|...|{output key-value map}|
-</pre>
-
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Field Size
-!Name
-!Type
-!Value
-!Description
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+! Parent BIP
 |-
-| 4
-| Magic Bytes
-| int32_t
-| <tt>0x70736274</tt>
-| Magic bytes which are ASCII for psbt. <ref>'''Why use 4 bytes for psbt?''' The
-transaction format needed to start with a 5 byte header which uniquely identifies
-it. The first bytes were chosen to be the ASCII for psbt because that stands for
-Partially Signed Bitcoin Transaction. </ref> This integer should be serialized
-in most significant byte order.
+| Redeem Script
+| <tt>PSBT_OUT_REDEEM_SCRIPT = 0x00</tt>
+| None
+| No key data
+| <tt><redeemScript></tt>
+| The redeemScript for this output if it has one.
+|
+|
+| 0
+| 174
 |-
-| 1
-| separator
-| char
-| <tt>0xff</tt>
-| Must be <tt>0xff</tt> <ref>'''Why Use a separator after the magic bytes?''' The separator
-is part of the 5 byte header for PSBT. This byte is a separator of <tt>0xff</tt> because
-this will cause any non-PSBT unserializer to fail to properly unserialize the PSBT
-as a normal transaction. Likewise, since the 5 byte header is fixed, no transaction
-in the non-PSBT format will be able to be unserialized by a PSBT unserializer.</ref>
+| Witness Script
+| <tt>PSBT_OUT_WITNESS_SCRIPT = 0x01</tt>
+| None
+| No key data
+| <tt><witnessScript></tt>
+| The witnessScript for this output if it has one.
+|
+|
+| 0
+| 174
 |-
-| 1+
-| Global data
-| Key-value Map
-| varies
-| The key-value pairs for all global data.
+| BIP 32 Derivation Path
+| <tt>PSBT_OUT_BIP32_DERIVATION = 0x02</tt>
+| <tt><public key></tt>
+| The public key
+| <tt><{32-bit uint> <32-bit uint>*</tt>
+| The master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output.
+|
+|
+| 0
+| 174
 |-
-| 1+
-| Inputs
-| Array of key-value maps
-| varies
-| The key-value pairs for each input as described above. Every input in the unsigned transaction must have a corresponding input map.
-|-
-| 1+
-| Outputs
-| Array of key-value maps
-| varies
-| The key-value pairs for each output as described above. Every output in the unsigned transaction must have a corresponding output map.
+| Proprietary Use Type
+| <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
+| <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
+| Compact size unsigned integer <tt><identifierlen></tt>, followed by identifier prefix of that length <tt><identifer></tt>, followed by a subtype <tt><subtype></tt>, followed by the key data itself <tt><subkeydata></tt>.
+| <tt><data></tt>
+| Any value data as defined by the proprietary type user.
+|
+|
+| 0
+| 174
 |}
 
-Each block of data between separators can be viewed as a scope, and all separators
-are required<ref>'''Why are all separators required?''' The separators are required
-so that the unserializer knows which input it is unserializing data for.</ref>.
 Types can be skipped when they are unnecessary. For example, if an input is a witness
 input, then it should not have a Non-Witness UTXO key-value pair.
 
@@ -336,10 +404,10 @@ values are valid, then it does not matter which is chosen as either way the tran
 ===Proprietary Use Type===
 
 For all global, per-input, and per-output maps, the types <tt>0xFC</tt> is reserved for proprietary use.
-The proprietary use type requires keys that follow the type with a variable length string identifer, then a subtype.
+The proprietary use type requires keys that follow the type with a compact size unsigned integer representing the length of the string identifer, followed by the string identifier, then a subtype, and finally any key data.
 
 The identifier can be any variable length string that software can use to identify whether the particular data in the proprietary type can be used by it.
-It can also be the empty string and just be a single <tt>0x00</tt> byte although this is not recommended.
+It can also be the empty string although this is not recommended.
 
 The subtype is defined by the proprietary type user and can mean whatever they want it to mean.
 The subtype must also be a compact size unsigned integer in the same form as the normal types.
@@ -350,6 +418,12 @@ It is useful when there are additional data that they need attached to a PSBT bu
 The proprietary use type is not to be used by any public specification and there is no expectation that any publicly available software be able to understand any specific meanings of it and the subtypes.
 This type must be used for internal processes only.
 
+==Version 0==
+
+Partially Signed Bitcoin Transactions version 0 is the first version of the PSBT format.
+Version 0 PSBTs must either omit PSBT_GLOBAL_VERSION or include it and set it to 0.
+Version 0 PSBTs must include PSBT_GLOBAL_UNSIGNED_TX, if omitted, the PSBT is invalid.
+
 ==Roles==
 
 Using the transaction format involves many different roles. Multiple roles can be handled by a single entity, but each role is specialized in what it should be capable of doing.
@@ -357,7 +431,7 @@ Using the transaction format involves many different roles. Multiple roles can b
 ===Creator===
 
 The Creator creates a new PSBT. It must create an unsigned transaction and place it in the PSBT.
-The Creator must create empty input fields.
+The Creator must create empty input and output fields.
 
 ===Updater===
 
@@ -509,6 +583,18 @@ Updaters and combiners that need to add a version number to a PSBT should use th
 For example, if a combiner sees two PSBTs for the same transaction, one with version 0, and the other with version 1, then it should combine them and produce a PSBT with version 1.
 If an updater is updating a PSBT and needs to add a field that is only available in version 1, then it should set the PSBT version number to 1 unless a version higher than that is already specified.
 
+===Procedure For New Fields===
+
+New fields should first be proposed on the bitcoin-dev mailing list.
+If a field requires significatn description as to its usage, it should be accompanied by a separate BIP.
+The field must be added to the field listing tables in the Specification section.
+
+===Procedure For New Versions===
+
+New PSBT versions must be described in a separate BIP.
+The BIP may reference this BIP and any components of PSBT version 0 that are retained in the new version.
+Any new fields described in the new version must be added to the field listing tables in the Specification section.
+
 ==Compatibility==
 
 This transaction format is designed so that it is unable to be properly unserialized
@@ -549,55 +635,55 @@ The following are invalid PSBTs:
 ** Bytes in Hex: <pre>70736274ff0100750200000001268171371edff285e937adeea4b37b78000c0566cbb3ad64641713ca42171bf60000000000feffffff02d3dff505000000001976a914d0c59903c5bac2868760e90fd521a4665aa7652088ac00e1f5050000000017a9143545e6e33b832c47050f24d3eeb93c9c03948bc787b32e1300000100fda5010100000000010289a3c71eab4d20e0371bbba4cc698fa295c9463afa2e397f8533ccb62f9567e50100000017160014be18d152a9b012039daf3da7de4f53349eecb985ffffffff86f8aa43a71dff1448893a530a7237ef6b4608bbb2dd2d0171e63aec6a4890b40100000017160014fe3e9ef1a745e974d902c4355943abcb34bd5353ffffffff0200c2eb0b000000001976a91485cff1097fd9e008bb34af709c62197b38978a4888ac72fef84e2c00000017a914339725ba21efd62ac753a9bcd067d6c7a6a39d05870247304402202712be22e0270f394f568311dc7ca9a68970b8025fdd3b240229f07f8a5f3a240220018b38d7dcd314e734c9276bd6fb40f673325bc4baa144c800d2f2f02db2765c012103d2e15674941bad4a996372cb87e1856d3652606d98562fe39c5e9e7e413f210502483045022100d12b852d85dcd961d2f5f4ab660654df6eedcc794c0c33ce5cc309ffb5fce58d022067338a8e0e1725c197fb1a88af59f51e44e4255b20167c8684031c05d1f2592a01210223b72beef0965d10be0778efecd61fcac6f79a4ea169393380734464f84f2ab30000000001003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000000</pre>
 ** Base64 String: <pre>cHNidP8BAHUCAAAAASaBcTce3/KF6Tet7qSze3gADAVmy7OtZGQXE8pCFxv2AAAAAAD+////AtPf9QUAAAAAGXapFNDFmQPFusKGh2DpD9UhpGZap2UgiKwA4fUFAAAAABepFDVF5uM7gyxHBQ8k0+65PJwDlIvHh7MuEwAAAQD9pQEBAAAAAAECiaPHHqtNIOA3G7ukzGmPopXJRjr6Ljl/hTPMti+VZ+UBAAAAFxYAFL4Y0VKpsBIDna89p95PUzSe7LmF/////4b4qkOnHf8USIk6UwpyN+9rRgi7st0tAXHmOuxqSJC0AQAAABcWABT+Pp7xp0XpdNkCxDVZQ6vLNL1TU/////8CAMLrCwAAAAAZdqkUhc/xCX/Z4Ai7NK9wnGIZeziXikiIrHL++E4sAAAAF6kUM5cluiHv1irHU6m80GfWx6ajnQWHAkcwRAIgJxK+IuAnDzlPVoMR3HyppolwuAJf3TskAinwf4pfOiQCIAGLONfc0xTnNMkna9b7QPZzMlvEuqFEyADS8vAtsnZcASED0uFWdJQbrUqZY3LLh+GFbTZSYG2YVi/jnF6efkE/IQUCSDBFAiEA0SuFLYXc2WHS9fSrZgZU327tzHlMDDPOXMMJ/7X85Y0CIGczio4OFyXBl/saiK9Z9R5E5CVbIBZ8hoQDHAXR8lkqASECI7cr7vCWXRC+B3jv7NYfysb3mk6haTkzgHNEZPhPKrMAAAAAAQA/AgAAAAH//////////////////////////////////////////wAAAAAA/////wEAAAAAAAAAAANqAQAAAAAAAAAA</pre>
 
-* Case: PSBT With invalid global transaction typed key
+* Case: PSBT with invalid global transaction typed key
 ** Bytes in Hex: <pre>70736274ff020001550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac0000000000010120955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87220203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4646304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a010104220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d5681010547522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae220603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4610b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8CAAFVAgAAAAEnmiMjpd+1H8RfIg+liw/BPh4zQnkqhdfjbNYzO1y8OQAAAAAA/////wGgWuoLAAAAABl2qRT/6cAGEJfMO2NvLLBGD6T8Qn0rRYisAAAAAAABASCVXuoLAAAAABepFGNFIA9o0YnhrcDfHE0W6o8UwNvrhyICA7E0HMunaDtq9PEjjNbpfnFn1Wn6xH8eSNR1QYRDVb1GRjBDAiAEJLWO/6qmlOFVnqXJO7/UqJBkIkBVzfBwtncUaUQtBwIfXI6w/qZRbWC4rLM61k7eYOh4W/s6qUuZvfhhUduamgEBBCIAIHcf0YrUWWZt1J89Vk49vEL0yEd042CtoWgWqO1IjVaBAQVHUiEDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUYhA95V0eHayAXj+KWMH7+blMAvPbqv4Sf+/KSZXyb4IIO9Uq4iBgOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RhC0prpnAAAAgAAAAIAEAACAIgYD3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg70QtKa6ZwAAAIAAAACABQAAgAAA</pre>
 
-* Case: PSBT With invalid input witness utxo typed key
+* Case: PSBT with invalid input witness utxo typed key
 ** Bytes in Hex: <pre>70736274ff0100550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac000000000002010020955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87220203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4646304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a010104220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d5681010547522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae220603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4610b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAIBACCVXuoLAAAAABepFGNFIA9o0YnhrcDfHE0W6o8UwNvrhyICA7E0HMunaDtq9PEjjNbpfnFn1Wn6xH8eSNR1QYRDVb1GRjBDAiAEJLWO/6qmlOFVnqXJO7/UqJBkIkBVzfBwtncUaUQtBwIfXI6w/qZRbWC4rLM61k7eYOh4W/s6qUuZvfhhUduamgEBBCIAIHcf0YrUWWZt1J89Vk49vEL0yEd042CtoWgWqO1IjVaBAQVHUiEDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUYhA95V0eHayAXj+KWMH7+blMAvPbqv4Sf+/KSZXyb4IIO9Uq4iBgOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RhC0prpnAAAAgAAAAIAEAACAIgYD3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg70QtKa6ZwAAAIAAAACABQAAgAAA</pre>
 
-* Case: PSBT With invalid pubkey length for input partial signature typed key
+* Case: PSBT with invalid pubkey length for input partial signature typed key
 ** Bytes in Hex: <pre>70736274ff0100550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac0000000000010120955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87210203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd46304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a010104220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d5681010547522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae220603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4610b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAEBIJVe6gsAAAAAF6kUY0UgD2jRieGtwN8cTRbqjxTA2+uHIQIDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUYwQwIgBCS1jv+qppThVZ6lyTu/1KiQZCJAVc3wcLZ3FGlELQcCH1yOsP6mUW1guKyzOtZO3mDoeFv7OqlLmb34YVHbmpoBAQQiACB3H9GK1FlmbdSfPVZOPbxC9MhHdONgraFoFqjtSI1WgQEFR1IhA7E0HMunaDtq9PEjjNbpfnFn1Wn6xH8eSNR1QYRDVb1GIQPeVdHh2sgF4/iljB+/m5TALz26r+En/vykmV8m+CCDvVKuIgYDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUYQtKa6ZwAAAIAAAACABAAAgCIGA95V0eHayAXj+KWMH7+blMAvPbqv4Sf+/KSZXyb4IIO9ELSmumcAAACAAAAAgAUAAIAAAA==</pre>
 
-* Case: PSBT With invalid redeemscript typed key
+* Case: PSBT with invalid redeemscript typed key
 ** Bytes in Hex: <pre>70736274ff0100550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac0000000000010120955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87220203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4646304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a01020400220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d5681010547522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae220603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4610b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAEBIJVe6gsAAAAAF6kUY0UgD2jRieGtwN8cTRbqjxTA2+uHIgIDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUZGMEMCIAQktY7/qqaU4VWepck7v9SokGQiQFXN8HC2dxRpRC0HAh9cjrD+plFtYLisszrWTt5g6Hhb+zqpS5m9+GFR25qaAQIEACIAIHcf0YrUWWZt1J89Vk49vEL0yEd042CtoWgWqO1IjVaBAQVHUiEDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUYhA95V0eHayAXj+KWMH7+blMAvPbqv4Sf+/KSZXyb4IIO9Uq4iBgOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RhC0prpnAAAAgAAAAIAEAACAIgYD3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg70QtKa6ZwAAAIAAAACABQAAgAAA</pre>
 
-* Case: PSBT With invalid witnessscript typed key
+* Case: PSBT with invalid witnessscript typed key
 ** Bytes in Hex: <pre>70736274ff0100550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac0000000000010120955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87220203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4646304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a010104220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d568102050047522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae220603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4610b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAEBIJVe6gsAAAAAF6kUY0UgD2jRieGtwN8cTRbqjxTA2+uHIgIDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUZGMEMCIAQktY7/qqaU4VWepck7v9SokGQiQFXN8HC2dxRpRC0HAh9cjrD+plFtYLisszrWTt5g6Hhb+zqpS5m9+GFR25qaAQEEIgAgdx/RitRZZm3Unz1WTj28QvTIR3TjYK2haBao7UiNVoECBQBHUiEDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUYhA95V0eHayAXj+KWMH7+blMAvPbqv4Sf+/KSZXyb4IIO9Uq4iBgOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RhC0prpnAAAAgAAAAIAEAACAIgYD3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg70QtKa6ZwAAAIAAAACABQAAgAAA</pre>
 
-* Case: PSBT With invalid bip32 typed key
+* Case: PSBT with invalid pubkey in input BIP 32 derivation paths typed key
 ** Bytes in Hex: <pre>70736274ff0100550200000001279a2323a5dfb51fc45f220fa58b0fc13e1e3342792a85d7e36cd6333b5cbc390000000000ffffffff01a05aea0b000000001976a914ffe9c0061097cc3b636f2cb0460fa4fc427d2b4588ac0000000000010120955eea0b0000000017a9146345200f68d189e1adc0df1c4d16ea8f14c0dbeb87220203b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd4646304302200424b58effaaa694e1559ea5c93bbfd4a89064224055cdf070b6771469442d07021f5c8eb0fea6516d60b8acb33ad64ede60e8785bfb3aa94b99bdf86151db9a9a010104220020771fd18ad459666dd49f3d564e3dbc42f4c84774e360ada16816a8ed488d5681010547522103b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd462103de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd52ae210603b1341ccba7683b6af4f1238cd6e97e7167d569fac47f1e48d47541844355bd10b4a6ba67000000800000008004000080220603de55d1e1dac805e3f8a58c1fbf9b94c02f3dbaafe127fefca4995f26f82083bd10b4a6ba670000008000000080050000800000</pre>
 ** Base64 String: <pre>cHNidP8BAFUCAAAAASeaIyOl37UfxF8iD6WLD8E+HjNCeSqF1+Ns1jM7XLw5AAAAAAD/////AaBa6gsAAAAAGXapFP/pwAYQl8w7Y28ssEYPpPxCfStFiKwAAAAAAAEBIJVe6gsAAAAAF6kUY0UgD2jRieGtwN8cTRbqjxTA2+uHIgIDsTQcy6doO2r08SOM1ul+cWfVafrEfx5I1HVBhENVvUZGMEMCIAQktY7/qqaU4VWepck7v9SokGQiQFXN8HC2dxRpRC0HAh9cjrD+plFtYLisszrWTt5g6Hhb+zqpS5m9+GFR25qaAQEEIgAgdx/RitRZZm3Unz1WTj28QvTIR3TjYK2haBao7UiNVoEBBUdSIQOxNBzLp2g7avTxI4zW6X5xZ9Vp+sR/HkjUdUGEQ1W9RiED3lXR4drIBeP4pYwfv5uUwC89uq/hJ/78pJlfJvggg71SriEGA7E0HMunaDtq9PEjjNbpfnFn1Wn6xH8eSNR1QYRDVb0QtKa6ZwAAAIAAAACABAAAgCIGA95V0eHayAXj+KWMH7+blMAvPbqv4Sf+/KSZXyb4IIO9ELSmumcAAACAAAAAgAUAAIAAAA==</pre>
 
-* Case: PSBT With invalid non-witness utxo typed key
+* Case: PSBT with invalid non-witness utxo typed key
 ** Bytes in Hex: <pre>70736274ff01009a020000000258e87a21b56daf0c23be8e7070456c336f7cbaa5c8757924f545887bb2abdd750000000000ffffffff838d0427d0ec650a68aa46bb0b098aea4422c071b2ca78352a077959d07cea1d0100000000ffffffff0270aaf00800000000160014d85c2b71d0060b09c9886aeb815e50991dda124d00e1f5050000000016001400aea9a2e5f0f876a588df5546e8742d1d87008f0000000000020000bb0200000001aad73931018bd25f84ae400b68848be09db706eac2ac18298babee71ab656f8b0000000048473044022058f6fc7c6a33e1b31548d481c826c015bd30135aad42cd67790dab66d2ad243b02204a1ced2604c6735b6393e5b41691dd78b00f0c5942fb9f751856faa938157dba01feffffff0280f0fa020000000017a9140fb9463421696b82c833af241c78c17ddbde493487d0f20a270100000017a91429ca74f8a08f81999428185c97b5d852e4063f6187650000000107da00473044022074018ad4180097b873323c0015720b3684cc8123891048e7dbcd9b55ad679c99022073d369b740e3eb53dcefa33823c8070514ca55a7dd9544f157c167913261118c01483045022100f61038b308dc1da865a34852746f015772934208c6d24454393cd99bdf2217770220056e675a675a6d0a02b85b14e5e29074d8a25a9b5760bea2816f661910a006ea01475221029583bf39ae0a609747ad199addd634fa6108559d6c5cd39b4c2183f1ab96e07f2102dab61ff49a14db6a7d02b0cd1fbb78fc4b18312b5b4e54dae4dba2fbfef536d752ae0001012000c2eb0b0000000017a914b7f5faf40e3d40a5a459b1db3535f2b72fa921e8870107232200208c2353173743b595dfb4a07b72ba8e42e3797da74e87fe7d9d7497e3b20289030108da0400473044022062eb7a556107a7c73f45ac4ab5a1dddf6f7075fb1275969a7f383efff784bcb202200c05dbb7470dbf2f08557dd356c7325c1ed30913e996cd3840945db12228da5f01473044022065f45ba5998b59a27ffe1a7bed016af1f1f90d54b3aa8f7450aa5f56a25103bd02207f724703ad1edb96680b284b56d4ffcb88f7fb759eabbe08aa30f29b851383d20147522103089dc10c7ac6db54f91329af617333db388cead0c231f723379d1b99030b02dc21023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e7352ae00220203a9a4c37f5996d3aa25dbac6b570af0650394492942460b354753ed9eeca5877110d90c6a4f000000800000008004000080002202027f6399757d2eff55a136ad02c684b1838b6556e5f1b6b34282a94b6b5005109610d90c6a4f00000080000000800500008000</pre>
 ** Base64 String: <pre>cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAIAALsCAAAAAarXOTEBi9JfhK5AC2iEi+CdtwbqwqwYKYur7nGrZW+LAAAAAEhHMEQCIFj2/HxqM+GzFUjUgcgmwBW9MBNarULNZ3kNq2bSrSQ7AiBKHO0mBMZzW2OT5bQWkd14sA8MWUL7n3UYVvqpOBV9ugH+////AoDw+gIAAAAAF6kUD7lGNCFpa4LIM68kHHjBfdveSTSH0PIKJwEAAAAXqRQpynT4oI+BmZQoGFyXtdhS5AY/YYdlAAAAAQfaAEcwRAIgdAGK1BgAl7hzMjwAFXILNoTMgSOJEEjn282bVa1nnJkCIHPTabdA4+tT3O+jOCPIBwUUylWn3ZVE8VfBZ5EyYRGMAUgwRQIhAPYQOLMI3B2oZaNIUnRvAVdyk0IIxtJEVDk82ZvfIhd3AiAFbmdaZ1ptCgK4WxTl4pB02KJam1dgvqKBb2YZEKAG6gFHUiEClYO/Oa4KYJdHrRma3dY0+mEIVZ1sXNObTCGD8auW4H8hAtq2H/SaFNtqfQKwzR+7ePxLGDErW05U2uTbovv+9TbXUq4AAQEgAMLrCwAAAAAXqRS39fr0Dj1ApaRZsds1NfK3L6kh6IcBByMiACCMI1MXN0O1ld+0oHtyuo5C43l9p06H/n2ddJfjsgKJAwEI2gQARzBEAiBi63pVYQenxz9FrEq1od3fb3B1+xJ1lpp/OD7/94S8sgIgDAXbt0cNvy8IVX3TVscyXB7TCRPpls04QJRdsSIo2l8BRzBEAiBl9FulmYtZon/+GnvtAWrx8fkNVLOqj3RQql9WolEDvQIgf3JHA60e25ZoCyhLVtT/y4j3+3Weq74IqjDym4UTg9IBR1IhAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcIQI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc1KuACICA6mkw39ZltOqJdusa1cK8GUDlEkpQkYLNUdT7Z7spYdxENkMak8AAACAAAAAgAQAAIAAIgICf2OZdX0u/1WhNq0CxoSxg4tlVuXxtrNCgqlLa1AFEJYQ2QxqTwAAAIAAAACABQAAgAA=</pre>
 
-* Case: PSBT With invalid final scriptsig typed key
+* Case: PSBT with invalid final scriptsig typed key
 ** Bytes in Hex: <pre>70736274ff01009a020000000258e87a21b56daf0c23be8e7070456c336f7cbaa5c8757924f545887bb2abdd750000000000ffffffff838d0427d0ec650a68aa46bb0b098aea4422c071b2ca78352a077959d07cea1d0100000000ffffffff0270aaf00800000000160014d85c2b71d0060b09c9886aeb815e50991dda124d00e1f5050000000016001400aea9a2e5f0f876a588df5546e8742d1d87008f00000000000100bb0200000001aad73931018bd25f84ae400b68848be09db706eac2ac18298babee71ab656f8b0000000048473044022058f6fc7c6a33e1b31548d481c826c015bd30135aad42cd67790dab66d2ad243b02204a1ced2604c6735b6393e5b41691dd78b00f0c5942fb9f751856faa938157dba01feffffff0280f0fa020000000017a9140fb9463421696b82c833af241c78c17ddbde493487d0f20a270100000017a91429ca74f8a08f81999428185c97b5d852e4063f618765000000020700da00473044022074018ad4180097b873323c0015720b3684cc8123891048e7dbcd9b55ad679c99022073d369b740e3eb53dcefa33823c8070514ca55a7dd9544f157c167913261118c01483045022100f61038b308dc1da865a34852746f015772934208c6d24454393cd99bdf2217770220056e675a675a6d0a02b85b14e5e29074d8a25a9b5760bea2816f661910a006ea01475221029583bf39ae0a609747ad199addd634fa6108559d6c5cd39b4c2183f1ab96e07f2102dab61ff49a14db6a7d02b0cd1fbb78fc4b18312b5b4e54dae4dba2fbfef536d752ae0001012000c2eb0b0000000017a914b7f5faf40e3d40a5a459b1db3535f2b72fa921e8870107232200208c2353173743b595dfb4a07b72ba8e42e3797da74e87fe7d9d7497e3b20289030108da0400473044022062eb7a556107a7c73f45ac4ab5a1dddf6f7075fb1275969a7f383efff784bcb202200c05dbb7470dbf2f08557dd356c7325c1ed30913e996cd3840945db12228da5f01473044022065f45ba5998b59a27ffe1a7bed016af1f1f90d54b3aa8f7450aa5f56a25103bd02207f724703ad1edb96680b284b56d4ffcb88f7fb759eabbe08aa30f29b851383d20147522103089dc10c7ac6db54f91329af617333db388cead0c231f723379d1b99030b02dc21023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e7352ae00220203a9a4c37f5996d3aa25dbac6b570af0650394492942460b354753ed9eeca5877110d90c6a4f000000800000008004000080002202027f6399757d2eff55a136ad02c684b1838b6556e5f1b6b34282a94b6b5005109610d90c6a4f00000080000000800500008000</pre>
 ** Base64 String: <pre>cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAACBwDaAEcwRAIgdAGK1BgAl7hzMjwAFXILNoTMgSOJEEjn282bVa1nnJkCIHPTabdA4+tT3O+jOCPIBwUUylWn3ZVE8VfBZ5EyYRGMAUgwRQIhAPYQOLMI3B2oZaNIUnRvAVdyk0IIxtJEVDk82ZvfIhd3AiAFbmdaZ1ptCgK4WxTl4pB02KJam1dgvqKBb2YZEKAG6gFHUiEClYO/Oa4KYJdHrRma3dY0+mEIVZ1sXNObTCGD8auW4H8hAtq2H/SaFNtqfQKwzR+7ePxLGDErW05U2uTbovv+9TbXUq4AAQEgAMLrCwAAAAAXqRS39fr0Dj1ApaRZsds1NfK3L6kh6IcBByMiACCMI1MXN0O1ld+0oHtyuo5C43l9p06H/n2ddJfjsgKJAwEI2gQARzBEAiBi63pVYQenxz9FrEq1od3fb3B1+xJ1lpp/OD7/94S8sgIgDAXbt0cNvy8IVX3TVscyXB7TCRPpls04QJRdsSIo2l8BRzBEAiBl9FulmYtZon/+GnvtAWrx8fkNVLOqj3RQql9WolEDvQIgf3JHA60e25ZoCyhLVtT/y4j3+3Weq74IqjDym4UTg9IBR1IhAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcIQI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc1KuACICA6mkw39ZltOqJdusa1cK8GUDlEkpQkYLNUdT7Z7spYdxENkMak8AAACAAAAAgAQAAIAAIgICf2OZdX0u/1WhNq0CxoSxg4tlVuXxtrNCgqlLa1AFEJYQ2QxqTwAAAIAAAACABQAAgAA=</pre>
 
-* Case: PSBT With invalid final script witness typed key
+* Case: PSBT with invalid final script witness typed key
 ** Bytes in Hex: <pre>70736274ff01009a020000000258e87a21b56daf0c23be8e7070456c336f7cbaa5c8757924f545887bb2abdd750000000000ffffffff838d0427d0ec650a68aa46bb0b098aea4422c071b2ca78352a077959d07cea1d0100000000ffffffff0270aaf00800000000160014d85c2b71d0060b09c9886aeb815e50991dda124d00e1f5050000000016001400aea9a2e5f0f876a588df5546e8742d1d87008f00000000000100bb0200000001aad73931018bd25f84ae400b68848be09db706eac2ac18298babee71ab656f8b0000000048473044022058f6fc7c6a33e1b31548d481c826c015bd30135aad42cd67790dab66d2ad243b02204a1ced2604c6735b6393e5b41691dd78b00f0c5942fb9f751856faa938157dba01feffffff0280f0fa020000000017a9140fb9463421696b82c833af241c78c17ddbde493487d0f20a270100000017a91429ca74f8a08f81999428185c97b5d852e4063f6187650000000107da00473044022074018ad4180097b873323c0015720b3684cc8123891048e7dbcd9b55ad679c99022073d369b740e3eb53dcefa33823c8070514ca55a7dd9544f157c167913261118c01483045022100f61038b308dc1da865a34852746f015772934208c6d24454393cd99bdf2217770220056e675a675a6d0a02b85b14e5e29074d8a25a9b5760bea2816f661910a006ea01475221029583bf39ae0a609747ad199addd634fa6108559d6c5cd39b4c2183f1ab96e07f2102dab61ff49a14db6a7d02b0cd1fbb78fc4b18312b5b4e54dae4dba2fbfef536d752ae0001012000c2eb0b0000000017a914b7f5faf40e3d40a5a459b1db3535f2b72fa921e8870107232200208c2353173743b595dfb4a07b72ba8e42e3797da74e87fe7d9d7497e3b2028903020800da0400473044022062eb7a556107a7c73f45ac4ab5a1dddf6f7075fb1275969a7f383efff784bcb202200c05dbb7470dbf2f08557dd356c7325c1ed30913e996cd3840945db12228da5f01473044022065f45ba5998b59a27ffe1a7bed016af1f1f90d54b3aa8f7450aa5f56a25103bd02207f724703ad1edb96680b284b56d4ffcb88f7fb759eabbe08aa30f29b851383d20147522103089dc10c7ac6db54f91329af617333db388cead0c231f723379d1b99030b02dc21023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e7352ae00220203a9a4c37f5996d3aa25dbac6b570af0650394492942460b354753ed9eeca5877110d90c6a4f000000800000008004000080002202027f6399757d2eff55a136ad02c684b1838b6556e5f1b6b34282a94b6b5005109610d90c6a4f00000080000000800500008000</pre>
 ** Base64 String: <pre>cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAABB9oARzBEAiB0AYrUGACXuHMyPAAVcgs2hMyBI4kQSOfbzZtVrWecmQIgc9Npt0Dj61Pc76M4I8gHBRTKVafdlUTxV8FnkTJhEYwBSDBFAiEA9hA4swjcHahlo0hSdG8BV3KTQgjG0kRUOTzZm98iF3cCIAVuZ1pnWm0KArhbFOXikHTYolqbV2C+ooFvZhkQoAbqAUdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSrgABASAAwusLAAAAABepFLf1+vQOPUClpFmx2zU18rcvqSHohwEHIyIAIIwjUxc3Q7WV37Sge3K6jkLjeX2nTof+fZ10l+OyAokDAggA2gQARzBEAiBi63pVYQenxz9FrEq1od3fb3B1+xJ1lpp/OD7/94S8sgIgDAXbt0cNvy8IVX3TVscyXB7TCRPpls04QJRdsSIo2l8BRzBEAiBl9FulmYtZon/+GnvtAWrx8fkNVLOqj3RQql9WolEDvQIgf3JHA60e25ZoCyhLVtT/y4j3+3Weq74IqjDym4UTg9IBR1IhAwidwQx6xttU+RMpr2FzM9s4jOrQwjH3IzedG5kDCwLcIQI63ZBPPW3PWd25BrDe4jUpt/+57VDl6GFRkmhgIh8Oc1KuACICA6mkw39ZltOqJdusa1cK8GUDlEkpQkYLNUdT7Z7spYdxENkMak8AAACAAAAAgAQAAIAAIgICf2OZdX0u/1WhNq0CxoSxg4tlVuXxtrNCgqlLa1AFEJYQ2QxqTwAAAIAAAACABQAAgAA=</pre>
 
-* Case: PSBT With invalid pubkey in output BIP 32 derivation paths typed key
+* Case: PSBT with invalid pubkey in output BIP 32 derivation paths typed key
 ** Bytes in Hex: <pre>70736274ff01009a020000000258e87a21b56daf0c23be8e7070456c336f7cbaa5c8757924f545887bb2abdd750000000000ffffffff838d0427d0ec650a68aa46bb0b098aea4422c071b2ca78352a077959d07cea1d0100000000ffffffff0270aaf00800000000160014d85c2b71d0060b09c9886aeb815e50991dda124d00e1f5050000000016001400aea9a2e5f0f876a588df5546e8742d1d87008f00000000000100bb0200000001aad73931018bd25f84ae400b68848be09db706eac2ac18298babee71ab656f8b0000000048473044022058f6fc7c6a33e1b31548d481c826c015bd30135aad42cd67790dab66d2ad243b02204a1ced2604c6735b6393e5b41691dd78b00f0c5942fb9f751856faa938157dba01feffffff0280f0fa020000000017a9140fb9463421696b82c833af241c78c17ddbde493487d0f20a270100000017a91429ca74f8a08f81999428185c97b5d852e4063f6187650000000107da00473044022074018ad4180097b873323c0015720b3684cc8123891048e7dbcd9b55ad679c99022073d369b740e3eb53dcefa33823c8070514ca55a7dd9544f157c167913261118c01483045022100f61038b308dc1da865a34852746f015772934208c6d24454393cd99bdf2217770220056e675a675a6d0a02b85b14e5e29074d8a25a9b5760bea2816f661910a006ea01475221029583bf39ae0a609747ad199addd634fa6108559d6c5cd39b4c2183f1ab96e07f2102dab61ff49a14db6a7d02b0cd1fbb78fc4b18312b5b4e54dae4dba2fbfef536d752ae0001012000c2eb0b0000000017a914b7f5faf40e3d40a5a459b1db3535f2b72fa921e8870107232200208c2353173743b595dfb4a07b72ba8e42e3797da74e87fe7d9d7497e3b20289030108da0400473044022062eb7a556107a7c73f45ac4ab5a1dddf6f7075fb1275969a7f383efff784bcb202200c05dbb7470dbf2f08557dd356c7325c1ed30913e996cd3840945db12228da5f01473044022065f45ba5998b59a27ffe1a7bed016af1f1f90d54b3aa8f7450aa5f56a25103bd02207f724703ad1edb96680b284b56d4ffcb88f7fb759eabbe08aa30f29b851383d20147522103089dc10c7ac6db54f91329af617333db388cead0c231f723379d1b99030b02dc21023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e7352ae00210203a9a4c37f5996d3aa25dbac6b570af0650394492942460b354753ed9eeca58710d90c6a4f000000800000008004000080002202027f6399757d2eff55a136ad02c684b1838b6556e5f1b6b34282a94b6b5005109610d90c6a4f00000080000000800500008000</pre>
 ** Base64 String: <pre>cHNidP8BAJoCAAAAAljoeiG1ba8MI76OcHBFbDNvfLqlyHV5JPVFiHuyq911AAAAAAD/////g40EJ9DsZQpoqka7CwmK6kQiwHGyyng1Kgd5WdB86h0BAAAAAP////8CcKrwCAAAAAAWABTYXCtx0AYLCcmIauuBXlCZHdoSTQDh9QUAAAAAFgAUAK6pouXw+HaliN9VRuh0LR2HAI8AAAAAAAEAuwIAAAABqtc5MQGL0l+ErkALaISL4J23BurCrBgpi6vucatlb4sAAAAASEcwRAIgWPb8fGoz4bMVSNSByCbAFb0wE1qtQs1neQ2rZtKtJDsCIEoc7SYExnNbY5PltBaR3XiwDwxZQvufdRhW+qk4FX26Af7///8CgPD6AgAAAAAXqRQPuUY0IWlrgsgzryQceMF9295JNIfQ8gonAQAAABepFCnKdPigj4GZlCgYXJe12FLkBj9hh2UAAAABB9oARzBEAiB0AYrUGACXuHMyPAAVcgs2hMyBI4kQSOfbzZtVrWecmQIgc9Npt0Dj61Pc76M4I8gHBRTKVafdlUTxV8FnkTJhEYwBSDBFAiEA9hA4swjcHahlo0hSdG8BV3KTQgjG0kRUOTzZm98iF3cCIAVuZ1pnWm0KArhbFOXikHTYolqbV2C+ooFvZhkQoAbqAUdSIQKVg785rgpgl0etGZrd1jT6YQhVnWxc05tMIYPxq5bgfyEC2rYf9JoU22p9ArDNH7t4/EsYMStbTlTa5Nui+/71NtdSrgABASAAwusLAAAAABepFLf1+vQOPUClpFmx2zU18rcvqSHohwEHIyIAIIwjUxc3Q7WV37Sge3K6jkLjeX2nTof+fZ10l+OyAokDAQjaBABHMEQCIGLrelVhB6fHP0WsSrWh3d9vcHX7EnWWmn84Pv/3hLyyAiAMBdu3Rw2/LwhVfdNWxzJcHtMJE+mWzThAlF2xIijaXwFHMEQCIGX0W6WZi1mif/4ae+0BavHx+Q1Us6qPdFCqX1aiUQO9AiB/ckcDrR7blmgLKEtW1P/LiPf7dZ6rvgiqMPKbhROD0gFHUiEDCJ3BDHrG21T5EymvYXMz2ziM6tDCMfcjN50bmQMLAtwhAjrdkE89bc9Z3bkGsN7iNSm3/7ntUOXoYVGSaGAiHw5zUq4AIQIDqaTDf1mW06ol26xrVwrwZQOUSSlCRgs1R1PtnuylhxDZDGpPAAAAgAAAAIAEAACAACICAn9jmXV9Lv9VoTatAsaEsYOLZVbl8bazQoKpS2tQBRCWENkMak8AAACAAAAAgAUAAIAA</pre>
 
-* Case: PSBT With invalid input sighash type typed key
+* Case: PSBT with invalid input sighash type typed key
 ** Bytes in Hex: <pre>70736274ff0100730200000001301ae986e516a1ec8ac5b4bc6573d32f83b465e23ad76167d68b38e730b4dbdb0000000000ffffffff02747b01000000000017a91403aa17ae882b5d0d54b25d63104e4ffece7b9ea2876043993b0000000017a914b921b1ba6f722e4bfa83b6557a3139986a42ec8387000000000001011f00ca9a3b00000000160014d2d94b64ae08587eefc8eeb187c601e939f9037c0203000100000000010016001462e9e982fff34dd8239610316b090cd2a3b747cb000100220020876bad832f1d168015ed41232a9ea65a1815d9ef13c0ef8759f64b5b2b278a65010125512103b7ce23a01c5b4bf00a642537cdfabb315b668332867478ef51309d2bd57f8a8751ae00</pre>
 ** Base64 String: <pre>cHNidP8BAHMCAAAAATAa6YblFqHsisW0vGVz0y+DtGXiOtdhZ9aLOOcwtNvbAAAAAAD/////AnR7AQAAAAAAF6kUA6oXrogrXQ1Usl1jEE5P/s57nqKHYEOZOwAAAAAXqRS5IbG6b3IuS/qDtlV6MTmYakLsg4cAAAAAAAEBHwDKmjsAAAAAFgAU0tlLZK4IWH7vyO6xh8YB6Tn5A3wCAwABAAAAAAEAFgAUYunpgv/zTdgjlhAxawkM0qO3R8sAAQAiACCHa62DLx0WgBXtQSMqnqZaGBXZ7xPA74dZ9ktbKyeKZQEBJVEhA7fOI6AcW0vwCmQlN836uzFbZoMyhnR471EwnSvVf4qHUa4A</pre>
 
-* Case: PSBT With invalid output redeemScript typed key
+* Case: PSBT with invalid output redeemScript typed key
 ** Bytes in Hex: <pre>70736274ff0100730200000001301ae986e516a1ec8ac5b4bc6573d32f83b465e23ad76167d68b38e730b4dbdb0000000000ffffffff02747b01000000000017a91403aa17ae882b5d0d54b25d63104e4ffece7b9ea2876043993b0000000017a914b921b1ba6f722e4bfa83b6557a3139986a42ec8387000000000001011f00ca9a3b00000000160014d2d94b64ae08587eefc8eeb187c601e939f9037c0002000016001462e9e982fff34dd8239610316b090cd2a3b747cb000100220020876bad832f1d168015ed41232a9ea65a1815d9ef13c0ef8759f64b5b2b278a65010125512103b7ce23a01c5b4bf00a642537cdfabb315b668332867478ef51309d2bd57f8a8751ae00</pre>
 ** Base64 String: <pre>cHNidP8BAHMCAAAAATAa6YblFqHsisW0vGVz0y+DtGXiOtdhZ9aLOOcwtNvbAAAAAAD/////AnR7AQAAAAAAF6kUA6oXrogrXQ1Usl1jEE5P/s57nqKHYEOZOwAAAAAXqRS5IbG6b3IuS/qDtlV6MTmYakLsg4cAAAAAAAEBHwDKmjsAAAAAFgAU0tlLZK4IWH7vyO6xh8YB6Tn5A3wAAgAAFgAUYunpgv/zTdgjlhAxawkM0qO3R8sAAQAiACCHa62DLx0WgBXtQSMqnqZaGBXZ7xPA74dZ9ktbKyeKZQEBJVEhA7fOI6AcW0vwCmQlN836uzFbZoMyhnR471EwnSvVf4qHUa4A</pre>
 
-* Case: PSBT With invalid output witnessScript typed key
+* Case: PSBT with invalid output witnessScript typed key
 ** Bytes in Hex: <pre>70736274ff0100730200000001301ae986e516a1ec8ac5b4bc6573d32f83b465e23ad76167d68b38e730b4dbdb0000000000ffffffff02747b01000000000017a91403aa17ae882b5d0d54b25d63104e4ffece7b9ea2876043993b0000000017a914b921b1ba6f722e4bfa83b6557a3139986a42ec8387000000000001011f00ca9a3b00000000160014d2d94b64ae08587eefc8eeb187c601e939f9037c00010016001462e9e982fff34dd8239610316b090cd2a3b747cb000100220020876bad832f1d168015ed41232a9ea65a1815d9ef13c0ef8759f64b5b2b278a6521010025512103b7ce23a01c5b4bf00a642537cdfabb315b668332867478ef51309d06d57f8a8751ae00</pre>
 ** Base64 String: <pre>cHNidP8BAHMCAAAAATAa6YblFqHsisW0vGVz0y+DtGXiOtdhZ9aLOOcwtNvbAAAAAAD/////AnR7AQAAAAAAF6kUA6oXrogrXQ1Usl1jEE5P/s57nqKHYEOZOwAAAAAXqRS5IbG6b3IuS/qDtlV6MTmYakLsg4cAAAAAAAEBHwDKmjsAAAAAFgAU0tlLZK4IWH7vyO6xh8YB6Tn5A3wAAQAWABRi6emC//NN2COWEDFrCQzSo7dHywABACIAIIdrrYMvHRaAFe1BIyqeploYFdnvE8Dvh1n2S1srJ4plIQEAJVEhA7fOI6AcW0vwCmQlN836uzFbZoMyhnR471EwnQbVf4qHUa4A</pre>
 
@@ -757,129 +843,3 @@ and for coming up with the name and abbreviation of PSBT.
 
 Thanks to Pieter Wuille, Gregory Maxwell, Jonathan Underwood, Daniel Cousens and those who commented on the bitcoin-dev mailing list for additional comments
 and suggestions for improving this proposal.
-
-==Appendix A: Data types and their specifications==
-
-Any data types, their associated scope and BIP number must be defined here
-
-{| class="wikitable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
-!Scope
-!Type values
-!Name
-!BIP Number
-|-
-| Global
-| 0
-| PSBT_GLOBAL_UNSIGNED_TX
-| BIP 174
-|-
-| Global
-| 1
-| PSBT_GLOBAL_XPUB
-| BIP 174
-|-
-| Global
-| 251
-| PSBT_GLOBAL_VERSION
-| BIP 174
-|-
-| Global
-| 252
-| PSBT_GLOBAL_PROPRIETARY
-| BIP 174
-|-
-| Input
-| 0
-| PSBT_IN_NON_WITNESS_UTXO
-| BIP 174
-|-
-| Input
-| 1
-| PSBT_IN_WITNESS_UTXO
-| BIP 174
-|-
-| Input
-| 2
-| PSBT_IN_PARTIAL_SIG
-| BIP 174
-|-
-| Input
-| 3
-| PSBT_IN_SIGHASH_TYPE
-| BIP 174
-|-
-| Input
-| 4
-| PSBT_IN_REDEEM_SCRIPT
-| BIP 174
-|-
-| Input
-| 5
-| PSBT_IN_WITNESS_SCRIPT
-| BIP 174
-|-
-| Input
-| 6
-| PSBT_IN_BIP32_DERIVATION
-| BIP 174
-|-
-| Input
-| 7
-| PSBT_IN_FINAL_SCRIPTSIG
-| BIP 174
-|-
-| Input
-| 8
-| PSBT_IN_FINAL_SCRIPTWITNESS
-| BIP 174
-|-
-| Input
-| 9
-| PSBT_IN_POR_COMMITMENT
-| [[bip-0127.mediawiki|BIP 127]]
-|-
-| Input
-| 10
-| PSBT_IN_RIPEMD160
-| BIP 174
-|-
-| Input
-| 11
-| PSBT_IN_SHA256
-| BIP 174
-|-
-| Input
-| 12
-| PSBT_IN_HASH160
-| BIP 174
-|-
-| Input
-| 13
-| PSBT_IN_HASH256
-| BIP 174
-|-
-| Input
-| 252
-| PSBT_IN_PROPRIETARY
-| BIP 174
-|-
-| Output
-| 0
-| PSBT_OUT_REDEEM_SCRIPT
-| BIP 174
-|-
-| Output
-| 1
-| PSBT_OUT_WITNESS_SCRIPT
-| BIP 174
-|-
-| Output
-| 2
-| PSBT_OUT_BIP32_DERIVATION
-| BIP 174
-|-
-| Output
-| 252
-| PSBT_OUT_PROPRIETARY
-| BIP 174
-|}
