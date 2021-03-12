@@ -1,7 +1,7 @@
 <pre>
   BIP: Number not assigned
   Layer: Applications
-  Title: Modern Hierarchy for Deterministic Multisignature Wallets
+  Title: Signature and Script Independant Hierarchy for Deterministic Wallets
   Author: Robert Spigler <RobertSpigler@ProtonMail.ch>
   Comments-Summary: No comments
   Comments-URI:
@@ -16,13 +16,13 @@ This BIP is licensed under the 2-clause BSD license.
 
 ==Abstract==
 
-This BIP defines a sane hierarchy for deterministic multisig wallets based on an algorithm described in BIP-0032 (BIP32 from now on), purpose scheme described in BIP-0043 (BIP43 from now on), and multi-account hierarchy described in BIP-0044 (BIP44 from now on).
+This BIP defines a sane hierarchy for deterministic wallets based on an algorithm described in BIP-0032 (BIP32 from now on), purpose scheme described in BIP-0043 (BIP43 from now on), and multi-account hierarchy described in BIP-0044 (BIP44 from now on).
 
 This BIP is a particular application of BIP43.
 
 ==Motivation==
 
-With the increase of more user friendly (offline) multisignature wallets, and adoption of new technologies such as [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md the descriptor language] and [https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki BIP-0174 (Partially Signed Bitcoin Transactions)] it is necessary to create a common derivation scheme that makes use of all new technologies.
+With the increase of adoption of new technologies such as [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md the descriptor language] it is necessary to create a common derivation scheme that makes use of all new technologies.
 
 There are many issues with the current standards. As background, BIP 44/49/84 specifies:
 
@@ -30,9 +30,9 @@ There are many issues with the current standards. As background, BIP 44/49/84 sp
 m / purpose' / coin_type' / account' / change / address_index
 </pre>
 
-where the BIP43 <code>purpose'</code> path is separate for each script (P2PKH, P2WPKH-in-P2SH, and P2WPKH respectively).  However, these per-script derivations are made redundant with descriptors, which describe a collection of output scripts.  Note also that these are single sig derivations (which shouldn't be reused for multisig).
+where the BIP43 <code>purpose'</code> path is separate for each script (P2PKH, P2WPKH-in-P2SH, and P2WPKH respectively).  However, these per-script derivations are made redundant with descriptors, which describe a collection of output scripts.  Note also that these BIPs are restricted for single sig wallets. This is unecessary, as descriptors handle whether the scripts are single-key or multi-key.
 
-Standardization is needed for multisig derivation paths.  There are some in existence, but all have issues.  For example, BIP45 specifies:
+Modification is also needed for multisig derivation paths.  For example, BIP45 specifies:
 
 <pre>
 m / purpose' / cosigner_index / change / address_index
@@ -46,9 +46,9 @@ The second multisignature "standard" in use is m/48', which specifies:
 m / purpose' / coin_type' / account' / script_type' / change / address_index
 </pre>
 
-Rather than having a separate BIP per script after P2SH (BIP45), vendors decided to insert <code>script_type'</code> into the derivation path (where P2SH-P2WSH=1, P2WSH=2, Future_Script=3, etc). As described previously, this is unnecessary, as the descriptor sets the script.  While it attempts to reduce maintainence work by getting rid of new BIPs-per-script, it still requires maintaining an updated, redundant, <code>script_type</code> list.
+Rather than following in BIP 44/49/84's path and having a separate BIP per script after P2SH (BIP45), vendors decided to insert <code>script_type'</code> into the derivation path (where P2SH-P2WSH=1, P2WSH=2, Future_Script=3, etc). As described previously, this is unnecessary, as the descriptor sets the script.  While it attempts to reduce maintainence work by getting rid of new BIPs-per-script, it still requires maintaining an updated, redundant, <code>script_type</code> list.
 
-The hierarchy proposed later in this paper solves these issues and is quite comprehensive. It allows the handling of multiple accounts, external and internal chains per account, and millions of addresses per chain.
+The hierarchy proposed later in this paper solves these issues and is quite comprehensive. It allows the handling of multiple accounts, external and internal chains per account, and millions of addresses per chain, regardless of the script or signature type.
 
 Any script that is supported by descriptors (and the specific wallet implementation) is compatible with this BIP.
 
@@ -60,7 +60,9 @@ Any wallet that supports descriptors inherently supports deterministic key sorti
 
 ==Path levels==
 
-You should not be mixing keys and scripts. We define the following 5 levels in the BIP32 path:
+We should not be mixing keys and scripts in the same layer. The wallet should create extended private/public keys independent of the script or signature type, whereas the descriptor language tells wallets to watch (single or multi-sig) outputs with the specified public keys.
+
+We define the following 5 levels in the BIP32 path:
 
 <pre>
 m / purpose' / coin_type' / account' / change / address_index
@@ -98,6 +100,10 @@ Accounts are numbered from index 0 in sequentially increasing manner.
 This number is used as child index in BIP32 derivation.
 
 Hardened derivation is used at this level.
+
+It is crucial that the index is increased for each new wallet joined or private/public keys created; for both privacy and cryptographic purposes.
+For example, in multisignature wallets, before sending a new key record to a coordinator, the wallet must increment the <code>account'</code> level.  Before creating it's own single signature wallet, the <code>account'</code> level must again be incremented.
+This prevents key reuse - across single signature and multisignature wallets, across ECDSA and Schnorr signatures, and inbetween the same wallet types.
 
 ===Change===
 
@@ -217,6 +223,5 @@ Original mailing list thread: TBD
 * [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
 * [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
 * [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md Output Descriptors]
-* [[bip-0174.mediawiki|BIP174 - Partially Signed Bitcoin Transaction Format]]
 * [[bip-0067.mediawiki|BIP67 - Deterministic Pay-to-script-hash multi-signature addresses through public key sorting]]
 
