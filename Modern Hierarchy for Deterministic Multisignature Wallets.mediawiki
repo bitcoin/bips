@@ -8,17 +8,18 @@
   Status: Proposed
   Type: Standards Track
   Created: 2020-03-11
+  License: BSD-2-Clause
 </pre>
-
-===Copyright===
-
-This BIP is licensed under the 2-clause BSD license.
 
 ==Abstract==
 
 This BIP defines a sane hierarchy for deterministic multisig wallets based on an algorithm described in BIP-0032 (BIP32 from now on), purpose scheme described in BIP-0043 (BIP43 from now on), and multi-account hierarchy described in BIP-0044 (BIP44 from now on).
 
 This BIP is a particular application of BIP43.
+
+==Copyright==
+
+This BIP is licensed under the 2-clause BSD license.
 
 ==Motivation==
 
@@ -49,17 +50,19 @@ m / purpose' / coin_type' / account' / script_type' / change / address_index
 
 Rather than following in BIP 44/49/84's path and having a separate BIP per script after P2SH (BIP45), vendors decided to insert <code>script_type'</code> into the derivation path (where P2SH-P2WSH=1, P2WSH=2, Future_Script=3, etc). As described previously, this is unnecessary, as the descriptor sets the script.  While it attempts to reduce maintainence work by getting rid of new BIPs-per-script, it still requires maintaining an updated, redundant, <code>script_type</code> list.
 
-The structure proposed later in this paper solves these issues and is quite comprehensive. It allows the handling of multiple accounts, external and internal chains per account, and millions of addresses per chain, in a multi-party multisignature hierarchical deterministic wallet regardless of the script type.
+The structure proposed later in this paper solves these issues and is quite comprehensive. It allows the handling of multiple accounts, external and internal chains per account, and millions of addresses per chain, in a multi-party multisignature hierarchical deterministic wallet regardless of the script type <ref>**Why propose this structure only for multisignature wallets?** Currently, single-sig wallets are able to restore funds using just the master private key data (in the format of BIP39 usually).  Even if the user doesn't recall the derivation used, the wallet implementation can iterate through common schemes (BIP44/49/84).  With this proposed hierarchy, the user would either have to now backup additional data (the descriptor), or the wallet would have to attempt all script types for every account level when restoring.  Because of this, even though the descriptor language handles the signature type just like it does the script type, it is best to restrict this script-agnostic hierarchy to multisignature wallets only. Co-signers in multisignature wallets need to backup all other cosigner public keys anyway in order to restore, so the descriptor provides this information with the benefit of key origin information and error detection.</ref>.
 
 Any script that is supported by descriptors (and the specific wallet implementation) is compatible with this BIP.
 
 This paper was inspired from BIP44.
 
-==Key sorting==
+==Specification==
+
+===Key sorting===
 
 Any wallet that supports descriptors inherently supports deterministic key sorting as per BIP67 (through the <code>sortedmulti</code> function) so that all possible multisignature addresses/scripts are derived from deterministically sorted public keys.
 
-==Path levels==
+===Path levels===
 
 We should not be mixing keys and scripts in the same layer. The wallet should create extended private/public keys independent of the script type, whereas the descriptor language tells wallets to watch the multisig outputs with the specified public keys.
 
@@ -118,6 +121,37 @@ Addresses are numbered from index 0 in sequentially increasing manner.
 This number is used as child index in BIP32 derivation.
 
 Public derivation is used at this level.
+
+==Address Discovery==
+
+The multisig descriptor that is generated from the cosigners combined key records should be used to generate and discover addresses. For example:
+<code>wsh(sortedmulti(2,[xfpForA/XY'/0'/0']XpubA/*,[xfpForB/XY'/0'/0']XpubB/*))#Checksum</code>
+
+# Derive the wallet's first account's node (index = 0)
+# Derive the external chain node of this account (index = 0)
+# Scan addresses of the external chain; respect the gap limit described below
+# If there are some transactions, increase the account index and go to step 2
+# If no transactions are found on the external chain, continue to search the following account indexes in compliance with the account gap limit described below.
+
+Please note that the algorithm works with the transaction history, not account
+balances, so you can have an account with 0 total coins and the algorithm will
+still continue with discovery.
+
+The wallet implementation should scan the accounts and addresses following the parent descriptor string.
+
+===Address Gap Limit===
+
+Address gap limit is currently set to 20. If the software hits 20 unused addresses in a row, it expects there are no used addresses beyond this point and stops searching the address chain. We scan just the external chains, because internal chains receive only coins that come from the associated external chains.
+
+Wallet software should warn when the user is trying to exceed the gap limit on an external chain by generating a new address.
+
+===Account Gap Limit===
+
+Account gap limit is currently set to 5.  When the software hits an account that contains 20 unused addresses in a row, it will search the the next 4 accounts (while obeying the address gap limit), before stoping discovery.  If any transactions are found during this process, discovery is restarted (after finding 20 unused addresses) on the next account index, and the account gap limit is reset.  Only when the address gap limit is found consecutively for the account gap limit is discovery stopped.
+
+==Rationale==
+
+<references/>
 
 ==Examples==
 
@@ -213,8 +247,13 @@ Public derivation is used at this level.
 |m / XY' / 1' / 1' / 1 / 1
 |}
 
+==Reference Implementation==
+
+None at the moment.
+
 ==Acknowledgement==
 
+Special thanks to SomberNight, Craig Raw, David Harding, Jochen Hoenicke, and others for their feedback on the specification.
 
 ==References==
 
