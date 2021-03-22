@@ -23,7 +23,7 @@ This BIP is licensed under the 2-clause BSD license.
 
 ==Motivation==
 
-With the increase of more user friendly (offline) multisignature wallets, and adoption of new technologies such as [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md the descriptor language] and [https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki BIP-0174 (Partially Signed Bitcoin Transactions)] it is necessary to create a common derivation scheme that makes use of all new technologies.
+With the increase of more user friendly (offline) multisignature wallets, and adoption of new technologies such as [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md the descriptor language] and [https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki BIP-0174 (Partially Signed Bitcoin Transactions)], it is necessary to create a common derivation scheme that makes use of all new technologies.
 
 As background, BIP 44/49/84 specifies:
 
@@ -33,7 +33,7 @@ m / purpose' / coin_type' / account' / change / address_index
 
 where the BIP43 <code>purpose'</code> path is separate for each script (P2PKH, P2WPKH-in-P2SH, and P2WPKH respectively).  Having a script-per-derivation for single sig wallets allows for easy backup and restore, with just the private key information.
 
-Multisignature wallets need more information to backup and restore, and these per-script derivations are made redundant with descriptors, which describe a collection of output scripts.
+Multisignature wallets need more information to backup and restore (such as all cosigner public keys), and these per-script derivations are made redundant with descriptors, which provide that information (while also specifying a collection of output scripts).
 A modern standardization is needed for multisig derivation paths.  There are some in existence, but all have issues.  For example, BIP45 specifies:
 
 <pre>
@@ -100,7 +100,7 @@ This level splits the key space into independent user identities, following the 
 
 Users can use these accounts to organize the funds in the same fashion as bank accounts; for donation purposes (where all addresses are considered public), for saving purposes, for common expenses, etc.
 
-Accounts are numbered from index 0 in sequentially increasing manner.
+Accounts are numbered from index <code>0</code> in sequentially increasing manner.
 This number is used as child index in BIP32 derivation.
 
 Hardened derivation is used at this level.
@@ -111,13 +111,13 @@ This prevents key reuse - across ECDSA and Schnorr signatures, across different 
 
 ===Change===
 
-Constant 0 is used for external chain and constant 1 for internal chain (also known as change addresses). External chain is used for addresses that are meant to be visible outside of the wallet (e.g. for receiving payments). Internal chain is used for addresses which are not meant to be visible outside of the wallet and is used for return transaction change.
+Constant <code0</code> is used for external chain and constant <code>1</code> for internal chain (also known as change addresses). External chain is used for addresses that are meant to be visible outside of the wallet (e.g. for receiving payments). Internal chain is used for addresses which are not meant to be visible outside of the wallet and is used for return transaction change.
 
 Public derivation is used at this level.
 
 ===Index===
 
-Addresses are numbered from index 0 in sequentially increasing manner.
+Addresses are numbered from index <code>0</code> in sequentially increasing manner.
 This number is used as child index in BIP32 derivation.
 
 Public derivation is used at this level.
@@ -127,25 +127,18 @@ Public derivation is used at this level.
 The multisig descriptor that is generated from the cosigners' combined key records should be used to generate and discover addresses. For example:
 <code>wsh(sortedmulti(2,[xfpForA/XY'/0'/0']XpubA/*,[xfpForB/XY'/0'/0']XpubB/*))#Checksum</code>
 
-# Derive the wallet's first account's node (index = 0)
-# Derive the external chain node of this account (index = 0)
+# Derive the external chain node of this account (constant = 0)
 # Scan addresses of the external chain; respect the gap limit described below
-# If there are some transactions, increase the account index and go to Step 2
-# If no transactions are found on the external chain, continue to search the following account indices in compliance with the account gap limit described below.
 
-Please note that the algorithm works with the transaction history, not account balances, so you can have an account with 0 total coins and the algorithm will still continue with discovery.
+Please note that the algorithm works with the transaction history, not account balances, so you can have an address with 0 total coins and the algorithm will still continue with discovery.
 
-The wallet implementation should scan the accounts and addresses following the parent descriptor string.
+The wallet implementation should scan the addresses following the parent descriptor string.
 
 ===Address Gap Limit===
 
 Address gap limit is currently set to 20. If the software hits 20 unused addresses in a row, it expects there are no used addresses beyond this point and stops searching the address chain. We scan just the external chains, because internal chains receive only coins that come from the associated external chains.
 
 Wallet software should warn when the user is trying to exceed the gap limit on an external chain by generating a new address.
-
-===Account Gap Limit===
-
-Account gap limit is currently set to 5.  When the software hits an account that contains 20 unused addresses in a row, it will search the next 4 accounts (while obeying the address gap limit), before stopping discovery.  If any transactions are found during this process, discovery is restarted (after finding 20 unused addresses) on the next account index, and the account gap limit is reset.  Only when the address gap limit is found consecutively for the account gap limit is discovery stopped.
 
 ==Rationale==
 
