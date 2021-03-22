@@ -39,6 +39,7 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 # The '''startheight''' specifies the height of the first block at which the bit gains its meaning.
 # The '''timeoutheight''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is considered failed on all descendants of the block.
 # The '''threshold''' specifies the minimum number of block per retarget period which indicate lock-in of the soft fork during the subsequent period.
+# The '''minimum_activation_height''' specifies the height of the first block at which the soft fork is allowed to become active.
 # The '''lockinontimeout''' boolean if set to true, blocks are required to signal in the final period, ensuring the soft fork has locked in by timeoutheight.
 
 ===Selection guidelines===
@@ -47,15 +48,16 @@ The following guidelines are suggested for selecting these parameters for a soft
 
 # '''name''' should be selected such that no two softforks, concurrent or otherwise, ever use the same name. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
 # '''bit''' should be selected such that no two concurrent softforks use the same bit. The bit chosen should not overlap with active usage (legitimately or otherwise) for other purposes.
-# '''startheight''' should be set to some block height in the future when a majority of economic activity is expected to have upgraded to a software release including the activation parameters. Some allowance should be made for potential release delays. It should be rounded up to the next height which begins a retarget period for simplicity.
+# '''startheight''' should be set to some block height in the future. It should be rounded up to the next height which begins a retarget period for simplicity. If '''minimum_activation_height''' is not going to be set, then '''startheight''' should be set to a height when a majority of economic activity is expected to have upgraded to software including the activation parameters. Some allowance should be made for potential release delays. If '''minimum_activation_height''' is going to be set, then '''startheight''' can be set to be soon after software with parameters is expected to be released. This shifts the time for upgrading from before signaling begins to during the LOCKED_IN state.
 # '''timeoutheight''' should be set to a block height when it is considered reasonable to expect the entire economy to have upgraded by, probably at least 1 year, or 52416 blocks (26 retarget intervals) after '''startheight'''.
 # '''threshold''' should be 1815 blocks (90% of 2016), or 1512 (75%) for testnet.
+# '''minimum_activation_height''' should be set to several retarget periods in the future if the '''startheight''' is to be very soon after software with parameters is expected to be released. '''minimum_activation_height''' should be set to a height when a majority of economic activity is expected to have upgraded to software including the activation parameters. This allows more time to be spent in the LOCKED_IN state so that nodes can upgrade. This may be set to 0 to have the LOCKED_IN state be a single retarget period.
 # '''lockinontimeout''' should be set to true for any softfork that is expected or found to have political opposition from a non-negligible percent of miners. (It can be set after the initial deployment, but cannot be cleared once set.)
 
 A later deployment using the same bit is possible as long as the startheight is after the previous one's
 timeoutheight or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
 
-'''startheight''' and '''timeoutheight''' must be an exact multiple of 2016 (ie, at a retarget boundary), and '''timeoutheight''' must be at least 4096 blocks (2 retarget intervals) after '''startheight'''.
+'''startheight''', '''timeoutheight''', and '''minimum_activation_height''' must be an exact multiple of 2016 (ie, at a retarget boundary), and '''timeoutheight''' must be at least 4096 blocks (2 retarget intervals) after '''startheight'''.
 
 ===States===
 
@@ -64,8 +66,8 @@ With each block and soft fork, we associate a deployment state. The possible sta
 # '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
 # '''STARTED''' for blocks at or beyond the startheight.
 # '''MUST_SIGNAL''' for one retarget period prior to the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is true.
-# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED (or MUST_SIGNAL) blocks of which at least threshold have the associated bit set in nVersion.
-# '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
+# '''LOCKED_IN''' for at least one retarget period after the first retarget period with STARTED (or MUST_SIGNAL) blocks of which at least threshold have the associated bit set in nVersion. A soft fork remains in LOCKED_IN until at least '''minimum_activation_height''' is reached.
+# '''ACTIVE''' for all blocks after the LOCKED_IN state.
 # '''FAILED''' for all blocks after the timeoutheight if LOCKED_IN is not reached.
 
 ===Bit flags===
@@ -93,7 +95,8 @@ During the MUST_SIGNAL phase, if '''(2016 - threshold)''' blocks in the retarget
 
 <img src="bip-0008/states.png" align="middle"></img>
 
-Note that when '''lockinontimeout''' is true, the LOCKED_IN state will be reached no later than at a height of '''timeoutheight''', and ACTIVE will be reached no later than at a height of '''timeoutheight + 2016'''.
+Note that when '''lockinontimeout''' is true, the LOCKED_IN state will be reached no later than at a height of '''timeoutheight'''.
+Regardless of the value of '''lockinontimeout''', if LOCKED_IN is reached, ACTIVE will be reached either one retarget period later, or at '''minimum_activation_height''', whichever comes later.
 
 The genesis block has state DEFINED for each deployment, by definition.
 
@@ -153,10 +156,14 @@ If we have finished a period of MUST_SIGNAL, we transition directly to LOCKED_IN
         case MUST_SIGNAL:
             return LOCKED_IN;
 
-After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
+After at least one retarget period of LOCKED_IN, we automatically transition to ACTIVE if the minimum activation height is reached. Otherwise LOCKED_IN continues.
 
         case LOCKED_IN:
-            return ACTIVE;
+            if (block.height >= minimum_activation_height) {
+                return ACTIVE;
+            } else {
+                return LOCKED_IN;
+            }
 
 And ACTIVE and FAILED are terminal states, which a deployment stays in once they're reached.
 
