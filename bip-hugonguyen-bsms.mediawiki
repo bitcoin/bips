@@ -1,0 +1,394 @@
+<pre>
+  BIP: To be determined
+  Layer: Applications
+  Title: Bitcoin Secure Multisig Setup (BSMS)
+  Author: Hugo Nguyen <hugo at nunchuk.io>, Peter Gray <peter at coinkite.com>, Marko Bencun <marko at shiftcrypto.ch>, Aaron Chen <aarondongchen at gmail.com>, Rodolfo Novak <rodolfo at coinkite.com>
+  Comments-Summary: No comments yet.
+  Comments-URI:
+  Status: Proposed
+  Type: Standards Track
+  Created: 2020-11-10
+  License: BSD-2-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a mechanism to set up multisig wallets securely.
+
+===Copyright===
+
+This BIP is licensed under the 2-clause BSD license.
+
+===Motivation===
+
+The Bitcoin multisig experience has been greatly streamlined under [https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki BIP-0174
+(Partially Signed Bitcoin Transaction)]. However, what is still missing is a standardized process for setting up multisig wallets securely across different vendors.
+
+There are a number of concerns when it comes to setting up a multisig wallet:
+
+# Whether the multisig configuration, such as Signer membership, script type, derivation paths and number of signatures required, is correct and not tampered with.
+# Whether the keys or the multisig configuration are leaked during the setup.
+# Whether the Signer persists the multisig configuration in their respective storage, and under what format.
+# Whether the Signer's storage is tamper-proof.
+# Whether the Signer subsequently uses the multisig configuration to generate and verify receive and change addresses.
+
+An attacker who can modify the multisig configuration can steal or hold funds for ransom by duping the user into sending funds to the wrong address. An attacker who cannot modify the configuration but can learn about the keys and/or the configuration can monitor transactions in the wallet, resulting in loss of privacy.
+
+This proposal seeks to address concerns #1, #2 and #3: to mitigate the risk of tampering during the initial setup phase, and to define an interoperable multisig configuration format.
+
+Concerns #4 and #5 should be handled by Signers and are out of scope of this proposal.
+
+==Specification==
+
+===Prerequisites===
+This proposal assumes the parties in the multisig support [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-0032], [https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki BIP-0322], [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md the descriptor language] and [https://tools.ietf.org/html/rfc3686 AES encryption].
+
+===File Extension===
+All descriptor and key records should have a <tt>.bsms</tt> file extension. Encrypted data should have a <tt>.dat</tt> extension.
+
+===Roles===
+====Coordinator====
+
+The Coordinator initiates the multisig setup. The Coordinator determines what type of multisig is used and the exact policy script. If encryption is enabled, the Coordinator also distributes a shared secret or shared secrets to the parties involved for secure communication. The Coordinator gathers information from the Signers to generate a descriptor record. The Coordinator distributes the descriptor record back to the Signers.
+
+====Signer====
+
+The Signer is a participating member in the multisig. Its responsibilities include providing its key record -- which contains an Extended Public Key (XPUB) -- to the Coordinator, verifying that its XPUB is included in the descriptor record and persisting the descriptor record in its storage.
+
+===Setup Process===
+
+====Round 1====
+
+=====Coordinator=====
+
+* The Coordinator creates a new multisig wallet creation session. The Coordinator constructs the multisig script and its policy parameters, such as the required number of signatures and the total number of Signers (<tt>M</tt> and <tt>N</tt>).
+* The session should expire after some time period determined by the Coordinator, e.g., 24 hours. The timeout allows the encryption key to have lower entropy.
+* If encryption is enabled, the Coordinator distributes a secret <tt>TOKEN</tt> to each Signer over a secure channel. The Signer can use the <tt>TOKEN</tt> to derive an <tt>ENCRYPTION_KEY</tt>. Refer to the Encryption section below for details on the <tt>TOKEN</tt>, the key derivation function and the encryption scheme. Depending on the use case, the Coordinator can decide whether to share one common <tt>TOKEN</tt> for all Signers, or to have one per Signer.
+* If encryption is disabled, the <tt>TOKEN</tt> is set to <tt>0</tt>, and all the encryption/decryption steps below can be skipped.
+
+=====Signer=====
+
+* The Signer initiates the multisig wallet creation session by setting the <tt>TOKEN</tt>. The Signer derives an <tt>ENCRYPTION_KEY</tt> from the <tt>TOKEN</tt>. The Signer can keep the session open until a different value for the <tt>TOKEN</tt> is set.
+* The Signer generates a key record by prompting the user for a multisig derivation path and retrieves the XPUB at that derivation path. Alternatively, the Signer can choose a path on behalf of the user. If the Signer chooses the path, it should try to avoid reusing XPUBs for different wallets.
+* The first line in the record must be the specification version (<tt>BSMS 1.0</tt> as of this writing). The second line must be the hex-encoded <tt>TOKEN</tt>. The third line must be the <tt>KEY</tt>. The <tt>KEY</tt> is an XPUB plus its key origin information, written in the descriptor-defined format, i.e.: <tt>[{master key fingerprint}/{derivation path}]{XPUB}</tt>. The fourth line is a text description of the key, 80 characters maximum. The fifth line must be a <tt>SIG</tt>, whereas <tt>SIG</tt> is the signature generated by using the private key associated with the XPUB to sign the first four lines. The signature should follow [https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki BIP-0322], legacy format accepted.
+* The Signer calculates the Message Authentication Code (<tt>MAC</tt>) for the record. The first 16 bytes of the <tt>MAC</tt> serves as the Initialization Vector (<tt>IV</tt>) for the encryption.
+* The Signer encrypts the key record with the <tt>ENCRYPTION_KEY</tt> and <tt>IV</tt>.
+* The Signer encodes the <tt>MAC</tt> and the ciphertext into hexadecimal format, then concatenates the results: <tt>(MAC || ciphertext)</tt>.
+
+====Round 2====
+
+=====Coordinator=====
+
+* The Coordinator gathers key records from all participating Signers. The Coordinator verifies that there are exactly <tt>N</tt> unique key records before the wallet setup session expires.
+* For each key record, the Coordinator extracts the <tt>MAC</tt> from the data, sets <tt>IV</tt> to the first 16 bytes of the <tt>MAC</tt>, then decrypts the ciphertext using the <tt>ENCRYPTION_KEY</tt> and <tt>IV</tt>.
+* The Coordinator verifies that the included <tt>MAC</tt> is valid given the plaintext.
+* The Coordinator verifies that the key records have compatible specification versions.
+* The Coordinator verifies that the included <tt>SIG</tt> is valid given the <tt>KEY</tt>.
+* If all key records look good, the Coordinator fills in all necessary information to generate a descriptor record.
+* The first line in the descriptor record must be the specification version (<tt>BSMS 1.0</tt> as of this writing). The second line must be a comma-separated list of accepted derivation paths that the Signers can use to generate addresses from the included XPUBs. The paths must start with <tt>/</tt> and use non-hardened derivation. For example, <tt>/0/*</tt> and <tt>/1/*</tt> are some common paths. If there are no restrictions, it must say <tt>No path restrictions</tt>. The third line must be the descriptor string plus a <tt>CHECKSUM</tt>, all in one line. The <tt>CHECKSUM</tt> has [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md#checksums BECH32 encoding].
+* The Coordinator calculates the <tt>MAC</tt> for the record. The first 16 bytes of the <tt>MAC</tt> serves as the <tt>IV</tt> for the encryption.. 
+* The Coordinator encrypts the descriptor record with the <tt>ENCRYPTION_KEY</tt> and <tt>IV</tt>.
+* The Coordinator encodes the <tt>MAC</tt> and the ciphertext into hexadecimal format, then concatenates the results: <tt>(MAC || ciphertext)</tt>.
+* The Coordinator sends the encrypted descriptor record to all participating Signers.
+
+=====Signer=====
+
+* The Signer imports the descriptor record.
+* The Signer extracts the <tt>MAC</tt> from the data, sets <tt>IV</tt> to the first 16 bytes of the <tt>MAC</tt>, then decrypts the ciphertext using the <tt>ENCRYPTION_KEY</tt> (derived from the open session) and <tt>IV</tt>.
+* The Signer verifies that the included <tt>MAC</tt> is valid given the plaintext.
+* The Signer verifies that it can support the included specification version.
+* The Signer verifies that it is compatible with the derivation path restrictions.
+* The Signer verifies the descriptor’s <tt>CHECKSUM</tt>.
+* The Signer verifies that it can support the descriptor.
+* The Signer checks that its <tt>KEY</tt> is included in the descriptor, using path and fingerprint information provided. The check must perform an exact match on the <tt>KEY</tt>s and not using shortcuts such as matching fingerprints, which is trivial to spoof.
+* For confirmation, the Signer must display to the user the <tt>CHECKSUM</tt>, the derivation path restrictions and the policy parameters, such as <tt>M</tt>, <tt>N</tt> and the position(s) of its own XPUB in the policy script. The total number of Signers, <tt>N</tt>, is important to prevent a <tt>KEY</tt> insertion attack. The position is important for scripts where key order matters. When applicable, all positions of the XPUB must be displayed. The full descriptor must also be available for review upon user request. 
+* When possible, the Signer should also show a preview of the first address(es) of the wallet.
+* Parties must check with each other that all Signers have verified the descriptor and has the same confirmation (except for the key positions).
+* If all checks pass, the Signer must persist the descriptor record in its storage.
+
+This completes the setup.
+
+===Encryption===
+
+====The Token====
+We define three modes of encryption.
+
+# <tt>NO_ENCRYPTION</tt> : the <tt>TOKEN</tt> is set to <tt>0</tt>. Encryption is disabled.
+# <tt>STANDARD</tt> : the <tt>TOKEN</tt> is a 64-bit nonce.
+# <tt>EXTENDED</tt> : the <tt>TOKEN</tt> is a 96-bit nonce.
+
+The <tt>TOKEN</tt> can be converted to one of these formats:
+* A decimal number (recommended). The number must not exceed the maximum value of the nonce. 
+* A mnemonic phrase using [https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki BIP-0039] word list (6 words in <tt>STANDARD</tt> mode; 9 words in <tt>EXTENDED</tt> mode).
+* A QR code.
+* Other formats.
+
+The flexibility in the data format allows each Signer to customize the User Experience based on its respective capabilities.
+
+====Key Derivation====
+The key derivation function is [https://tools.ietf.org/html/rfc2898 PBKDF2], with PRF = SHA512. Specifically:
+
+<tt>DKey = PBKDF2(PRF, Password, Salt, c, dkLen)</tt>
+
+Whereas:
+
+* PRF = SHA512
+* Password = "No SPOF"
+* Salt = <tt>TOKEN</tt>
+* c = 2048
+* dkLen = 256
+* DKey = Derived <tt>ENCRYPTION_KEY</tt>
+
+====Encryption Scheme====
+The encryption scheme is [https://tools.ietf.org/html/rfc3686 AES-256-CTR].
+
+<tt>MAC = HMAC-SHA256(HMAC_Key, hex-encoded TOKEN || Data)</tt>
+
+<tt>IV = First 16 bytes of MAC</tt>
+
+<tt>Ciphertext = AES-256-CTR-Encrypt(Plaintext, DKey, IV)</tt>
+
+<tt>Plaintext = AES-256-CTR-Decrypt(Ciphertext, DKey, IV)</tt>
+
+Whereas:
+* DKey = <tt>ENCRYPTION_KEY</tt>
+* HMAC_Key = SHA256(<tt>ENCRYPTION_KEY</tt>)
+* Data = the plaintext, e.g. the entire key record in round 1 and the entire descriptor record in round 2
+
+The <tt>MAC</tt> is to be sent along with the key and descriptor record, as specified above. Because it is a <tt>MAC</tt> over the entire plaintext, this is essentially an [https://en.wikipedia.org/wiki/Authenticated_encryption#Encrypt-and-MAC_(E&M) Encrypt-and-MAC] form of authenticated encryption.
+
+==QR Codes==
+For signers that use QR codes to transmit data, key and descriptor records can be converted to QR codes, following [https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-005-ur.md the BCR standard].
+
+Also refer to [https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-015-account.md UR Type Definition for BIP44 Accounts] and [https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-010-output-desc.md UR Type Definition for Bitcoin Output Descriptors] for more details.
+
+==Security==
+
+This proposal introduces two layers of protection. The first one is a temporary, secret <tt>TOKEN</tt>. The second one is the descriptor <tt>CHECKSUM</tt>.
+
+The <tt>TOKEN</tt> is used to encrypt the two rounds of communication between the Signer and the Coordinator. A <tt>MAC</tt> is also generated from the <tt>TOKEN</tt> and plaintext to authenticate the data being exchanged. The <tt>TOKEN</tt> is only needed during the setup phase, and can be safely discarded afterwards.
+
+The descriptor <tt>CHECKSUM</tt>, on the other hand, can be used to verify the integrity of the multisig configuration. An attacker who tampers with the multisig configuration must also change the descriptor <tt>CHECKSUM</tt>. Parties must check with each other that all Signers have the same <tt>CHECKSUM</tt>, along with the policy parameters, to reduce the chance of tampering. The <tt>CHECKSUM</tt> must be persisted along with the descriptor in each Signer’s storage.
+
+The <tt>TOKEN</tt> and the <tt>CHECKSUM</tt> can’t guarantee complete protection, since that depends on the overall security of all parties in the setup, but they can make it significantly harder for an attacker to tamper with the multisig configuration.
+
+==Privacy==
+Encryption helps improve the privacy of the wallet by avoiding sharing XPUBs and descriptors in plaintext.
+
+If the parties wish to have stronger privacy, it is recommended to use a higher number of bits for the <tt>TOKEN</tt>, and to completely erase knowledge of the <tt>TOKEN</tt> after the multisig wallet has been set up.
+
+==Test Vectors==
+
+===Mode: <tt>NO_ENCRYPTION</tt>===
+====ROUND 1====
+* Coordinator
+** M-of-N: 2/2
+** ADDRESS_TYPE: NATIVE_SEGWIT
+** TOKEN: 0
+
+* Signer 1
+** MASTER_KEY_FINGERPRINT: 539f3d89
+** PRIVATE_KEY (m/48'/0'/0'/2'): KyoXqiwiz6qm21BSYebiZFfNF7obkhiJW6TdPMZTQQMF4kZtfD78
+** XPUB (m/48'/0'/0'/2'): xpub6ETerig7tq89mtaD8Gau2xRWxouRMBy6XHqciA8GZzC2dJv3w6FxfgoegH4b2qYF4oG6VBrhpLrauPs5E1q58GLCnhKp6g9QsV9ZA7J5JNa
+** Legacy signature
+** <tt>signer_1_key.bsms</tt>:
+<pre>BSMS 1.0
+00
+[539f3d89/48'/0'/0'/2']xpub6ETerig7tq89mtaD8Gau2xRWxouRMBy6XHqciA8GZzC2dJv3w6FxfgoegH4b2qYF4oG6VBrhpLrauPs5E1q58GLCnhKp6g9QsV9ZA7J5JNa
+Signer 1 key
+IPXsnNSZb8M6H4fAWtpjAc75hyHHd89fskpM5o7qFg+mPDzEPc1k2mjuIpVIIzaCe45FwPfAAa91RaStfC5Sak0=</pre>
+
+* Signer 2
+** MASTER_KEY_FINGERPRINT: f8b12aa6
+** PRIVATE_KEY (m/48'/0'/0'/2'): L1zht7muKnUYFMdzC3jwXd78u8tGoKr46AXGh4waF9nphUYWq7ow
+** XPUB (m/48'/0'/0'/2'): xpub6EWPNhGSX86SN4J2DrBUaQ826o6V4egHqAJZUDJqnsthv9CcjBZV79u68M3YZkuTJnJBXfCrHuJy97fkVurntwgt3V7Ms5hXpJV2vS8fQZM
+** Legacy signature
+** <tt>signer_2_key.bsms</tt>:
+<pre>BSMS 1.0
+00
+[f8b12aa6/48'/0'/0'/2']xpub6EWPNhGSX86SN4J2DrBUaQ826o6V4egHqAJZUDJqnsthv9CcjBZV79u68M3YZkuTJnJBXfCrHuJy97fkVurntwgt3V7Ms5hXpJV2vS8fQZM
+Signer 2 key
+H38+lp9iaesBeCN05BDTH/SnmarlH6+X+Kmw1pgCk+c1Pc1evYIdBag9Nc0nsKhvPtfEbRt9r/qsUVZ5onCtBTc=</pre>
+
+====ROUND 2====
+* Coordinator
+** <tt>my_multisig_wallet.bsms</tt>:
+<pre>BSMS 1.0
+/0/*,/1/*
+wsh(sortedmulti(2,[539f3d89/48'/0'/0'/2']xpub6ETerig7tq89mtaD8Gau2xRWxouRMBy6XHqciA8GZzC2dJv3w6FxfgoegH4b2qYF4oG6VBrhpLrauPs5E1q58GLCnhKp6g9QsV9ZA7J5JNa/*,[f8b12aa6/48'/0'/0'/2']xpub6EWPNhGSX86SN4J2DrBUaQ826o6V4egHqAJZUDJqnsthv9CcjBZV79u68M3YZkuTJnJBXfCrHuJy97fkVurntwgt3V7Ms5hXpJV2vS8fQZM/*))#fntxdj7p</pre>
+
+===Mode: <tt>STANDARD</tt> Encryption===
+====ROUND 1====
+* Coordinator
+** M-of-N: 2/2
+** ADDRESS_TYPE: NATIVE_SEGWIT
+** TOKEN (hex): 1ed4ba49e96336b8
+*** TOKEN (decimal): 2221605342811469496
+*** TOKEN (mnemonic): burst place mystery spot cricket foster
+** ENCRYPTION_KEY (hex): 72185a0e25b4efc5d6ac0f8ed32b0165199100e32385040e3a48eb30164bf492
+
+* Signer 1
+** MASTER_KEY_FINGERPRINT: 98d79e95
+** PRIVATE_KEY (m/48'/0'/0'/2'): KydC7hZFtWe56oQUAw14HvQ3gKeKVd3m8frFgVMxUqpuhKHvcmm3
+** XPUB (m/48'/0'/0'/2'): xpub6DvvwHS5pd1D36xt4YBGJvtdThWXfn8L9qRj9DbFMExMeP6eBE6Aw9WyBC7XUQwiPPDFurirewsKZpYv68yTV5RBy7SZmw45QEkaLka5BCt
+** Legacy signature
+** <tt>signer_1_key.bsms</tt>:
+<pre>BSMS 1.0
+1ed4ba49e96336b8
+[98d79e95/48'/0'/0'/2']xpub6DvvwHS5pd1D36xt4YBGJvtdThWXfn8L9qRj9DbFMExMeP6eBE6Aw9WyBC7XUQwiPPDFurirewsKZpYv68yTV5RBy7SZmw45QEkaLka5BCt
+Signer 1 key
+HxtPoP0DrQSac/7ypcwC07R2s6jjpXR6Li2Q92zXj/FSIMQcV5yOU0/ONsDgHXamq0gD5DfPbvuVCp9ZJubclV4=</pre>
+
+* Signer 1 encryption
+** HMAC_KEY (hex): 4dab3988cbc683ad7a8c93d43f9b11a78b63a93d5e33ea19c603f4b7b87ac284
+** MAC (hex): afe99e92f0eadc3308eb990045e90a4f54e9f59d22aae5034ac3d866d29c508d
+** IV (hex) : afe99e92f0eadc3308eb990045e90a4f
+** CIPHERTEXT (hex): 214ec9a861a238ba7f0412305a97a6e0faa332be15af09127e131d669e5d55d73891580a5808cea5d2bf39f43496d3c0f8236eff3854fcc7446daf9d2b58fd40d97ce3b1745de2959e29767039b99969821400eca0c3517fae56d2d24d5235a3430af1ed894b68681d706cce7c75adf35d8580603aa302bc01fef06d0336a37f19dd46100baa9e4eabd8796a810e13941ad0980c126ad55d6a4bbef11a7bf893b7d2ed8fb0d8324c4c9b512d4d1e75096c63511e15018fc832816b5639d58fc28c60c049487d04bd5a6cb32aa1381d0809660d54376b9f63325c18cfd1ac5024088e74cb703fe165972cc4485abb1feefe92a0b4ea297fe2f4f7416eeee1efc9b942540931ef
+** <tt>signer_1_key.dat</tt>: <pre>afe99e92f0eadc3308eb990045e90a4f54e9f59d22aae5034ac3d866d29c508d214ec9a861a238ba7f0412305a97a6e0faa332be15af09127e131d669e5d55d73891580a5808cea5d2bf39f43496d3c0f8236eff3854fcc7446daf9d2b58fd40d97ce3b1745de2959e29767039b99969821400eca0c3517fae56d2d24d5235a3430af1ed894b68681d706cce7c75adf35d8580603aa302bc01fef06d0336a37f19dd46100baa9e4eabd8796a810e13941ad0980c126ad55d6a4bbef11a7bf893b7d2ed8fb0d8324c4c9b512d4d1e75096c63511e15018fc832816b5639d58fc28c60c049487d04bd5a6cb32aa1381d0809660d54376b9f63325c18cfd1ac5024088e74cb703fe165972cc4485abb1feefe92a0b4ea297fe2f4f7416eeee1efc9b942540931ef</pre>
+
+* Signer 2
+** MASTER_KEY_FINGERPRINT: 3e94b5a1
+** PRIVATE_KEY (m/48'/0'/0'/2'): KyPh5XYjExjNHPiBjYhp8iAntAehrDziiwRv7y9Ln6eK9QU2xP55
+** XPUB (m/48'/0'/0'/2'): xpub6E1W1DUYY29V2b8czCcpi36GG2uD33B11vwNopgTZwsVyfgAkA4kPCqLP5R4YzaRvzW17CQrDkgmDQbA848AdkR7W18nNvMKXzzCBSnZP9c
+** Legacy signature
+** <tt>signer_2_key.bsms</tt>:
+<pre>BSMS 1.0
+1ed4ba49e96336b8
+[3e94b5a1/48'/0'/0'/2']xpub6E1W1DUYY29V2b8czCcpi36GG2uD33B11vwNopgTZwsVyfgAkA4kPCqLP5R4YzaRvzW17CQrDkgmDQbA848AdkR7W18nNvMKXzzCBSnZP9c
+Signer 2 key
+ILR49QLy9+xkMS11TIXJRSMgOQOzGbAaooq4/ZRcd8VgM6j5upJMI0mjJHseQOMYSGk8FqjXZbMvBGyiX9wdutM=</pre>
+
+* Signer 2 encryption
+** HMAC_KEY (hex): 4dab3988cbc683ad7a8c93d43f9b11a78b63a93d5e33ea19c603f4b7b87ac284
+** MAC (hex): 5c7cb2ac407cd60b1f2b86ef46077d3a312b6ce921df2a141347e8bf1e5c6573
+** IV (hex) : 5c7cb2ac407cd60b1f2b86ef46077d3a
+** CIPHERTEXT (hex): f23e6c76ff45d308dea6014030a274127ad437228f1d5ec2431d2ea9e3cedd5b0a207a9efa6f926d5420205003f3cb9c4b82b2d595180e62a173a2e5aa0322de48a70a873f641bdae1764e6b1667c241e0fe03a4ccdc3fe0cfa5f75b239d6497c3b69dca17bb685ba70b307d1243836d8fb198ce727cfae4057ee0b4fdcb09f4ba5ae127f49c5de780edb4e40aec96303c8a7b98b1b8e53dd5e07e01d4f3ffd836763209a1f0cbc61adcfdc2951e77528ee7b6e68114c3a4bec38875d285021e68ae8aa913bb1e2e65dd52c649a0e98bfb4e8bab6dd10295c1167a0854ba44f094feb75d2fb00c944f07d4b47114f483df9838459316f3ddbc4a82e6507881931f8e20f5b805
+** <tt>signer_2_key.dat</tt>: <pre>5c7cb2ac407cd60b1f2b86ef46077d3a312b6ce921df2a141347e8bf1e5c6573f23e6c76ff45d308dea6014030a274127ad437228f1d5ec2431d2ea9e3cedd5b0a207a9efa6f926d5420205003f3cb9c4b82b2d595180e62a173a2e5aa0322de48a70a873f641bdae1764e6b1667c241e0fe03a4ccdc3fe0cfa5f75b239d6497c3b69dca17bb685ba70b307d1243836d8fb198ce727cfae4057ee0b4fdcb09f4ba5ae127f49c5de780edb4e40aec96303c8a7b98b1b8e53dd5e07e01d4f3ffd836763209a1f0cbc61adcfdc2951e77528ee7b6e68114c3a4bec38875d285021e68ae8aa913bb1e2e65dd52c649a0e98bfb4e8bab6dd10295c1167a0854ba44f094feb75d2fb00c944f07d4b47114f483df9838459316f3ddbc4a82e6507881931f8e20f5b805</pre>
+
+====ROUND 2====
+*Coordinator
+** <tt>my_multisig_wallet.bsms</tt>:
+<pre>BSMS 1.0
+/0/*,/1/*
+wsh(sortedmulti(2,[98d79e95/48'/0'/0'/2']xpub6DvvwHS5pd1D36xt4YBGJvtdThWXfn8L9qRj9DbFMExMeP6eBE6Aw9WyBC7XUQwiPPDFurirewsKZpYv68yTV5RBy7SZmw45QEkaLka5BCt/*,[3e94b5a1/48'/0'/0'/2']xpub6E1W1DUYY29V2b8czCcpi36GG2uD33B11vwNopgTZwsVyfgAkA4kPCqLP5R4YzaRvzW17CQrDkgmDQbA848AdkR7W18nNvMKXzzCBSnZP9c/*))#x0lx92qk</pre>
+
+*Coordinator encryption
+** HMAC_KEY (hex): 4dab3988cbc683ad7a8c93d43f9b11a78b63a93d5e33ea19c603f4b7b87ac284
+** MAC (hex): df3d06db6c8b8a5f25de202e10ea225df6415d1ed0e36c64cc2be1b7e86c2a38
+** IV (hex) : df3d06db6c8b8a5f25de202e10ea225d
+** CIPHERTEXT (hex): 2761e6bfe839586b4c90954200bc4ce6d39ef164c5d14997755575d1691ee249ffd20beda526f57a7424907f839c6c2e3ecd46889ede290a2c81de22d3f33a7fa5e55ec95c0e26005c596d0f6346f819823f361f9f9f54d1eae48b325240d66c5888bd5ebab843061dcdd73b675346da982646c83026694d757661d31c2d654fb263c9ab3e874a258bc234c48532f15e9450c982fcf161404746e9f23d25e17b74139cd799983fd0c7a7a0386a823d3789b4578879a764172cc8ef96ab003eee24f6288007d31e2b999aff5a6d30cc524a0111a99730a29cf28ae41dbff6ce21ca6bc1df37074228178048e835584e6e70dba941154d024cd03cb6c56d0bde441ce464aa749de5e814dd30e21b75f62e831ac1f28eda1a7ba7e122076789e284402c8ba85b5a0e864bce220e3c78fa2f465e2bcf6b1d378816319de99f99ce7068
+** <tt>my_multisig_wallet.dat</tt>: <pre>df3d06db6c8b8a5f25de202e10ea225df6415d1ed0e36c64cc2be1b7e86c2a382761e6bfe839586b4c90954200bc4ce6d39ef164c5d14997755575d1691ee249ffd20beda526f57a7424907f839c6c2e3ecd46889ede290a2c81de22d3f33a7fa5e55ec95c0e26005c596d0f6346f819823f361f9f9f54d1eae48b325240d66c5888bd5ebab843061dcdd73b675346da982646c83026694d757661d31c2d654fb263c9ab3e874a258bc234c48532f15e9450c982fcf161404746e9f23d25e17b74139cd799983fd0c7a7a0386a823d3789b4578879a764172cc8ef96ab003eee24f6288007d31e2b999aff5a6d30cc524a0111a99730a29cf28ae41dbff6ce21ca6bc1df37074228178048e835584e6e70dba941154d024cd03cb6c56d0bde441ce464aa749de5e814dd30e21b75f62e831ac1f28eda1a7ba7e122076789e284402c8ba85b5a0e864bce220e3c78fa2f465e2bcf6b1d378816319de99f99ce7068</pre>
+
+===Mode: <tt>EXTENDED</tt> Encryption===
+====ROUND 1====
+*Coordinator
+** M-of-N: 2/3
+** ADDRESS_TYPE: NESTED_SEGWIT
+** TOKEN for Signer 1 (hex): 654d63309464afcda558c6aa
+*** TOKEN (decimal): 31351541690484562733651510954
+*** TOKEN (mnemonic): grab help slow churn enough traffic nice boat price
+*** ENCRYPTION_KEY (hex): 4073adac2351e164b8d68039abd9d4b8e4d07adccfdf73ece6e236d60b107802
+** TOKEN for Signer 2 (hex): b0344f51d5cb04083d598fa3
+*** TOKEN (decimal): 54532600447720520868878192547
+*** TOKEN (mnemonic): rabbit pen stamp process raccoon advice voice cradle person
+*** ENCRYPTION_KEY (hex): 6bae6b670e257d7468c3e90194029dd468a2f39d8b9a3ff187b08209b1d409b6
+** TOKEN for Signer 3 (hex): 163fd307195982c4c39d50bb
+*** TOKEN (decimal): 6885829092987042066541138107
+*** TOKEN (mnemonic): bike write scrub crawl oblige give attack present rookie
+*** ENCRYPTION_KEY (hex): c78b94589214b6dc98b337ba4ce54380553ed00a1e5b1955fc540ce3b30d6566
+
+* Signer 1
+** MASTER_KEY_FINGERPRINT: 110dc257
+** PRIVATE_KEY (m/48'/0'/0'/1'): KzshDDEBhzyiwXHoyE7ZiLegzztEy54AG6Wq8N844LqHSQMHt4Ji
+** XPUB (m/48'/0'/0'/1'): xpub6EPQbDFezXYvVFHqnc8R7QUSE8hTepbyCXU7jJBT4dVm2rQHe1i6isqoj59qhyBiCdKquo6QsgMZNHvEz3BM4cNSszF25siTqLUCznBm8vk
+** Legacy signature
+** <tt>signer_1_key.bsms</tt>:
+<pre>BSMS 1.0
+654d63309464afcda558c6aa
+[110dc257/48'/0'/0'/1']xpub6EPQbDFezXYvVFHqnc8R7QUSE8hTepbyCXU7jJBT4dVm2rQHe1i6isqoj59qhyBiCdKquo6QsgMZNHvEz3BM4cNSszF25siTqLUCznBm8vk
+Signer 1 key
+IDX6xLdM4XjetYPvVfpVBXAfT7oE3tHAOB4blZpbIst8bjJ+LbDeP4tZl4O8utAuys9igXE0G3kaHz1mg/+OU8w=</pre>
+
+* Signer 1 encryption
+** HMAC_KEY (hex): f43c359a4b3d7b2e01be73c54519b12545ca9a23a86f824aadf577b314a7caa7
+** MAC (hex): 40b6b43e2f1bc01b748eb242235d7e09fa8a2fd6cebe35784cf3adf81910ec98
+** IV (hex) : 40b6b43e2f1bc01b748eb242235d7e09
+** CIPHERTEXT (hex): 0877987764401c27e6c60ed2f1bb89dff1dbc5e8204149f682d53049bffe39553f24af3928aa2f78ac2d04ac5baa0c3ec39aaccf0d258e7bb6659a7b92e92f2c2784a94f4df8e8af2270d9d411bfff2cfb9f71b4e1ac87561c7d2ac57ca86a1f9716d5da7571719d24830fc8d015a0daf04b3742439484488798335357f2eeaa8e2db2ba630f9dffd88236e327ab5bfcfb6e29ee3ef6cc18e0b71c1731465c2351e76b92f7b1bd28ef6eff5414c22aa6c80090fa59b973c22e3044e92dbf3688990a49a42828e52c1e686f1193dcdf7b7118930e01419fe938c6811c58c84c36d692fd52846f998bc328471f1e73c22261791a08cda096ee3ac8b37f31afd0b1d9c335ff9ac67ff230eb0d69f2d7
+** <tt>signer_1_key.dat</tt>: <pre>40b6b43e2f1bc01b748eb242235d7e09fa8a2fd6cebe35784cf3adf81910ec980877987764401c27e6c60ed2f1bb89dff1dbc5e8204149f682d53049bffe39553f24af3928aa2f78ac2d04ac5baa0c3ec39aaccf0d258e7bb6659a7b92e92f2c2784a94f4df8e8af2270d9d411bfff2cfb9f71b4e1ac87561c7d2ac57ca86a1f9716d5da7571719d24830fc8d015a0daf04b3742439484488798335357f2eeaa8e2db2ba630f9dffd88236e327ab5bfcfb6e29ee3ef6cc18e0b71c1731465c2351e76b92f7b1bd28ef6eff5414c22aa6c80090fa59b973c22e3044e92dbf3688990a49a42828e52c1e686f1193dcdf7b7118930e01419fe938c6811c58c84c36d692fd52846f998bc328471f1e73c22261791a08cda096ee3ac8b37f31afd0b1d9c335ff9ac67ff230eb0d69f2d7</pre>
+
+* Signer 2
+** MASTER_KEY_FINGERPRINT: 5c890401
+** PRIVATE_KEY (m/48'/0'/0'/1'): L41Jnc9CdBtBJd18429MDGcTgP2DNoXaKyyGr271ndTprvrHXDQf
+** XPUB (m/48'/0'/0'/1'): xpub6EW1SmjSXq9YwVwcan5qWEncgx89SozMvGNpYF6hfZHYNTikNZ4gsXuVhHTi6xYJCkmY4X4wpPPS5Gr7aY39dVJMS2TGfihr25oaspKtU8q
+** Legacy signature
+** <tt>signer_2_key.bsms</tt>:
+<pre>BSMS 1.0
+b0344f51d5cb04083d598fa3
+[5c890401/48'/0'/0'/1']xpub6EW1SmjSXq9YwVwcan5qWEncgx89SozMvGNpYF6hfZHYNTikNZ4gsXuVhHTi6xYJCkmY4X4wpPPS5Gr7aY39dVJMS2TGfihr25oaspKtU8q
+Signer 2 key
+H5kN6UHaK2xACB6iYdTxxQPD8qyFEYv9iMsQs5B0MRfCM7NA5GB+7EFgmBpSctwt6B122zWBr6mRjpYjKmj+7hs=</pre>
+
+* Signer 2 encryption
+** HMAC_KEY (hex): e0a20b5f5285fbaa35aad08fb70f5626c9abbe1b384a4950735b28aca6325ff2
+** MAC (hex): 3a6deec8dbdbd6606a52c7d7e64eca4f972a293cbabac6f62736629fbe77928a
+** IV (hex) : 3a6deec8dbdbd6606a52c7d7e64eca4f
+** CIPHERTEXT (hex): bb0fb72f61b0c4858bd9c65235390b67651b94c4b0329238b0116dd6d3365ade33cb1c1b1619638968791a5d2d1d263d90280bdad8d9ca24c34a78e320076e0dccf59e7f729b541b44bbe40ba803dedd3b17c49765377cb2d913a856b86c3dd383dab475790e89226ed8ef2301574212d2809ed9c099aa67be434024ee2a4e82a146300acf755863da64807cb7bb2636f6616489636d254a870778d3540832aea44abac4328b5d90f3e6045ef36a526ce5d575f2305e3e4699dccbc713e9e68f50364036c1054c2a506aab77ea7c43a89536947c24330b09a62a90c3b4ae2d452f96ef34ec871af2c52d68ddede2503c87e2ba68d5cf9be589457879e06021ea6a6176f7dded820ba4c0e709e2a2
+** <tt>signer_2_key.dat</tt>: <pre>3a6deec8dbdbd6606a52c7d7e64eca4f972a293cbabac6f62736629fbe77928abb0fb72f61b0c4858bd9c65235390b67651b94c4b0329238b0116dd6d3365ade33cb1c1b1619638968791a5d2d1d263d90280bdad8d9ca24c34a78e320076e0dccf59e7f729b541b44bbe40ba803dedd3b17c49765377cb2d913a856b86c3dd383dab475790e89226ed8ef2301574212d2809ed9c099aa67be434024ee2a4e82a146300acf755863da64807cb7bb2636f6616489636d254a870778d3540832aea44abac4328b5d90f3e6045ef36a526ce5d575f2305e3e4699dccbc713e9e68f50364036c1054c2a506aab77ea7c43a89536947c24330b09a62a90c3b4ae2d452f96ef34ec871af2c52d68ddede2503c87e2ba68d5cf9be589457879e06021ea6a6176f7dded820ba4c0e709e2a2</pre>
+
+* Signer 3
+** MASTER_KEY_FINGERPRINT: 614cbf5f
+** PRIVATE_KEY (m/48'/0'/0'/1'): L2ccRLzH7GfVxWpU8YSY9y5UGyRoqW3UdeNT1vGfVbxAGhwU5qhD
+** XPUB (m/48'/0'/0'/1'): xpub6F9TfWTFcMYy5Ycd2ka2az1brJj78J2isLAWptZnCpFsesss5sZv5B8xsgt71ZXfhDWhUtf4vng4zY6HUVrQbDMPDYRLYvFFoLnAYfzgYPH
+** Legacy signature
+** <tt>signer_3_key.bsms</tt>:
+<pre>BSMS 1.0
+163fd307195982c4c39d50bb
+[614cbf5f/48'/0'/0'/1']xpub6F9TfWTFcMYy5Ycd2ka2az1brJj78J2isLAWptZnCpFsesss5sZv5B8xsgt71ZXfhDWhUtf4vng4zY6HUVrQbDMPDYRLYvFFoLnAYfzgYPH
+Signer 3 key
+H0jf2JMtke5zDDIWys6fihOCA6QBmC5+hbgVB/c2mMPNPLB6tDXt0TFZU1f9wvaCR9762anKSc8CCqXLogw8V00=</pre>
+
+* Signer 3 encryption
+** HMAC_KEY (hex): 1f51ea067c121e2f86af5e1d484905046bc63e861573157d8b1ae9e7e47e224b
+** MAC (hex): 1a5624fcb39cebabb6174456173eec19b756bc916cf2c9d815e9bcce070898c4
+** IV (hex) : 1a5624fcb39cebabb6174456173eec19
+** CIPHERTEXT (hex): 48d6e139bdc8c19e93cbbf5b4478340c8cf08aa91c28803084d5f58618773f7e615e0134492b496c4e7c130351c0350701f686918033f621378552d7040efedd5539d38c258bf936475de775f23da3953fe3ba5bbbd24816b8902b87a9a09700c446b085119dedee2395dd69665e742f72f2fb6da4ebe3f4704eaf45486fbfb84d764b718cc0b756e72f72ab6069d47765bdd3ebd4074af4fa99a95691a659675ce5f72235c28ddf3c3d53179e598cddc967fc896adc6e97edeeffc85b9e44611df748d923ff3dd921ad4d6e98e0de12359a37558e326faf585ba57e73ab45bc4a49f6e8a756f365f5d204e70f7c7bed269e81e9524a41e5d4cbaad0b6b442d6eea1e5da1ca345cc665a0cffe2c3
+** <tt>signer_3_key.dat</tt>: <pre>1a5624fcb39cebabb6174456173eec19b756bc916cf2c9d815e9bcce070898c448d6e139bdc8c19e93cbbf5b4478340c8cf08aa91c28803084d5f58618773f7e615e0134492b496c4e7c130351c0350701f686918033f621378552d7040efedd5539d38c258bf936475de775f23da3953fe3ba5bbbd24816b8902b87a9a09700c446b085119dedee2395dd69665e742f72f2fb6da4ebe3f4704eaf45486fbfb84d764b718cc0b756e72f72ab6069d47765bdd3ebd4074af4fa99a95691a659675ce5f72235c28ddf3c3d53179e598cddc967fc896adc6e97edeeffc85b9e44611df748d923ff3dd921ad4d6e98e0de12359a37558e326faf585ba57e73ab45bc4a49f6e8a756f365f5d204e70f7c7bed269e81e9524a41e5d4cbaad0b6b442d6eea1e5da1ca345cc665a0cffe2c3</pre>
+
+====ROUND 2====
+* Coordinator
+** <tt>my_multisig_wallet.bsms</tt>:
+<pre>BSMS 1.0
+/0/*,/1/*
+sh(wsh(multi(2,[110dc257/48'/0'/0'/1']xpub6EPQbDFezXYvVFHqnc8R7QUSE8hTepbyCXU7jJBT4dVm2rQHe1i6isqoj59qhyBiCdKquo6QsgMZNHvEz3BM4cNSszF25siTqLUCznBm8vk/*,[5c890401/48'/0'/0'/1']xpub6EW1SmjSXq9YwVwcan5qWEncgx89SozMvGNpYF6hfZHYNTikNZ4gsXuVhHTi6xYJCkmY4X4wpPPS5Gr7aY39dVJMS2TGfihr25oaspKtU8q/*,[614cbf5f/48'/0'/0'/1']xpub6F9TfWTFcMYy5Ycd2ka2az1brJj78J2isLAWptZnCpFsesss5sZv5B8xsgt71ZXfhDWhUtf4vng4zY6HUVrQbDMPDYRLYvFFoLnAYfzgYPH/*)))#j3ykhz7f</pre>
+
+* Send to Signer 1:
+** HMAC_KEY (hex): f43c359a4b3d7b2e01be73c54519b12545ca9a23a86f824aadf577b314a7caa7
+** MAC (hex): ee74a0f50943d7d1b65270028bb05133e87c832cdc1ef0a07c79db2093ca3432
+** IV (hex) : ee74a0f50943d7d1b65270028bb05133
+** CIPHERTEXT (hex): 8e3ba3dac0f979fad0d160bd00c8294ff1726d51b95ff3e1534e5a1900f3d7cd4f6d929985a94b9da2c11e4e0f7770cc53c6739fd099477323bd26a3eca9c8016e79848d15e274463424b8355cd73cced61f1816ac8bac87f8c650ee9052f50e347c52ad24b00794a9d5523714be2fdcf731f14b7a8d7c93eab44c258e1c417d2837b9676832e8ce7239dc28b4e1166803209947b8a875a99b9478ee94f7bc17399e886179ab2a0285dc11a3883f6fa439d0f2277dadbec8c355c379fc50e945897e1a738f6a55b09f6b8b6bdf6d4bc248219cbad3662a78a2f539c989e055e00b8efd42fbff978e1a5cc10f83df56117ece4d17f94a0a6d3803778ed53531419250c5a0fff6cad4ab401468dd054915b068cc8826ae1308a71b38060d68c9248d59eea11c2c52a66d5f6bc0d7ae6cb44305c36e56068456d293b70037902e7b05a3ee0af710201128dffc0c16c3306b66bd19b9ae5b91aded35ef33f07743e5b185a9f88a5c67d40270e3bbcf592167ceaf82ead693728d5129b50075edd5ce24863f3484b4b063599ed1327e1c87d0a2051fed3b1234a702722b686e4c9392a403b79726800dd6b691e516e44d9e836c190b10cf2bb262bba98293c97f2c323e59acd0a1f988c5
+** <tt>my_multisig_wallet_for_signer_1.dat</tt>: <pre>ee74a0f50943d7d1b65270028bb05133e87c832cdc1ef0a07c79db2093ca34328e3ba3dac0f979fad0d160bd00c8294ff1726d51b95ff3e1534e5a1900f3d7cd4f6d929985a94b9da2c11e4e0f7770cc53c6739fd099477323bd26a3eca9c8016e79848d15e274463424b8355cd73cced61f1816ac8bac87f8c650ee9052f50e347c52ad24b00794a9d5523714be2fdcf731f14b7a8d7c93eab44c258e1c417d2837b9676832e8ce7239dc28b4e1166803209947b8a875a99b9478ee94f7bc17399e886179ab2a0285dc11a3883f6fa439d0f2277dadbec8c355c379fc50e945897e1a738f6a55b09f6b8b6bdf6d4bc248219cbad3662a78a2f539c989e055e00b8efd42fbff978e1a5cc10f83df56117ece4d17f94a0a6d3803778ed53531419250c5a0fff6cad4ab401468dd054915b068cc8826ae1308a71b38060d68c9248d59eea11c2c52a66d5f6bc0d7ae6cb44305c36e56068456d293b70037902e7b05a3ee0af710201128dffc0c16c3306b66bd19b9ae5b91aded35ef33f07743e5b185a9f88a5c67d40270e3bbcf592167ceaf82ead693728d5129b50075edd5ce24863f3484b4b063599ed1327e1c87d0a2051fed3b1234a702722b686e4c9392a403b79726800dd6b691e516e44d9e836c190b10cf2bb262bba98293c97f2c323e59acd0a1f988c5</pre>
+
+* Send to Signer 2:
+** HMAC_KEY (hex): e0a20b5f5285fbaa35aad08fb70f5626c9abbe1b384a4950735b28aca6325ff2
+** MAC (hex): 81df9e064f1de1d5f754c4e20f9286f9d81b856d3965677a9f2430cb9297ad1f
+** IV (hex) : 81df9e064f1de1d5f754c4e20f9286f9
+** CIPHERTEXT (hex): dcd82038ef627d6cb2deb62d04c4ccbaa3a354633d960e46312c22791f039f23fd9782a1e3a63504c1e5b3a0770bb8d32fdf168738b6c03278f1391dd5d01e9aafee7be2c8136ee018feff6fc8cdb926df13a36e115ddca8254934f56b7f700768c94cb8388a8297834de9affcd959417ae3d6ec3251387904f50f51f06306cc4d36eefc51418dd3b2c5454910a23ec67a40a3b918d2a740e812929aae949d8dde2c41cbbb3a2b7c2103788421c147f4794d6a26947c15ef4a99ceb825d0c5aaa78b8737d0ef712ba8e269a9941b1af5d217dcdd9cd06727fbdc70fabe3f5a8c09acff4e76992be7f27c6b12ca84739f62a6da86e5b79103d632c0dc8ab3f91fddb3cfbe67084dc4b861c4ac7c86fb171a058c98c67cffdc40ff17ae1533361cc6fb7b63657af0408cf30bf9d6d97aaacf9d3ff443eee61f207228cd91769ce83a0709c1be1847884c6a8fdc86ede66aef8e34fc509c49edf30f743bdc8f9052961ee340924ec2d1caadc6fd286bb3e233c153cd08c1934127752dc28e0d12efa92a050c4061653edb1cbf2fd4b2ba4e038f0b44f5735f198e92571c029156f65f534bfc149f38d611829901372cfc0176b9d2f9ac6512b7f37941a02dff701df0bceadaacfc6935
+** <tt>my_multisig_wallet_for_signer_2.dat</tt>: <pre>81df9e064f1de1d5f754c4e20f9286f9d81b856d3965677a9f2430cb9297ad1fdcd82038ef627d6cb2deb62d04c4ccbaa3a354633d960e46312c22791f039f23fd9782a1e3a63504c1e5b3a0770bb8d32fdf168738b6c03278f1391dd5d01e9aafee7be2c8136ee018feff6fc8cdb926df13a36e115ddca8254934f56b7f700768c94cb8388a8297834de9affcd959417ae3d6ec3251387904f50f51f06306cc4d36eefc51418dd3b2c5454910a23ec67a40a3b918d2a740e812929aae949d8dde2c41cbbb3a2b7c2103788421c147f4794d6a26947c15ef4a99ceb825d0c5aaa78b8737d0ef712ba8e269a9941b1af5d217dcdd9cd06727fbdc70fabe3f5a8c09acff4e76992be7f27c6b12ca84739f62a6da86e5b79103d632c0dc8ab3f91fddb3cfbe67084dc4b861c4ac7c86fb171a058c98c67cffdc40ff17ae1533361cc6fb7b63657af0408cf30bf9d6d97aaacf9d3ff443eee61f207228cd91769ce83a0709c1be1847884c6a8fdc86ede66aef8e34fc509c49edf30f743bdc8f9052961ee340924ec2d1caadc6fd286bb3e233c153cd08c1934127752dc28e0d12efa92a050c4061653edb1cbf2fd4b2ba4e038f0b44f5735f198e92571c029156f65f534bfc149f38d611829901372cfc0176b9d2f9ac6512b7f37941a02dff701df0bceadaacfc6935</pre>
+
+* Send to Signer 3:
+** HMAC_KEY (hex): 1f51ea067c121e2f86af5e1d484905046bc63e861573157d8b1ae9e7e47e224b
+** MAC (hex): 159a91100cacd123480b7d085c8bb32ec8eb06f0391b6dc8fac07ae67eb37b81
+** IV (hex) : 159a91100cacd123480b7d085c8bb32e
+** CIPHERTEXT (hex): c7269d8be21d1cfe172e35aa106760f1fdc929fce19da8fb7f74f759efec1ee02796fb1e8b008cf177f60a2021570f17aeeb41f8636858654082734b90959b98fd08419f901683c4ca3e76b3e482fea4c67162775e0d80bcb45df729f646c1364a3d8a7d1ff961717b00897e877c1c0554d3502942149726806269c546ad2dd34ba286ddf5cd336b83aabf7091fa25e607faf7e54017d84113e1e3ec440b3704addea188b89293469306fc0a98570afdcf269026b2d2e760f466c1f75bcf75fdf030c0a692e5681fd4487e59d6e96451ff5b6b9f2521b8e95e796ef4ab0a917794d91a30fdac7ee9ddbd89d174831bd133ab12a74f52f6283ee2c5fe3d5a957a7c1a15530b2c5224f76d90057dc94f2ee34e28b037ae7f518cc6dfe725cd3e657648de82b200ea77830eb93219f883998d3207a4ef5902d1119b0cde6b364bc1effb86109d9c2babc8ab26dce90329779d8cd0d737e9825a25586aa3c8fa5317e3e433ff235b82f629de0504e3c992f8e8de299f62751bc1fcb2e75e0262c7a27be7068cea69b14f303e97c24b99ed29cae142564e285657704b4c411d0d4f8c58819e2c0e0ffc3667eb5a408aad8a3023a5f00875e7deab95dc365d8757f7b79815a4fd9e6de2b3
+** <tt>my_multisig_wallet_for_signer_3.dat</tt>: <pre>159a91100cacd123480b7d085c8bb32ec8eb06f0391b6dc8fac07ae67eb37b81c7269d8be21d1cfe172e35aa106760f1fdc929fce19da8fb7f74f759efec1ee02796fb1e8b008cf177f60a2021570f17aeeb41f8636858654082734b90959b98fd08419f901683c4ca3e76b3e482fea4c67162775e0d80bcb45df729f646c1364a3d8a7d1ff961717b00897e877c1c0554d3502942149726806269c546ad2dd34ba286ddf5cd336b83aabf7091fa25e607faf7e54017d84113e1e3ec440b3704addea188b89293469306fc0a98570afdcf269026b2d2e760f466c1f75bcf75fdf030c0a692e5681fd4487e59d6e96451ff5b6b9f2521b8e95e796ef4ab0a917794d91a30fdac7ee9ddbd89d174831bd133ab12a74f52f6283ee2c5fe3d5a957a7c1a15530b2c5224f76d90057dc94f2ee34e28b037ae7f518cc6dfe725cd3e657648de82b200ea77830eb93219f883998d3207a4ef5902d1119b0cde6b364bc1effb86109d9c2babc8ab26dce90329779d8cd0d737e9825a25586aa3c8fa5317e3e433ff235b82f629de0504e3c992f8e8de299f62751bc1fcb2e75e0262c7a27be7068cea69b14f303e97c24b99ed29cae142564e285657704b4c411d0d4f8c58819e2c0e0ffc3667eb5a408aad8a3023a5f00875e7deab95dc365d8757f7b79815a4fd9e6de2b3</pre>
+
+==Acknowledgement==
+
+Special thanks to Pavol Rusnak, Dmitry Petukhov, Christopher Allen, Craig Raw, Robert Spigler, Gregory Sanders, Ta Tat Tai, Michael Flaxman, Pieter Wuille and others for their feedback on the specification.
+
+==References==
+
+Original mailing list thread: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-February/018385.html
+
