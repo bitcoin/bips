@@ -24,6 +24,7 @@ my %MayHaveMulti = (
 );
 my %DateField = (
 	Created => undef,
+  Updated => undef,
 );
 my %EmailField = (
 	Author => undef,
@@ -36,6 +37,7 @@ my %MiscField = (
 	'Replaces' => undef,
 	'Requires' => undef,
 	'Superseded-By' => undef,
+  Updated => undef,
 );
 
 my %ValidLayer = (
