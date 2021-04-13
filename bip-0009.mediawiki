@@ -5,11 +5,16 @@
           Peter Todd <pete@petertodd.org>
           Greg Maxwell <greg@xiph.org>
           Rusty Russell <rusty@rustcorp.com.au>
+          Russell O'Connor <roconnor@theorem.ca>
+          David A. Harding <dave@dtrt.org>
+          Anthony Towns <aj@erisian.com.au>
+          Sjors Provoost <sjors@sprovoost.nl>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0009
   Status: Final
   Type: Informational
   Created: 2015-10-04
+  Updated: 2021-04-12
   License: PD
 </pre>
 
@@ -23,6 +28,12 @@ BIP 34 introduced a mechanism for doing soft-forking changes without a predefine
 
 In addition, BIP 34 made the integer comparison (nVersion >= 2) a consensus rule after its 95% threshold was reached, removing 2<sup>31</sup>+2 values from the set of valid version numbers (all negative numbers, as nVersion is interpreted as a signed integer, as well as 0 and 1). This indicates another downside this approach: every upgrade permanently restricts the set of allowed nVersion field values. This approach was later reused in BIP 66 and BIP 65, which further removed nVersions 2 and 3 as valid options. As will be shown further, this is unnecessary.
 
+==2021 update==
+
+* '''min_activation_height''' was added. Clients unaware of softforks introduced after segwit can ignore this in the context of their upgrade warnings.
+* removed state transition from '''DEFINED''' to '''FAILED'''. This change is safe to ignore for all (buried) softforks deployed before 2021.
+* the transition from `STARTED` to either `LOCKED_IN` or `FAILED` was changed. This change is safe to ignore for all (buried) softforks deployed before 2021.
+
 ==Specification==
 
 Each soft fork deployment is specified by the following per-chain parameters (further elaborated below):
@@ -31,6 +42,7 @@ Each soft fork deployment is specified by the following per-chain parameters (fu
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
 # The '''starttime''' specifies a minimum median time past of a block at which the bit gains its meaning.
 # The '''timeout''' specifies a time at which the deployment is considered failed. If the median time past of a block >= timeout and the soft fork has not yet locked in (including this block's bit state), the deployment is considered failed on all descendants of the block.
+# The '''min_activation_height''' specifies the minimum block height at which the soft fork becomes active. Must be a retarget block. This is 0 for all softforks deployed before 2021.
 
 ===Selection guidelines===
 
@@ -40,6 +52,7 @@ The following guidelines are suggested for selecting these parameters for a soft
 # '''bit''' should be selected such that no two concurrent softforks use the same bit.
 # '''starttime''' should be set to some date in the future, approximately one month after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software.
 # '''timeout''' should be 1 year (31536000 seconds) after starttime.
+# '''min_activation_height''' should be 0 if the recommendation for '''starttime''' is followed.
 
 A later deployment using the same bit is possible as long as the starttime is after the previous one's
 timeout or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
@@ -78,6 +91,8 @@ The new consensus rules for each soft fork are enforced for each block that has 
 
 <img src="bip-0009/states.png" align="middle"></img>
 
+In the above figure `height + 1` refers to the first block of the new retarget period, wheres MTP is calculated against the last block of the current period.
+
 The genesis block has state DEFINED for each deployment, by definition.
 
     State GetStateForBlock(block) {
@@ -97,32 +112,28 @@ Otherwise, the next state depends on the previous state:
 
         switch (GetStateForBlock(GetAncestorAtHeight(block, block.height - 2016))) {
 
-We remain in the initial state until either we pass the start time or the timeout. GetMedianTimePast in the code below
+We remain in the initial state until the start time. GetMedianTimePast in the code below
 refers to the median nTime of a block and its 10 predecessors. The expression GetMedianTimePast(block.parent) is
 referred to as MTP in the diagram above, and is treated as a monotonic clock defined by the chain.
 
         case DEFINED:
-            if (GetMedianTimePast(block.parent) >= timeout) {
-                return FAILED;
-            }
             if (GetMedianTimePast(block.parent) >= starttime) {
                 return STARTED;
             }
             return DEFINED;
 
-After a period in the STARTED state, if we're past the timeout, we switch to FAILED. If not, we tally the bits set,
-and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
+After a period in the STARTED state, we tally the bits set and transition to LOCKED_IN
+if a sufficient number of blocks in the past period set the deployment bit in their
 version numbers. The threshold is ≥1916 blocks (95% of 2016), or ≥1512 for testnet (75% of 2016).
-The transition to FAILED takes precedence, as otherwise an ambiguity can arise.
-There could be two non-overlapping deployments on the same bit, where the first one transitions to LOCKED_IN while the
-other one simultaneously transitions to STARTED, which would mean both would demand setting the bit.
+Note that if the first period meets the signalling threshold, it will transition
+to LOCKED_IN even if MTP is past the timeout.
+
+If the threshold is not reached and we're past the timeout, we switch to FAILED.
+There MAY NOT be two non-overlapping deployments on the same bit.
 
 Note that a block's state never depends on its own nVersion; only on that of its ancestors.
 
-        case STARTED: 
-            if (GetMedianTimePast(block.parent) >= timeout) {
-                return FAILED;
-            }
+        case STARTED:
             int count = 0;
             walk = block;
             for (i = 0; i < 2016; i++) {
@@ -133,13 +144,18 @@ Note that a block's state never depends on its own nVersion; only on that of its
             }
             if (count >= threshold) {
                 return LOCKED_IN;
+            } else if (GetMedianTimePast(block.parent) >= timeout) {
+                return FAILED;
             }
             return STARTED;
 
-After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
+After one or more retarget periods of LOCKED_IN, if the activation height has been reached, we transition to ACTIVE. Note that `block.height` here refers to the first block of the new retarget period, wheres MTP is calculated against the last block of the previous period.
 
         case LOCKED_IN:
-            return ACTIVE;
+            if (block.height >= min_activation_height)
+                return ACTIVE;
+            else
+                return LOCKED_IN;
 
 And ACTIVE and FAILED are terminal states, which a deployment stays in once they're reached.
 
@@ -228,6 +244,10 @@ upgrades for successful soft forks.
 ==Deployments==
 
 A living list of deployment proposals can be found [[bip-0009/assignments.mediawiki|here]].
+
+==References==
+
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-March/018583.html Mailing list discussion]
 
 ==Copyright==
 
