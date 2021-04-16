@@ -66,7 +66,7 @@ The Signer is any software or hardware that controls the private keys and can si
 * The Coordinator creates a new multisig wallet creation session. The Coordinator constructs the multisig script and its policy parameters, such as the required number of signatures and the total number of Signers (<tt>M</tt> and <tt>N</tt>).
 * The session should expire after some time period determined by the Coordinator, e.g., 24 hours. The timeout allows the encryption key to have lower entropy.
 * If encryption is enabled, the Coordinator distributes a secret <tt>TOKEN</tt> to each Signer over a secure channel. The Signer can use the <tt>TOKEN</tt> to derive an <tt>ENCRYPTION_KEY</tt>. Refer to the Encryption section below for details on the <tt>TOKEN</tt>, the key derivation function and the encryption scheme. Depending on the use case, the Coordinator can decide whether to share one common <tt>TOKEN</tt> for all Signers, or to have one per Signer.
-* If encryption is disabled, the <tt>TOKEN</tt> is set to <tt>0</tt>, and all the encryption/decryption steps below can be skipped.
+* If encryption is disabled, the <tt>TOKEN</tt> is set to <tt>0x00</tt>, and all the encryption/decryption steps below can be skipped.
 
 =====Signer=====
 
@@ -87,7 +87,7 @@ The Signer is any software or hardware that controls the private keys and can si
 * The Coordinator verifies that the key records have compatible specification versions.
 * The Coordinator verifies that the included <tt>SIG</tt> is valid given the <tt>KEY</tt>.
 * If all key records look good, the Coordinator fills in all necessary information to generate a descriptor record.
-* The first line in the descriptor record must be the specification version (<tt>BSMS 1.0</tt> as of this writing). The second line must be a comma-separated list of accepted derivation paths that the Signers can use to generate addresses from the included XPUBs. The paths must start with <tt>/</tt> and use non-hardened derivation. For example, <tt>/0/*</tt> and <tt>/1/*</tt> are some common paths. If there are no restrictions, it must say <tt>No path restrictions</tt>. The third line must be the descriptor string plus a <tt>CHECKSUM</tt>, all in one line. The <tt>CHECKSUM</tt> has [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md#checksums BECH32 encoding].
+* The first line in the descriptor record must be the specification version (<tt>BSMS 1.0</tt> as of this writing). The second line must be a comma-separated list of accepted derivation paths that the Signers can use to generate addresses from the included XPUBs. The paths must start with <tt>/</tt> and use non-hardened derivation. For example, <tt>/0/*</tt> and <tt>/1/*</tt> are some common paths. If there are no restrictions, it must say <tt>No path restrictions</tt>. The third line must be the descriptor string plus a <tt>CHECKSUM</tt>, all in one line. The <tt>CHECKSUM</tt> has [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md#checksums BECH32 encoding]. The fourth line must be the wallet's first address. If there are path restrictions, use the first address from the first path restriction.
 * The Coordinator calculates the <tt>MAC</tt> for the record. The first 16 bytes of the <tt>MAC</tt> serves as the <tt>IV</tt> for the encryption.. 
 * The Coordinator encrypts the descriptor record with the <tt>ENCRYPTION_KEY</tt> and <tt>IV</tt>.
 * The Coordinator encodes the <tt>MAC</tt> and the ciphertext into hexadecimal format, then concatenates the results: <tt>(MAC || ciphertext)</tt>.
@@ -103,9 +103,9 @@ The Signer is any software or hardware that controls the private keys and can si
 * The Signer verifies the descriptor’s <tt>CHECKSUM</tt>.
 * The Signer verifies that it can support the descriptor.
 * The Signer checks that its <tt>KEY</tt> is included in the descriptor, using path and fingerprint information provided. The check must perform an exact match on the <tt>KEY</tt>s and not using shortcuts such as matching fingerprints, which is trivial to spoof.
-* For confirmation, the Signer must display to the user the <tt>CHECKSUM</tt>, the derivation path restrictions and the policy parameters, such as <tt>M</tt>, <tt>N</tt> and the position(s) of its own XPUB in the policy script. The total number of Signers, <tt>N</tt>, is important to prevent a <tt>KEY</tt> insertion attack. The position is important for scripts where key order matters. When applicable, all positions of the XPUB must be displayed. The full descriptor must also be available for review upon user request. 
-* When possible, the Signer should also show a preview of the first address(es) of the wallet.
-* Parties must check with each other that all Signers have verified the descriptor and has the same confirmation (except for the key positions).
+* The Signer verifies that the wallet's first address is valid given the descriptor and the path restrictions.
+* For confirmation, the Signer must display to the user the wallet's first address and policy parameters, including, but not limited to: the derivation path restrictions, <tt>M</tt>, <tt>N</tt>, and the position(s) of the Signer's own XPUB in the policy script. The total number of Signers, <tt>N</tt>, is important to prevent a <tt>KEY</tt> insertion attack. The position is important for scripts where key order matters. When applicable, all positions of the XPUB must be displayed. The full descriptor must also be available for review upon user request. 
+* Parties must check with each other that all Signers have the same confirmation (except for the key positions).
 * If all checks pass, the Signer must persist the descriptor record in its storage.
 
 This completes the setup.
@@ -115,7 +115,7 @@ This completes the setup.
 ====The Token====
 We define three modes of encryption.
 
-# <tt>NO_ENCRYPTION</tt> : the <tt>TOKEN</tt> is set to <tt>0</tt>. Encryption is disabled.
+# <tt>NO_ENCRYPTION</tt> : the <tt>TOKEN</tt> is set to <tt>0x00</tt>. Encryption is disabled.
 # <tt>STANDARD</tt> : the <tt>TOKEN</tt> is a 64-bit nonce.
 # <tt>EXTENDED</tt> : the <tt>TOKEN</tt> is a 96-bit nonce.
 
@@ -166,13 +166,11 @@ Also refer to [https://github.com/BlockchainCommons/Research/blob/master/papers/
 
 ==Security==
 
-This proposal introduces two layers of protection. The first one is a temporary, secret <tt>TOKEN</tt>. The second one is the descriptor <tt>CHECKSUM</tt>.
+This proposal introduces two layers of protection. The first one is a temporary, secret <tt>TOKEN</tt>. The second one is the confirmation of the wallet's first address.
 
 The <tt>TOKEN</tt> is used to encrypt the two rounds of communication between the Signer and the Coordinator. A <tt>MAC</tt> is also generated from the <tt>TOKEN</tt> and plaintext to authenticate the data being exchanged. The <tt>TOKEN</tt> is only needed during the setup phase, and can be safely discarded afterwards.
 
-The descriptor <tt>CHECKSUM</tt>, on the other hand, can be used to verify the integrity of the multisig configuration. An attacker who tampers with the multisig configuration must also change the descriptor <tt>CHECKSUM</tt>. Parties must check with each other that all Signers have the same <tt>CHECKSUM</tt>, along with the policy parameters, to reduce the chance of tampering. The <tt>CHECKSUM</tt> must be persisted along with the descriptor in each Signer’s storage.
-
-The <tt>TOKEN</tt> and the <tt>CHECKSUM</tt> can’t guarantee complete protection, since that depends on the overall security of all parties in the setup, but they can make it significantly harder for an attacker to tamper with the multisig configuration.
+The wallet's first address, on the other hand, can be used to verify the integrity of the multisig configuration. An attacker who tampers with the multisig configuration must also change the wallet's first address. Parties must check with each other that all Signers confirm to the same address and policy parameters to reduce the chance of tampering.
 
 ==Privacy==
 Encryption helps improve the privacy of the wallet by avoiding sharing XPUBs and descriptors in plaintext.
@@ -217,7 +215,8 @@ H38+lp9iaesBeCN05BDTH/SnmarlH6+X+Kmw1pgCk+c1Pc1evYIdBag9Nc0nsKhvPtfEbRt9r/qsUVZ5
 ** <tt>my_multisig_wallet.bsms</tt>:
 <pre>BSMS 1.0
 /0/*,/1/*
-wsh(sortedmulti(2,[539f3d89/48'/0'/0'/2']xpub6ETerig7tq89mtaD8Gau2xRWxouRMBy6XHqciA8GZzC2dJv3w6FxfgoegH4b2qYF4oG6VBrhpLrauPs5E1q58GLCnhKp6g9QsV9ZA7J5JNa/*,[f8b12aa6/48'/0'/0'/2']xpub6EWPNhGSX86SN4J2DrBUaQ826o6V4egHqAJZUDJqnsthv9CcjBZV79u68M3YZkuTJnJBXfCrHuJy97fkVurntwgt3V7Ms5hXpJV2vS8fQZM/*))#fntxdj7p</pre>
+wsh(sortedmulti(2,[539f3d89/48'/0'/0'/2']xpub6ETerig7tq89mtaD8Gau2xRWxouRMBy6XHqciA8GZzC2dJv3w6FxfgoegH4b2qYF4oG6VBrhpLrauPs5E1q58GLCnhKp6g9QsV9ZA7J5JNa/*,[f8b12aa6/48'/0'/0'/2']xpub6EWPNhGSX86SN4J2DrBUaQ826o6V4egHqAJZUDJqnsthv9CcjBZV79u68M3YZkuTJnJBXfCrHuJy97fkVurntwgt3V7Ms5hXpJV2vS8fQZM/*))#fntxdj7p
+bc1qqqen0mj98v3mpr5esh4g22llu0wj4c6y2wj3q7l5tcqlr5au4nesyfh7rr</pre>
 
 ===Mode: <tt>STANDARD</tt> Encryption===
 ====ROUND 1====
