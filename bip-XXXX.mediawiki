@@ -1,7 +1,7 @@
 <pre>
   BIP: XXXX
   Layer: Applications
-  Title: Decentralized Storage protocol
+  Title: Decentralized Storage Protocol
   Author: Christopher Gilliard <christopher.gilliard@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-XXXX
@@ -16,13 +16,13 @@ This BIP describes a layer two protocol for storage of data using Bitcoin as the
 
 ==Motivation==
 
-There are several implementations of decentralized storage [<a href="#references">1</a>] [<a href="#references">2</a>] [<a href="#references">3</a>], but none that use Bitcoin as the native cryptocurrency. A truly decentralized and private storage mechanism would have many uses and would eliminate trusted providers and replace them with commoditized storage providers. Many other applications could be built upon this decentralized storage layer as well.
+There are several implementations of decentralized storage [<a href="#references">1</a>] [<a href="#references">2</a>] [<a href="#references">3</a>], we propose one that ties into the other services being described and uses Bitcoin as the base currency. A truly decentralized and private storage mechanism would have many uses and would eliminate trusted providers and replace them with commoditized storage providers. Many other applications could be built upon this decentralized storage layer as well.
 
 ==Specification==
 
 ===General===
 
-The decentralized storage proposed would use lightning network, tor and work in a manner similar to how Bittorrent [<a href="#references">4</a>] works except that individual pieces of the file are downloaded in order to enable streaming. Each piece of content, whether text, image, audio, or video can be thought of as either a document or a series of documents. For the purposes of this protocol each document will be a maximum of 2,560 kb. For larger files, multiple documents shall be linked to one another. Video files may use multiple "look ahead" links for buffering purposes.
+The decentralized storage proposed would use lightning network, tor and work in a manner similar to how Bittorrent [<a href="#references">4</a>] works except that individual pieces of the file may be downloaded in order to enable streaming. Each piece of content, whether text, image, audio, or video can be thought of as either a document or a series of documents. Each document will be a maximum of 2,560 kb. For larger files, multiple documents may be linked to one another. Video files may use multiple "look ahead" links for buffering purposes.
 
 ===Components===
 
@@ -34,54 +34,45 @@ This storage protocol has several types of users:
 
 3.) Consumers
 
-<img src="bip-XXXX/decentralized_storage_diagram.png">
+<img src="bip-XXXX-decentralized-storage/decentralized_storage_diagram.png">
 
 ===Publishers===
 
-Each document will be seeded by the publisher. Everyone on the network has a TOR v3 onion address. The seeder who creates the document, will sign the document with their private key corresponding to their onion address. If the document is a single document (as opposed to a chain of documents for videos), the format will be as follows:
+Each document will be seeded by the publisher. Everyone on the network has a TOR v3 onion address. The seeder who creates the document, will sign the document with their private key corresponding to their onion address. If the document is a single document (as opposed to a chain of documents for videos and other large files), the format will be as follows:
 
-<div><nowiki>
-[1 byte type (0 - for single)]
-</nowiki></div><div><nowiki>
-[4 bytes TTL in seconds - 0 = indefinite]
-</nowiki></div><div><nowiki>
-[65 bytes signature]
-</nowiki></div><div><nowiki>
-[remainder of the 2,560 kb - body of document]
-</nowiki></div>
+    <1 byte version>
+    <1 byte type (0 - for single)>
+    <4 bytes TTL in seconds - 0 = indefinite>
+    <56 bytes publisher tor v3 address>
+    <65 bytes signature>
+    <2.5 mb max remainder of the body of the document>
 
 The body of the document is signed.
 
 If the document links to other documents the format is as follows:
 
-<div><nowiki>
-[1 byte type (1 - for multi)]
-</nowiki></div><div><nowiki>
-[4 bytes TTL in seconds - 0 = indefinite]
-</nowiki></div><div><nowiki>
-[65 bytes signature]
-</nowiki></div><div><nowiki>
-[2 bytes number of lookahead document checksums]
-</nowiki></div><div><nowiki>
-[32 bytes first look ahead document checksum]
-</nowiki></div><div><nowiki>
-[32 bytes second look ahead document checksum]
-</nowiki></div><div><nowiki>
-...
-</nowiki></div><div><nowiki>
-[remainder of the 2,560 kb - body of document]</nowiki></div>
+    <1 byte version>
+    <1 byte type (1 - for multi)>
+    <4 bytes TTL in seconds - 0 = indefinite>
+    <56 bytes publisher tor v3 address>
+    <65 bytes signature>
+    <2 bytes number of lookahead document checksums>
+    <32 bytes first look ahead document checksum>
+    <32 bytes second look ahead document checksum>
+    ...
+    <2.5 mb max remainder of the body of the document>
 
-This format allows the documents to be built in such a way that buffering can occur.
+The "look ahead" document checksums allows for buffering such that several chunks of the multimedia file may be downloaded in parallel.
 
 When a publisher publishes a document, it will notify the appropriate trackers that the file exists. It will also simultaneously notify the notarization tree builders of the checksum. For details on notarization, see ____.
 
 ===Tracking===
 
-Trackers in this proposal play a similar role as with Bittorrent. They keep track of which nodes have which document. In the case of this protocol, each tracker will maintain a list of documents, which v3 onion address has them, and how much that v3 onion address wants to charge for downloading the document. The trackers will act as a distributed hash table. Each tracker will connect to the network of trackers (using standard messaging techniques) and advertise a number between 1 and 2^32-1 to indicate which portion of the tracking they will be responsible for. This number will be used to determine what proportion of the load they will receive. Consistent hashing [<a href="#references">5</a>] will be used such that the proportion of document going to each tracker is proportional to their number advertised. Quadruple redundancy will be used to ensure that at least one tracker for each document will be online at any given time. Tracking code may be part of the full node that is disabled by default or separate software that is ran on the same host as the full node. Implementation details are still to be determined.
+Trackers in this proposal play a similar role as with Bittorrent. They keep track of which nodes have which document. In the case of this protocol, each tracker will maintain a list of documents, which onion address has them, and how much that onion address wants to charge for downloading the document. The trackers will act as a distributed hash table. Each tracker will connect to the network of trackers (using standard messaging techniques) and advertise a number between 1 and 2^32-1 to indicate which portion of the tracking they will be responsible for. This number will be used to determine what proportion of the load they will receive. Consistent hashing [<a href="#references">5</a>] will be used such that the proportion of document going to each tracker is proportional to their number advertised. Some degree of redundancy will be used to ensure that at least one tracker for each document will be online at any given time. Tracking code may be part of the full node that is disabled by default or separate software that is ran on the same host as the full node. There also will need to be a way that trackers that don't do their job are removed from the network. Implementation details are still to be determined.
 
 ===Consuming===
 
-Consumers will have a list of seed trackers that they can contact. When a document is requested, the consumer will first query the trackers to determine which trackers are responsible for which documents. It may make sense for consumers to cache the tracker state so as to be able to load documents faster, but periodically they will need to update their state based on changes. Once the appropriate tracker is found, the consumer will query the tracker to determine the lowest cost node that has the document. They will then contact this node and request the desired document. The node will respond by sending the document and a lightning network invoice for the amount to be paid. Note: with current specs of the lightning network, the minimum payment is 0.001 Satoshis. This means that for a 20 gb (2 hour blue-ray quality video), the minimum cost to download would be 0.00000008192 BTC. Depending on the price of BTC, this may be acceptable or not, but the current implementation of Lightning Network may be modified to allow for more granularity.
+Consumers will have a list of seed trackers that they can contact. When a document is requested, the consumer will first query the trackers to determine which trackers are responsible for the document. It may make sense for consumers to cache the tracker state so as to be able to load documents faster, but periodically they will need to update their state based on changes. Once the appropriate tracker is found, the consumer will query the tracker to determine the lowest cost node that has the document. They will then contact this node and request the desired document. The node will respond by sending the document and a lightning network invoice for the amount to be paid. Note: with current specs of the lightning network, the minimum payment is 0.001 Satoshis. This means that for a 20 gb (2 hour blue-ray quality video), the minimum cost to download would be 0.00000008192 BTC. Depending on the price of BTC, this may be acceptable or not, but the current implementation of Lightning Network may be modified to allow for more granularity.
 
 ===Hosting files===
 
@@ -93,7 +84,7 @@ Since the data providers are trusting that the consumers will pay the lightning 
 
 ==Summary==
 
-The proposed system will allow content to be shared privately and use an underlying cryptocurrency to incentivize nodes to host the content. Content may be public (like a public video or a blog), or private (by encrypting the message with the pub key of the recipient's tor address).
+The proposed system will allow content to be shared and use LN payments to incentivize nodes to host the content. Content may be public (like a public video or a blog), or private (by encrypting the message with the pub key of the recipient's tor address or any other form of encryption).
 
 ==References==
 
