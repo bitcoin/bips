@@ -1,0 +1,98 @@
+<pre>
+  BIP: XXXX
+  Layer: Applications
+  Title: Layer Two Notarization Standard
+  Author: Christopher Gilliard <christopher.gilliard@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-XXXX
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-04-19
+</pre>
+
+==Abstract==
+
+This BIP describes a layer two protocol for notarization/time-stamping of data in the Bitcoin blockchain. This BIP is dependent on BIP-XXXX.
+
+==Motivation==
+
+As explained in BIP-XXXX, block space is a precious resource. Limiting the OP_RETURN opcode [<a href="#references">1</a>] to a single transaction per block will save space, but it requires coordination at the layer two level. This BIP describes how to standardize notarizations such that thousands or even millions of notarizations can be done per block. Various other protocols will build upon this BIP as well.
+
+==Specification==
+
+===General===
+
+In short, the concept is that the OP_RETURN field will be used to store the sha256 hash of a document that contains links to other documents that are either leaf nodes which contain a list of sha256 hashes submitted or branch nodes which include hashes of other nodes (branch or leaf).
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<img src="bip-XXXX/diagram1.png">
+
+The OP_RETURN itself has the following format (total of 40 bytes):
+
+    <3 bytes magic>
+    <1 byte version>
+    <4 bytes of total hash count in the tree>
+    <32 byte hash of the first node>
+
+The hashes are sorted alphabetically to make binary search possible. Each node is 256k in size maximum and contains a 96 byte header followed by up to 8189 thirty-two byte hashes. The fields of the header are as follows:
+
+    <4 bytes magic>
+    <1 byte version>
+    <1 byte node type (leaf = 0, branch = 1)>
+    <4 bytes length in number of hashes>
+    <56 bytes for onion address to get LN tipping invoices>
+    <30 bytes reserved>
+
+Based on this, a tree structure may be formed. The minimum number of nodes are used, so based on the total hash count, the number of nodes and types can be calculated. The onion address is an address where the creator of the tree will receive tips via LN. One example of tips received is in the incentivized moderation protocol which will be forthcoming. We encourage other protocols built on top of this protocol to include tips to the tree creators as that incentivizes the builders of the trees.
+
+===Retrieving the Tree data===
+
+The tree data may be retrieved through the decentralized storage protocol. The one who notarizes (who will typically be a miner) will broadcast each node as a document to the decentralized storage network at the time of the creation of the block. See ___ for more details on the decentralized storage network.
+
+===Incentives for miners to build the trees===
+
+It is important to note that building trees is a very inexpensive operation. Mining pools and large miners will easily be able to accommodate it at little to no extra cost and it will bring great value to the network. Thus, that in and of itself may be enough to incentivize them to operate the tree building software. In addition, the tipping address mentioned in the specification section will be used to receive additional lightning tips as part of other protocols that use the notarization process.
+
+===Notification of checksums to be contained in a tree===
+
+Standard messaging techniques can be used to notify the tree builders (solo miners and mining pools) of a new checksum to be notarized. Tree builders will listen to a topic and the checksum will be sent to this topic as it is published.
+
+===Flood Prevention===
+
+Various means may be used to prevent/limit flooding. One option is to require a micropayment to submit a timestamp. One way to implement this payment is to have several competing checksum submission services running. These services will submit the checksums to the miners who wish to build the trees. Ultimately these services are very standard messaging services and a topic can be used to submit the new checksums to subscribers who build the trees. By having multiple services, there will be competition and the fees will be extremely low. The purpose of the fee should only be to prevent flooding. Also proof of burn may be useful. As this is implemented, a more precise and optimized implementation can be determined. Proof of burn may also be used such that in order to submit checksums, a user must show a proof of burn. Abusive addresses will be banned and sibil attacks will be prevented by the required proof of burn.
+
+==Deployment==
+
+Since this is a layer two protocol, implementation/deployment may take place at any time. OP_RETURNs or the related documents that do not follow the rules are ignored by consumers of the protocol.
+
+==Test Network==
+
+The details of the testnet implementation are TBD.
+
+==Rationale==
+
+The author's article on Notarization [<a href="#references">2</a>] details the background on why this is important and gives the rationale for this feature. Just to highlight a few important points:
+
+1.) Notarization is a direct use of the Blockchain other than the inherent monetary use of Bitcoin. These direct uses are very important and should be further developed.
+
+2.) Optimizing and coordinating use of Bitcoin's resources are important.
+
+3.) This is an area where Bitcoin is a significant improvement over existing standards. Crypto notarization can do many things not possible with standard notarization practices and eliminates centralized third parties.
+
+==Objections to this Proposal==
+
+As this BIP specifies a layer two protocol that is 100% opt-in, we don't foresee that it will receive much objection.
+
+==Compatibility==
+
+As this is a layer two protocol it is backwards compatible with layer one. Layer one does not need to understand this protocol only clients that use the protocol will need to understand it.
+
+==Implementation==
+
+TBD
+
+==References==
+
+[1] - https://en.bitcoin.it/wiki/OP_RETURN
+
+[2] - https://chrisgilliard.medium.com/notarization-good-money-and-a-proposal-for-bitcoin-ac3585756bee
+
