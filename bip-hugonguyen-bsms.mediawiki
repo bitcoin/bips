@@ -87,7 +87,7 @@ The Signer is any software or hardware that controls the private keys and can si
 * The Coordinator verifies that the key records have compatible specification versions.
 * The Coordinator verifies that the included <tt>SIG</tt> is valid given the <tt>KEY</tt>.
 * If all key records look good, the Coordinator fills in all necessary information to generate a descriptor record.
-* The first line in the descriptor record must be the specification version (<tt>BSMS 1.0</tt> as of this writing). The second line must be the descriptor string plus a <tt>CHECKSUM</tt>, all in one line. The <tt>CHECKSUM</tt> has [https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md#checksums BECH32 encoding]. The third line must be a comma-separated list of accepted derivation paths that the Signers can use to generate addresses from the included XPUBs. The paths must start with <tt>/</tt> and use non-hardened derivation. For example, <tt>/0/*</tt> and <tt>/1/*</tt> are some common paths. If there are no restrictions, it must say <tt>No path restrictions</tt>. The fourth line must be the wallet's first address. If there are path restrictions, use the first address from the first path restriction.
+* The first line in the descriptor record must be the specification version (<tt>BSMS 1.0</tt> as of this writing). The second line must be a descriptor or a descriptor template. The third line must be a comma-separated list of accepted derivation paths, to be applied to the template. The paths must start with <tt>/</tt> and use non-hardened derivation. If there are no template or restrictions, it must say <tt>No path restrictions</tt>. The fourth line must be the wallet's first address. If there are path restrictions, use the first address from the first path restriction.
 * The Coordinator calculates the <tt>MAC</tt> for the record. The first 16 bytes of the <tt>MAC</tt> serves as the <tt>IV</tt> for the encryption.. 
 * The Coordinator encrypts the descriptor record with the <tt>ENCRYPTION_KEY</tt> and <tt>IV</tt>.
 * The Coordinator encodes the <tt>MAC</tt> and the ciphertext into hexadecimal format, then concatenates the results: <tt>(MAC || ciphertext)</tt>.
@@ -99,8 +99,7 @@ The Signer is any software or hardware that controls the private keys and can si
 * The Signer extracts the <tt>MAC</tt> from the data, sets <tt>IV</tt> to the first 16 bytes of the <tt>MAC</tt>, then decrypts the ciphertext using the <tt>ENCRYPTION_KEY</tt> (derived from the open session) and <tt>IV</tt>.
 * The Signer verifies that the included <tt>MAC</tt> is valid given the plaintext.
 * The Signer verifies that it can support the included specification version.
-* The Signer verifies the descriptor’s <tt>CHECKSUM</tt>.
-* The Signer verifies that it can support the descriptor.
+* The Signer verifies that it can support the descriptor or descriptor template.
 * The Signer checks that its <tt>KEY</tt> is included in the descriptor, using path and fingerprint information provided. The check must perform an exact match on the <tt>KEY</tt>s and not using shortcuts such as matching fingerprints, which is trivial to spoof.
 * The Signer verifies that it is compatible with the derivation path restrictions.
 * The Signer verifies that the wallet's first address is valid given the descriptor and the path restrictions.
@@ -176,6 +175,23 @@ The wallet's first address, on the other hand, can be used to verify the integri
 Encryption helps improve the privacy of the wallet by avoiding sharing XPUBs and descriptors in plaintext.
 
 If the parties wish to have stronger privacy, it is recommended to use a higher number of bits for the <tt>TOKEN</tt>, and to completely erase knowledge of the <tt>TOKEN</tt> after the multisig wallet has been set up.
+
+==Descriptor Template==
+The output descriptor language only supports one-dimensional lists. This proposal introduces a descriptor template to represent multi-dimensional lists:
+
+<tt>XPUB/**</tt>
+
+Whereas <tt>**</tt> can be replaced by any number of derivation paths.
+
+If there is a descriptor template in the descriptor record, Signers should expand the template into concrete descriptors by using the derivations paths provided in the record.
+
+For example, the following template and derivation paths:
+* <tt>wsh(sortedmulti(2,XPUB1/**,XPUB2/**))</tt>
+* <tt>/0/*,/1/*</tt>
+
+Should translate to two concrete descriptors:
+* <tt>wsh(sortedmulti(2,XPUB1/0/*,XPUB2/0/*))</tt>
+* <tt>wsh(sortedmulti(2,XPUB1/1/*,XPUB2/1/*))</tt>
 
 ==Test Vectors==
 
@@ -387,7 +403,7 @@ sh(wsh(multi(2,[1af5fed9/48'/0'/0'/1']xpub6Dk872oqUVGBi8rUjch8SBmvjYcXe4Ege93fsZ
 
 ==Acknowledgement==
 
-Special thanks to Pavol Rusnak, Dmitry Petukhov, Christopher Allen, Craig Raw, Robert Spigler, Gregory Sanders, Ta Tat Tai, Michael Flaxman, Pieter Wuille and others for their feedback on the specification.
+Special thanks to Pavol Rusnak, Dmitry Petukhov, Christopher Allen, Craig Raw, Robert Spigler, Gregory Sanders, Ta Tat Tai, Michael Flaxman, Pieter Wuille, Salvatore Ingala and others for their feedback on the specification.
 
 ==References==
 
