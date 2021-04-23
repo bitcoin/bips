@@ -1,0 +1,101 @@
+<pre>
+  BIP: XXXX
+  Layer: Applications
+  Title: Incentivized Moderation
+  Author: Christopher Gilliard <christopher.gilliard@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-XXXX
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-04-23
+</pre>
+
+==Abstract==
+
+This BIP describes an incentivized moderation protocol using Bitcoin as the underlying cryptocurrency. This BIP is dependent on BIP-XXXX and BIP-XXXX.
+
+==Motivation==
+
+Previous BIPs describe decentralized storage, time-stamping, and naming, and notification. One of the remaining pieces needed to build decentralized applications is a moderation protocol. The protocol should incentivize users to both author and moderate content. Many social media applications have a "like" button, "upvote", or other similar ways to tell content creators that their content is appreciated. Here we propose a protocol that includes financial incentives using Bitcoin to reward content creators and moderators. This protocol, like the notification protocol, will include centralized content moderation servers. The reason is that with current LN [<a href="#references">1</a>] implementation, only invoices are possible so it's not possible to receive payments from other participants directly. We need an "always on" central server to process payments (both inbound and outbound). We can however, as we did with the notification server, make this protocol an open standard and develop the code in an open source way such that if one of the centralized content moderation servers abuses their power, they can be replaced.
+
+==Specification==
+
+===General===
+
+The clear way to incentivize content creators is to attach a micropayment to their moderation. So, an end user who likes a particular piece of content can include a micropayment (maybe as little as 1 milliSat or as large as 1 Bitcoin depending on user preferences). The main question is, who does this micropayment go to? We could give 100% to the content creator, but moderators should also be rewarded for moderating good content and also the operator of the content moderation servers needs to receive some compensation for operating the service. We propose the following model:
+
+1.) 80% to content creator.
+
+2.) 15% to moderators that moderated the content earlier. (The first like pays out their 15% to the tree builder tip address since their are no previous moderators)
+
+3.) 5% to the content moderation server operator.
+
+===Moderation Incentive Model===
+
+Items #1 and #3 are pretty clear, so the main question is, how is #2 divvied up? We propose the following method:
+
+1.) Think of the likes for a particular document as being an ordered list. The first person to like a document is followed by the second, all the way to the last.
+
+2.) Every user can specify any amount to tip per like.
+
+3.) 80% of the first user's tip goes to the content creator, 15% goes to the tip address in the notarization tree (see notarization l2 protocol for details) and 5% goes to the content moderation server's operator.
+
+4.) All subsequent users pay 80% to the content creator, 5% to the content moderation server's operator and the remaining 15% is goes to the previous moderators based on the proportion of the total tip they've paid out. This means that someone who makes a bigger tip will get rewarded more by the people following them.
+
+5.) To discourage "like sniping", or liking content of popular content creators instantly without thought, we propose a daily cycle for tips. In this cycle, the first tip would get 100% of the amount expected, the second tip would get 90% of the amount expected, third tip would get 90% of the second tip (or 81% of the first tip), so you gradually get less and less throughout the day. For the purposes of this cycle, we will use UTC as the time. This encourages users to select their likes more wisely and makes it more difficult for automated processes. The intention is that a good moderator who finds good content early, will be able to make a profit doing this, but it will be harder to automate.
+
+Let's go over some examples:
+
+Let's suppose there's a two pieces of content produced in a day. We'll call them c1 and c2.
+
+Then, let's suppose there's several users that are participating in producing content and moderation: Alice, Bob, and Charlie, Dave, Ed, and Fran.
+
+Let's say Fran is the content producer. Fran produces c1 and Alice is the first to like it for 200 sats, followed by Bob for 100 sats, finally Charlie likes it for 300 sats. Since this is the first like of the day for all the moderators, they will all get a 100% weighting. Alice's 200 sat tip will go 160 sats to Fran and 10 sats to the content moderation server operator and the 30 sats that would normally go to other moderators goes to the tree builder tip address to incentivize tree building. Bob's 100 sat tip, will go 5 sats to the content moderation server operator, 80 sats to Fran, and the remaining 15 sats will go to Alice. Charlie's 300 sat tip will go 15 sats to the content moderation server operator, 240 sats to Fran and the remaining 45 sats will go to Alice and Bob. The split is calculated by taking their percentage of the total amount tipped thus far times their weighting (in this case both are 100% because this is their first tip of the day on this content moderation server). Alice will be getting 2/3 of it and Bob will be getting 1/3. So, Alice gets 30 sats and Bob gets 15 sats.
+
+Later in the day, Fran produces c2. This time, Dave likes first for 200 sats, then Alice likes for 300 sats, finally Ed likes for 100,000 sats. In this case, Dave's tip goes 80% to Fran, 15% to the tree builder tip address, and 5% to the content moderation server operator. Alice's 300 sat tip goes 80% to Fran, 15% to Dave, and 5% to the content moderation server operator. Finally, From Ed's 100,000 sat tip, 80,000 sats go to Fran, 5,000 sats go to the content moderation server operator, and the remaining 15,000 sats are split between Alice and Dave. Since Alice tipped 300 and Dave tipped 200, Dave would normally get 2/5 and Alice would get 3/5. However, since this is Alice's second tip of the day, her share is reduced by 10%. Alice ends up getting 8,100 and Dave gets 6,900. So, as we can see, in this case, Fran, Alice, and Dave all made money, while Bob, Charlie, and Ed spent money. So, good moderators and content producers can earn money and users can reward content producers that they like.
+
+Please note that for the purposes of calculating rewards, it is based on the time of the user's tip and not the time the other payment is made. So, Even if Ed made his tip the following day, Alice would still be getting 90% and Dave 100%.
+
+The following diagram illustrates a simple example:
+
+<img src=bip-XXXX-incentived-moderation/incentivized_moderation.png>
+
+===Re-Broadcasting Content===
+
+Many social networks have the concept of re-broadcasting (Twitter's "retweets", Parler's "echo", etc...). While we don't talk about that explicitly in this BIP, it is possible to implement them. It doesn't require the content moderation services described in this proposal. A user can publish any document and in those documents there could be content of their own, or links, or re-broadcasts, etc. We will describe a way to do that in the forthcoming BIP that outlines the feed format.
+
+===Incentives to promote new, or unrecognized content producers===
+
+One of the things that this incentive structure does is to implicitly encourages popular content producers to promote less well known content producers. That is because the popular producer can first "like" a less well known content producer that has good content and then re-broadcast their content to their own larger user base. By doing this (and presumably including a substantial tip with their like), they may pick up a good deal of moderation tips in the process. We think this is a well aligned incentive.
+
+===Mechanics of receiving/giving tip amounts===
+
+Tips will always be paid to the content moderation server operator and payouts will always be requested of the content moderation server operator. The content moderation server will host an always on end point with a known onion address. Content producers will specify the content moderation server in their documents via name mapping. This will be done in the metadata included in the feed format.
+
+To make a like payment, the moderator will make a request to the content moderation server. In that request they will specify the following:
+
+1.) The document they are liking - 32 bit checksum.
+
+2.) The moderator's onion address.
+
+3.) A signature of the liked document checksum with the private key associated with the moderator's onion address.
+
+4.) Amount.
+
+Note: a proof of burn associated with this onion address will be required to avoid sybil attacks. More details on the format of this proof will be forthcoming.
+
+The content moderation server will respond with an LN invoice for the requested amount.
+
+To request a payout (for content creation, or moderation, or both), the recipient will make a request to the content moderation server. The content moderation server will respond with the amount due, a challenge vector, and the requester will make another request that includes an LN invoice for that amount along with the signature of the challenge vector using their onion address's key. The content moderation server will also be responsible for providing APIs to query status and show how how calculations were made.
+
+==Content Moderation Server Exit Scam and Prevention==
+
+One of the issues that arises with content moderation is that since the content moderation server is centralized and it holds user funds, it can, at any time exit and steal any unpaid balances. The problem is worse given that document checksums cannot be changed. The issue is that a popular piece of content may be associated with a particular content moderation server that stops processing payouts to moderators and content creators. When this happens, users that unknowingly try to tip the content creator have 100% of their funds sent to the operator of the service, never to be paid out as specified. A partial solution is that the naming service may be used to point a name to a content moderation service instead of its actual onion address. It is suggested that each content creator, make their own name mapping to a content moderation service. That way, if the content moderation server operator exit scams, the content creator may update their name mapping to a new content moderation service operator via name reassignment request. This at least minimizes the damage from an exit scam and also discourages the operators from exit scamming. In the feed format, a name for the content moderation service is specified as opposed to an onion address for this purpose.
+
+==Summary==
+
+The goal of this BIP is to outline a protocol that incentivizes content creators, moderators, and content moderation service operators.
+
+==References==
+
+[1] - https://lightning.network/
