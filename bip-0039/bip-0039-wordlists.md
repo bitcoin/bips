@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Hungarian](hungarian.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,19 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+### Hungarian
+
+Credits: @peterkisfaludi (Peter Kisfaludi kisfaludi.peter@gmail.com)
+
+Words chosen using the following rules:
+
+1.  Words are 4-8 letters long.
+2.  Words can be uniquely determined typing the first 4 letters.
+3.  No words with accents or hyphens.
+4.  No words with Levehnstein distance less than 2 (Minimum Levehnstein distance for the full set of words is 2).
+5.  Words are sorted according to English alphabet
+6.  No words containing "j" or "ly" (as they are pronounced the same way, written differently)
+7.  No words already used in other language mnemonic sets.
+8.  Obscenities and bad language removed as much as possible
+
