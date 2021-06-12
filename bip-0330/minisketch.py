@@ -120,7 +120,7 @@ def find_roots_inner(p, a):
         return []
     elif len(p) == 2:
         return [p[0]]
-    # Otherwise, split p in left*right using paramater a_vals[0].
+    # Otherwise, split p in left*right using parameter a_vals[0].
     t = poly_monic(poly_trace(p, a))
     left = poly_gcd(list(p), t)
     right = poly_divmod(list(left), p)
