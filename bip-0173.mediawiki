@@ -194,6 +194,11 @@ For presentation, lowercase is usually preferable, but inside QR codes uppercase
 ''[http://www.thonky.com/qr-code-tutorial/alphanumeric-mode-encoding alphanumeric mode]'', which is 45% more compact than the normal
 ''[http://www.thonky.com/qr-code-tutorial/byte-mode-encoding byte mode]''.
 
+'''<span id="Limitations">Limitations</span>'''
+
+Due to an oversight in the design of Bech32, this checksum scheme is not always robust against [https://gist.github.com/sipa/a9845b37c1b298a7301c33a04090b2eb the insertion and deletion of fewer than 5 consecutive characters].
+Therefore, applications with variable length data parts should explicitly encode their payload length in their data part.
+
 ===Segwit address format===
 
 A segwit address<ref>'''Why not make an address format that is generic for all scriptPubKeys?'''
@@ -209,10 +214,12 @@ implementations' assumptions about lengths), but still be visually
 distinct.</ref> for testnet.
 * The data-part values:
 ** 1 byte: the witness version
-** A conversion of the 2-to-40-byte witness program (as defined by [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]) to base32:
+** The witness program (as defined by [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]), which MUST have a size of 10, 13, 16, 20, 23, 26, 29, 32, 36, or 40 bytes<ref>'''Why are only witness programs of sizes of 10, 13, 16, 20, 23, 26, 29, 32, 36, and 40 bytes supported?''' To overcome Bech32's [[#Limitations|limitations]], which were discovered after deployment, we have reduced the selection of witness sizes to ensure that all segwit address lengths differ by a minimum of 5 characters, while also ensuring that (1) segwit v0's 20 and 32 byte witness programs are supported; (2) the 40 byte maximum segwit program size is supported; and (3) witness programs of fewer than 10 bytes, which would not have enough entropy to provide security, are excluded.</ref>, coverted to base32:
 *** Start with the bits of the witness program, most significant bit per byte first.
 *** Re-arrange those bits into groups of 5, and pad with zeroes at the end if needed.
 *** Translate those bits to characters using the table above.
+
+While, in general, witness programs may be between 2 and 40 bytes, only witness programs that amoung the specific sizes listed above are addressable by this address format.
 
 '''Decoding'''
 
@@ -222,13 +229,13 @@ Software interpreting a segwit address:
 * Convert the rest of the data to bytes:
 ** Translate the values to 5 bits, most significant bit first.
 ** Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or less, MUST be all zeroes, and is discarded.
-** There MUST be between 2 and 40 groups, which are interpreted as the bytes of the witness program.
+** The number of groups MUST be 10, 13, 16, 20, 23, 26, 29, 32, 36, or 40, which are interpreted as the bytes of the witness program.
 
 Decoders SHOULD enforce known-length restrictions on witness programs.
 For example, BIP141 specifies ''If the version byte is 0, but the witness
 program is neither 20 nor 32 bytes, the script must fail.''
 
-As a result of the previous rules, addresses are always between 14 and 74 characters long, and their length modulo 8 cannot be 0, 3, or 5.
+As a result of the previous rules, addresses are always 26, 31, 36, 42, 47, 52, 57, 62, 68 or 74 characters long.
 Version 0 witness addresses are always 42 or 62 characters, but implementations MUST allow the use of any version.
 
 Implementations should take special care when converting the address to a
