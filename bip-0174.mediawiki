@@ -428,6 +428,72 @@ The currently defined per-input types are defined as follows:
 | 2
 | [[bip-psb2.mediawiki|psbt2]]
 |-
+| Taproot Key Spend Signature
+| <tt>PSBT_IN_TAP_KEY_SIG = 0x13</tt>
+| None
+| No key data 
+| <tt><signature></tt>
+| The 64 or 65 byte Schnorr signature for key path spending a Taproot output. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Script Spend Signature
+| <tt>PSBT_IN_TAP_SCRIPT_SIG = 0x14</tt>
+| <tt><xonlypubkey> <leafhash></tt>
+| A 32 byte X-only public key involved in a leaf script concatenated with the 32 byte hash of the leaf it is part of.
+| <tt><signature></tt>
+| The 64 or 65 byte Schnorr signature for this pubkey and leaf combination. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Leaf Script
+| <tt>PSBT_IN_TAP_LEAF_SCRIPT = 0x15</tt>
+| <tt><control block></tt>
+| The control block for this leaf as specified in BIP 341. The control block contains the merkle tree path to this leaf.
+| <tt><script> <8-bit uint></tt>
+| The script for this leaf as would be provided in the witness stack followed by the single byte leaf version. Note that the leaves included in this field should be those that the signers of this input are expected to be able to sign for. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Key BIP 32 Derivation Path
+| <tt>PSBT_IN_TAP_BIP32_DERIVATION = 0x16</tt>
+| <tt><xonlypubkey></tt>
+| A 32 byte X-only public key involved in this input. It may be the internal key, or a key present in a leaf script.
+| <tt><hashes len> <leaf hash>* <4 byte fingerprint> <32-bit uint>*</tt>
+| A compact size unsigned integer representing the number of leaf hashes, followed by a list of leaf hashes, followed by the 4 byte master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output. The leaf hashes are of the leaves which involve this public key. The internal key does not have leaf hashes, so can be indicated with a <tt>hashes len</tt> of 0. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Internal Key
+| <tt>PSBT_IN_TAP_INTERNAL_KEY = 0x17</tt>
+| None
+| No key data
+| <tt><pubkey></tt>
+| The X-only pubkey used as the internal key in this output. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Merkle Root
+| <tt>PSBT_IN_TAP_MERKLE_ROOT = 0x18</tt>
+| None
+| No key data
+| <tt><pubkey></tt>
+| The 32 byte Merkle root hash. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
 | Proprietary Use Type
 | <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
 | <tt><identifierlen> <identifier> <subtype> <subkeydata></tt>
@@ -510,6 +576,50 @@ determine which outputs are change outputs and verify that the change is returni
 | 0
 | 2
 | [[bip-psb2.mediawiki|psbt2]]
+|-
+| Taproot Internal Key
+| <tt>PSBT_OUT_TAP_INTERNAL_KEY = 0x05</tt>
+| None
+| No key data
+| <tt><pubkey></tt>
+| The X-only pubkey used as the internal key in this output.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Tree
+| <tt>PSBT_OUT_TAP_TREE = 0x06</tt>
+| None
+| No key data
+| <tt>{<8-bit uint depth> <8-bit uint leaf version> <scriptlen> <script>}*</tt>
+| One or more tuples representing the depth, leaf version, and script for a leaf in the Taproot tree, allowing the entire tree to be reconstructed. The tuples must be in depth first search order so that the tree is correctly reconstructed. Each tuple is an 8-bit unsigned integer representing the depth in the Taproot tree for this script, an 8-bit unsigned integer representing the leaf version, the length of the script as a compact size unsigned integer, and the script itself.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Leaf Script
+| <tt>PSBT_OUT_TAP_LEAF_SCRIPT = 0x06</tt>
+| <tt><control block></tt>
+| The control block for this leaf as specified in BIP 341. The control block contains the merkle tree path to this leaf.
+| <tt><script></tt>
+| The script for this leaf as would be provided in the witness stack.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
+|-
+| Taproot Key BIP 32 Derivation Path
+| <tt>PSBT_OUT_TAP_BIP32_DERIVATION = 0x07</tt>
+| <tt><xonlypubkey></tt>
+| A 32 byte X-only public key involved in this output. It may be the internal key, or a key present in a leaf script.
+| <tt><hashes len> <leaf hash>* <4 byte fingerprint> <32-bit uint>*</tt>
+| A compact size unsigned integer representing the number of leaf hashes, followed by a list of leaf hashes, followed by the 4 byte master key fingerprint concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. Public keys are those needed to spend this output. The leaf hashes are of the leaves which involve this public key. The internal key does not have leaf hashes, so can be indicated with a <tt>hashes len</tt> of 0. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+|
+| 0, 2
+| [[bip-0371.mediawiki|371]]
 |-
 | Proprietary Use Type
 | <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
