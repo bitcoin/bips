@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Hebrew](hebrew.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,15 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+
+### Hebrew
+
+Credit: @GuyPergal
+
+1. Common and simple words in Hebrew.
+2. Only words with 4-8 letters.
+3. Words can be uniquely determined by typing the first 4 characters.
+4. No personal names or geographical names.
+5. No offensive or negative words.
+6. If both female/male words are available, choose only one version.
