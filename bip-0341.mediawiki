@@ -173,14 +173,14 @@ First, we define <code>taproot_tweak_pubkey</code> for 32-byte [[bip-0340.mediaw
 The function returns a bit indicating the tweaked public key's Y coordinate as well as the public key byte array.
 The parity bit will be required for spending the output with a script path.
 In order to allow spending with the key path, we define <code>taproot_tweak_seckey</code> to compute the secret key for a tweaked public key.
-For any byte string <code>h</code> it holds that <code>taproot_tweak_pubkey(pubkey_gen(seckey), h)[0] == pubkey_gen(taproot_tweak_seckey(seckey, h))</code>.
+For any byte string <code>h</code> it holds that <code>taproot_tweak_pubkey(pubkey_gen(seckey), h)[1] == pubkey_gen(taproot_tweak_seckey(seckey, h))</code>.
 
 <source lang="python">
 def taproot_tweak_pubkey(pubkey, h):
     t = int_from_bytes(tagged_hash("TapTweak", pubkey + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
-    Q = point_add(lift_x(int_from_bytes(pubkey)), point_mul(G, t))
+    Q = point_add(lift_x(pubkey), point_mul(G, t))
     return 0 if has_even_y(Q) else 1, bytes_from_int(x(Q))
 
 def taproot_tweak_seckey(seckey0, h):
@@ -219,7 +219,7 @@ def taproot_output_script(internal_pubkey, script_tree):
         h = bytes()
     else:
         _, h = taproot_tree_helper(script_tree)
-    output_pubkey, _ = taproot_tweak_pubkey(internal_pubkey, h)
+    _, output_pubkey = taproot_tweak_pubkey(internal_pubkey, h)
     return bytes([0x51, 0x20]) + output_pubkey
 </source>
 
@@ -284,9 +284,7 @@ The reason for this is to increase leaf entropy and prevent an observer from lea
 
 == Test vectors ==
 
-Examples with creation transaction and spending transaction pairs, valid and invalid.
-
-Examples of preimage for sighashing for each of the sighash modes.
+The test vectors used in the [https://github.com/bitcoin/bitcoin/blob/3820090bd619ac85ab35eff376c03136fe4a9f04/src/test/script_tests.cpp#L1718 Bitcoin Core unit test framework] can be found [https://github.com/bitcoin-core/qa-assets/blob/main/unit_test_data/script_assets_test.json?raw=true here].
 
 == Rationale ==
 
@@ -294,7 +292,43 @@ Examples of preimage for sighashing for each of the sighash modes.
 
 == Deployment ==
 
-TODO
+This BIP is deployed concurrently with [[bip-0342.mediawiki|BIP342]].
+
+For Bitcoin signet, these BIPs are always active.
+
+For Bitcoin mainnet and testnet3, these BIPs will be deployed by "version bits" with the name "taproot" and bit 2, using [[bip-0009.mediawiki|BIP9]] modified to use a lower threshold, with an additional ''min_activation_height'' parameter and replacing the state transition logic for the DEFINED, STARTED and LOCKED_IN states as follows:
+
+    case DEFINED:
+        if (GetMedianTimePast(block.parent) >= starttime) {
+            return STARTED;
+        }
+        return DEFINED;
+
+    case STARTED:
+        int count = 0;
+        walk = block;
+        for (i = 0; i < 2016; i++) {
+            walk = walk.parent;
+            if ((walk.nVersion & 0xE0000000) == 0x20000000 && ((walk.nVersion >> bit) & 1) == 1) {
+                count++;
+            }
+        }
+        if (count >= threshold) {
+            return LOCKED_IN;
+        } else if (GetMedianTimePast(block.parent) >= timeout) {
+            return FAILED;
+        }
+        return STARTED;
+
+    case LOCKED_IN:
+        if (block.nHeight < min_activation_height) {
+            return LOCKED_IN;
+        }
+        return ACTIVE;
+
+For Bitcoin mainnet, the starttime is epoch timestamp 1619222400 (midnight 24 April 2021 UTC), timeout is epoch timestamp 1628640000 (midnight 11 August 2021 UTC), the threshold is 1815 blocks (90%) instead of 1916 blocks (95%), and the min_activation_height is block 709632 (expected approximately 12 November 2021).
+
+For Bitcoin testnet3, the starttime is epoch timestamp 1619222400 (midnight 24 April 2021 UTC), timeout is epoch timestamp 1628640000 (midnight 11 August 2021 UTC), the threshold is 1512 blocks (75%), and the min_activation_height is block 0.
 
 == Backwards compatibility ==
 As a soft fork, older software will continue to operate without modification.
@@ -302,7 +336,7 @@ Non-upgraded nodes, however, will consider all SegWit version 1 witness programs
 They are strongly encouraged to upgrade in order to fully validate the new programs.
 
 Non-upgraded wallets can receive and send bitcoin from non-upgraded and upgraded wallets using SegWit version 0 programs, traditional pay-to-pubkey-hash, etc.
-Depending on the implementation non-upgraded wallets may be able to send to Segwit version 1 programs if they support sending to [[bip-0173.mediawiki|BIP173]] Bech32 addresses.
+Depending on the implementation non-upgraded wallets may be able to send to Segwit version 1 programs if they support sending to [[bip-0350.mediawiki|BIP350]] Bech32m addresses.
 
 == Acknowledgements ==
 

@@ -16,13 +16,13 @@
 
 This document specifies an alternative to [[bip-0009.mediawiki|BIP9]] that corrects for a number of perceived mistakes.
 Block heights are used for start and timeout rather than POSIX timestamps.
-It additionally introduces an additional activation parameter to guarantee activation of backward-compatible changes (further called "soft forks").
+It additionally introduces an activation parameter that can guarantee activation of backward-compatible changes (further called "soft forks").
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
 ==Motivation==
 
-BIP9 introduced a mechanism for doing parallel soft forking deployments based on repurposing the block nVersion field. Activation is dependent on near unanimous hashrate signalling which may be impractical and result in veto by a small minority of non-signalling hashrate. Super majority hashrate based activation triggers allow for accelerated activation where the majority hash power enforces the new rules in lieu of full nodes upgrading. Since all consensus rules are ultimately enforced by full nodes, eventually any new soft fork will be enforced by the economy. This proposal combines these two aspects to provide eventual flag day activation after a reasonable time (recommended a year), as well as for accelerated activation by majority of hash rate before the flag date.
+BIP9 introduced a mechanism for doing parallel soft forking deployments based on repurposing the block nVersion field. Activation is dependent on near unanimous hashrate signalling which may be impractical and result in veto by a small minority of non-signalling hashrate. Super majority hashrate based activation triggers allow for accelerated activation where the majority hash power enforces the new rules in lieu of full nodes upgrading. Since all consensus rules are ultimately enforced by full nodes, eventually any new soft fork will be enforced by the economy. This proposal combines these two aspects to provide optional flag day activation after a reasonable time, as well as for accelerated activation by majority of hash rate before the flag date.
 
 Due to using timestamps rather than block heights, it was found to be a risk that a sudden loss of significant hashrate could interfere with a late activation.
 
@@ -34,26 +34,30 @@ Block time is somewhat unreliable and may be intentionally or unintentionally in
 
 Each soft fork deployment is specified by the following per-chain parameters (further elaborated below):
 
-# The '''name''' specifies a very brief description of the soft fork, reasonable for use as an identifier. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
+# The '''name''' specifies a very brief description of the soft fork, reasonable for use as an identifier.
 # The '''bit''' determines which bit in the nVersion field of the block is to be used to signal the soft fork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
 # The '''startheight''' specifies the height of the first block at which the bit gains its meaning.
 # The '''timeoutheight''' specifies a block height at which the miner signalling ends. Once this height has been reached, if the soft fork has not yet locked in (excluding this block's bit state), the deployment is considered failed on all descendants of the block.
+# The '''threshold''' specifies the minimum number of block per retarget period which indicate lock-in of the soft fork during the subsequent period.
+# The '''minimum_activation_height''' specifies the height of the first block at which the soft fork is allowed to become active.
 # The '''lockinontimeout''' boolean if set to true, blocks are required to signal in the final period, ensuring the soft fork has locked in by timeoutheight.
 
 ===Selection guidelines===
 
 The following guidelines are suggested for selecting these parameters for a soft fork:
 
-# '''name''' should be selected such that no two softforks, concurrent or otherwise, ever use the same name.
-# '''bit''' should be selected such that no two concurrent softforks use the same bit.
-# '''startheight''' should be set to some block height in the future, approximately 30 days (or 4320 blocks) after a software release date including the soft fork.  This allows for some release delays, while preventing triggers as a result of parties running pre-release software, and ensures a reasonable number of full nodes have upgraded prior to activation. It should be rounded up to the next height which begins a retarget period for simplicity.
-# '''timeoutheight''' should be 1 year, or 52416 blocks (26 retarget intervals) after '''startheight'''.
+# '''name''' should be selected such that no two softforks, concurrent or otherwise, ever use the same name. For deployments described in a single BIP, it is recommended to use the name "bipN" where N is the appropriate BIP number.
+# '''bit''' should be selected such that no two concurrent softforks use the same bit. The bit chosen should not overlap with active usage (legitimately or otherwise) for other purposes.
+# '''startheight''' should be set to some block height in the future. If '''minimum_activation_height''' is not going to be set, then '''startheight''' should be set to a height when a majority of economic activity is expected to have upgraded to software including the activation parameters. Some allowance should be made for potential release delays. If '''minimum_activation_height''' is going to be set, then '''startheight''' can be set to be soon after software with parameters is expected to be released. This shifts the time for upgrading from before signaling begins to during the LOCKED_IN state.
+# '''timeoutheight''' should be set to a block height when it is considered reasonable to expect the entire economy to have upgraded by, probably at least 1 year, or 52416 blocks (26 retarget intervals) after '''startheight'''.
+# '''threshold''' should be 1815 blocks (90% of 2016), or 1512 (75%) for testnet.
+# '''minimum_activation_height''' should be set to several retarget periods in the future if the '''startheight''' is to be very soon after software with parameters is expected to be released. '''minimum_activation_height''' should be set to a height when a majority of economic activity is expected to have upgraded to software including the activation parameters. This allows more time to be spent in the LOCKED_IN state so that nodes can upgrade. This may be set to 0 to have the LOCKED_IN state be a single retarget period.
 # '''lockinontimeout''' should be set to true for any softfork that is expected or found to have political opposition from a non-negligible percent of miners. (It can be set after the initial deployment, but cannot be cleared once set.)
 
 A later deployment using the same bit is possible as long as the startheight is after the previous one's
 timeoutheight or activation, but it is discouraged until necessary, and even then recommended to have a pause in between to detect buggy software.
 
-'''startheight''' and '''timeoutheight''' must be an exact multiple of 2016 (ie, at a retarget boundary), and '''timeoutheight''' must be at least 4096 blocks (2 retarget intervals) after '''startheight'''.
+'''startheight''', '''timeoutheight''', and '''minimum_activation_height''' must be an exact multiple of 2016 (ie, at a retarget boundary), and '''timeoutheight''' must be at least 4032 blocks (2 retarget intervals) after '''startheight'''.
 
 ===States===
 
@@ -62,8 +66,8 @@ With each block and soft fork, we associate a deployment state. The possible sta
 # '''DEFINED''' is the first state that each soft fork starts out as. The genesis block is by definition in this state for each deployment.
 # '''STARTED''' for blocks at or beyond the startheight.
 # '''MUST_SIGNAL''' for one retarget period prior to the timeout, if LOCKED_IN was not reached and '''lockinontimeout''' is true.
-# '''LOCKED_IN''' for one retarget period after the first retarget period with STARTED (or MUST_SIGNAL) blocks of which at least threshold have the associated bit set in nVersion.
-# '''ACTIVE''' for all blocks after the LOCKED_IN retarget period.
+# '''LOCKED_IN''' for at least one retarget period after the first retarget period with STARTED (or MUST_SIGNAL) blocks of which at least threshold have the associated bit set in nVersion. A soft fork remains in LOCKED_IN until at least '''minimum_activation_height''' is reached.
+# '''ACTIVE''' for all blocks after the LOCKED_IN state.
 # '''FAILED''' for all blocks after the timeoutheight if LOCKED_IN is not reached.
 
 ===Bit flags===
@@ -79,18 +83,20 @@ for the purposes of this proposal, and support two future upgrades for different
 When a block nVersion does not have top bits 001, it is treated as if all
 bits are 0 for the purposes of deployments.
 
+Miners should continue setting the bit in LOCKED_IN phase so uptake is visible, though this has no effect on consensus rules.
+
 ===New consensus rules===
 
 The new consensus rules for each soft fork are enforced for each block that has ACTIVE state.
 
-During the MUST_SIGNAL and LOCKED_IN phases, blocks that fail to signal are invalid.
-For flexibility, during the LOCKED_IN phase only, this rule does NOT require the top 3 bits to be set any particular way.
+During the MUST_SIGNAL phase, if '''(2016 - threshold)''' blocks in the retarget period have already failed to signal, any further blocks that fail to signal are invalid.
 
 ===State transitions===
 
 <img src="bip-0008/states.png" align="middle"></img>
 
-Note that when '''lockinontimeout''' is true, the LOCKED_IN state will be reached no later than at a height of '''timeoutheight''', and ACTIVE will be reached no later than at a height of '''timeoutheight + 2016'''.
+Note that when '''lockinontimeout''' is true, the LOCKED_IN state will be reached no later than at a height of '''timeoutheight'''.
+Regardless of the value of '''lockinontimeout''', if LOCKED_IN is reached, ACTIVE will be reached either one retarget period later, or at '''minimum_activation_height''', whichever comes later.
 
 The genesis block has state DEFINED for each deployment, by definition.
 
@@ -121,7 +127,7 @@ We remain in the initial state until we reach the start block height.
 
 After a period in the STARTED state, we tally the bits set,
 and transition to LOCKED_IN if a sufficient number of blocks in the past period set the deployment bit in their
-version numbers. The threshold is ≥1916 blocks (95% of 2016), or ≥1512 for testnet (75% of 2016).
+version numbers.
 If the threshold hasn't been met, lockinontimeout is true, and we are at the last period before the timeout, then we transition to MUST_SIGNAL.
 If the threshold hasn't been met and we reach the timeout, we transition directly to FAILED.
 
@@ -150,10 +156,14 @@ If we have finished a period of MUST_SIGNAL, we transition directly to LOCKED_IN
         case MUST_SIGNAL:
             return LOCKED_IN;
 
-After a retarget period of LOCKED_IN, we automatically transition to ACTIVE.
+After at least one retarget period of LOCKED_IN, we automatically transition to ACTIVE if the minimum activation height is reached. Otherwise LOCKED_IN continues.
 
         case LOCKED_IN:
-            return ACTIVE;
+            if (block.height >= minimum_activation_height) {
+                return ACTIVE;
+            } else {
+                return LOCKED_IN;
+            }
 
 And ACTIVE and FAILED are terminal states, which a deployment stays in once they're reached.
 
@@ -176,16 +186,23 @@ block, indexed by its parent.
 
 ===Mandatory signalling===
 
-Blocks received while in the MUST_SIGNAL and LOCKED_IN phases must be checked to ensure that they signal. For example:
+Blocks received while in the MUST_SIGNAL phase must be checked to ensure that they signal as required. For example:
 
     if (GetStateForBlock(block) == MUST_SIGNAL) {
-        if ((block.nVersion & 0xE0000000) != 0x20000000 || ((block.nVersion >> bit) & 1) != 1) {
-            return state.Invalid(BlockValidationResult::RECENT_CONSENSUS_CHANGE, "bad-version-bip8-must-signal");
-        }
-    }
-    if (GetStateForBlock(block) == LOCKED_IN) {
-        if (((block.nVersion >> bit) & 1) != 1) {
-            return state.Invalid(BlockValidationResult::RECENT_CONSENSUS_CHANGE, "bad-version-bip8-locked-in");
+        int nonsignal = 0;
+        walk = block;
+        while (true) {
+            if ((walk.nVersion & 0xE0000000) != 0x20000000 || ((walk.nVersion >> bit) & 1) != 1) {
+                ++nonsignal;
+                if (nonsignal > 2016 - threshold) {
+                    return state.Invalid(BlockValidationResult::RECENT_CONSENSUS_CHANGE, "bad-version-bip8-must-signal");
+                }
+            }
+            if (walk.nHeight % 2016 == 0) {
+                // checked every block in this retarget period
+                break;
+            }
+            walk = walk.parent;
         }
     }
 
@@ -226,7 +243,7 @@ The template Object is also extended:
 The "version" key of the template is retained, and used to indicate the server's preference of deployments.
 If versionbits is being used, "version" MUST be within the versionbits range of [0x20000000...0x3FFFFFFF].
 Miners MAY clear or set bits in the block version WITHOUT any special "mutable" key, provided they are listed among the template's "vbavailable" and (when clearing is desired) NOT included as a bit in "vbrequired".
-Servers MUST set bits in "vbrequired" for deployments in MUST_SIGNAL and LOCKED_IN states, to ensure blocks produced are valid.
+Servers MUST set bits in "vbrequired" for deployments in MUST_SIGNAL state, to ensure blocks produced are valid.
 
 Softfork deployment names listed in "rules" or as keys in "vbavailable" may be prefixed by a '!' character.
 Without this prefix, GBT clients may assume the rule will not impact usage of the template as-is; typical examples of this would be when previously valid transactions cease to be valid, such as BIPs 16, 65, 66, 68, 112, and 113.
