@@ -544,10 +544,16 @@ public async Task<PSBT> RequestPayjoin(
         // Verify that no keypaths is in the PSBT output
         if (proposedPSBTOutput.HDKeyPaths.Count != 0)
             throw new PayjoinSenderException("The receiver added keypaths to an output");
-        bool isOriginalOutput = originalOutputs.Count > 0 && originalOutputs.Peek().OriginalTxOut.ScriptPubKey == proposedPSBTOutput.ScriptPubKey;
-        if (isOriginalOutput)
+        if (originalOutputs.Count == 0)
+                continue;
+        var originalOutput = originalOutputs.Peek();
+        bool isOriginalOutput = originalOutput.OriginalTxOut.ScriptPubKey == proposedPSBTOutput.ScriptPubKey;
+        bool substitutedOutput = !isOriginalOutput &&
+                                allowOutputSubstitution &&
+                                originalOutput.OriginalTxOut.ScriptPubKey == paymentScriptPubKey;
+        if (isOriginalOutput || substitutedOutput)
         {
-            var originalOutput = originalOutputs.Dequeue();
+            originalOutputs.Dequeue();
             if (output.OriginalTxOut == feeOutput)
             {
                 var actualContribution = feeOutput.Value - proposedPSBTOutput.Value;
