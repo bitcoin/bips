@@ -9,6 +9,7 @@
 * [French](french.txt)
 * [Italian](italian.txt)
 * [Czech](czech.txt)
+* [Portuguese](portuguese.txt)
 * [Turkish](turkish.txt)
 
 ## Wordlists (Special Considerations)
@@ -100,6 +101,21 @@ Words chosen using the following rules:
 7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
 8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
 
+### Portuguese
+
+Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @Trimegistus
+
+1. Words can be uniquely determined typing the first 4 characters.
+2. No accents or special characters.
+3. No complex verb forms.
+4. No plural words, unless there's no singular form.
+5. No words with double spelling.
+6. No words with the exact sound of another word with different spelling.
+7. No offensive words.
+8. No words already used in other language mnemonic sets.
+9. The words which have not the same spelling in Brazil and in Portugal are excluded.
+10. No words that remind negative/sad/bad things.
+11. No very similar words with 1 letter of difference.
 
 ### Turkish
 
