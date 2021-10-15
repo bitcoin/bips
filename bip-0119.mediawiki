@@ -139,9 +139,15 @@ specification for the semantics of OP_CHECKTEMPLATEVERIFY.
     case OP_CHECKTEMPLATEVERIFY:
     {
         // if flags not enabled; treat as a NOP4
-        if (!(flags & SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH)) break;
+        if (!(flags & SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH)) {
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+            break;
+        }
+
         if (stack.size() < 1)
             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
         // If the argument was not 32 bytes, treat as OP_NOP4:
         switch (stack.back().size()) {
             case 32:
@@ -210,16 +216,24 @@ A PayToBareDefaultCheckTemplateVerifyHash output matches the following template:
 
 ==Deployment==
 
-Deployment should be done via BIP 9 VersionBits.
+Deployment should be done via BIP 9 VersionBits deployed through Speedy Trial.
 
 The start time and bit in the implementation are currently set to bit 5 and
-March 1st, 2020, but this is subject to change while the BIP is a draft.
+NEVER_ACTIVE/NO_TIMEOUT, but this is subject to change while the BIP is a draft.
 
-For the avoidance of unclarity, the parameters are:
+For the avoidance of unclarity, the parameters to be determined are:
 
+     // Deployment of CTV (BIP 119)
     consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].bit = 5;
-    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nStartTime = 1583020800; // March 1, 2020
-    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nTimeout = 1614556800; //  March 1, 2021
+    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].min_activation_height = 0;
+
+Until BIP-119 reaches ACTIVE state and the 
+SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH flag is set, the network should
+execute a NOP4 as SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS for policy and a NOP for
+consensus.
+
 
 In order to facilitate using CHECKTEMPLATEVERIFY, the common case of a
 PayToBareDefaultCheckTemplateVerifyHash
@@ -529,9 +543,14 @@ for an OP_NOP are a soft fork, so existing software will be fully functional wit
 for mining and block validation. Similar soft forks for OP_CHECKSEQUENCEVERIFY and OP_CHECKLOCKTIMEVERIFY
 (see BIP-0065 and BIP-0112) have similarly changed OP_NOP semantics without introducing compatibility issues.
 
+In contrast to previous forks, OP_CHECKTEMPLATEVERIFY will not make scripts
+valid for policy until the new rule is active.
+
 Older wallet software will be able to accept spends from OP_CHECKTEMPLATEVERIFY outputs, but will
 require an upgrade in order to treat PayToBareDefaultCheckTemplateVerifyHash chains with a confirmed ancestor as
 being "trusted" (i.e., eligible for spending before the transaction is confirmed).
+
+
 
 Backports of OP_CHECKTEMPLATEVERIFY can be trivially prepared (see the reference implementation)
 for older node versions that can be patched but not upgraded to a newer major release.
