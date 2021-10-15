@@ -397,9 +397,10 @@ a hash midstate in the script.
 
 =====The Ordering of Fields=====
 
-Strictly speaking, the ordering of fields is insignificant. However, with a carefully selected
-order, the efficiency of future scripts (e.g., those using a OP_CAT or OP_SHA256STREAM) may be
-improved.
+Strictly speaking, the ordering of fields is insignificant. However, with a
+carefully selected order, the efficiency of future scripts (e.g., those using a
+OP_CAT or OP_SHA256STREAM) may be improved (as described in the Future Upgrades
+section).
 
 In particular, the order is selected in order of least likely to change to most.
 
@@ -430,12 +431,6 @@ does not make sense for input index to be the last field. However, given the des
 able to express a "don't care" index easily (e.g., for decentralized kickstarter-type transactions),
 this value is placed last.
 
-As an example, the following code checks an input index argument and concatenates it to the template and
-checks the template matches the transaction.
-
-    OP_SIZE 4 OP_EQUALVERIF
-    <nVersion || nLockTime || input count || sequences hash || output count || outputs hash>
-    OP_SWAP OP_CAT OP_SHA256 OP_CHECKTEMPLATEVERIFY
 
 ===Design Tradeoffs and Risks===
 Covenants have historically been controversial given their potential for fungibility risks -- coins
@@ -535,7 +530,7 @@ signature operations. This can be significant when constructing large payment
 trees or programmatic compilations.  CHECKTEMPLATEVERIFY also has a feature-wise
 benefit in that it provides a robust pathway for future template upgrades.
 
-CHECKSIGFROMSTACK along with OP_CAT may also be used to emulate
+OP_CHECKSIGFROMSTACKVERIFY along with OP_CAT may also be used to emulate
 CHECKTEMPLATEVERIFY.  However such constructions are more complicated to use
 than CHECKTEMPLATEVERIFY, and encumbers additional verification overhead absent
 from CHECKTEMPLATEVERIFY. These types of covenants also bear similar potential
@@ -546,6 +541,60 @@ Given the simplicity of this approach to implement and analyze, and the benefits
 applications, CHECKTEMPLATEVERIFY's template based approach is proposed in lieu of more complete
 covenants system.
 
+====Future Upgrades====
+
+This section describes updates to OP_CHECKTEMPLATEVERIFY that are possible in
+the future as well as synergies with other possible upgrades.
+
+=====CHECKTEMPLATEVERIFY Versions=====
+OP_CHECKTEMPLATEVERIFY currently only verifies properties of 32 byte arguments.
+In the future, meaning could be ascribed to other length arguments.  For
+example, a 33-byte argument could just the last byte as a control program. In
+that case, DefaultCheckTemplateVerifyHash could be computed when the flag byte
+is set to CTVHASH_ALL. Other programs could be added similar to SIGHASH_TYPEs.
+For example, CTVHASH_GROUP could read data from the Taproot Annex for
+compatibility with SIGHASH_GROUP type proposals and allow dynamic malleability
+of which indexes get hashed for bundling.
+
+=====Eltoo with OP_CHECKSIGFROMSTACKVERIFY=====
+
+Were both OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACKVERIFY to be added to
+Bitcoin, it would be possible to implement a variant of Eltoo's floating
+transactions using the following script:
+
+    witness(S+n): <sig> <H(tx with nLockTime S+n paying to program(S+n))>
+    program(S): OP_CHECKTEMPLATEVERIFY <musig_key(pk_update_a, pk_update_b)> OP_CHECKSIGFROMSTACKVERIFY <S+1> OP_CHECKLOCKTIMEVERIFY
+
+Compared to SIGHASH_ANYPREVOUTANYSCRIPT, because OP_CHECKTEMPLATEVERIFY does not
+allow something similar to SIGHASH_ANYONECANPAY or SIGHASH_SINGLE, protocol
+implementers might elect to sign multiple versions of transactions with CPFP
+Anchor Outputs or Inputs for paying fees or an alternative such as transaction
+sponsors might be considered.
+
+=====OP_AMOUNTVERIFY=====
+
+An opcode which verifies the exact amount that is being spent in the
+transaction, the amount paid as fees, or made available in a given output could
+be used to make safer OP_CHECKTEMPLATEVERIFY addressses. For instance, if the
+OP_CHECKTEMPLATEVERIFY program P expects exactly S satoshis, sending S-1
+satoshis would result in a frozen UTXO and sending S+n satoshis would result in
+n satoshis being paid to fee. A range check could restrict the program to only
+apply for expected values and default to a keypath otherwise, e.g.:
+
+    IF OP_AMOUNTVERIFY <N> OP_GREATER <PK> CHECKSIG ELSE <H> OP_CHECKTEMPLATEVERIFY
+
+=====OP_CAT/OP_SHA256STREAM=====
+
+OP_CHECKTEMPLATEVERIFY is (as described in the Ordering of Fields section)
+efficient for building covenants dynamically should Bitcoin get enhanced string
+manipulation opcodes.
+
+As an example, the following code checks an input index argument and
+concatenates it to the template and checks the template matches the transaction.
+
+    OP_SIZE 4 OP_EQUALVERIF
+    <nVersion || nLockTime || input count || sequences hash || output count || outputs hash>
+    OP_SWAP OP_CAT OP_SHA256 OP_CHECKTEMPLATEVERIFY
 == Backwards Compatibility ==
 
 OP_CHECKTEMPLATEVERIFY replaces a OP_NOP4 with stricter verification semantics. Therefore, scripts
