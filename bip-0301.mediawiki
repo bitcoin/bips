@@ -12,181 +12,149 @@
   License: BSD-2-Clause
 </pre>
 
-==Abstract==
-
-
-Blind Merged Mining (BMM) is a way of mining optional extension blocks (ie, "asymmetric sidechains"). BMM produces weak guarantees that the block is valid, for *any* arbitrary set of rules; and yet it does so without requiring miners to actually do any validation on the block whatsoever.
-
-BMM actually is a process that spans two or more chains. Here we focus on the modifications to mainchain Bitcoin. For an explanation of the "whole picture", please see [http://www.truthcoin.info/blog/blind-merged-mining/ this post].
-
-Our goal here, is to allow mainchain miners to trustlessly "sell" the act of finding a sidechain block.
 
 
 ==Motivation==
 
-Regular "Merged-Mining" (MM) allows miners to reuse their hashing work to secure other chains (for example, as in Namecoin). However, traditional MM has two drawbacks:
+"Merged-Mining" (MM) allows miners to reuse their hashing work to secure other chains (for example, as in Namecoin).
 
-# Miners must run a full node of the other chain. (This is because [while miners can effortlessly create the block] miners will not create a valid payment to themselves, unless the block that they MM is a valid one. Therefore, miners must assemble a *valid* block first, then MM it.)
-# Miners are paid on the other chain, not on the regular BTC mainchain. For example, miners who MM Namecoin will earn NMC (and they will need to sell the NMC for BTC, before selling the BTC in order to pay for electricity).
+However, traditional MM has two drawbacks:
 
-BMM addresses both shortcomings.
+# Miners must run a full node of the other chain(s). (Thus, they must run "non-Bitcoin" software which may be buggy.)
+# Miners are paid on the other chain, in Alt-currency. (Miners who MM Namecoin, will earn NMC.)
+
+
+==Summary==
+
+Note: We use notation side:\* and main:\* in front of otherwise-ambiguous words (such as "block", "node", or "chain"), to sort the mainchain version from its sidechain counterpart. We name all sidechain users "Simon", and name all mainchain miners "Mary".
+
+Blind Merged Mining (BMM) allows miners to MM a Sidechain/Altcoin, without running its node software (ie, without "looking" at it, hence "blind").
+
+Instead, a sidechain user ("Simon") runs node software, and assumes responsibility for constructing the side:block. (That user is sometimes called a "virtual miner".) Simon then "buys" the right to find the block, from the Layer1 miners ("Mary").
+
+For example: a sidechain block contains 20,000 txns, each paying a $0.10 fee; so, therefore, the block is worth $2000 of fee-revenue. As usual: the sidechain’s coinbase txn will pay this $2000 to someone (in this case, "Simon"). Under Bip301, Simon does no hashing, but instead makes one layer1 txn paying $1999 to the layer1 miners ("Mary").
+
+
+{| class="wikitable"
+|-
+! colspan="3" | Upon finding a sidechain block worth $2000...
+|- style="font-weight:bold; text-decoration:underline;"
+| Item
+| Layer1 Miner ("Mary")
+| Sidechain User ("Simon")
+|-
+| Runs a sidechain node?
+| No
+| Yes
+|-
+| How much hashing?
+| 100%
+| 0%
+|-
+| Coins collected, on Layer2
+| $0
+| $2000
+|-
+| Coins paid out, on Layer1
+| $0
+| $1999
+|-
+| Coins rec'd, on Layer1
+| $1999
+| $0
+|-
+| d(Net Worth)
+| +$1999
+| +$1
+|}
+
+
+Bip301 makes this specialization-of-labor trustless on layer1. If Mary takes Simon’s money, then she must let Simon control the side:block.
+
 
 
 ==Specification==
 
-Note: This document uses the notation side:\* and main:\* in front of otherwise-ambiguous words (such as "block", "node", or "chain"), to distinguish the mainchain version from its sidechain counterpart. We also use "Simon" to refer to a Sidechain Full Node, and "Mary" to refer to a mainchain miner.
 
+
+We will discuss:
+
+
+# h* -- The sidechain’s hashMerkleRoot, and why it matters.
+# "BMM Accept" -- How h* enters a main:coinbase. When Mary "accepts" a BMM Request, Mary is ''endorsing a side:block''.
+# "BMM Request" -- Simon offering money to Mary, if (and only if) she will Endorse a specific h*. When Simon broadcasts a BMM Request, Simon is ''attempting a side:block''.
+
+
+=== h* ===
+
+h* ("h star") is the sidechain’s Merkle Root hash. 
+
+In Bip301, a sidechain’s coinbase txn acts as a header (it contains the hash of the previous side:block, and previous main:block). Thus, the MerkleRoot contains everything important.
+
+Note: in Bip301 sidechains, "headers" and "hashes" do not have significant consensus meaning and are in the design mainly to help with IBD.
+
+<img src="bip-0301/sidechain-headers.png?raw=true" align="middle"></img>
+
+
+Above: h* is located in the main:coinbase. h* contains all side:txns, including the side:coinbase. The side:coinbase contains many "header-like" fields, such as the hash of the previous side:block.
+
+Mary controls the main:coinbase, so she may select any h*. Her selection will determine which side:block is "found".
+
+
+=== BMM Accept  ===
+
+To "Accept" the BMM proposal (and to accept Simon’s money), Mary must endorse Simon’s block.
+
+<pre>
+For each side:block Mary wishes to endorse, Mary places the following into a main:coinbase OP_RETURN:
+    1-byte - OP_RETURN (0x6a)
+    4-bytes - Message header (0xD1617368)
+    32-bytes - h* (obtained from Simon)
+</pre>
+
+[https://github.com/drivechain-project/mainchain/blob/8901d469975752d799b6a7a61d4e00a9a124028f/src/validation.cpp#L3530-L3572 Code details here].
+
+If these OP_RETURN outputs are not present, then no Requests were accepted. (And, Mary would get no money from Requests.)
+
+It is possible for Mary and Simon to be the same person.They would trust each other completely, so the BMM process would stop here. There would only be Accepts; Requests would be unnecessary.
+
+When Simon and Mary are different people, Simon will need to use BMM Requests.
 
 === BMM Request ===
 
-To buy the right to find a sidechain block, users broadcast BMM Requests.
-
-Here, these can take two forms. The first does not require the Lightning Network, but it does have new requirements for Immediate Expiration (see below). The second inherits Immediate Expiration from the Lightning Network itself, but requires extra preparation and a different/larger message.
-
-Both forms require that certain Critical Data will be committed to within the coinbase of the block that the transaction is included in (see BMM Accept). For the OnChain (non-Lightning) version, we have created a new extended serialization transaction type (very similar to how SegWit handles witness data (the witness stack)).
-
-==== Immediate Expiration ("Fill-or-Kill") ====
-
-We would like to make special guarantees to the counterparties of this transaction. Specifically, instead of Simon making a "payment" to Mary, we prefer that Simon give Mary an "offer" (which she can either accept or decline).
-
-Crucially, we want Simon to safely make many offers to several different Mary's, in realtime (ie, quickly and off-chain). However, we ultimately want only one offer to be accepted, at most. In other words, we want Simon's offers to *immediately expire*. If only one offer can become a bona fide transaction, then Simon will feel comfortable making multiple offers all day long. Because all of the Simons are making many offers, the Marys collectively gain access to a large set of offers to choose from.
-
-==== OnChain BMM Request ====
-
-OnChain BMMRs do not require the Lightning network, but they do have new requirements for validation.
-
-===== Structure =====
-
-The following data is required:
+Simon will use BMM Requests to buy the right to find a sidechain block, from Mary.
 
 <pre>
-    32-bytes  - h* sideHeaderHash
-    ?~?-bytes - critical data extended serialization
-        3-bytes - 0x00bf00 identifying bytes
-        1-byte  - nSidechain
-        2-bytes - prevSideBlockRef
-        4-bytes - prevMainHeaderBytes
+For each side:block that Simon wants to attempt, he broadcasts a txn containing the following:
+        3-bytes - Message header (0x00bf00)
+        32-bytes  - h* (side:MerkleRoot)
+        1-byte  - nSidechain (sidechain ID number)
+        4-bytes - prevMainHeaderBytes (the last four bytes of the previous main:block)
 </pre>
 
-sideHeaderHash comes from side:chain (side:nodes build side:blocks/headers). The identifying bytes are given here. nSidechain identifies which sidechain we are BMMing. By the time Blind Merged Mining can take place, it is known globally.
-
-prevBlockRef, is a little more complicated (next section). 
-
-To qualify for inclusion in a block, BMM requests are subject to the following requirements:
-
-# Requests must match a corresponding "BMM Accept" (see last section of BIP).
-# At most, only one Request is allowed in a main:block, per sidechain. In other words, if 700 users broadcast BMM Requests for sidechain #4, then the main:miner must choose one single Request to include.
-# The 4-bytes of prevMainHeaderBytes must match the last four bytes of the previous main:blockheader. Thus, Simon's txns are only be valid for the current block, in the block history that he knows about (and therefore, the current sidechain history that he knows about).
-
-===== prevBlockRef =====
-
-prevBlockRef is an integer that counts the number of "skips" one must take in the side:chain in order to find the current side:block's parent block. This value is zero unless the sidechain is reorganizing (or skipping over invalid sidechain blocks). If a side:node wants to orphan the most-recent N blocks, the value of the current block will be equal to N; in the block after that it will be back to zero.
-
-<img src="bip-0301/bmm-dots-examples.png?raw=true" align="middle"></img>
-
-Above: Three blockchains, with different max length (small number), reorganization histories, and prevBlockRef numbers (larger numbers beneath blocks). The ordering given via each side:block's "prevSideBlockRef" will be isomorphic to an ordering given by each side:block's "prevSideHeaderHash" ("prevSideHeaderHash is the sidechain's equivalent of the mainchain's "prevBlockHash"). One can freely convert from one to the other.
-
-===== Extended Serialization =====
-
-To impose new requirements at the transaction level, we borrow the dummy vin & "flag" trick from SegWit style transactions. Unless all of the requirements for sidechain critical data transactions are met by the block it is included in, the transaction is invalid. With SegWit, this extra data is the SegWit signature stack, and the extra requirements are the signatures' locations and validity. In the sidechain BMM critical data transactions, the extra data is the (nSidechain, h\*) pair, which must meet the first two requirements (above) as well as the main:blocknumber, which must meet the third requirement (above).
-
-<img src="bip-0301/witness-vs-critical.png?raw=true" align="middle"></img>
-
-Above: A chart showing normal txns, SegWit txns, and CriticalData txns. The specific SegWit txn can be seen [http://srv1.yogh.io/#tx:id:D4A99AE93DF6EE3D4E42CE69338DFC1D06CCD9B198666E98FF0588057378D3D9 here].
-
-These types of transactions have slightly different mempool behavior, and should probably be kept in a second mempool. These txns are received, checked immediately, and if valid they are evaluated for inclusion in a block. If they are not able to be included in the specific requested block (if the block height requested has been surpassed by the chain tip), they are discarded. In fact, after any main:block is found, everything in this "second mempool" can be discarded as new payments will be created immediately for the next block height. (This includes cases where the blockchain reorganizes.) There is no re-evaluation of the txns in this mempool ever -- they are evaluated once and then either included or discarded. They never need to be rescanned.
-
-Interestingly, these payments will *always* be directed to main:miners from non-main:miners. Therefore, non-mining full nodes do not need to keep them in any mempool at all. Non-miner nodes can just wait for a block to be found, and check the txn then. These transactions more resemble a stock market's pit trade-offers (in contrast, regular Bitcoin txns are more like paper checks).
-
-==== Lightning BMM Request ====
-
-Lightning BMMRs require Simons to have a LN-channel pathways open with Marys. This may not always be practical (or even possible), especially today.
-
-LN txns cannot make use of prevSideBlockRef, as no one knows for sure when (or if) they will be broadcast on-chain. Instead, they must use prevSideBlockHash. But they otherwise require the same data:
-
-<pre>   
-    4-bytes - Message header (0xD0520C6E)   
-    1-byte - sidechain number
-    32-bytes  - h* side:block hash  
-    32-bytes  - prevSideBlockHash   
-</pre>
-
-Notice that, in OnChain BMMRs, Simon could reuse the same h\* all he wanted, because only one OnChain BMMR could be included per main:block per sidechain. However, on the LN no such rule can be enforced, as the goal is to push everything off-chain and include *zero* txns. So, we will never know what the Requests were, or how many had an effect on anything.
-
-Therefore, Simon will need to ensure that he '''gives each Mary a different h\*'''. Simon can easily do this, as he controls the side:block's contents and can simply increment a side:nonce -- this changes the side:block, and changes its hash (ie, changes h\*).
-
-With a unique h\* per Mary (or, more precisely, per channel), and at most 1 h\* making it into a block (per sidechain), Simon can ensure that he is charged, at most, one time.
-
-That's probably confusing, so here is an example, in which: Simon starts with 13 BTC, Mary starts with 40 BTC, the side:block's tx-fees currently total 7.1 BTC, and Simon is keeping 0.1 BTC for himself and paying 7 BTC to Mary.
-
-We start with (I):
-
-<pre>
-    Simon 13 in, Mary 40 in ; 53 in total
-        Simon's version [signed by Mary]
-            13 ; to Simon if TimeLock=over; OR to Mary if SimonSig
-            40 ; to Mary
-        Mary's version [signed by Simon]
-            40 ; to me if TimeLock=over; OR to Simon if MarySig
-            13 ; to Simon
-</pre>
+We make use of the [https://github.com/drivechain-project/mainchain/blob/8901d469975752d799b6a7a61d4e00a9a124028f/src/primitives/transaction.h#L224-L331 extended serialization format]. (SegWit used ESF to position scriptWitness data within txns; we use it here to position the five fields above.)
 
 
-And both parties move, from there to (II):
+The Message header identifies this txn as a BMM transaction. h* is chosen by Simon to correspond to his side:block. nSidechain is the number assigned to the sidechain when it was created. preSideBlockRef allows Simon to build on any preexisting side:block (allowing him to bypass one or more invalid blocks, details below). prevMainHeaderBytes are the last four bytes of the previous main:block (details below).
 
-<pre>
-    Simon 13 in, Mary 40 in ; 53 in total
-        Simon's version [signed by Mary]
-            6 ; to Simon if TimeLock=over; OR to Mary if SimonSig
-            40 ; to Mary
-            7 ; to Mary if critical data requirements met; OR to Simon if LongTimeLock=over
-        Mary's version [signed by Simon]
-            40 ; to Mary if TimeLock=over; OR to Simon if MarySig
-            6 ; to Simon
-            7 ; to Mary if critical data requirements met; OR to Simon if LongTimeLock=over
-</pre>
+This txn is invalid if it fails any of the following checks:
+
+# Each "BMM Request", must match one corresponding "BMM Accept" (previous section).
+# Only one BMM Request is allowed in each main:block, per sidechain. In other words, if 700 users broadcast BMM Requests for sidechain #4, then the main:miner singles out one BMM Request to include.
+# The 4-bytes of prevMainHeaderBytes must match the last four bytes of the previous main:blockheader. Thus, Simon's txns are only valid for the current block, in the block history that he knows about (and therefore, the current sidechain history that he knows about).
 
 
-From here, if the h\* side:block in question is BMMed, they can proceed to (III):
+Most BMM Request txns will never make it into a block. Simon will make many BMM Requests, but only one will be accepted. Since only one BMM Request can become a bona fide transaction, Simon may feel comfortable making multiple offers all day long. This means Mary has many offers to choose from, and can choose the one which pays her the most.
 
-<pre>
-    Simon 13 in, Mary 40 in ; 53 in total
-        Simon's version [signed by Mary]
-            6 ; to Simon if TimeLock=over; OR to Mary if SimonSig
-            47 ; to Mary
-        Mary's version [signed by Simon]
-            47 ; to me if TimeLock=over; OR to Simon if MarySig
-            6 ; to Simon
-</pre>
-
-If Simon proceeds immediately, he removes Mary's incentive to care about blocks being built on this side:block. If Simon's side:block is orphaned, he loses his 7 BTC. Simon can either play it safe, and wait for (for example) 100 side:blocks before moving on (ie, before moving on to the third LN txn, above); or else Simon can take the risk if he feels comfortable with it.
-
-If the h\* side:block is not found, then (II) and (III) are basically equivalent to each other. Simon and Mary could jointly reconstruct (I) and go back there, or they could proceed to a new version of II (with a different h\*, trying again with new side:block in the next main:block).
-
-Now that we have described Requests, we can describe how they are accepted.
-
-=== BMM Accept ===
-
-For each BMM Request that a main:miner "accepts", main:miners must place an OP Return output into their main:coinbase txn. (We've changed the tx-standardness policy to allow multiple OP_RETURNs.)
-
-The following data is required in the "accept" OP_RETURN output:
-    1-byte - OP_RETURN (0x6a)
-    1-byte - Push the following 36 bytes (0x24)
-    4-bytes - Message header (0xD3407053)
-    32-bytes - h*
-    ~5-bytes - BMM identifier bytes
-
-
-[https://github.com/DriveNetTESTDRIVE/DriveNet/blob/564516653c1d876429382971a011f5f6119f7eb4/src/validation.cpp#L3377-L3470 Link to code].
-
-If these OP_RETURN outputs are not present, then no BMM Requests have been accepted. (And, if they are not accepted, then they cannot be included in a main:block.)
-
+This BIP allows BMM Requests to take place over Lightning. One method is [https://www.drivechain.info/media/bmm-note/bmm-lightning/ here]. (BMM Accepts cannot be over LN, since they reside in main:coinbase txns.)
 
 ==Backward compatibility==
 
-As a soft fork, older software will continue to operate without modification. As stated above, BMM asks nodes to track a set of ordered hashes, and to allow miners to "sell" the act of finding a sidechain block. Non-upgraded nodes will notice that this activity (specifically: data in coinbases, and new txns that have OP Returns and interesting message headers) is now taking place, but they will not understand any of it. Much like P2SH or a new OP Code, these old users will not be directly affected by the fork, as they will have no expectations of receiving payments of this kind.
+As a soft fork, older software will continue to operate without modification. To enforce BMM trustlessly, nodes must watch "pairs" of transactions, and subject them to extra rules. Non-upgraded nodes will notice that this activity is present in the blockchain, but they will not understand any of it.
 
-(As a matter of fact, the only people receiving money here all happen to be miners. So there is less reason than ever to expect compatibility problems.)
+Much like P2SH or a new OP Code, these old users can never be directly affected by the fork, as they will have no expectations of receiving payments of this kind. (As a matter of fact, the only people receiving BTC here, all happen to be miners. So there is less reason than ever to expect compatibility problems.)
+
+As with all previous soft forks, non-upgraded users are indirectly affected, in that they are no longer performing full validation.
 
 
 ==Deployment==
@@ -196,8 +164,8 @@ This BIP will be deployed by "version bits" BIP9 with the name "blindmm" and usi
 <pre>
 // Deployment of Drivechains (BIPX, BIPY)
 consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAINS].bit = 4;
-consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAINS].nStartTime = 1579072881; // January 15th, 2020.
-consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAINS].nTimeout = 1610695281; // January 15th, 2021.
+consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAINS].nStartTime = 1642276800; // January 15th, 2022.
+consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAINS].nTimeout = 1673812800; // January 15th, 2023.
 </pre>
 
 
@@ -224,3 +192,4 @@ Thanks to everyone who contributed to the discussion, especially: ZmnSCPxj, Adam
 ==Copyright==
 
 This BIP is licensed under the BSD 2-clause license.
+
