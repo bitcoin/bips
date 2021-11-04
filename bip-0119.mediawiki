@@ -57,7 +57,6 @@ for purposes of confirmation using CHECKTEMPLATEVERIFY. Then, some time later, t
 be expanded out of that UTXO when the demand for blockspace is decreased. These payments can be
 structured in a tree-like fashion to reduce individual costs of redemption.
 
-
 The below chart showcases the structure of these transactions in comparison to
 normal transactions and batched transactions.
 
@@ -71,6 +70,7 @@ is provided in this BIP's subdirectory.
 <img src="bip-0119/fifty.png" align="middle"></img>
 
 ===Payment Channels===
+
 There are numerous payment channel related uses.
 
 ====Channel Factories====
@@ -84,6 +84,7 @@ penultimate transaction node.
 Thus, coins sent using a congestion controlled transaction can still enjoy instant liquidity.
 
 ====Non-Interactive Channels====
+
 When opening a traditional payment channel, both parties to the channel must participate. This is
 because the channel uses pre-signed multi-sig transactions to ensure that a channel can always be
 exited by either party, before entering.
@@ -94,6 +95,7 @@ for their private key to be online.
 <img src="bip-0119/nic.svg" align="middle"></img>
 
 ====Increased Channel Routes====
+
 In the Lightning Network protocol, Hashed Time Locked Contracts (HTLCS) are used in the construction
 of channels. A new HTLC is required per route that the channel is serving in.
 In BOLT #2, this maximum number of HTLCs in a channel is hard limited to 483 as the maximum safe
@@ -106,7 +108,6 @@ updates can be done across an CHECKTEMPLATEVERIFY tree, allowing nodes to safely
 HTLCS.
 Because each HTLC can have its own relative time lock in the tree, this also improves the latency
 sensitivity of the lightning protocol on contested channel close.
-
 
 ===Wallet Vaults===
 
@@ -133,15 +134,22 @@ before.  Further Each participant doesn't need to know the totality of the outpu
 that output, they only have to verify their own sub-tree will pay them.
 
 ==Detailed Specification==
+
 The below code is the main logic for verifying CHECKTEMPLATEVERIFY, and is the canonical
 specification for the semantics of OP_CHECKTEMPLATEVERIFY.
 
     case OP_CHECKTEMPLATEVERIFY:
     {
         // if flags not enabled; treat as a NOP4
-        if (!(flags & SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH)) break;
+        if (!(flags & SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH)) {
+            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+            break;
+        }
+
         if (stack.size() < 1)
             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
         // If the argument was not 32 bytes, treat as OP_NOP4:
         switch (stack.back().size()) {
             case 32:
@@ -197,7 +205,6 @@ The hash is computed as follows:
         return h.GetSHA256();
     }
 
-
 A PayToBareDefaultCheckTemplateVerifyHash output matches the following template:
 
     bool CScript::IsPayToBareDefaultCheckTemplateVerifyHash() const
@@ -210,16 +217,23 @@ A PayToBareDefaultCheckTemplateVerifyHash output matches the following template:
 
 ==Deployment==
 
-Deployment should be done via BIP 9 VersionBits.
+Deployment should be done via BIP 9 VersionBits deployed through Speedy Trial.
 
 The start time and bit in the implementation are currently set to bit 5 and
-March 1st, 2020, but this is subject to change while the BIP is a draft.
+NEVER_ACTIVE/NO_TIMEOUT, but this is subject to change while the BIP is a draft.
 
-For the avoidance of unclarity, the parameters are:
+For the avoidance of unclarity, the parameters to be determined are:
 
+    // Deployment of CTV (BIP 119)
     consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].bit = 5;
-    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nStartTime = 1583020800; // March 1, 2020
-    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nTimeout = 1614556800; //  March 1, 2021
+    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+    consensus.vDeployments[Consensus::DEPLOYMENT_CHECKTEMPLATEVERIFY].min_activation_height = 0;
+
+Until BIP-119 reaches ACTIVE state and the 
+SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH flag is set, the network should
+execute a NOP4 as SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS for policy and a NOP for
+consensus.
 
 In order to facilitate using CHECKTEMPLATEVERIFY, the common case of a
 PayToBareDefaultCheckTemplateVerifyHash
@@ -231,16 +245,12 @@ standardized later as policy changes.
 A reference implementation and tests are available here:
 https://github.com/JeremyRubin/bitcoin/tree/checktemplateverify.
 
-
 ==Rationale==
 
 The goal of CHECKTEMPLATEVERIFY is to be minimal impact on the existing codebase -- in the
 future, as we become aware of more complex but shown to be safe use cases new template types can be added.
 
-
 Below we'll discuss the rules one-by-one:
-
-
 
 ====The DefaultCheckTemplateVerifyHash of the transaction at the current input index matches the top of the stack====
 
@@ -248,8 +258,6 @@ The set of data committed to is a superset of data which can impact the TXID of 
 other than the inputs. This ensures that for a given known input, the TXIDs can also be known ahead
 of time.  Otherwise, CHECKTEMPLATEVERIFY would not be usable for Channel Factory type constructions
 as the redemption TXID could be malleated and pre-signed transactions invalidated.
-
-
 
 =====Committing to the version and locktime=====
 
@@ -281,7 +289,6 @@ precomputed for each transaction to optimize SIGHASH_ALL signatures.
 
 Committing to the hash additionally makes it simpler to construct DefaultCheckTemplateVerifyHash safely and unambiguously from
 script.
-
 
 =====Committing to the number of inputs=====
 
@@ -380,12 +387,41 @@ Furthermore, if OP_SHA256STREAM is added in the future, it may be possible to wr
 allows adding a single output to a list of outputs without incurring O(n) overhead by committing to
 a hash midstate in the script.
 
+=====Using SHA256=====
+
+SHA256 is a 32 byte hash which meets Bitcoin's security standards and is
+available already inside of Bitcoin Script for programmatic creation of template
+programs.
+
+RIPEMD160, a 20 byte hash, might also be a viable hash in some contexts and has some benefits. For fee efficiency,
+RIPEMD160 saves 12 bytes. However, RIPEMD160 was not chosen for BIP-119 because it introduces
+risks around the verification of programs created by third parties to be subject to a 
+[birthday-attack https://bitcoin.stackexchange.com/questions/54841/birthday-attack-on-p2sh] on
+transaction preimages.
+
+=====Using Non-Tagged Hashes=====
+
+The Taproot/Schnorr BIPs use Tagged Hashes
+(`SHA256(SHA256(tag)||SHA256(tag)||msg)`) to prevent taproot leafs, branches,
+tweaks, and signatures from overlapping in a way that might introduce a security
+[vulnerability https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-June/016091.html].
+
+OP_CHECKTEMPLATEVERIFY is not subject to this sort of vulnerability as the
+hashes are effectively tagged externally, that is, by OP_CHECKTEMPLATEVERIFY
+itself and therefore cannot be confused for another hash.
+
+It would be a conservative design decisison to make it a tagged hash even if
+there was no obvious benefit and no cost. However, in the future, if OP_CAT were
+to be introduced to Bitcoin, it would make programs which dynamically build
+OP_CHECKTEMPLATEVERIFY hashes less space-efficient. Therefore, bare untagged hashes
+are used in BIP-119.
 
 =====The Ordering of Fields=====
 
-Strictly speaking, the ordering of fields is insignificant. However, with a carefully selected
-order, the efficiency of future scripts (e.g., those using a OP_CAT or OP_SHA256STREAM) may be
-improved.
+Strictly speaking, the ordering of fields is insignificant. However, with a
+carefully selected order, the efficiency of future scripts (e.g., those using a
+OP_CAT or OP_SHA256STREAM) may be improved (as described in the Future Upgrades
+section).
 
 In particular, the order is selected in order of least likely to change to most.
 
@@ -416,13 +452,6 @@ does not make sense for input index to be the last field. However, given the des
 able to express a "don't care" index easily (e.g., for decentralized kickstarter-type transactions),
 this value is placed last.
 
-As an example, the following code checks an input index argument and concatenates it to the template and
-checks the template matches the transaction.
-
-    OP_SIZE 4 OP_EQUALVERIF
-    <nVersion || nLockTime || input count || sequences hash || output count || outputs hash>
-    OP_SWAP OP_CAT OP_SHA256 OP_CHECKTEMPLATEVERIFY
-
 ===Design Tradeoffs and Risks===
 Covenants have historically been controversial given their potential for fungibility risks -- coins
 could be minted which have a permanent restriction on how they may or may not be spent or required
@@ -437,10 +466,10 @@ transactions which create all the inputs directly in this regard.
 Furthermore, templates are restricted to be spendable as a known number of inputs only, preventing
 unintentional introduction of the 'half spend' problem.
 
-
 Templates, as restricted as they are, bear some risks.
 
 ====Permanently Unspendable Outputs====
+
 The preimage argument passed to CHECKTEMPLATEVERIFY may be unknown or otherwise unsatisfiable.
 However, requiring knowledge that an address is spendable from is incompatible with sender's ability
 to spend to any address (especially, OP_RETURN). If a sender needs to know the template can be spent
@@ -448,6 +477,7 @@ from before sending, they may request a signature of an provably non-transaction
 from the leafs of the CHECKTEMPLATEVERIFY tree.
 
 ====Forwarding Addresses====
+
 Key-reuse with CHECKTEMPLATEVERIFY may be used as a form of "forwarding address contract".
 A forwarding address is an address which can automatically execute in a predefined way.
 For example, a exchange's hot wallet might use an address which can automatically be moved to a cold
@@ -473,7 +503,6 @@ reuse-unsafe.
 Because CHECKTEMPLATEVERIFY commits to the input index currently being spent, reused-keys are
 guaranteed to execute in separate transactions which reduces the risk of "half-spend" type issues.
 
-
 ====NOP-Default and Standardness Rules====
 
 If the argument length is not exactly 32, CHECKTEMPLATEVERIFY treats it as a NOP.
@@ -486,8 +515,8 @@ stricter standardness rules to be enforced during consensus. Should that develop
 transaction directly to the network relying on standardness rejection, an standardness-invalid but
 consensus-valid transaction may be caused, leading to a potential loss of funds.
 
-
 ====Feature Redundancy====
+
 CHECKTEMPLATEVERIFY templates are substantially less risky than other covenant systems. If
 implemented, other covenant systems could make the CHECKTEMPLATEVERIFY's functionality redundant.
 However, given CHECKTEMPLATEVERIFY's simple semantics and low on chain cost it's likely that it
@@ -501,25 +530,90 @@ unintended behavior.
 Alternatively, SIGHASH_ANYPREVOUTANYSCRIPT based covenant designs can implement
 something similar to templates, via a scriptPubKey like:
 
-
     <sig of desired TX with PK and fixed nonce R || SIGHASH_ANYPREVOUTANYSCRIPT <PK with public SK> OP_CHECKSIG
 
-SIGHASH_ANYPREVOUTANYSCRIPT bears additional technical and implementation risks that may preclude
-its viability for inclusion in Bitcoin, but the capabilities above are similar to what
-CHECKTEMPLATEVERIFY offers.  However, CHECKTEMPLATEVERIFY has benefits in terms of verification
-speed, as it requires only hash computation rather than signature operations. This can be
-significant when constructing large payment trees or programmatic compilations. CHECKTEMPLATEVERIFY
-also has a feature-wise benefit in that it provides a robust pathway for future template upgrades.
+SIGHASH_ANYPREVOUTANYSCRIPT bears additional technical and implementation risks
+that may preclude its viability for inclusion in Bitcoin, but the capabilities
+above are similar to what CHECKTEMPLATEVERIFY offers. The key functional
+difference between SIGHASH_ANYPREVOUTANYSCRIPT and OP_CHECKTEMPLATEVERIFY is
+that OP_CHECKTEMPLATEVERIFY restricts the number of additional inputs and
+precludes dynamically determined change outputs while
+SIGHASH_ANYPREVOUTANYSCRIPT can be combined with SIGHASH_SINGLE or
+SIGHASH_ANYONECANPAY. For the additional inputs, OP_CHECKTEMPLATEVERIFY also
+commits to the scriptsig and sequence, which allows for specifying specific P2SH
+scripts (or segwit v0 P2SH) which have some use cases. Furthermore,
+CHECKTEMPLATEVERIFY has benefits in terms of script size (depending on choice of
+PK, SIGHASH_ANYPREVOUTANYSCRIPT may use about 2x-3x the bytes) and verification
+speed, as OP_CHECKTEMPLATEVERIFY requires only hash computation rather than
+signature operations. This can be significant when constructing large payment
+trees or programmatic compilations.  CHECKTEMPLATEVERIFY also has a feature-wise
+benefit in that it provides a robust pathway for future template upgrades.
 
-CHECKSIGFROMSTACK along with OP_CAT may also be used to emulate CHECKTEMPLATEVERIFY.  However such
-constructions are more complicated to use than CHECKTEMPLATEVERIFY, and encumbers additional
-verification overhead absent from CHECKTEMPLATEVERIFY. These types of covenants also bear similar
-potential recursion issues to OP_COV which make it unlikely for inclusion in Bitcoin.
-
+OP_CHECKSIGFROMSTACKVERIFY along with OP_CAT may also be used to emulate
+CHECKTEMPLATEVERIFY.  However such constructions are more complicated to use
+than CHECKTEMPLATEVERIFY, and encumbers additional verification overhead absent
+from CHECKTEMPLATEVERIFY. These types of covenants also bear similar potential
+recursion issues to OP_COV which make it unlikely for inclusion in Bitcoin.
 
 Given the simplicity of this approach to implement and analyze, and the benefits realizable by user
 applications, CHECKTEMPLATEVERIFY's template based approach is proposed in lieu of more complete
 covenants system.
+
+====Future Upgrades====
+
+This section describes updates to OP_CHECKTEMPLATEVERIFY that are possible in
+the future as well as synergies with other possible upgrades.
+
+=====CHECKTEMPLATEVERIFY Versions=====
+
+OP_CHECKTEMPLATEVERIFY currently only verifies properties of 32 byte arguments.
+In the future, meaning could be ascribed to other length arguments.  For
+example, a 33-byte argument could just the last byte as a control program. In
+that case, DefaultCheckTemplateVerifyHash could be computed when the flag byte
+is set to CTVHASH_ALL. Other programs could be added similar to SIGHASH_TYPEs.
+For example, CTVHASH_GROUP could read data from the Taproot Annex for
+compatibility with SIGHASH_GROUP type proposals and allow dynamic malleability
+of which indexes get hashed for bundling.
+
+=====Eltoo with OP_CHECKSIGFROMSTACKVERIFY=====
+
+Were both OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACKVERIFY to be added to
+Bitcoin, it would be possible to implement a variant of Eltoo's floating
+transactions using the following script:
+
+    witness(S+n): <sig> <H(tx with nLockTime S+n paying to program(S+n))>
+    program(S): OP_CHECKTEMPLATEVERIFY <musig_key(pk_update_a, pk_update_b)> OP_CHECKSIGFROMSTACKVERIFY <S+1> OP_CHECKLOCKTIMEVERIFY
+
+Compared to SIGHASH_ANYPREVOUTANYSCRIPT, because OP_CHECKTEMPLATEVERIFY does not
+allow something similar to SIGHASH_ANYONECANPAY or SIGHASH_SINGLE, protocol
+implementers might elect to sign multiple versions of transactions with CPFP
+Anchor Outputs or Inputs for paying fees or an alternative such as transaction
+sponsors might be considered.
+
+=====OP_AMOUNTVERIFY=====
+
+An opcode which verifies the exact amount that is being spent in the
+transaction, the amount paid as fees, or made available in a given output could
+be used to make safer OP_CHECKTEMPLATEVERIFY addressses. For instance, if the
+OP_CHECKTEMPLATEVERIFY program P expects exactly S satoshis, sending S-1
+satoshis would result in a frozen UTXO and sending S+n satoshis would result in
+n satoshis being paid to fee. A range check could restrict the program to only
+apply for expected values and default to a keypath otherwise, e.g.:
+
+    IF OP_AMOUNTVERIFY <N> OP_GREATER <PK> CHECKSIG ELSE <H> OP_CHECKTEMPLATEVERIFY
+
+=====OP_CAT/OP_SHA256STREAM=====
+
+OP_CHECKTEMPLATEVERIFY is (as described in the Ordering of Fields section)
+efficient for building covenants dynamically should Bitcoin get enhanced string
+manipulation opcodes.
+
+As an example, the following code checks an input index argument and
+concatenates it to the template and checks the template matches the transaction.
+
+    OP_SIZE 4 OP_EQUALVERIF
+    <nVersion || nLockTime || input count || sequences hash || output count || outputs hash>
+    OP_SWAP OP_CAT OP_SHA256 OP_CHECKTEMPLATEVERIFY
 
 == Backwards Compatibility ==
 
@@ -529,6 +623,9 @@ for an OP_NOP are a soft fork, so existing software will be fully functional wit
 for mining and block validation. Similar soft forks for OP_CHECKSEQUENCEVERIFY and OP_CHECKLOCKTIMEVERIFY
 (see BIP-0065 and BIP-0112) have similarly changed OP_NOP semantics without introducing compatibility issues.
 
+In contrast to previous forks, OP_CHECKTEMPLATEVERIFY will not make scripts
+valid for policy until the new rule is active.
+
 Older wallet software will be able to accept spends from OP_CHECKTEMPLATEVERIFY outputs, but will
 require an upgrade in order to treat PayToBareDefaultCheckTemplateVerifyHash chains with a confirmed ancestor as
 being "trusted" (i.e., eligible for spending before the transaction is confirmed).
@@ -536,8 +633,8 @@ being "trusted" (i.e., eligible for spending before the transaction is confirmed
 Backports of OP_CHECKTEMPLATEVERIFY can be trivially prepared (see the reference implementation)
 for older node versions that can be patched but not upgraded to a newer major release.
 
-
 == References ==
+
 *[https://utxos.org utxos.org informational site]
 *[https://www.youtube.com/watch?v=YxsjdIl0034&t=2451 Scaling Bitcoin Presentation]
 *[https://bitcoinops.org/en/newsletters/2019/05/29/ Optech Newsletter Covering OP_CHECKOUTPUTSHASHVERIFY]
@@ -549,6 +646,7 @@ for older node versions that can be patched but not upgraded to a newer major re
 
 
 ===Note on Similar Alternatives===
+
 An earlier version of CHECKTEMPLATEVERIFY, CHECKOUTPUTSHASHVERIFY, is withdrawn
 in favor of CHECKTEMPLATEVERIFY. CHECKOUTPUTSHASHVERIFY did not commit to the
 version or lock time and was thus insecure.
@@ -561,4 +659,5 @@ CHECKTEMPLATEVERIFY has also been previously referred to as OP_SECURETHEBAG, whi
 to aid in searching and referencing discussion on this BIP.
 
 ==Copyright==
+
 This document is licensed under the 3-clause BSD license.
