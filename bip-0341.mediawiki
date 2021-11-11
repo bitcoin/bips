@@ -88,13 +88,13 @@ We first define a reusable common signature message calculation function, follow
 
 ==== Common signature message ====
 
-The function ''SigMsg(hash_type, ext_flag)'' computes the message being signed as a byte array. It is implicitly also a function of the spending transaction and the outputs it spends, but these are not listed to keep notation simple.
+The function ''SigMsg(hash_type, ext_flag)'' computes the common portion of the message being signed as a byte array. It is implicitly also a function of the spending transaction and the outputs it spends, but these are not listed to keep notation simple.
 
-The parameter ''hash_type'' is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are reused, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>, plus the default ''hash_type'' value ''0x00'' which results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>. The following restrictions apply, which cause validation failure if violated:
+The parameter ''hash_type'' is an 8-bit unsigned value. The <code>SIGHASH</code> encodings from the legacy script system are reused, including <code>SIGHASH_ALL</code>, <code>SIGHASH_NONE</code>, <code>SIGHASH_SINGLE</code>, and <code>SIGHASH_ANYONECANPAY</code>. We define a new ''hashtype'' <code>SIGHASH_DEFAULT</code> (value ''0x00'') which results in signing over the whole transaction just as for <code>SIGHASH_ALL</code>. The following restrictions apply, which cause validation failure if violated:
 * Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'', ''0x03'', ''0x81'', ''0x82'', or ''0x83''<ref>'''Why reject unknown ''hash_type'' values?''' By doing so, it is easier to reason about the worst case amount of signature hashing an implementation with adequate caching must perform.</ref>).
 * Using <code>SIGHASH_SINGLE</code> without a "corresponding output" (an output with the same index as the input being verified).
 
-The parameter ''ext_flag'' is an integer in range 0-127, and is used for indicating (in the message) that extensions are added at the end of the message<ref>'''What extensions use the ''ext_flag'' mechanism?''' [[bip-0342.mediawiki|BIP342]] reuses the same common signature message algorithm, but adds BIP342-specific data at the end, which is indicated using ''ext_flag = 1''.</ref>.
+The parameter ''ext_flag'' is an integer in range 0-127, and is used for indicating (in the message) that extensions are appended to the output of ''SigMsg()''<ref>'''What extensions use the ''ext_flag'' mechanism?''' [[bip-0342.mediawiki#common-signature-message-extension|BIP342]] reuses the same common signature message algorithm, but adds BIP342-specific data at the end, which is indicated using ''ext_flag = 1''.</ref>.
 
 If the parameters take acceptable values, the message is the concatenation of the following data, in order (with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte are encoded in little-endian.
 
@@ -106,7 +106,7 @@ If the parameters take acceptable values, the message is the concatenation of th
 ** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
 *** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
 *** ''sha_amounts'' (32): the SHA256 of the serialization of all spent output amounts.
-*** ''sha_scriptpubkeys'' (32): the SHA256 of the serialization of all spent output ''scriptPubKey''s.
+*** ''sha_scriptpubkeys'' (32): the SHA256 of all spent outputs' ''scriptPubKeys'', serialized as script inside <code>CTxOut</code>.
 *** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
 ** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
 *** ''sha_outputs'' (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
@@ -174,6 +174,8 @@ The function returns a bit indicating the tweaked public key's Y coordinate as w
 The parity bit will be required for spending the output with a script path.
 In order to allow spending with the key path, we define <code>taproot_tweak_seckey</code> to compute the secret key for a tweaked public key.
 For any byte string <code>h</code> it holds that <code>taproot_tweak_pubkey(pubkey_gen(seckey), h)[1] == pubkey_gen(taproot_tweak_seckey(seckey, h))</code>.
+
+Note that because tweaks are applied to 32-byte public keys, `taproot_tweak_seckey` may need to negate the secret key before applying the tweak.
 
 <source lang="python">
 def taproot_tweak_pubkey(pubkey, h):
