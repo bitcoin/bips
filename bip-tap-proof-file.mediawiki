@@ -1,0 +1,324 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taproot Asset Flat File Proof Format
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document defines a flat file proof format as a standardized way to package
+Taproot Asset proofs. The proof format itself is an append-only log of the prior
+lineage of a given asset. Proofs are anchored at the initial "genesis output"
+for a given asset. A proof of a single Taproot Asset state transition includes a
+Bitcoin merkle proof, a Taproot Asset merkle-sum sparse merkle tree (MS-SMT)
+inclusion proof, and finally a set of valid witnesses for the state transition.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+The Taproot Asset protocol is an overlay protocol that enables the
+representation and transfer of assets on the base Bitcoin blockchain.
+As Bitcoin is a UTXO-based system each asset is itself rooted at an initial
+"genesis" transaction, which marks the creation of said asset.
+An asset is therefore defined by its genesis output, as this marks its lineage.
+To ensure implementations are able to verify provenance proofs across the
+ecosystem, a standardized proof format is proposed. The proof format is a linear
+log of state transitions, allowing new transfers/transition to simply be append
+to the end of the fail.
+
+==Design==
+
+Proving provenance of an asset requires the following arguments at each point
+in the past history of the asset:
+* The very first snapshot of an asset is rooted at the genesis outpoint as dictated by the canonical Universe.
+* A valid merkle proof that proves the inclusion of the genesis outpoint and resulting created asset.
+* At each step/transition  beyond the genesis outpoint:
+** A valid merkle proof of a transaction which spends the outpoint referenced in the prior step.
+** A valid MS-SMT opening proving the commitment of the new location of the asset.
+** A valid asset witness state transition from the prior outpoint to the new location.
+** A valid canonical Taproot Asset commitment exists for the given asset.
+** If the transaction anchoring the state transition has other Taproot (P2TR) outputs, then a valid tapscript exclusion proof to prove that the commitment isn't duplicated elsewhere.
+
+===Specification===
+
+The Taproot Asset proof file is a flat file that records each relevant state
+transition for a given asset to be verified. The file is verified incrementally,
+with verification halting if an invalid state transition or proof is
+encountered.
+
+A file is a series of inclusion and state transition proofs rooted at a given
+genesis outpoint. The very first transition requires no witness validation as
+its the genesis outpoint. 
+
+====File Serialization====
+
+A single inclusion and state transition proof has the following format is a TLV
+blob with the following format:
+* type: 0 (<code>version</code>)
+** value:
+*** [<code>uint32</code>:<code>version</code>]
+* type: 1 (<code>prev_out</code>)
+** value: 
+*** [<code>36*byte</code>:<code>txid || output_index</code>]
+* type: 2 (<code>block_header</code>)
+** value: 
+*** [<code>80*byte</code>:<code>bitcoin_header</code>]
+* type: 3 (<code>anchor_tx</code>)
+** value: 
+*** [<code>...*byte</code>:<code>serialized_bitcoin_tx</code>]
+* type: 4 (<code>anchor_tx_merkle_proof</code>)
+** value: 
+*** [<code>...*byte</code>:<code>merkle_inclusion_proof</code>]
+* type: 5 (<code>taproot_asset_asset_leaf</code>)
+** value: 
+*** [<code>tlv_blob</code>:<code>serialized_tlv_leaf</code>]
+* type: 6 (<code>taproot_asset_inclusion_proofs</code>)
+** value: 
+*** [<code>...*byte</code>:<code>taproot_asset_taproot_proof</code>]
+**** type: 0 (<code>output_index</code>
+***** value: [<code>int32</code>:<code>index</code>]
+**** type: 1 (<code>internal_key</code>
+***** value: [<code>33*byte</code>:<code>y_parity_byte || schnorr_x_only_key</code>]
+**** type: 2 (<code>taproot_asset_proof</code>)
+***** value: [<code>...*byte</code>:<code>asset_proof</code>]
+****** type: 0 (<code>taproot_asset_proof</code>)
+******* value: [<code>...*byte</code>:<code>asset_inclusion_proof</code>]
+******* type: 0
+******** value: [<code>uint32</code>:<code>proof_version</code>]
+******* type: 1
+******** value: [<code>32*byte</code>:<code>asset_id</code>]
+******* type: 2
+******** value: [<code>...*byte</code>:<code>ms_smt_inclusion_proof</code>]
+****** type: 1 (<code>taproot_asset_inclusion_proof</code>)
+******* value: [<code>...*byte</code>:<code>taproot_asset_inclusion_proof</code>]
+******* type: 0
+******** value: [<code>uint32</code>:<code>proof_version</code>]
+******* type: 1
+******** value: [<code>...*byte</code>:<code>ms_smt_inclusion_proof</code>]
+******* type: 2 (<code>taproot_sibling_preimage</code>)
+******** value: [<code>byte</code>:<code>sibling_type</code>][<code>varint</code>:<code>num_bytes</code>][<code>...*byte</code>:<code>tapscript_preimage</code>]
+**** type: 3 (<code>taproot_asset_commitment_exclusion_proof</code>
+***** value: [<code>...*byte</code>:<code>taproot_exclusion_proof</code>]
+****** type: 0 (<code>tap_image_1</code>)
+******* value: [<code>...*byte</code>:<code>tapscript_preimage</code>]
+****** type: 1 (<code>tap_image_2</code>)
+******* value: [<code>...*byte</code>:<code>tapscript_preimage</code>]
+****** type: 2 (<code>bip_86</code>)
+******* value: [<code>byte 0x00/0x01</code>:<code>bip_86</code>]
+* type: 7 (<code>taproot_exclusion_proofs</code>)
+** value: 
+*** [<code>uint16</code>:<code>num_proofs</code>][<code>...*byte</code>:<code>taproot_asset_taproot_proof</code>]
+* type: 8 (<code>split_root_proof</code>)
+** value:
+*** [<code>...*byte</code>:<code>taproot_asset_taproot_proof</code>]
+* type: 9 (<code>meta_reveal</code>)
+** value:
+*** [<code>...*byte</code>:<code>asset_meta_reveal</code>]
+**** type: 0 (<code>meta_type</code>
+***** value: [<code>uint8</code>:<code>type</code>]
+**** type: 1 (<code>meta_data</code>
+***** value: [<code>*byte</code>:<code>meta_data_bytes</code>]
+* type: 10 (<code>taproot_asset_input_splits</code>)
+** value:
+*** [<code>...*byte</code>:<code>nested_proof_map</code>]
+* type: 11 (<code>challenge_witness</code>)
+** value:
+*** [<code>...*byte</code>:<code>challenge_witness</code>]
+* type: 12 (<code>block_height</code>)
+** value:
+*** [<code>uint32</code>:<code>block_height</code>]
+
+where:
+* <code>version</code>: is the version of the single mint or transition proof, currently fixed to value <code>0</code>.
+* <code>prev_out</code>: is the 36-byte outpoint of the Taproot Asset committed output being spent. If this is the very first proof, then this value will be the "genesis outpoint" for the given asset.
+* <code>block_header</code>: is the 80-byte block header that includes a spend of the above outpoint.
+* <code>merkle_inclusion_proof</code>: is the merkle inclusion proof of the transaction spending the <code>previous_outpoint</code>. This is serialized with a <code>BigSize</code> length prefix as:
+** <code>proof_node_count || serialized_proof || proof_direction_bits</code>
+** where:
+*** <code>proof_node_count</code> is a <code>BigSize</code> integer specifying the number of nodes in the proof.
+*** <code>serialized_proof</code> is <code>proof_node_count*32</code> bytes for the proof path.
+*** <code>proof_direction_bits</code> is a bitfield of size <code>length_of_proof</code> with a value of <code>0</code> indicating a left direction, and <code>1</code> indicating a right direction.
+* <code>anchor_tx</code>: is the transaction spending the <code>previous_outpoint</code>. This transaction commits to at least a single Taproot Asset tree within one of its outputs.
+* <code>taproot_asset_taproot_proof</code>: is a nested TLV that can be used to prove either inclusion or a Taproot Asset, or the lack of a Taproot Asset commitment via the <code>taproot_asset_commitment_exclusion_proof</code>.
+* <code>taproot_exclusion_proofs</code>: is a series of _exclusion_ proofs that prove that the other outputs in a transaction don't commit to a valid Taproot Asset. This re-uses the <code>taproot_asset_taproot_proof</code> structure, but will only contain an <code>taproot_asset_commitment_exclusion_proof</code> value and not also a <code>taproot_asset_taproot_proof</code> value.
+* <code>split_root_proof</code>: is an optional <code>taproot_asset_taproot_proof</code> that proves the inclusion of the split commitment's root asset in case of an asset split.
+* <code>taproot_asset_input_splits</code>: is an optional list of nested full proofs for any additional inputs found within the resulting asset.
+* <code>asset_meta_reveal</code>: is an mandatory field (for genesis assets) that reveals the pre-image of the <code>asset_meta_hash</code> contained in the asset TLV.
+** The <code>meta_type</code> field can be used to indicate how to parse/render the meta data pre-image.
+*** The meta type currently defined are:
+**** <code>0</code>: no true type, just designates an opaque data blob.
+** The <code>meta_data</code> is the raw meta data itself.
+*** If the contained asset is a genesis asset (has a valid genesis witness), then a verifier SHOULD verify that: `sha256(tlv_encode(meta_reveal)) == asset_meta_hash`.
+*** This field MUST only be present for genesis asset proofs.
+* <code>challenge_witness</code> is an optional asset witness over a well-defined asset state transition that proves ownership of the <code>script_key</code> the asset currently resides at.
+* <code>block_height</code>: is the block height of the block that includes a spend of the <code>prev_out</code> outpoint.
+
+The final flat proof file has the following format:
+* [<code>u32</code>:<code>file_version</code>] version of proof file format, currently fixed to <code>0</code>.
+* [<code>BigSize</code>:<code>num_proofs</code>] number of proofs contained in the file
+* [<code>num_proof*proof</code>:<code>proofs</code>] encoded proofs
+** [<code>BigSize</code>:<code>proof_len</code>] length of encoded proof
+** [<code>proof_len*byte</code>:<code>proof_tlv_bytes</code>] a single proof encoded as a TLV stream as defined above
+** [<code>32*byte</code>:<code>proof_checksum</code>] the checksum of the proof, which is <code>SHA256(prev_hash || proof_tlv_bytes)</code> where <code>prev_hash</code> is the checksum of the previous proof or a zero hash for the first proof.
+
+====Proof Verification====
+
+Verification of a proof file starts at the first entry (the genesis output
+creation) and walks forward, validating each state transition and inclusion
+proof in series. If any state transition is found to be invalid, then the asset
+proof is invalid. Otherwise, if the file is consumed in full without any
+violations, the proof is said to be valid.
+
+Given a proof file for a given asset <code>f_proof</code>, genesis outpoint
+<code>g</code> verification is defined as follows:
+# Verify the integrity of the proof file:
+## For each proof, extract the <code>proof_len</code>, <code>proof_len</code> number of bytes as <code>proof_tlv_bytes</code> and 32 bytes <code>proof_checksum</code>.
+## Compute <code>SHA256(prev_hash || proof_tlv_bytes)</code> where <code>prev_hash</code> is the <code>proof_checksum</code> of the previous proof or a 32-byte zero hash for the first proof in a file.
+## If this computed value doesn't match <code>proof_checksum</code>, verification fails.
+# Verify each inclusion proof and state transition:
+## Parse the next proof block from the flat file.
+## If this is the first proof to be verified:
+### Store the <code>previous_outpoint</code> as the genesis outpoint.
+## Otherwise, verify that the <code>anchor_transaction</code> has an inputs that spends the ''prior'' <code>previous_outpoint</code>
+## Given the <code>anchor_transaction</code> verify that the included <code>merkle_inclusion_proof</code> rooted at the merkle root of the <code>block_header</code> is valid.
+## Parse the <code>tlv_proof_map</code>.
+## If the <code>anchor_transaction</code> does not have ''at least'' <code>asset_output_pos</code> outputs, verification fails.
+## Verify that the <code>asset_leaf_proof</code> embeds the <code>taproot_asset_leaf</code> at the outpout rooted at the <code>asset_output_pos</code> using the specified <code>internal_key</code> to compute the taproot commitment.
+## Verify that the asset witness included at the <code>prev_asset_witness</code> field of the <code>taproot_asset_leaf</code> is valid based on the specific <code>asset_script_version</code>
+## If a <code>split_commitment_opening</code> is present, verify that the included leaf is a valid opening rooted at the <code>taproot_asset_leaf</code>'s <code>split_commitment_root</code> field.
+## If a <code>split_commitment_opening</code> is present, verify that an inclusion proof for the <code>split_commitment_root</code>'s leaf is present in <code>split_root_proof</code>.
+## If the asset is a genesis asset, and the <code>asset_meta</code> field is present, then verify that <code>sha256(asset_meta) == asset.asset_meta_hash</code>
+
+A pseudo-code routine for flat file verification follows:
+<source lang="python">
+verify_asset_file_proof(file_proof []byte, genesis_outpoint OutPoint, 
+    assetID [32]byte) -> bool
+
+    genesis_outpoint, prev_outpoint = None
+    file_reader = new_bytes_reader(file_proof)
+    prev_hash = bytes(32)
+    while file_reader.len() != 0:
+        proof_block = parse_proof_block(file_reader)
+
+        sha_sum = sh256(prev_hash + proof_block.bytes())
+        if proof_block.proof_checksum != sha_sum:
+            return false
+
+        if genesis_outpoint is None:
+            genesis_outpoint = proof_block.previous_outpoint
+
+        txn = proof_block.txn
+        if genesis_outpoint is not None:
+           if !spends_prev_out(txn):
+               return false
+
+        if !verify_merkle_proof(
+            proof_block.block_header, proof_block.merkle_inclusion_proof, txn,
+        ):
+            return false
+
+        proof_tlv_map = proof_block.tlv_map
+
+        if len(txn.outputs) < proof_tlv_map.asset_output_pos:
+            return false
+
+        if !verify_asset_tree_proof(
+            txn, proof_tlv_map.taproot_asset_leaf, proof_tlv_map.asset_leaf_proof,
+        ):
+            return false
+
+        if !verify_taproot_asset_state_transition(proof_tlv_map.taproot_asset_leaf):
+            return false
+        
+        if proof_tlv_map.challenge_witness is not None:
+            new_leaf = clone_unique_leaf(proof_tlv_map.taproot_asset_leaf)
+            new_leaf.script_key = NUMS_key
+            new_leaf.prev_witnesses = {{
+                prev_id: {
+                    asset_id:   proof_tlv_map.taproot_asset_leaf.asset_id
+                    outpoint:   00000000...0000000:0
+                    script_key: proof_tlv_map.taproot_asset_leaf.script_key
+                }
+                tx_witness: proof_tlv_map.challenge_witness
+            }}
+            
+            if !verify_taproot_asset_state_transition(new_leaf):
+                return false
+
+        if proof_tlv_map.split_commitment_opening is not None:
+            if !verify_split_commitment(
+                proof_tlv_map.taproot_asset_leaf, 
+                proof_tlv_map.split_commitment_opening,
+            ):
+                return false
+            
+            if !verify_asset_tree_proof(
+                txn,
+                proof_tlv_map.split_commitment_opening.split_commitment_root,
+                proof_tlv_map.split_root_proof,
+            ):
+                return false
+
+        has_meta_reveal = proof_tlv_map.meta_reveal is not None
+        has_meta_hash = proof_tlv_map.asset.meta_hash is not None
+        is_genesis_asset = is_genesis_asset(proof_tlv_map.asset)
+        match:
+            case has_meta_reveal && !is_genesis_asset:
+                return false
+
+            case has_meta_reveal && is_genesis_asset:
+                meta_hash := sha256(meta_reveal)
+                if meta_hash != proof_tlv_map.asset.meta_hash:
+                    return false
+
+            case has_meta_hash && is_genesis_asset && !has_meta_reveal:
+                return false
+
+            case !has_meta_reveal && is_genesis_asset:
+                return false
+
+    return true
+</source>
+
+=====Ownership proof=====
+
+An optional ownership proof can be added to a proof through the
+<code>challenge_witness</code> field. That witness must be a valid asset
+<code>tx_witness</code> over a well-defined asset state transition that spends
+the full amount of the asset to the NUMS key.
+The state transition can be created with the following steps:
+
+# Create a deep copy of the asset to prove ownership of.
+# Truncate the <code>prev_witnesses</code> list to just a single element.
+# Set the <code>prev_witnesses[0].prev_id.out_point</code> to the empty outpoint (all zero hash and zero index).
+# Set the <code>prev_witnesses[0].prev_id.script_key</code> to the asset's script key.
+# Set the asset's <code>script_key</code> to the NUMS key.
+# Create a signature for the asset state transition, using the interactive flow (no split tomb stone).
+# Extract just the <code>prev_witnesses[0].tx_witness</code> from the signed state transition and append that to the proof as the <code>challenge_witness</code>.
+
+==Test Vectors==
+
+Test vectors for the [[File Serialization]] can be found here:
+* [[bip-tap-proof-file/proof_tlv_encoding_generated.json|Proof TLV encoding test vectors]]
+* [[bip-tap-proof-file/proof_tlv_encoding_error_cases.json|Proof TLV encoding error test vectors]]
+* [[bip-tap-proof-file/proof_tlv_encoding_regtest.json|Fully valid regtest proof TLV encoding test vectors]]
+
+Some of the test vectors are automatically generated by
+[https://github.com/lightninglabs/taproot-assets/tree/main/proof unit tests in
+the Taproot Assets GitHub repository].
+
+==Backwards Compatibility==
+
+==Reference Implementation==
+
+github.com/lightninglabs/taproot-assets/tree/main/proof

@@ -1,0 +1,718 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taproot Asset Universes
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+Taproot Asset provenance is defined by the lineage of an asset all the way back
+to the genesis point, which is the outpoint that the unique asset identifier is
+derived from. A Taproot Asset Universe is proposed as a way for users/holders
+of an asset to easily bootstrap their recognition of a given genesis point as
+the root of an asset. A Universe is an MS-SMT that indexes into the set of
+spent outpoints that track asset movement/transfer. A Universe can contain the
+set of genesis outpoints for an asset, several assets, track individual
+transactions, and also be used as an aggregation layer.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+In order to give users/holders of an asset an easy way to bootstrap provenance,
+as well as track the total amount of units issued for a given asset, an
+on-chain merkleized indexing structure is necessary. Further, if we define
+constraints w.r.t how a "canonical" Universe can be updated, then users are
+able to watch a set of on-chain outputs to be notified of further chain
+issuance. Continuing to build off this structure, if users are able to maintain
+a trust relationship with the issuer of an asset (say the asset belongs to a
+closed source game), then they can delegate update rights to a single or
+federated set of parties, allowing them to bundle several asset updates in a
+single transaction, thereby scaling on-chain transfers.
+
+==Design==
+
+A Taproot Asset Universe MS-SMT differs from the normal MS-SMT in that the key
+index of the lowest tree is derived from an  ''outpoint'' and `script key``
+rather than an asset script key as given an outpoint where an asset ''was''
+present, the asset Universe maps to the Taproot Asset transaction+spending meta
+data.  Given this outpoint indexing structure, if we create a new "re genesis"
+(to create a virtual tx graph) outpoint, then we can construct a new virtual
+Taproot Asset transaction graph which provably tracks the movement of assets in
+an off-chain manner, relying on a single or federated party to handle updates.
+
+===Specification===
+
+====Asset Universes====
+
+An Asset Universe is a publicly audit able merkle-sum sparse merkle tree
+(MS-SMT) over one or several assets. Unlike the normal Taproot Asset tree, a
+Universe isn't used to custody Taproot Assets.  Instead, a Universe commits to a
+subset of the history of one, or many assets.  A close analogue to a public
+Universe is a block explorer. A Universe can be used to:
+* Bootstrap proof verification by committing to the set of genesis outputs.
+* Generate more compact proofs w/ an additional trust assumption.
+* Audit to the total amount of units in existence for a given asset.
+* Track new asset issuance for a given asset ID.
+
+Universes can also be used to essentially compress the history of a series of
+transfers into a single on-chain transaction. This variant is called a Pocket
+Universe. From this PoV, a Pocket Universe can be seen as a sort of Taproot
+Asset channel wherein one party (or a consortium/threshold of them) can batch
+update a tree to clear countless transfers in a single on-chain transaction.
+Such a Universe can also be created over multiple assets, effectively becoming
+a Universe of Universes, or a ''Multiverse''.
+
+During asset creation, the party creating the asset (identified by it's all
+zero <code>prev_asset_id</code> value) MAY also specify a
+<code>canonical_universe</code> field which specifies additional constraints
+on the set of outputs produced. Namely, if this field is specified during asset
+creation, then the ''first'' output of the next spend after the genesis
+outpoint MUST commit to an updated base Universe that indexes into the prior
+genesis outpoint spend (asset creation). In addition, the internal key used for
+the output MUST be the <code>asset_group_key</code> field specified during
+asset creation. After each subsequent asset issuance event, this output SHOULD
+be updated to commit to the new updated base Universe that indexes into all
+asset issuance transactions on chain.
+
+Specifying a key effectively blesses a public key on-chain, allowing it to be
+used to commit to the "canonical" history of an asset. In addition, those
+wishing to be "notified" of new asset issuance can watch this output on-chain
+to track any modifications.
+
+====Root Universes & Genesis Asset Verification====
+
+Unlike a normal Taproot Asset asset tree, a base Universe for a given asset
+only commits to the set of ''genesis outpoints'' for an asset. The value for
+each of the leaves contains enough information to fully verify the existence of
+the transaction that created the asset. As this type of Universe only commits
+to the set of constituent assets present at the Beginning, that all other
+transfers depend on, we call this a ''Root'' Universe.
+
+Such a Universe can be used to bootstrap provenance and proof verification, as
+assuming a party knows which Universe to query, they're able to verify the
+provenance of a purported valid asset. In addition to bootstrapping provenance
+verification, as Universe trees are themselves an MS-SMT, they can be used to
+audit the total amount of a given asset in existence.
+
+A Root Universe, is an MS-SMT with the following structure:
+* The MS-SMT root commits to the sum of the total set of issued assets for a given <code>genesisAssetID</code>
+** A <code>genesisAssetID</code> can either be a normal <code>assetID</code> or <code>sha256(asset_group_key)</code>. In the latter case, all values in the tree MUST share the same <code>asset_group_key</code>.
+** <code>key</code>: an <code>sha256(outpoint || scriptKey)</code>. Given the asset ID, this uniquely locates a new minting event in the target outpoint.
+** <code>value</code>: <code>universe_proof_leaf</code>
+** <code>sum_value</code>: the total amount of asset units issued by the proof leaf.
+
+The key of the Root Universe is a serialized Bitcoin outpoint. As a result, the
+Universe structure can be used to query for the existence of Taproot Assets
+rooted at a given outpoint. For a Root Universe, the only outpoints tracked are
+outpoints that ''create'' a Taproot Asset asset.
+
+As the MS-SMT is keyed by the <code>sha256(outpoint || scriptKey)</code>, it
+can be used to bootstrap any proof verification of a purported asset, as the
+initial linkage is dependent on the provenance of the referenced
+<code>genesisOutpoint</code> (verification starts at the Beginning and works
+backwards).
+
+A <code>universe_proof_leaf</code>: is the state transition proof from
+<code>bip-tap-proof-file.mediawiki</code> format:
+* type: 0 (<code>prev_out</code>)
+** value: 
+*** [<code>36*byte</code>:<code>txid || output_index</code>]
+* type: 1 (<code>block_header</code>)
+** value: 
+*** [<code>80*byte</code>:<code>bitcoin_header</code>]
+* type: 2 (<code>anchor_tx</code>)
+** value: 
+*** [<code>...*byte</code>:<code>serialized_bitcoin_tx</code>]
+* type: 3 (<code>anchor_tx_merkle_proof</code>)
+** value: 
+*** [<code>...*byte</code>:<code>merkle_inclusion_proof</code>]
+* type: 4 (<code>taproot_asset_leaf</code>)
+** value: 
+*** [<code>tlv_blob</code>:<code>serialized_tlv_leaf</code>]
+* type: 5 (<code>taproot_asset_inclusion_proofs</code>)
+** value: 
+*** [<code>...*byte</code>:<code>taproot_asset_taproot_proof</code>]
+**** type: 0 (<code>output_index</code>
+***** value: [<code>int32</code>:<code>index</code>]
+**** type: 1 (<code>internal_key</code>
+***** value: [<code>33*byte</code>:<code>y_parity_byte || schnorr_x_only_key</code>]
+**** type: 2 (<code>taproot_asset_proof</code>)
+***** value: [<code>...*byte</code>:<code>asset_proof</code>]
+****** type: 0 (<code>taproot_asset_proof</code>)
+******* value: [<code>...*byte</code>:<code>asset_inclusion_proof</code>]
+******* type: 0
+******** value: [<code>uint32</code>:<code>proof_version</code>]
+******* type: 1
+******** value: [<code>32*byte</code>:<code>asset_id</code>]
+******* type: 2
+******** value: [<code>...*byte</code>:<code>ms_smt_inclusion_proof</code>]
+****** type: 1 (<code>taproot_asset_inclusion_proof</code>)
+******* value: [<code>...*byte</code>:<code>taproot_asset_inclusion_proof</code>]
+******* type: 0
+******** value: [<code>uint32</code>:<code>proof_version</code>]
+******* type: 1
+******** value: [<code>...*byte</code>:<code>ms_smt_inclusion_proof</code>]
+******* type: 2 (<code>taproot_sibling_preimage</code>)
+******** value: [<code>...*byte</code>:<code>tapscript_preimage</code>]
+**** type: 3 (<code>taproot_asset_commitment_exclusion_proof</code>
+***** value: [<code>...*byte</code>:<code>taproot_exclusion_proof</code>]
+****** type: 0 (<code>tap_image_1</code>)
+******* value: [<code>...*byte</code>:<code>tapscript_preimage</code>]
+****** type: 1 (<code>tap_image_2</code>)
+******* value: [<code>...*byte</code>:<code>tapscript_preimage</code>]
+* type: 6 (<code>taproot_exclusion_proofs</code>)
+** value: 
+*** [<code>uint16</code>:<code>num_proofs</code>][<code>...*byte</code>:<code>taproot_asset_taproot_proof</code>]
+
+This is the same state transition proof that would be used to prove asset
+creation to a third party.  The leaf value of the Root Universe allows
+verifiers to fully verify the creation of the asset based on the genesis
+outpoint spent.
+
+=====Canonical Root Universe State Transition Rules=====
+
+In order to provide an authoritative source of truth for the supply and
+issuance events of a given asset, an asset MAY specify a Canonical Root
+Universe at initial minting time. If the <code>canonical_universe</code> TLV is
+present in the genesis asset, then the following restrictions MUST be applied
+to subsequent transactions that spend the minting output:
+* When the minting output is spent, the ''first'' output of the resulting transaction MUST:
+** Use the internal key of the revealed <code>asset_group_key</code> as the internal key of the V1 Taproot witness program.
+** The tapscript tree of the newly created output MUST contain a new Root Universe commitment that includes the initial minting event.
+** We refer to this output as the <code>root_asset_commitment</code>.
+*** If multiple assets within a singular <code>asset_group</code> were issued in the prior transaction, then the Root Universe MUST contain all new assets.
+* For assets that were issued with an <code>asset_group_key</code>, each time a new asset is issued:
+** The latest unspent <code>root_asset_commitment</code> output MUST be spent.
+*** This serves to link new issuance events, with the reveal of a new Canonical Root Universe hash.
+** The ''first'' output of this spending transaction inherits the requirements above:
+*** A new updated Root Universe commitment is included in the <code>root_asset_commitment</code>.
+*** This new <code>root_asset_commitment</code> becomes the new updated supply anchor for the asset.
+
+The stated rules above effectively serve as an iterated commit and reveal game.
+Each time a new asset is issued (the issuance commitment spent), then the first
+output of the resulting transaction MUST commit to the new Root Universe hash.
+All other subsequent issuance events MUST then spend that same output, updating
+the commitment to the Root Universe hash.
+
+As a result of the above chain commitment structure, all queries against for
+the latest Canonical Root Universe of an asset can be authenticated using a
+series of merkle proofs:
+* A merkle proof anchored in the block header that mined the transaction with the <code>root_asset_commitment</code>.
+* A tapscript merkle proof to show the Root Universe hash is included in the tapscript tree.
+* A MS-SMT merkle proof to show that the asset being verified is indeed part of the Root Universe commitment chain.
+
+In order to enforce uniqueness of the Root Universe has commitment, we leverage
+the same tapscript commitment uniqueness rules in
+<code>bip-tap.mediawiki</code>. We use a modified commitment structure of:
+* <code>tagged_hash("TapLeaf", leaf_version || universe_marker || universe_version || root_universe_hash)</code>
+
+where:
+* <code>universe_marker</code>: is the `sha256` hash of the ascii string "universe".
+* <code>universe_version<code>: is the version of the Universe commitment used.
+* <code>root_universe_hash<code>: is the root hash of the Root Universe.
+
+As the Root Universe for a given asset can be known at the initial asset
+creation time, based on the referenced <code>universeKey</code> those wishing
+to track any new asset issuance related to a given <code>genesisAssetID</code>
+can watch the output on chain. Each time the output is spent indicates a new
+minting event. As a result, clients are able to watch a select set of outputs
+on-chain, one for each <code>genesisAssetID</code> they care about, effectively
+using the blockchain to be notified each time the total amount of issued assets
+changes.
+
+
+====Asset Multiverses====
+
+An Asset Multiverse is a Universe of Universes. Rather than just storing the
+set of constituent assets (the set of <code>genesisOutpoints</code>), a
+Multiverse commits to several root <code>assetIDs</code>, and may also commit
+to proofs of asset transfers (including splits+merges). A Multiverse is
+therefore effectively a commitment to every asset transfer that may have ever
+happened.  Importantly, one cannot prove that a Multiverse has complete
+history, as a Multiverse can only commit to what it directly observed, or was
+shown to it.
+
+A Multiverse has the following structure:
+* Similar to normal Taproot Asset commitments, the Multiverse itself contains two nested MS-SMT trees. The upper tree commits to the set of asset groups observed, with the inner tree committing to the transaction history of each of the asset groups.
+* Upper tree structure:
+** <code>key</code>: <code>asset_id</code> or <code>sha256(asset_key_family)</code>
+** <code>value</code>: <code>asset_group_tree_root</code>
+** <code>sum_value</code>: <code>asset_group_sum</code>
+* Inner tree structure: 
+** <code>key</code>: an <code>sha256(outpoint || scriptKey)</code>, serialized in a <code>txid:vout</code> structure as we find in Bitcoin.
+** <code>value</code>: <code>universe_proof_leaf</code>
+** <code>sum_value</code>: the total amount of asset units issued by the proof leaf.
+
+A Multiverse therefore commits to the set of known genesis IDs, and at a second
+level the set of complete Universe trees for each watched asset.
+
+With this structure, it's possible for the maintainers of the Multiverse to
+also store subjectively complete history of the set of transfers. In addition,
+this structure can be used to trace the set of transfers/lineage for a given
+asset. Notice that we effectively commit to the set of all created outputs
+associated with an asset, with the very first spend being the
+<code>genesisOutpoint</code> spend. As a result, a full proof of an asset's
+provenance is simply a series of keys stored at the lowest level of an SMT,
+with verifies following the transfer from outpoint to outpoint within a tree. 
+
+Using the trait presented above, one can create a flat file that proves the
+provenance of an asset simply by extracting select branches from a Multiverse
+tree, and enumerating the set of keys one needs to assert for validation.
+
+====Pocket Universes: Off-Chain Taproot Asset Transfer Compression====
+
+All leaves within a Multiverse are themselves a commitment to an event that
+happened on chain: A Taproot Asset transfer. Proofs for unique assets have a nice
+property that they scale linearly in the number of asset transfers (you can't
+split/merge so the same unit is being transferred to a differing set of
+owners).  Normal assets give a greater degree of flexibility, but scale worse
+as a single asset held might actually be the merging of several Taproot Asset
+UTXOs, thereby increasing proofs size as a function of the number of
+splits/merges in an asset's history. Pocket Universes are an off-chain transfer
+compression system that allows a consortium to stamp asset transfers that take
+place in an "imaginary" universe.
+
+To further reduce validation costs, verifiers can choose to only verify a
+single input split all the way back to the genesis outpoint. This implements a
+naive form of probabilistic validation, as the probability that each unverified
+split is invalid decrease exponentially.
+
+A Pocket Universe is similar to a commit chain. A single party, or a set of
+parties, commits to a set of transfers within the main chain, which themselves
+are anchored to an initial verifiable <code>genesisOutpoint</code>. A Pocket
+Universe is therefore a scaling tool, as with a single new commitment on-chain,
+an essentially unbounded amount of transfers can be timestamped within the
+chain.  Pocket Universes may be useful in cases where a party has issued
+assets, that can only be used with the aide of the issuer, for example in-game
+assets. Although the Pocket Universe relies on a federation, unilateral exist
+is possible, given a proof of censorship event.
+
+=====Pocket Universes Creation=====
+
+In order to create a new empty Pocket Universe, the Pocket Universe
+orchestrator first creates a new unique tapscript commitment within a segwit v1
+output (Taproot) with the following structure:
+* <code>tagged_hash("TapLeaf", leaf_version || pocket_universe_marker || pocket_universe_version || pocket_universe_hash)</code>
+
+where:
+* <code>pockt_universe_marker</code>: is the `sha256` hash of the ascii string "pocket universe".
+* <code>pocket_universe_version</code>: is the version of the Universe commitment used.
+* <code>pocket_universe_hash</code>: is the root hash of the Pocket Universe.
+** The Pocket Universe is a normal Taproot Asset MS-SMT with the exception that the referenced previous outpoints of the <code>prev_id</code> for each asset only exists within the Taproot Asset Virtual Transaction Graph.
+
+This serves to create a new empty Pocket Universe, as the
+<code>pocket_universe_hash</code> will simply be the empty MS-SMT hash as no
+contents are currently present in the Pocket Universe.
+
+The outpoint that commits to the creation of a Pocket Universe is hence
+referred to as the <code>pocketGenesisOutpoint</code>. A NUMS point derived
+from this outpoint can then be computed as <code>M =
+NUMS(pocketGenesisOutpoint)</code>.  The traditional "hash and increment" approach to
+generating NUMS points can be used, or any other variant. As performance isn't
+a concern, the naive approach will likely be used in practice.
+
+======Pocket Universe Dynamic Membership: Taproot Asset Virtual Transaction Graphs======
+
+Within a Pocket Universe, rather than reference the on chain location of
+committed assets, a new virtual transaction graph is created, which is rooted
+at the <code>pocketGenesisOutpoint</code>. In order to join a Pocket Universe,
+an asset must first be suspended. Once suspended, they can be added to the
+Pocket Universe commitment, using the <code>pocketGenesisOutpoint</code> as a
+''new'' minting/issuance event. Subsequent transfers will then reference the
+''virtual transaction outpoint'' (as computed in the VM) as previous inputs.
+
+Assets can also be minted ''directly'' into a Pocket Universe by the
+orchestrator. To do this, the orchestrator creates a normal genesis asset, but
+uses the normal all zero prev ID within the new Pocket Universe leaf.
+
+======Joining a Pocket Universe======
+
+In order to join a Pocket Universe, a party holding an asset `A` carries out
+the following steps:
+* In the same txn, send to the Pocket Universe NUMS key
+* Create a new entry in the Pocket Universe for that output
+* Within the new leaf, reference the pocket universe outpoint
+
+Assets can be moved into a pocket Universe which is another commitment in the
+main Tapscript tree by "sending" the set of outpoints to a special NUMS asset
+key which is derived from the <code>genesisOutpoint</code> of the given asset.
+
+
+Once the assets have been from the PoV of the base Universe, a new parallel
+pocket Universe commitment can be created, which uses the ''new'' outpoint
+created as a result of the above transfer transaction as the very first
+spending input. From here, new transfers can be created, refreezing the
+created outpoints of the virtual Taproot Asset VM validation transaction. The
+result is an effective ''freezing'' of assets anchored in the main chain, which
+then permits them to be batched and transferred in the maintained Pocket
+Universe.
+
+======Pocket Universe Transactions======
+
+=======Leaving a Pocket Universe=======
+
+====Asset Universe APIs & Federated Sync====
+
+A Universe server communicates with clients and other Universe servers using
+the standard Universe API. As a Universe is a tree-based structure, it lends
+well to bisection based reconciliation protocols. A set of Universe servers can
+peer with each other to form a Universe Federation. A users submit issuance and
+transfer proofs to a sub-set of the Federation, gradual tree-based
+reconciliation will serve to eventually synchronize the new state across the
+set of federated Universe servers.
+
+=====Universe gRPC API=====
+
+The Universe gRPC API is implemented by the following standard gRPC service:
+
+<source lang="python">
+service Universe {
+    /* 
+    AssetRoots queries for the known Universe roots associated with each known
+    asset. These roots represent the supply/audit state for each known asset.
+    */
+    rpc AssetRoots (AssetRootRequest) returns (AssetRootResponse);
+
+    /* 
+    QueryAssetRoots attempts to locate the current Universe root for a specific
+    asset. This asset can be identified by its asset ID or group key.
+    */
+    rpc QueryAssetRoots (AssetRootQuery) returns (QueryRootResponse);
+
+    /* 
+    AssetLeafKeys queries for the set of Universe keys associated with a given
+    asset_id or group_key. Each key takes the form: (outpoint, script_key),
+    where outpoint is an outpoint in the Bitcoin blockchain that anchors a
+    valid Taproot Asset commitment, and script_key is the script_key of the
+    asset within the Taproot Asset commitment for the given asset_id or
+    group_key.
+    */
+    rpc AssetLeafKeys (ID) returns (AssetLeafKeyResponse);
+
+    /* 
+    AssetLeaves queries for the set of asset leaves (the values in the Universe
+    MS-SMT tree) for a given asset_id or group_key. These represents either
+    asset issuance events (they have a genesis witness) or asset transfers that
+    took place on chain. The leaves contain a normal Taproot Asset asset proof,
+    as well as details for the asset.
+    */
+    rpc AssetLeaves (ID) returns (AssetLeafResponse);
+
+    /*
+    QueryProof attempts to query for an issuance proof for a given asset based
+    on its UniverseKey. A UniverseKey is composed of the Universe ID
+    (asset_id/group_key) and also a leaf key (outpoint || script_key). If
+    found, then the issuance proof is returned that includes an inclusion proof
+    to the known Universe root, as well as a Taproot Asset state transition or
+    issuance proof for the said asset.
+    */
+    rpc QueryProof (UniverseKey) returns (AssetProofResponse);
+
+    /*
+    InsertProof attempts to insert a new issuance proof into the
+    Universe tree specified by the UniverseKey. If valid, then the proof is
+    inserted into the database, with a new Universe root returned for the
+    updated asset_id/group_key.
+    */
+    rpc InsertProof (AssetProof) returns (AssetProofResponse);
+}
+</source>
+
+The service allows users to fetch the complete set of asset roots, fetch the
+Universe root for a given asset, fetch the set of leaves/keys, and also attempt
+to add a new issuance/transfer proof to the target Universe server.
+
+The definition of each of the proto messages follows:
+<source lang="python">
+message AssetRootRequest {}
+
+message MerkleSumNode {
+    // The MS-SMT root hash for the branch node.
+    bytes root_hash = 1;
+
+    // The root sum of the branch node. This is hashed to create the root_hash
+    // along with the left and right siblings. This value represents the total
+    // known supply of the asset.
+    int64 root_sum = 2;
+}
+
+message ID {
+    oneof id {
+        // The 32-byte asset ID.
+        bytes asset_id = 1;
+
+        // The 32-byte asset ID encoded as a hex string.
+        string asset_id_str = 2;
+
+        // The 32-byte asset group key.
+        bytes group_key = 3;
+
+        // The 32-byte asset group key encoded as hex string.
+        string group_key_str = 4;
+    }
+}
+
+message UniverseRoot {
+    ID id = 1;
+
+    // The merkle sum sparse merkle tree root associated with the above
+    // universe ID.
+    MerkleSumNode mssmt_root = 3;
+}
+
+message AssetRootResponse {
+    // A map of the set of known universe roots for each asset. The key in the
+    // map is the 32-byte asset_id or group key hash.
+    map<string, UniverseRoot> universe_roots = 1;
+}
+
+message AssetRootQuery {
+    // An ID value to uniquely identify a Universe root.
+    ID id = 1;
+}
+
+message QueryRootResponse {
+    // The asset root for the given asset ID or group key.
+    UniverseRoot asset_root = 1;
+}
+
+message Outpoint {
+    // The output as a hex encoded (and reversed!) string.
+    string hash_str = 1;
+
+    // The index of the output.
+    int32 index = 2;
+}
+
+message AssetKey {
+    // The outpoint of the asset key, either as a single hex encoded string, or
+    // an unrolled outpoint.
+    oneof outpoint {
+        string op_str = 1;
+
+        Outpoint op = 2;
+    }
+
+    // The script key of the asset.
+    oneof script_key {
+        bytes script_key_bytes = 3;
+
+        string script_key_str = 4;
+    }
+}
+
+message AssetLeafKeyResponse {
+    // The set of asset leaf keys for the given asset ID or group key.
+    repeated AssetKey asset_keys = 1;
+}
+
+message AssetLeaf {
+    // The asset included in the leaf.
+    taprpc.Asset asset = 1;
+
+    // TODO(roasbeef): only needed for display? can get from proof below ^
+
+    // The asset issuance proof, which proves that the asset specified above
+    // was issued properly.
+    bytes issuance_proof = 2;
+}
+
+message AssetLeafResponse {
+    // The set of asset leaves for the given asset ID or group key.
+    repeated AssetLeaf leaves = 1;
+}
+
+message UniverseKey {
+    // The ID of the asset to query for.
+    ID id = 1;
+
+    // The asset key to query for.
+    AssetKey leaf_key = 2;
+}
+
+message AssetProofResponse {
+    // The request original request for the issuance proof.
+    UniverseKey req = 1;
+
+    // The Universe root that includes this asset leaf.
+    UniverseRoot universe_root = 2;
+
+    // An inclusion proof for the asset leaf included below. The value is that
+    // issuance proof itself, with a sum value of the amount of the asset.
+    bytes universe_inclusion_proof = 3;
+
+    // The asset leaf itself, which includes the asset and the issuance proof.
+    AssetLeaf asset_leaf = 4;
+}
+
+message AssetProof {
+    // The ID of the asset to insert the proof for.
+    UniverseKey key = 1;
+
+    // The asset leaf to insert into the Universe tree.
+    AssetLeaf asset_leaf = 4;
+}
+
+enum UniverseSyncMode {
+    // A sync node that indicates that only new asset creation (minting) proofs
+    // should be synced.
+    SYNC_ISSUANCE_ONLY = 0;
+
+    // A syncing mode that indicates that all asset proofs should be synced.
+    // This includes normal transfers as well.
+    SYNC_FULL = 1;
+}
+
+message SyncTarget {
+    ID id = 1;
+}
+
+message SyncRequest {
+    string universe_host = 1;
+
+    // The sync mode. This determines what type of proofs are synced.
+    UniverseSyncMode sync_mode = 2;
+
+    // The set of assets to sync. If none are specified, then all assets are
+    // synced.
+    repeated SyncTarget sync_targets = 3;
+}
+
+message SyncedUniverse {
+    // The old Universe root for the synced asset.
+    UniverseRoot old_asset_root = 1;
+
+    // The new Universe root for the synced asset.
+    UniverseRoot new_asset_root = 2;
+
+    // The set of new asset leaves that were synced.
+    repeated AssetLeaf new_asset_leaves = 3;
+}
+
+message SyncResponse {
+    // The set of synced asset Universes.
+    repeated SyncedUniverse synced_universes = 1;
+}
+</source>
+
+
+=====Universe REST API=====
+
+In addition to a gRPC API, Universe servers also observe a matching REST API.
+The REST API is the mirror of the gRPC API, and is structured to enable
+familiar access to Universe information as one would expect in a block
+explorer.
+
+The following yaml describes the REST interface for Universe servers:
+<source lang="yaml">
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: universerpc.Universe.AssetRoots
+      get: "/v1/taproot-assets/universe/roots"
+
+    - selector: universerpc.Universe.QueryAssetRoots
+      get: "/v1/taproot-assets/universe/roots/asset-id/{id.asset_id_str}"
+
+    - selector: universerpc.Universe.QueryAssetRoots
+      get: "/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"
+
+    - selector: universerpc.Universe.AssetLeafKeys
+      get: "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}"
+
+    - selector: universerpc.Universe.AssetLeafKeys
+      get: "/v1/taproot-assets/universe/keys/group-key/{group_key_str}"
+
+    - selector: universerpc.Universe.AssetLeaves
+      get: "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"
+
+    - selector: universerpc.Universe.AssetLeaves
+      get: "/v1/taproot-assets/universe/leaves/group-key/{group_key_str}"
+
+    - selector: universerpc.Universe.QueryProof
+      get: "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
+
+    - selector: universerpc.Universe.QueryProof
+      get: "/v1/taproot-assets/universe/proofs/group-key/{id.group_key_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}"
+
+    - selector: universerpc.Universe.InsertProof
+      post: "/v1/taproot-assets/universe/proofs/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
+      body: "*"
+
+    - selector: universerpc.Universe.InsertProof
+      post: "/v1/taproot-assets/universe/proofs/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"
+      body: "*"
+
+    - selector: universerpc.Universe.SyncUniverse
+      post: "/v1/taproot-assets/universe/sync"
+      body: "*"
+</source>
+
+As an example, in order to query for any issued assets residing at the outpoint
+`txid:vout`, for an assetiD `x` a user can hit the following endpoint:
+<code>
+/v1/taproot-assets/universe/keys/asset-id/x/txid/vout
+</code>
+
+
+=====Simple Universe Sync=====
+
+As mentioned above, the tree based structure of a Universe server lends easily
+to bisection based set reconciliation. In this case, the keys comprise the set
+being synchronized.
+
+In this section, we describe a simple linear algorithm for syncing a local
+Universe, with a remote Universe server:
+
+<source lang="python">
+sync_with_universe(local_universe: UniverseServer, remote_universe: UniverseServer) -> None
+    // First fetch the set of roots from the local + remote server.
+    local_roots = local_universe.asset_roots()
+    remote_roots = remote_universe.asset_roots()
+
+    // If the local roots match the remote roots, then we're done.
+    if local_roots == remote_roots:
+       return
+
+    // Otherwise, for each root, we'll figure out which leaves we're missing.
+    for i, remote_root in range(remote_roots):
+        if remote_roots == local_roots[i]:
+            continue
+
+        remote_asset_keys = remote_universe.asset_leaf_keys(remote_root.id)
+        local_asset_keys = local_universe.asset_leaf_keys(local_root.id)
+
+        missing_keys = set(remote_asset_keys) - set(local_asset_keys)
+
+        for missing_key in range missing_keys:
+            missing_leaf = remote_universe.query_issuance_proofs(missing_key)
+
+            local_universe.insert_issuance_proof(missing_leaf)
+</source>
+
+A simple sync can be augmented by first recursively fetching the mismatched
+sibling until an acceptable depth is reached before fetching all the leaves in
+the terminal sub-tree. Each step serves to cut in half the total number of keys
+that need to be sent in order to reconcile state.
+
+==Test Vectors==
+
+TBD
+
+==Backwards Compatibility==
+
+==Reference Implementation==
+
+github.com/lightninglabs/taproot-assets/universe

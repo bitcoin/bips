@@ -1,0 +1,323 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Merkle Sum Sparse Merkle Trees
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes a merkle-sum sparse merkle tree (MS-SMT) data
+structure.  This is an augmented version of a sparse merkle tree that includes
+a sum value which is combined during the internal branch hashing operation.
+Such trees permit efficient proofs of non-inclusion, while also supporting
+efficient fault proofs of invalid merkle sum commitments.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+Taproot Assets are a Taproot-native asset overlay protocol. Rather than post all
+asset related data on-chain in <code>OP_RETURN</code> outputs, the protocol
+instead uses a series of commitments anchored within the Taproot script tree.
+When handling unique assets, it's important to be able to prove that the former
+owner (or seller) of the asset is no longer committing to it within their tree.
+Additionally, when carrying out multi-asset swaps, verifiers need to be able to
+efficiently verify that no new assets are being created (inflation check). The
+MS-SMT supports both non-inclusion proofs, and non-inflation proofs.
+
+==Design==
+
+A merkle sum tree is a merkalized key-value map simulated over a particia
+merkle tree of depth 256 (as we use sha256 as our hash function). The "base"
+state of the tree, is a merkle tree with 2^256 leaves, storing an "empty hash".
+Within this tree, the digests of an empty leaf, and empty internal nodes for
+each level can be computed ahead of time. The "value" of an empty leaf is zero.
+
+In addition to storing the hash digest of a leaf/branch, an 8-byte value is
+also stored along side the entry, making each entry 40 bytes in length. The
+root hash therefore commits to the digest of all items in the leaf, as well as
+the sum of all the "sum values" in the set of leaves. When combining two
+branches/leaves, the sum of the left and right leaf/branch is serialized along
+with the hash digest of the nodes.
+
+When inserting a new key into the tree, at each level, the ith bit of the key
+is used to traverse left or right down the tree. Due to this traversal, every
+possible key has a unique location (position wise) within the set of leaves. A
+non-inclusion proof is the proof that the value at the unique position for a
+key is empty. 
+
+Due to the nature of the mapping, sparse merkle trees are ''history
+independent'' meaning no matter the inserting order, given the same set of keys
+and values, the same root hash will always be produced.  As the size of the
+tree is intractable, a series of techniques are used to maintain a relevant set
+of branches and leaves in memory, using a persistent key-value store to store
+the relevant unique items of the tree. Proofs can be compressed by using a
+bitmap to indicate if the next node in the proof is an empty hash for that
+level, or the parent of the item being proved.
+
+===Specification===
+
+We use <code>sha256</code> as our hash function, and 8-byte sum values.
+
+====Building the Empty Hash Map====
+
+The map of all empty hashes by level <code>empty_hashes</code> can be
+pre-computed ahead of time, as:
+* The hash of an empty leaf is <code>empty_hash_1 = sha256(nil, nil)</code>
+* The hash of an empty branch at the second level is <code>empty_hash_2 = sha256(empty_hash_1, empty_hash_1)</code>
+* and so on...
+
+We refer to the map resulting from this route as the
+<code>empty_hash_map</code>:
+<source lang="python">
+build_empty_hash_map() -> map[int][32]byte:
+
+    empty_hash_map = make(map[int][32]byte)
+    prior_level_hash = None
+    for i in range(256):
+        if prior_level_hash is None:
+            prior_level_hash = sha256(nil, nil, 0)
+            empty_hash_map[i] = prior_level_hash
+            continue
+
+        empty_hash_map[i] = sha256(prior_level_hash, prior_level_hash, 0)
+
+    return empty_hash_map
+
+</source>
+
+====Node Digest Computation===
+
+The MS-SMT tree has two types of nodes: leaf nodes and branch nodes.
+
+The digest of a leaf node is a function of the <code>sum_value</code> (encoded
+as a big-endian integer) of the leaf node and it's actual <code>value</code>:
+
+<source lang="python">
+leaf_node_digest(leaf_node: MerkleSumLeaf) -> [32]byte:
+    h = new_sha_writer()
+    h.write_bytes(leaf_node.value)
+    h.write_big_endian_int(leaf_node.sum_value)
+
+    return h.bytes()
+</source>
+
+The digest of a branch node commits to the digest of its two children (which
+may be another branch or a leaf), and also commits to the _sum_ of their
+respective <code>sum_value</code>s:
+
+<source lang="python">
+node_digest(node: Node) -> [32]byte
+    match node:
+        case MerkleSumLeaf:
+            return leaf_node_digest(node)
+
+        case MerkleSumBranch:
+            return branch_node_digest(node)
+
+branch_node_digest(left: Node, right: Node) -> [32]byte
+    left_digest = node_digest(left)
+    right_digest = node_digest(right)
+    new_sum = left.sum_value() + right_sum_value()
+
+    h = new_sha_writer()
+    h.write_bytes(left_digest)
+    h.write_bytes(right_digest)
+    h.write_big_endian_int(new_sum)
+
+    return h.bytes()
+</source>
+
+====Looking Up Items====
+
+Looking up an item in the tree requires traversal down the tree based on the
+next bit position of the key itself. We assume the existence of a persistent
+key-value store that maps the hash of a node to the left and right digests of
+its children.
+
+The following routine specifies the lookup algorithm:
+<source lang="python">
+lookup_item(key [32]byte, db KVStore) -> MerkleSumLeaf:
+
+    root_hash, _ = db.fetch_root_hash()
+    current_branch = root_hash
+
+    value_hash, value_sum = None
+    for i in range(256):
+        if bit_index(i, key) == 0:
+            current_branch, _ = db.get_children(current_branch)
+        else:
+            _, current_branch = db.get_children(current_branch)
+
+    return MerkleSumLeaf(current_branch.hash, current_branch)
+
+</source>
+
+====Inserting Items====
+
+Inserting items into the tree entails traversing the tree until we arrive at
+the position for the leaf, then bubbling up (hashing and summing) the change
+all the way up the tree.
+
+<source lang="python">
+insert_item(key [32]byte, value []byte, sum_value int64, db KVStore) -> None:
+    root_hash, _ = db.fetch_root_hash()
+    current_branch = root_hash
+
+    insertion_path = []
+    value_hash, value_sum = None
+    for i in range(256):
+        if bit_index(i, key) == 0:
+            current_branch, sibling = db.get_children(current_branch)
+            insertion_path.append(sibling)
+        else:
+            sibling, current_branch, = db.get_children(current_branch)
+            insertion_path.append(sibling)
+
+    db.insert(current_branch.parent_hash, MerkleSumLeaf(key, value, sum_value))
+
+    for i in range(256):
+       updated_sum = sum_value + inclusion_path[-1].value
+
+       sibling_node = insertion_path[-1]
+       if bit_index(i, key) == 0:
+           updated_value = sha256(value, sibling_node.sum_value, updated_sum)
+
+           db.insert(key=updated_value, value=(sibling_node, value))
+        else:
+           updated_value = sha256(insertion_path[-1].hash, value, updated_sum)
+
+           db.insert(key=updated_value, value=(value, sibling_node))
+          
+       value = updated_value
+       sum_value = updated_sum
+
+       insertion_path.pop()
+
+    return None
+</source>
+
+
+====Deleting Items====
+
+Deleting an item is identical to insertion, but we delete the item in the tree
+by setting its value to the empty hash.
+<source lang="python">
+delete_item(key [32]byte, db KVStore) -> None:
+    return insert_item(key, nil, 0, db)
+</source>
+
+====Creating Inclusion & Non-Inclusion Proofs====
+
+An inclusion proof of an item proves that the item is found in the tree, and
+has a certain sum value. A non-inclusion tree proves the opposite: that an item
+is not found within the tree.
+
+Generating an inclusion or non inclusion proof entails walking down the tree
+and obtaining all the sibling hashes and their sum values:
+<source lang="python">
+gen_merkle_proof(key [32]byte, db KVStore) -> []MerkleSumNode
+    root_hash, _ = db.fetch_root_hash()
+    current_branch = root_hash
+
+    proof_nodes = []
+    value_hash, value_sum = None
+    for i in range(256):
+        if bit_index(i, key) == 0:
+            current_branch, sibling = db.get_children(current_branch)
+            proof_nodes.append(sibling)
+        else:
+            sibling, current_branch, = db.get_children(current_branch)
+            proof_nodes.append(sibling)
+
+    return proof_nodes
+</source>
+
+A plain proof is always a series of 256 merkle sum elements. However we can
+compress proofs by using an extra bitmap that indicates if the proof contents
+are an empty hash or not.
+<source lang="python">
+compress_merkle_proof(proof []MerkleSumNode) -> CompressedProof:
+   compressed_proof = new_compressed_proof(
+       compression_bits=new_bit_vector(256),
+       proof=[]MerkleSumNode{},
+   )
+
+   for i, proof_node in proof:
+       if proof_node == empty_hash_map[i]:
+           compressed_proof.compression_bits.append(1)
+        else:
+           compressed_proof.proof.append(proof_node)
+
+   return compressed_proof
+</source>
+
+====Verifying Inclusion & Non-Inclusion Proofs====
+
+In order to verify a proof, we need to confirm that if starting at the proof,
+if we hash and sum up the tree, then we'll end up at the same root hash and sum
+value.
+
+Before proofs are verified, the proof should first be decompressed:
+<source lang="python">
+decompress_merkle_proof(compressed_proof CompressedProof) -> []MerkleSumNode:
+    proof = []MerkleSumNode{}
+
+    for i in range(256):
+        if compressed_proof.bit_at(index=i) == 1:
+            proof.append(empty_hash_map[i])
+        else:
+            proof.append(compressed_proof.proof)
+            compressed_proof = drop_1(compressed_proof.proof)
+
+    return proof
+</source>
+
+With the proof decompressed, we verify the proof by hashing and summing up each
+level.
+<source lang="python">
+verify_merkle_proof(proof []MerkleSumNode, root MerkleSumNode, 
+    key [32]byte, value []byte, value_sum int64) -> bool:
+
+    for i in range(256):
+        if bit_index(i, key) == 0:
+            value = sha256(proof[-1-i], value, proof[1-i].sum, value_sum)
+        else:
+            value = sha256(value, proof[-1-i], value.sum, value_sum)
+
+    return root.hash == value && root.sum == value_sum
+            
+</source>
+
+
+====Caching Optimizations====
+
+TODO(roasbeef):
+
+
+==Test Vectors==
+
+Test vectors for Merkle Sum Sparse Merkle Trees can be found here:
+* [[bip-tap-ms-smt/mssmt_tree_deletion.json|MS-SMT leaf deletion test vectors]]
+* [[bip-tap-ms-smt/mssmt_tree_error_cases.json|Tree error test vectors]]
+* [[bip-tap-ms-smt/mssmt_tree_proofs.json|MS-SMT proof test vectors]]
+* [[bip-tap-ms-smt/mssmt_tree_replacement.json|MS-SMT leaf replacement test vectors]]
+
+The test vectors are automatically generated by
+[https://github.com/lightninglabs/taproot-assets/tree/main/mssmt unit tests in
+the Taproot Assets GitHub repository].
+
+==Backwards Compatibility==
+
+==Reference Implementation==
+
+github.com/lightninglabs/taproot-assets/tree/main/mssmt

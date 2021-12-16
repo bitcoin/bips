@@ -1,0 +1,484 @@
+<pre>
+  BIP: ???
+  Layer: Applications
+  Title: Taproot Assets PSBT
+  Author: Oliver Gugger <gugger@gmail.com>
+          Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2023-02-24
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes the custom fields used in the
+[[https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki|Partially
+Signed Bitcoin Transaction (PSBT, BIP-0174)]] format for Taproot Asset state
+transition transactions.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Design==
+
+A Taproot Asset state transition transaction is also referred to as a "virtual
+transaction" or asset transfer transaction. The word "virtual" is used to
+distinguish between these asset transfers that only happen in the off-chain,
+asset overlay context as opposed to "anchor" transactions, which are BTC level
+on-chain transaction that commit many asset level transfers to the Bitcoin
+chain.
+
+A virtual transaction has many similarities to its Bitcoin wire transaction
+counterpart in that it spends one or more asset inputs (asset UTXOs or asset
+"coins") and creates one or more new asset outputs.
+
+The main difference to a Bitcoin transaction is that a virtual asset transaction
+does not place the witness that satisfies each input's previous output script in
+the input itself but instead uses the <code>prev_asset_witnesses</code> field of
+the dedicated output that houses the split root asset.
+This allows a many-in-many-out virtual transaction to be compressed into a
+1-in-1-out transaction (as described in
+[[./bip-tap-vm.mediawiki|bip-tap-vm]]) for validation in the Taproot Asset
+Virtual Machine.
+
+To assemble the full witness stack that satisfies each input's previous output
+script the transaction might need to be signed by multiple parties and/or
+devices. This requires the virtual transaction to be passed around among
+multiple participants, each adding their part (e.g. signatures) to it. Given the
+similarities of virtual transactions to existing Bitcoin transactions, the PSBT
+format was chosen as the exchange format for virtual asset state transfers as
+well, with a set of new PSBT <code><keytype></code>s as defined in this
+document. 
+
+==Specification==
+
+A virtual transaction can only contain inputs and outputs of assets that are
+fungible among each other. Assets are considered fungible if they either have
+the same genesis ID (were minted in the same tranche) or reference the same
+<code>group_key</code> (were minted in different tranches).
+
+Within a virtual transaction multiple inputs (asset coins) that have the '''same
+genesis ID''' can be merged and split the same way Bitcoin inputs can be merged
+and split again. Fungible assets with '''different genesis IDs''' (but same
+<code>group_key</code>) can be used together in the same virtual transaction in
+order to satisfy a payment request, but merging two fungible assets (with
+distinct asset IDs) into the _same_ asset UTXO is disallowed. See the
+[[./bip-tap-vm.mediawiki|bip-tap-vm]] for more details.
+
+The construction of the virtual transaction outputs must follow different rules
+depending on whether the output is received in an interactive or non-interactive
+way by the recipient:
+<ul>
+<li>
+''Interactive:'' The recipient will see the full virtual transaction (e.g. as
+a PSBT), including the fully signed new asset leaf. They have all the required
+information to be able to fully construct the BTC level anchor output Taproot
+key (including the complete asset witness and potentially multiple asset leaves
+being committed to in a single BTC level anchor output) to observe the inbound
+transfer on chain. Therefore in a scenario where a leaf is sent completely (full
+value send), a "split tombstone" (see below) is not required.
+</li>
+<li>
+''Non-interactive'': The recipient has created a Taproot Asset address and is
+only watching that Taproot output key on chain. Assets must be committed to the
+tree as a split asset, with the split commitment pruned before serializing, to
+make the resulting Taproot Asset tree completely predictable for the receiver.
+The split commitment and root asset proof will be delivered in the proof file.
+A full value send must also be created as a split with the sender creating a
+zero value "split tombstone" output with the NUMS point as the script key (see
+below).
+</li>
+</ul>
+
+TODO(guggero): Describe how fungible assets are handled in a non-interactive way
+once that is defined.
+
+When splitting an asset UTXO a split commitment is created (as described in
+[[./bip-tap-vm.mediawiki|bip-tap-vm]]). The split root is placed in
+one of the outputs (often being the change output going back to the sender of
+the asset) and marked with the `IsSplitRoot` flag.
+If the remaining change of a split is 0, the <code>script_key</code> of the
+split root asset output should be the well-known NUMS point (using the string
+"taproot-assets" and the traditional "hash and increment" approach to generating
+the point) to prove the output cannot be spent further.
+This so-called "split tombstone" is required for non-interactive sends (send to
+Taproot Asset address) of the full value of a coin.
+These zero-value tombstone outputs can be pruned in an interactive scenario in
+which the recipient is a ware of the full root asset leaf (including the
+TX witness) and can construct the commitment tree root correctly.
+
+==Custom PSBT fields for Taproot Asset virtual transactions==
+
+[[https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki|BIP-0174]]
+defines roughly 6 global, 24 input and 7 output <code>keytype</code>s. This
+leaves enough room for new BIPs to specify additional types without a big risk
+of collision. The proprietary type <code>0xFX</code> does not apply to this case
+as that is meant for application/vendor specific data, not fields declared in
+a BIP.
+
+To further reduce the risk of colliding with key types of other (in-flight) BIPs
+we start at the (arbitrarily chosen) value <code>0x70</code> for each section
+of new key types.
+
+===Global types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Virtual Transaction Marker
+| <tt>PSBT_GLOBAL_TAP_IS_VIRTUAL_TX = 0x70</tt>
+| None
+| No key data
+| <tt><byte 0x01></tt>
+| The static marker of <code>0x01</code> to identify this transaction as a
+Taproot Asset virtual transaction.
+|-
+| Taproot Asset Chain HRP
+| <tt>PSBT_GLOBAL_TAP_CHAIN_HRP = 0x71</tt>
+| None
+| No key data
+| <tt><string HRP></tt>
+| The Human Readable Prefix of the Taproot Asset chain identifier as specified
+in [[./bip-tap-addr.mediawiki|bip-tap-addr]].
+|-
+| Taproot Asset PSBT Version
+| <tt>PSBT_GLOBAL_TAP_PSBT_VERSION = 0x72</tt>
+| None
+| No key data
+| <tt><byte version></tt>
+| The version of the Taproot Asset PSBT format. Currently <code>0x00</code> is
+the only known and supported version.
+|}
+
+===Input types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Previous Asset Leaf
+| <tt>PSBT_IN_TAP_PREV_ID = 0x70</tt>
+| None
+| No key data
+| <tt><tlv_blob prev_asset_id></tt>
+| The previous asset leaf (identified by
+<code>prev_outpoint || asset_id || asset_script_hash</code>) in TLV format as
+defined in [[./bip-tap.mediawiki#asset-leaf-format|bip-tap asset leaf format]].
+|-
+| Anchor Output Value
+| <tt>PSBT_IN_TAP_ANCHOR_VALUE = 0x71</tt>
+| None
+| No key data
+| <tt><64-bit big endian int value></tt>
+| The value in satoshis of the BTC level anchor output that committed to the
+asset input being spent.
+|-
+| Anchor Output <code>pkScript</code>
+| <tt>PSBT_IN_TAP_ANCHOR_PK_SCRIPT = 0x72</tt>
+| None
+| No key data
+| <tt><bytes pkScript></tt>
+| The <code>pkScript</code> of the BTC level anchor output that committed to the
+asset input being spent.
+|-
+| Anchor Output Sighash Type
+| <tt>PSBT_IN_TAP_ANCHOR_SIGHASH_TYPE = 0x73</tt>
+| None
+| No key data
+| <tt><64-bit big endian int sighash type></tt>
+| The 64-bit big endian unsigned integer specifying the sighash type to be used
+for the BTC level anchor output that committed to the asset input being spent.
+|-
+| Anchor Output Taproot Internal Key 
+| <tt>PSBT_IN_TAP_ANCHOR_TAP_INTERNAL_KEY = 0x74</tt>
+| None
+| No key data
+| <tt><32-byte xonlypubkey></tt>
+| The X-only pubkey used as the internal key of the BTC level anchor output that
+committed to the asset input being spent.
+|-
+| Anchor Output Taproot Merkle Root
+| <tt>PSBT_IN_TAP_ANCHOR_TAP_MERKLE_ROOT = 0x75</tt>
+| None
+| No key data
+| <tt><32-byte hash></tt>
+| The 32 byte Merkle root hash of the BTC level anchor output that committed to
+the asset input being spent.
+|-
+| Anchor Output BIP-0032 Derivation Path
+| <tt>PSBT_IN_TAP_ANCHOR_BIP32_DERIVATION = 0x76</tt>
+| <tt><bytes pubkey></tt>
+| The public key
+| <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| The master key fingerprint as defined by BIP-0032 concatenated with the
+derivation path of the public key that was used for the BTC level anchor output
+that committed to the asset input being spent. The derivation path is
+represented as 32 bit unsigned integer indexes concatenated with each other.
+Public keys are those that will be needed to sign this input.
+|-
+| Anchor Output Taproot Key BIP 32 Derivation Path
+| <tt>PSBT_IN_TAP_ANCHOR_TAP_BIP32_DERIVATION = 0x77</tt>
+| <tt><32 byte xonlypubkey></tt>
+| A 32 byte X-only public key involved in this input. It may be the output key,
+the internal key, or a key present in a leaf script.
+| <tt><compact size uint number of hashes> <32 byte leaf hash>*
+<4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| A compact size unsigned integer representing the number of leaf hashes,
+followed by a list of leaf hashes, followed by the 4 byte master key fingerprint
+concatenated with the derivation path of the public key. The derivation path is
+represented as 32-bit little endian unsigned integer indexes concatenated with
+each other. Public keys are those needed to spend this output. The leaf hashes
+are of the leaves which involve this public key. The internal key does not have
+leaf hashes, so can be indicated with a <tt>hashes len</tt> of 0. Finalizers
+should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is
+constructed.
+|-
+| Anchor Output Tapscript Sibling
+| <tt>PSBT_IN_TAP_ANCHOR_TAPSCRIPT_SIBLING = 0x78</tt>
+| None
+| No key data
+| <tt><byte sibling_type><compact size num_bytes><bytes tapscript sibling preimage></tt>
+| The preimage of the tapscript sibling that is on the same level as the Taproot
+Asset commitment that was committed to in the anchor. If this is not present,
+then the Taproot Asset commitment is the only script leaf in the tree.
+|-
+| Taproot Asset Asset
+| <tt>PSBT_IN_TAP_ASSET = 0x79</tt>
+| None
+| No key data
+| <tt><tlv_blob asset></tt>
+| The full input asset leaf that is being spent, in TLV format as defined in 
+[[./bip-tap.mediawiki#asset-leaf-format|bip-tap asset leaf format]].
+|-
+| Taproot Asset Proof
+| <tt>PSBT_IN_TAP_ASSET_PROOF = 0x7a</tt>
+| None
+| No key data
+| <tt><tlv_blob proof></tt>
+| The last proof of the input asset being spent, in TLV format as defined in 
+[[./bip-tap-proof-file.mediawiki#file-serialization|
+bip-tap-proof-file File Serialization]].
+|}
+
+===Output types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Type
+| <tt>PSBT_OUT_TAP_TYPE = 0x70</tt>
+| None
+| No key data
+| <tt><byte output_type></tt>
+| A <code>uint8</code> value indicating the type of the virtual output. Valid
+values are: 0x00 (<tt>Simple</tt>), 0x01 (<tt>SplitRoot</tt>),
+0x02 (<tt>PassiveAssetsOnly</tt>), 0x03 (<tt>PassiveSplitRoot</tt>), see
+description below.
+|-
+| Is Interactive
+| <tt>PSBT_OUT_TAP_IS_INTERACTIVE = 0x71</tt>
+| None
+| No key data
+| <tt><byte 0x00/0x01></tt>
+| A boolean value indicating whether the recipient of the output is aware of the
+full asset leaf they are receiving (=interactive) or not (=non-interactive). In
+the non-interactive case, the recipient will expect this output to be a split
+output.
+|-
+| Anchor Output Index
+| <tt>PSBT_OUT_TAP_ANCHOR_OUTPUT_INDEX = 0x72</tt>
+| None
+| No key data
+| <tt><64-bit big endian int value></tt>
+| The Bitcoin level anchor transaction output index this asset output is going
+to be committed to.
+|-
+| Anchor Output Taproot Internal Key 
+| <tt>PSBT_OUT_TAP_ANCHOR_TAP_INTERNAL_KEY = 0x73</tt>
+| None
+| No key data
+| <tt><32-byte xonlypubkey></tt>
+| The X-only pubkey used as the internal key of the BTC level anchor output that
+will be committing to the asset output.
+|-
+| Anchor Output BIP-0032 Derivation Path
+| <tt>PSBT_OUT_TAP_ANCHOR_BIP32_DERIVATION = 0x74</tt>
+| <tt><bytes pubkey></tt>
+| The public key
+| <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| The master key fingerprint as defined by BIP-0032 concatenated with the
+derivation path of the public key that will be used for the BTC level anchor
+output that is committing to the asset output. The derivation path is
+represented as 32 bit unsigned integer indexes concatenated with each other.
+Public keys are those that will be needed to sign this input.
+|-
+| Anchor Output Taproot Key BIP-0032 Derivation Path
+| <tt>PSBT_OUT_TAP_ANCHOR_TAP_BIP32_DERIVATION = 0x75</tt>
+| <tt><32 byte xonlypubkey></tt>
+| A 32 byte X-only public key involved in this input. It may be the output key,
+the internal key, or a key present in a leaf script.
+| <tt><compact size uint number of hashes> <32 byte leaf hash>*
+<4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| A compact size unsigned integer representing the number of leaf hashes,
+followed by a list of leaf hashes, followed by the 4 byte master key fingerprint
+concatenated with the derivation path of the public key. The derivation path is
+represented as 32-bit little endian unsigned integer indexes concatenated with
+each other. Public keys are those needed to spend this output. The leaf hashes
+are of the leaves which involve this public key. The internal key does not have
+leaf hashes, so can be indicated with a <tt>hashes len</tt> of 0. Finalizers
+should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is
+constructed.
+|-
+| Taproot Asset
+| <tt>PSBT_OUT_TAP_ASSET = 0x76</tt>
+| None
+| No key data
+| <tt><tlv_blob asset></tt>
+| The full output asset leaf being created, in TLV format as defined in 
+[[./bip-tap.mediawiki#asset-leaf-format|bip-tap asset leaf format]].
+|-
+| Taproot Asset Split Asset
+| <tt>PSBT_OUT_TAP_SPLIT_ASSET = 0x77</tt>
+| None
+| No key data
+| <tt><tlv_blob split_asset></tt>
+| In case the asset serialized in the <tt>PSBT_OUT_TAP_ASSET</tt> is a split
+root (<tt>PSBT_OUT_TAP_IS_SPLIT_ROOT=0x01</tt>), this field houses the created
+split asset at the root locator that contains the split commitment witness. This
+is used for validation only and isn't committed to in any tree. If present the
+split asset is encoded in TLV format as defined in 
+[[./bip-tap.mediawiki#asset-leaf-format|bip-tap asset leaf format]].
+|-
+| Anchor Output Tapscript Sibling
+| <tt>PSBT_OUT_TAP_ANCHOR_TAPSCRIPT_SIBLING = 0x78</tt>
+| None
+| No key data
+| <tt><byte sibling_type><compact size num_bytes><bytes tapscript sibling preimage></tt>
+| The preimage of the tapscript sibling that is on the same level as the Taproot
+Asset commitment that was committed to in the anchor. If this is not present,
+then the Taproot Asset commitment is the only script leaf in the tree.
+|}
+
+===Values for <tt>PSBT_OUT_TAP_TYPE</tt>===
+
+The <tt>PSBT_OUT_TAP_TYPE</tt> field describes the type of virtual output. This
+type has an influence on how an asset needs to be signed or whether there is an
+asset at all in an output.
+The following values are defined:
+<ul>
+<li><b>Simple</b> (<tt>0x00</tt>) is a plain full-value or split output that is
+not a split root and does not carry passive assets. In case of a split, the
+asset of this output has a split commitment.
+</li>
+<li><b>SplitRoot</b> (<tt>0x01</tt>) is a split root output that carries the
+change from a split or a tombstone from a non-interactive full value send
+output. In either case, the asset of this output has a tx witness.
+</li>
+<li><b>PassiveAssetsOnly</b> (<tt>0x02</tt>) indicates that this output only
+carries passive assets and therefore the asset in this output is nil. The
+passive assets themselves are signed in their own virtual transactions and
+are not present in this packet.
+</li>
+<li><b>PassiveSplitRoot</b> (<tt>0x03</tt>) is a split root output that carries
+the change from a split or a tombstone from a non-interactive full value send
+output, as well as passive assets.
+</li>
+</ul>
+
+==Committing Taproot Asset virtual transactions into a BTC level anchor transaction==
+
+The above section defined new fields for representing a virtual asset
+transaction. This section explains how one or multiple virtual asset
+transactions can be mapped to and be committed to in a single Bitcoin level
+on-chain "anchor" transaction.
+
+The following steps should be taken for committing one or more Taproot Asset
+virtual transactions onto a single BTC anchor transaction:
+# Sign the virtual transaction as described in [[./bip-tap.mediawiki|bip-tap]].
+# Validate that each input in each virtual transaction has the necessary anchor information set (<code>PSBT_IN_TAP_ANCHOR_*</code>).
+# Validate that each output in each virtual transaction has the necessary anchor information set (<code>PSBT_OUT_TAP_ANCHOR_*</code>).
+# Validate that each virtual input's anchor information referencing the same previous outpoint (<code>PSBT_IN_TAP_PREV_ID.prev_outpoint</code>) is the same as all fields should refer to the same on-chain unspent output.
+# Validate that each virtual output's anchor information referencing the same anchor output index (<code>PSBT_OUT_TAP_ANCHOR_OUTPUT_INDEX</code>) is the same as all fields should refer to the same on-chain output being created.
+# For each input, add the last transition proof of the input asset to the BTC anchor PSBT input (field <code>PSBT_IN_TAP_PROOF</code>).
+# For each unique anchor output index, create an output on the BTC anchor transaction:
+## Merge all assets into a single Taproot Asset tree.
+## If a Tapscript sibling is present for the BTC anchor output, verify it is not a Taproot Asset commitment.
+## Calculate the merkle root hash from the merged Taproot Asset tree and the optional Tapscript sibling.
+## Calculate the Taproot output key from the internal key and the merkle root hash, update the <code>pkScript</code> of the BTC anchor output.
+# Create a single transition proof for each of the virtual transaction outputs and add them to the BTC anchor output, keyed by each asset's <code>script_key</code> (field <code>PSBT_OUT_TAP_PROOF</code>).
+
+Once the BTC level anchor transaction has the extra information attached, it can
+then be passed to all signers to produce the necessary signatures for getting it
+finalized.
+
+==Custom PSBT fields for BTC level anchor transactions==
+
+===Input types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Taproot Asset Proof
+| <tt>PSBT_IN_TAP_PROOF = 0x70</tt>
+| <tt><32 byte xonlyscriptkey></tt>
+| The 32 byte X-only script key of the input asset being spent.
+| <tt><tlv_blob proof></tt>
+| The last proof of the input asset being spent, in TLV format as defined in 
+[[./bip-tap-proof-file.mediawiki#file-serialization|bip-tap-proof-file File Serialization]].
+|}
+
+===Output types===
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Taproot Asset Proof
+| <tt>PSBT_OUT_TAP_PROOF = 0x70</tt>
+| <tt><32 byte xonlyscriptkey></tt>
+| The 32 byte X-only script key of the input asset being spent.
+| <tt><tlv_blob proof></tt>
+| The new transition proof(s) for the new asset(s) created in this output.
+|}
+
+==Test Vectors==
+
+Test vectors for [[Custom PSBT fields for Taproot Asset virtual transactions]]
+can be found here:
+* [[bip-tap-psbt/psbt_encoding_generated.json|PSBT encoding test vectors]]
+* [[bip-tap-psbt/psbt_encoding_error_cases.json|PSBT encoding error test vectors]]
+
+The test vectors are automatically generated by
+[https://github.com/lightninglabs/taproot-assets/tree/main/tappsbt unit tests in
+the Taproot Assets GitHub repository].
+
+==Reference Implementation==
+
+github.com/lightninglabs/taproot-assets/tree/main/tappsbt

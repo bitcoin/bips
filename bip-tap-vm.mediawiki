@@ -1,0 +1,288 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taproot Asset Script v1
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes the virtual machine execution environment used to
+validate Taproot Asset transfers that utilize an
+<code>asset_script_version</code> of 1.
+The execution environment described in this document is a slight twist on
+the taproot validation rules defined in BIPs 341 and 342. Given a Taproot Asset
+one or more Taproot Asset leaves to be spent (inputs) and asset leaves to be
+created, a "virtual" taproot Bitcoin transaction is created. This transaction
+is a 1-input-1-output transaction that commits to the inputs and output set
+using a merkle sum tree. With this mapping complete, validation takes place as
+normal.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+The Taproot Asset overlay permits the usage of a nearly arbitrary virtual machine
+for validation of transfers within the system. In order to reduce the scope of
+the initial version of the protocol, we describe a way to leverage the existing
+Bitcoin Script virtual machine, allowing us to inherit a baseline set of
+expressibility, while allowing implementers re-use existing tools and
+libraries.
+
+==Design==
+
+The Taproot Asset <code>asset_script_version</code> 1 maps a Taproot Asset input
+and output set to a "virtual" Bitcoin transaction.
+The input and output sets are committed to within a single 1-input-1-output
+transaction using a normal merkle sum tree
+(TODO(roasbeef): non-inclusion useful at all here??).
+Via the merkle-sum
+invariant of the augmented merkle tree, a validator is able to enforce
+non-inflation of assets by asserting that the committed input sum is ''equal''
+to the committed output sum. Once this invariant is verified, execution resumes
+as normal using the BIP 341+342 validation rules, with additional pre-execution
+checks that may fail validation early.
+
+===Specification===
+
+A single 1-input-1-output transaction is used to compress the Taproot Asset
+state transition state into a constant size transaction. Given a Taproot Asset
+commitment (which lives in a taproot output), and its valid opening, the set
+the previous asset ID are compressed into a single input, and the present
+<code>split_commitment</code> is used to compress the output state.
+
+State transition validation may take one or multiple asset leaves within a
+single transaction (with the leaves living in different outputs). When a single
+leaf is present, no splits occurred in the state transition, or the asset is a
+collectible. When two or more leaves are specified, then all but one of the
+leaves were splits resulting from a split event at the Taproot Asset layer. In
+this case, the split commitment proof, as well as the validity of the state
+transition creating the splits are validated.
+
+
+====Mapping Inputs====
+
+Input mapping is only executed for state transitions that specify
+<code>prev_asset_witnesses</code>.
+
+Given a set of inputs, each identified by a <code>prev_asset_id</code>, the
+input commitment (which is used as the previous output) is constructed as
+follows:
+
+# Initialize a new empty MS-SMT tree as specified in [[./bip-tap-ms-smt.mediawiki|bip-tap-ms-smt]].
+# For each Taproot Asset input ''c_i'', identified in the <code>prev_asset_witnesses</code> field:
+## If the asset input has a <code>split_commitment</code> in the witness, that needs to be removed before the serialization step.
+## Serialize the referenced previous asset leaf (identified by <code>prev_outpoint || asset_id || asset_script_hash</code>) in TLV format.
+## Insert this leaf into the MS-SMT tree, with a key of the <code>prev_id_identifier</code>, a value of the serialized leaf, and sum value of the asset amount contained in the leaf.
+# Obtain the root hash <code>input_root</code> and sum value <code>input_asset_sum</code> resulting from the tree creation and root digest computation.
+# Let the hash of the serialized 36-byte MS-SMT root be the sole previous outpoint (the txid) of the virtual execution transaction.
+
+With the above routine, we map the input set into a MS-SMT tree, which also
+commits to the total amount being spent of any given asset. During
+verification, as there may be multiple input witnesses, during validation, the
+<code>asset_witness</code> for each input is used as the initial witness stack.
+
+Notice that we don't map the <code>relative_lock_time</code> field here within
+this unified input commitment. Instead we'll map this during the
+verification/signing process, which enables the existence of per-input relative
+and absolute lock time.
+
+The following algorithm implements the input mapping required for full state
+transition verification:
+<source lang="python">
+make_virtual_input(prev_inputs: map[PrevOut]TaprootAssetLeaf) -> (MerkleSumRoot, TxIn):
+    input_smt = new_ms_smt()
+
+    for prev_out, taproot_asset_leaf in prev_inputs:
+        leaf_bytes = taproot_asset_leaf.serialize_tlv()
+
+        input_smt.insert(key=prev_out, value=leaf_bytes, sum_value=taproot_asset_leaf.amt)
+
+    input_root = input_smt.root()
+
+    virtual_txid = sha256(input_root.hash || input_root.sum_value)
+
+    # We only only bind the virtual txid here. Below we'll modify the input
+    # index based on the ordering of this SMT.
+    return input_root, NewTxIn(NewOutPoint(txid=virtual_txid), nil)
+        
+</source>
+
+====Mapping Outputs====
+
+Output mapping is only executed for state transitions that specify
+<code>prev_asset_witnesses</code>.
+
+Given a Taproot Asset output, and any associated outputs contained within its
+<code>split_commitment_root</code>, the output commitment is constructed as
+follows:
+
+# For normal asset transfers:
+## Let the output value be the sum of all the <code>amt</code> fields on the top level as well as the split commitment cohort set, in other words the last 4-bytes of the <code>split_commitment_root</code>.
+## Let the output script be the first 32-bytes of the <code>split_commitment_root</code> value converted to a segwit v1 witness program (taproot).
+
+# For collectible asset transfers
+## Let the output value be exactly ''1'' (as each TLV leaf related to a collectible can only ever transfer that same collectible to another leaf).
+## Let the output script be the first 32-bytes of an MS-SMT tree with a single element of the serialized TLV leaf of the collectible. 
+### The key for this single value is <code>sha256(asset_key_family || asset_id || asset_script_key)</code>. If a <code>asset_key_family</code> field isn't specified, then 32-bytes of zeroes should be used in place.
+
+The following algorithm implements the output mapping required for full state
+transition verification:
+<source lang="python">
+make_virtual_txout(leaf: TaprootAssetLeaf) -> (MerkleSumRoot, TxOut):
+    match leaf.asset_type:
+        case Normal:
+            tx_out = NewTxOut(
+                pk_script=[OP_1 OP_DATA_32 leaf.split_commitment_root.hash], 
+                value=leaf.split_commitment_root.sum_value,
+            )
+
+            return leaf.split_commitment_root, tx_out
+
+        case Collectible:
+            output_smt = new_ms_smt()
+            output_smt.insert(
+                key=sha256(leaf.asset_key_family || leaf.asset_id || leaf.asset_script_key)
+                value=leaf.serialize_tlv(),
+                sum_value=1,
+            )
+
+            witness_program = output_smt.root_hash()
+
+            tx_out = NewTxOut(
+                pk_script=[OP_1 OP_DATA_32 witness_program], 
+                value=1,
+            )
+
+            return output_smt.root, tx_out
+</source>
+
+====Validating a State Transition====
+
+If a state transition specifies a <code>prev_asset_witnesses</code> field, then
+once the set of inputs and outputs have been mapped to our virtual Bitcoin
+transaction (creating a v2 Bitcoin transaction with a single input and output),
+validation proceeds as normal according to BIP 341+342 with the following
+modifications:
+
+# If the <code>input_asset_sum</code> is not exactly equal to the <code>output_asset_sum</code> validation MUST fail.
+# For each <code>prev_input</code> within the set of referenced <code>prev_asset_witnesses</code>:
+## If the <code>asset_type</code> of the referenced input leaf doesn't map the <code>asset_type</code> of the Taproot Asset leaf spending the input, validation MUST fail.
+## Construct a single-input-single-output Bitcoin transaction based on the input and output mapping above.
+### The prev out input index should be the lexicographical index of the <code>prev_id_identifier</code> field for each input.
+### The previous public key script should be the <code>asset_script_hash</code> for the current previous input, mapped to a v1 segwit witness program (taproot).
+### The input value for each included input is to be the <code>amt</code> field of the previous Taproot Asset output being spent.
+### Set the sequence number to the <code>relative_lock_time</code> field of the input, if it exists.
+## Set the lock time of the transaction as the <code>lock_time</code> of the input TLV leaf being validated, if it exists.
+## All signatures included in the witness MUST be exactly 64-bytes in length, which triggers <code>SIGHASH_DEFAULT</code> evaluation.
+## If the <code>prev_asset_id</code> is blank, then ALL witnesses MUST be blank as well and the <code>prev_outpoint</code> values as well. In this case, verification succeeds as this is only a creation/minting transaction.
+## If the <code>asset_id</code> value is NOT the same for each Taproot Asset input and output, validation MUST fail.
+### Alternatively, assert that each input and output references the same <code>asset_family_key</code> field.
+## Perform external lock time and relative lock time validation:
+### If a <code>relative_lock_time</code> field exists, if the input age of the referenced TLV leaf is less than <code>relative_lock_time</code> validation MUST fail.
+### If a <code>lock_time</code> field exists, if the block height of the block that includes the transaction is less than <code>lock_time</code> validation MUST fail.
+## Validate the transaction according to the BIP 341+342 rules.
+
+We explicitly implement lock time semantics at this level, as the sequence and
+lock time fields in the context of Bitcoin itself are validated from the PoV of
+connecting a new block to the end of the main chain. 
+
+Otherwise, if a state transition only specifies a <code>split_commitment_proof</code>, then:
+# If the Taproot Asset output to be validated only specifies a <code>split_commitment_proof</code> and no explicit inputs, then a valid inclusion proof for the output MUST be presented and valid.
+## If the proof is invalid, then validation MUST fail.
+# Given the "parent" split, execute the input+output mapping and verify the state transition using the logic above.
+
+The following algorithm implements verification for top level Taproot Asset
+leaves, as well leaves created via split commitments:
+<source lang="python">
+verify_taproot_asset_state_transition(leaf: TaprootAssetLeaf, leaf_split: TaprootAssetLeaf) -> bool
+    if is_valid_issuance_txn(leaf):
+        return true
+
+    if leaf_split is not None:
+        if leaf is None:
+            return false
+
+        if !verify_split_commitment(leaf.split_commitment_root, 
+            leaf_split.split_commitment_proof):
+
+            return false
+
+    input_smt, tx_in = make_virtual_input(leaf.prev_inputs)
+    output_smt, tx_out =  make_virtual_txout(leaf)
+
+    if input_smt.sum_value != output_smt.sum_value:
+        return false
+
+    virtual_tx_template = NewTx([tx_in], [tx_out])
+    for input in range leaf.prev_inputs:
+       if input.asset_type != leaf.asset_type:
+           return false
+       
+       match input.asset_id:
+          case AssetID:
+              if input.asset_id != leaf.asset_id:
+                  return false
+          case KeyFamily:
+              if input.asset_key_family != leaf.asset_key_family:
+                  return false
+
+       virtual_tx = virtual_tx_template.clone()
+
+       if !parse_valid_schnorr_sigs(input.asset_witness):
+           return false
+
+       virtual_tx.tx_in[0].witness = input.asset_witness
+       virtual_tx.tx_in[0].prev_out.index = input_smt.leaf_index_of(input)
+
+       prev_pk_script = OP_1 OP_DATA_32 input.asset_script_key
+       input_value = input.amt
+
+       if input.relative_lock_time != 0:
+           virtual_tx.tx_in[0].sequence = relative_lock_time
+
+           input_age = conf_input_age(input)
+           if num_confs(input) < input_age:
+               return false
+
+       if input.lock_time != 0:
+           virtual_tx.lock_time = leaf.lock_time
+
+           block_height = env.block_height()
+           if block_height < virtual_tx.lock_time:
+               return false
+
+       vm = new_script_vm(
+           prev_pk_script=prev_pk_script, tx=virtual_tx, input_index=0, 
+           input_amt=input_value,
+       )
+
+       if !vm.Execute():
+           return false
+
+    return true
+</source>
+
+==Test Vectors==
+
+Test vectors for [[Validating a State Transition]] can be found here:
+* [[bip-tap-vm/vm_validation_generated.json|VM validation test vectors]]
+* [[bip-tap-vm/vm_validation_generated_error_cases.json|VM validation error test vectors]]
+
+The test vectors are automatically generated by
+[https://github.com/lightninglabs/taproot-assets/tree/main/vm unit tests in
+the Taproot Assets GitHub repository].
+
+==Backwards Compatibility==
+
+==Reference Implementation==
+
+github.com/lightninglabs/taproot-assets/tree/main/vm

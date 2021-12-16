@@ -1,0 +1,182 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taproot Asset On Chain Addresses
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes a way to map a single-asset Taproot Asset send to a
+familiar <code>bech32m</code> address, as well as a way to map that address into
+a valid Taproot Asset script tree that can be included in a broadcast
+transaction to complete a transfer.
+Once the transaction has been broadcast, the receiver can use the
+previous outpoint of the confirmed transaction to lookup the complete asset
+proof in their chosen Universe.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+The Taproot Asset protocol needs an easy way to allow users to send each other
+assets on-chain, without requiring several rounds of interaction to exchange and
+validate proofs. By using the existing <code>bech32m</code> address
+serialization standard, such addresses look distinct, while also looking
+familiar enough based on the character set encoding. The described address
+format also addresses a number of possible foot guns, by making it impossible
+to send the wrong asset (based on an address) amongst other protections.
+
+==Specification==
+
+A Taproot Asset is uniquely defined by its <code>asset_genesis</code> as well as
+the <code>asset_script_key</code> that serves as a predicate that must be
+satisfied for transfers. These values, along with an internal Taproot key used
+when creating the Bitcoin output that holds the Taproot Asset, are encoded into
+a single address.
+
+===Encoding an Address===
+
+Let the human readable prefix (as specified by BIP 173) be:
+
+* <code>tapbc</code> for mainnet
+* <code>taptb</code> for testnet
+* <code>taprt</code> for regtest
+* <code>taptb</code> for the public signet
+* <code>tapsb</code> for simnet
+
+We refer to this value as the <code>taproot_asset_hrp</code>
+
+Given the 32-byte <code>asset_id</code>, 33-byte compressed
+<code>asset_script_key</code>, and 33-byte compressed internal public
+key, 8-byte amount to send, an address is encoded as:
+* <code>bech32m(hrp=taproot_asset_hrp, addr_tlv_payload)</code>
+
+where <code>addr_tlv_payload</code> is a TLV payload composed of the following
+types:
+* type: 0 (<code>taproot_asset_version</code>)
+** value:
+*** [<code>u8</code>:<code>version</code>]
+* type: 2 (<code>asset_id</code>)
+** value:
+*** [<code>32*byte</code>:<code>asset_id</code>]
+* type: 3 (<code>asset_key_family</code>)
+** value:
+*** [<code>33*byte</code>:<code>family_key</code>]
+* type: 4 (<code>asset_script_key</code>)
+** value:
+*** [<code>33*byte</code>:<code>script_key</code>]
+* type: 6 (<code>internal_key</code>)
+** value:
+*** [<code>33*byte</code>:<code>taproot_internal_key</code>]
+* type: 7 (<code>taproot_sibling_preimage</code>)
+** value:
+*** [<code>...*byte</code>:<code>tapscript_preimage</code>]
+* type: 8 (<code>amt</code>)
+** value:
+*** [<code>BigSize</code>:<code>amt_to_send</code>]
+* type: 10 (<code>proof_courier_addr</code>)
+** value:
+*** [<code>...*byte</code>:<code>proof_courier_addr</code>]
+
+Inspired by Lightning's BOLT specification, we adopt the "it's OK to be odd"
+semantics here as well. This enables receivers to specify to the caller certain
+information that MUST be known in order to properly complete a transfer.
+
+The only odd keys specified in the current version are the
+<code>asset_key_family</code> type and the <code>asset_type</code> field. The
+<code>asset_key_family</code> field isn't always needed for assets that don't
+allow for continual re-issuance. Similarly, if the <code>asset_type</code>
+field isn't specified, then one can assume a normal asset is being sent.
+
+The <code>proof_courier_addr</code> is a mandatory URI (RFC 3986) that indicates
+what proof courier to use when sending the proofs from the sender to the
+recipient. The scheme (protocol) indicates the type of courier transport to use,
+current valid values are <code>hashmail://</code> for Hashmail based couriers
+and <code>universerpc://</code> for gRPC based transfer via a universe server.
+
+===Decoding and Sending To An Address===
+
+Given a valid Taproot Asset address, decompose the contents into the referenced
+<code>asset_id</code>, <code>asset_script_key</code>, and
+<code>internal_key</code>. Look up the full <code>asset_genesis</code> with the
+<code>asset_id</code> in the appropriate Universe.
+
+Construct a new blank Taproot Asset leaf according to the default
+[[./bip-tap.mediawiki#asset-leaf-format|Asset Leaf Format]] with the following
+values being set explicitly (and all other values being their default/zero
+values):
+* <code>taproot_asset_version</code>: <code>0</code>
+* <code>asset_genesis</code>: <code>asset_genesis</code>
+* <code>amt</code>: <code>amt_to_send</code>
+* <code>asset_script_version</code>: <code>0</code>
+* <code>asset_script_key</code>: <code>asset_script_key</code>
+* <code>asset_key_family</code>: <code>asset_key_family</code>
+
+Create a valid tapscript root, using leaf version <code>0x0c</code> with the
+sole leaf being the serialized TLV blob specified above.
+
+Create the top-level taproot public key script, as a segwit v1 witness
+program, as specified in BIP 341, using the included key as the internal key.
+
+With the target taproot public key script constructed, the asset is sent to the
+receiver with the execution of the following steps:
+# Construct a valid transaction that spends an input that holds the referenced <code>asset_id</code> and ''exactly'' <code>amt</code> units of the asset.
+# Create a new Taproot Asset output commitment based on the input commitment (this will be the change output), that now only commits to <code>S-A</code> units of <code>asset_id</code>, where <code>S</code> is the input amount, and <code>A</code> is the amount specified in the encoded Taproot Asset address.
+## This new leaf MUST have a <code>split_commitment</code> specified that commits to the position (keyed by <code>sha256(output_index || asset_id || asset_script_key)</code> within the transaction of the newly created asset leaf for the receiver. This split commitment is omitted by the sender when serializing the leaf for inclusion in the asset tree, otherwise the tree wouldn't be predictable on the receiver side. This has a corresponding rule in the [[./bip-tap-vm.mediawiki|bip-tap-vm]] during the input mapping of the inclusion proof validation.
+## Add an additional output that sends a de minimis (in practice this MUST be above dust) amount to the top-level taproot public key computed earlier.
+## Broadcast and sign the transaction, submitting the resulting Taproot Asset state transition proof to a Universe of choice, also known by the receiver.
+# Post the resulting state transition proof to the specified Universe. The submitted proof ''must'' contain the optional auxiliary value of the full <code>split_commitment</code> the receiver requires to spend the asset.
+
+===Non-interactive full value send===
+
+Sending assets to an address is inherently a non-interactive process as there is
+no active communication between the sender and recipient other than the exchange
+of the address in the first place.
+Because of the above mentioned requirement that an asset leaf created to send to
+an address MUST have a <code>split_commitment</code>, a special case exists if
+there is no change going back to the sender (an asset output is fully consumed
+by the transfer to an address): A special ''tombstone'' output with a value of
+0 must be created for the split root asset (the <code>root_asset</code> of the
+split) that holds the transfer witness. The <code>script_key</code> of the
+split root asset output should be the well-known NUMS point (using the string
+"taproot-assets" and the traditional "hash and increment" approach to generating
+the point) to prove the output cannot be spent further. Such a tombstone output
+can then be pruned from the tree when the UTXO is spent further.
+More details about interactive and non-interactive sends and tombstone outputs
+can be found in the [[./bip-tap-psbt.mediawiki|bip-tap-psbt]].
+
+===Spending The Received Asset===
+
+In order to spend (or simply confirm receipt) of the received asset, the
+receiver should:
+# Re-derive the taproot public key script created above that sends to their specified Taproot Asset leaf.
+# Wait for a transaction creating the output to be confirmed in the blockchain.
+## In practice this may be via light client protocols such as BIP 157/158, or simply a full node with an address index, or import public key.
+# For each previous outpoint referenced in the transaction:
+## Look up the previous outpoint as a key into the chosen canonical Universe/Multiverse.
+### If the key is found, verify the inclusion proof of the value (as described in [[./bip-tap-proof-file.mediawiki|bip-tap-proof-file]]), and extract the <code>split_commitment</code> inclusion proof for the output.
+# Walk the Universe tree backwards in time to incrementally construct the full provenance proof needed to spend the asset.
+
+==Test Vectors==
+
+Test vectors for [[Encoding an Address]] can be found here:
+* [[bip-tap-addr/address_tlv_encoding_generated.json|Address TLV encoding test vectors]]
+* [[bip-tap-addr/address_tlv_encoding_error_cases.json|Address TLV encoding error test vectors]]
+
+The test vectors are automatically generated by
+[https://github.com/lightninglabs/taproot-assets/tree/main/address unit tests in
+the Taproot Assets GitHub repository].
+
+==Reference Implementation==
+
+github.com/lightninglabs/taproot-assets/tree/main/address
+
