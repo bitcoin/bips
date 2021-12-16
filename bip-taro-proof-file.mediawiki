@@ -1,0 +1,188 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taro Flat File Proof Format
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document defines a flat file proof format as a standardized way to package
+Taro asset proofs. The proof format itself is an append-only log of the prior
+lineage of a given asset. Proofs are anchored at the initial "genesis output"
+for a given asset. A proof of a single Taro state transition includes a Bitcoin
+merkle proof, a Taro merkle-sum sparse merkle tree (MS-SMT) inclusion proof, and
+finally a set of valid witnesses for the state transition.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+The Taro protocol is an overlay protocol that enables the representation and
+transfer of assets on the base Bitcoin blockchain. As Bitcoin is a UTXO-based
+system each asset is itself rooted at an initial "genesis" transaction, which
+marks the creation of said asset. An asset is therefore defined by its genesis
+output, as this marks its lineage. To ensure implementations are able to verify
+provenance proofs across the ecosystem, a standardized proof format is
+proposed. The proof format is a linear log of state transitions, allowing new
+transfers/transition to simply be append to the end of the fail.
+
+==Design==
+
+Proving provenance of an asset requires the following arguments at each point
+in the past history of the asset:
+* The very first snapshot of an asset is rooted at the genesis outpoint as dictated by the canonical Universe.
+* A valid merkle proof that proves the inclusion of the genesis outpoint and resulting created asset.
+* At each step/transition  beyond the genesis outpoint:
+** A valid merkle proof of a transaction which spends the outpoint referenced in the prior step.
+** A valid MS-SMT opening proving the commitment of the new location of the asset.
+** A valid asset witness state transition from the prior outpoint to the new location.
+
+===Specification===
+
+The Taro proof file is a flat file that records each relevant state transition
+for a given asset to be verified. The file is verified incrementally, with
+verification halting if an invalid state transition or proof is encountered.
+
+A file is a series of inclusion and state transition proofs rooted at a given
+genesis outpoint. The very first transition requires now witness validation as
+its the genesis outpoint. 
+
+====File Serialization====
+
+A single inclusion and state transition proof has the following format:
+* <code>previous_outpoint || block_header || merkle_inclusion_proof || anchor_transaction || tlv_proof_map</code>
+
+where:
+* <code>previous_outpoint</code>: is the 36-byte outpoint of the Taro-committed output being spent. If this is the very first proof, then this value will be the "genesis outpoint" for the given asset.
+* <code>block_header</code>: is the 80-byte block header that includes a spend of the above outpoint.
+* <code>merkle_inclusion_proof</code>: is the merkle inclusion proof of the transaction spending the <code>previous_outpoint</code>. This is serialized with a <code>BigSize</code> length prefix as:
+** <code>length_of_proof || serialized_proof</code>
+** The <code>serialized_proof</code> in BIP 37 format. (TODO(roasbeef): only ever proving one at a time, can roll something new here?)
+* <code>anchor_transaction</code>: is the transaction spending the <code>previous_outpoint</code>. This transaction commits to at least a single Taro asset tree within one of its outputs.
+* <code>tlv_proof_map</code>: stores the Taro-specific information needed to verify the structure of commitments as well as Taro-level state transitions. 
+
+The <code>tlv_proof_map</code> has the following defined types:
+* type: 0 (<code>asset_output_pos</code>)
+** value: 
+*** [<code>uint32</code>:<code>output_index</code>]
+* type: 1 (<code>internal_key</code>)
+** value: 
+*** [<code>32*byte</code>:<code>internal_key_schnorr</code>]
+* type: 2 (<code>taro_asset_leaf</code>)
+** value: 
+*** [<code>tlv_blob</code>:<code>serialized Taro asset leaf</code>]
+* type: 3 (<code>asset_leaf_proof</code>)
+** value:
+*** [<code>...*byte</code>:<code>serialized_ms_smt_proof</code>]
+* type: 4 (<code>split_commitment_opening</code>)
+** value:
+*** [<code>...*byte</code>:<code>serialized_ms_smt_proof</code>]
+
+where:
+* <code>asset_output_pos</code>: is the output index that holds the Taro asset commitment that spends the prior asset commitment .
+* <code>taro_asset_leaf</code>: is the serialized TLV asset leaf resulting from a valid spend of the asset held at the <code>previous_outpoint</code>.
+* <code>asset_leaf_proof</code>: is the revealed proof of the Taro asset leaf above, anchored in the <code>anchor_transaction</code> at the taproot output specified by <code>asset_output_pos</code>.
+* <code>split_commitment_opening</code>: is a valid split commitment opening for the <code>taro_asset_leaf</code> when the asset leaf was the output of the split of the asset spent at <code>previous_outpoint</code>.
+
+The final flat proof file has the following format:
+* <code>file_sum</code>: 32-bytes - 256 sum over the remaining contents of the file
+* <code>file_version</code>: 4-bytes - version of proof file
+* <code>taro_proofs</code>: <code>BigSize</code> length prefixed serialized proofs
+
+// TODO(roasbeef): make the file_sum instead an MMR over the set? allows for probabilistic verification of file, prove certain transition fragments
+
+====Proof Verification====
+
+Verification of a proof file starts at the first entry (the genesis output
+creation) and walks forward, validating each state transition and inclusion
+proof in series. If any state transition is found to be invalid, then the asset
+proof is invalid. Otherwise, if the file is consumed in full without any
+violations, the proof is said to be valid.
+
+Given a proof file for a given asset <code>f_proof</code>, genesis outpoint
+<code>g</code> verification is defined as follows:
+# Verify the integrity of the proof file:
+## Extract the 32-byte <code>file_sum</code> prefix. 
+## Compute the <code>sha256</code> over the remainder of the file.
+## If this computed value doesn't match <code>file_sum</code>, verification fails.
+# Verify each inclusion proof and state transition:
+## Parse the next proof block from the flat file.
+## If this is the first proof to be verified:
+### Store the <code>previous_outpoint</code> as the genesis outpoint.
+## Otherwise, verify that the <code>anchor_transaction</code> has an inputs that spends the ''prior'' <code>previous_outpoint</code>
+## Given the <code>anchor_transaction</code> verify that the included <code>merkle_inclusion_proof</code> rooted at the merkle root of the <code>block_header</code is valid.
+## Parse the <code>tlv_proof_map</code>.
+## If the <code>anchor_transaction</code> does not have ''at least'' <code>asset_output_pos</code> outputs, verification fails.
+## Verify that the <code>asset_leaf_proof</code> embeds the <code>taro_asset_leaf</code> at the outpout rooted at the <code>asset_output_pos</code> using the specified <code>internal_key</code> to compute the taproot commitment.
+## Verify that the asset witness included at the <code>prev_asset_witness<code> field of the <code>taro_asset_leaf</code> is valid based on the specific <code>asset_script_version</code>
+## If a <code>split_commitment_opening</code> is present, verify that the included leaf is a valid opening rooted at the <code>taro_asset_leaf</code>'s <code>split_commitment_root</code> field.
+
+A psuedo-code routine for flat file verification follows:
+<source lang="python">
+verify_asset_file_proof(file_proof []byte, genesis_outpoint OutPoint, 
+    assetID [32]byte) -> bool
+
+    file_sum = read(num_bytes=32, file_proof)
+    sha_sum = sh256(drop(bytes_to_drop=32, file_proof))
+    if file_sum != sha_sum:
+        return false
+
+    genesis_outpoint, prev_outpoint = None
+    file_reader = new_bytes_reader(file_proof)
+    while file_reader.len() != 0:
+        proof_block = parse_proof_block(file_reader)
+
+        if genesis_outpoint is None:
+            genesis_outpoint = proof_block.previous_outpoint
+
+        txn = proof_block.txn
+        if genesis_outpoint is not None:
+           if !spends_prev_out(txn):
+               return false
+
+        if !verify_merkle_proof(
+            proof_block.block_header, proof_block.merkle_inclusion_proof, txn,
+        ):
+            return false
+
+        proof_tlv_map = proof_block.tlv_map
+
+        if len(txn.outputs) < proof_tlv_map.asset_output_pos:
+            return false
+
+        if !verify_asset_tree_proof(
+            txn, proof_tlv_map.taro_asset_leaf, proof_tlv_map.asset_leaf_proof,
+        ):
+            return false
+
+        if !verify_taro_state_transition(proof_tlv_map.taro_asset_leaf):
+            return false
+
+        if proof_tlv_map.split_commitment_opening is not None:
+            if !verify_split_commitment(
+                proof_tlv_map.taro_asset_leaf, 
+                proof_tlv_map.split_commitment_opening,
+            ):
+                return false
+
+    return true
+</source>
+
+==Test Vectors==
+
+TBD
+
+==Backwards Compatibility==
+
+==Reference Implementation==
+
+github.com/lightninglabs/taro

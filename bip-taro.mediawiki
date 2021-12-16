@@ -1,0 +1,872 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taro: A Taproot Asset Representation Overlay
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes Taro, a Taproot-native asset overlay built on top of
+the base Bitcoin blockchain. Taro enables the representation of arbitrary
+(normal and collectibles) assets on top of Bitcoin without bloating the base
+chain. The protocol is designed such that transactions interacting with Taro
+assets are indistinguishable from regular transactions from the PoV of the
+Bitcoin blockchain. Taro extends the base Taproot script tree with a nested
+''asset script'' tree (a merkle-sum sparse merkle tree, or MS-SMT) that commits
+to valid witnesses as structured metadata that allow for proofs of the movement
+of assets across the transaction graph.  The provenance of transfers of a Taro
+asset can be verified using a hermetic proof transmitted as flat file, or using
+the aide of an externally maintained Universe, which is a MS-SMT that indexes
+on-chain asset issuance+transfers, which natively supports
+proof-of-reserves/supply system.
+
+Taro supports off-chain single and multi-hop transfers over Lightning channels
+(based on the BOLT protocol suite), with the latter manifested using Taro's
+unique embedded asset script system.  Light client verification of on-chain
+Taro transfers is facilitated by a series of on and off-chain merkle proofs,
+which can be compressed by delegating a trust relationship to an active
+Universe instance. A variant on off-chain multi-party channels are proposed to
+support off-chain transfer of normal assets. In addition, a special type of
+Universe, dubbed a Pocket Universe, which is based on an exit-only
+commit-chain design can be used to aggregate transfers on-chain in a
+trust-minimized manner.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+Bitcoin, the first decentralized blockchain, realized early in its life
+several systems that attempted to represent arbitrary assets within the
+constraints of the Bitcoin system itself.  Amongst the earliest of these
+systems were Mastercoin (now known as OMNI) and Counterparty, which are
+meta-token protocols built on on top of Bitcoin that used
+<code>OP_RETURN</code> to commit the raw representations and transfers of
+assets within the system. Several years after the creation and deployment of
+Omni and other related systems very little activity takes place within these
+systems, and instead has been dispersed to the dozens of new blockchains with
+no direct lineage back to Bitcoin, the chain that started it all.
+
+The goal of Taro is to carry the torch and realize a system for representing and
+manipulating arbitrary assets on Bitcoin that reflects modern blockchain design
+principles, and offers a Taproot-inspired data structure and protocol flow that
+Bitcoin developers will find familiar. Importantly, such a system must be
+designed from the ground up to work in an off-chain setting to ensure the
+base chain isn't bloated by an unscalable overlay protocol. With a clear
+specification, we aim to encourage widespread ecosystems adoption of the
+system, galvanizing existing underallocated developer excitement and
+resources.
+
+By allowing Bitcoin developers to easily express and manipulate arbitrary
+assets in a private, scalable manner, we aim to increase the utility of the
+Bitcoin system, thereby generating additional demand for blockspace, which is a
+necessary to ensure the system is able to flourish in an environment where the
+block subsidy asymptotes to zero.
+
+==Design==
+
+In this section we provide a high-level overview of the fundamental data
+structures and concepts that the Taro protocol is comprised of. Taro starts
+with a simple idea of committing to arbitrary non-Script data within the
+taproot script tree, and then builds upon this idea to create an overlay
+protocol for arbitrary assets anchored in the Bitcoin chain.
+
+===Merkle-Sum Sparse Merkle Trees===
+
+A merkle tree is an authenticated data structure over a ''list'' of elements.
+It lets us do things like take the contents of a directory and create a root
+hash that allows us to prove that a given file belongs to the directory in
+question.  Each element is hashed pair-wise, starting at the bottom, until only
+a single hash exists. We refer to this hash as the root hash.
+
+A merkle-sum tree is a variant on a merkle-sum tree where our hash operation
+also commits to the ''sum'' of a given attribute. We can extend the example
+above by committing to the size of each file. The root hash then commits to the
+left sub-tree, the right-sub tree, and also the sum of the sizes of the left
+and right sub-tree. This new variant is useful as we can prove both the existence
+of a file, as well as its size. We can also do things like generate a proof of
+the size of a sub-directory.
+
+One thing we can't easily do with a merkle-sum tree is prove non-existence, as
+if items are not canonically sorted, then proving non-existence requires
+revealing all the leaves in the tree. If we choose to order the set of leaves in
+the merkle tree, then we gain the ability to more easily prove non-existence,
+but we introduce the overhead of needing to re-balance the tree each time new
+items are inserted. Proving non-existence is useful in the Taro setting, as we
+may want the seller of an asset to prove that they're no longer committing to
+the asset in question. 
+
+A Sparse Merkle Tree is merkle-tree "simulation" over a series of key-value
+pairs, that supports efficient proofs of non-inclusion. An SMT is actually
+composed of the entire keyspace (all 256-bit values), namely it is a tree with
+2^256 leaves (thereby having 256 levels). The representation of the structure
+is made tractable by observing that we know the hash of an empty element, the
+hash of a branch with two empty sub-trees, and so on. In addition, a series of
+caching strategies can be used to make the representation even more efficient.
+Proofs can also be further compressed with the addition of a bitmap that
+signals if an intermediate branch in the proof commits to an empty sub-tree.
+
+A Merkle-Sum Sparse Merkle Tree, is an SMT, that also inherits the sum-combiner
+trait. We use this data structure to permit easy verification of the splits of
+a divisible asset, support proofs of non-inclusion, and also to serve a
+merkalized look up table to facilitate the verification of Taro asset proofs.
+
+The MS-SMT we refer to in this document is fully specified in BIP
+bip-taro-smt.mediawiki.
+
+===Taro Asset Trees===
+
+Taro is a Taproot-native asset overlay that can be used to create and transfer
+collectibles or normal assets using the base Bitcoin blockchain. Assets
+are presented as commitments to structured data ''within'' the existing Taproot
+script tree. This structured data is never written in plain to the base chain
+itself, but instead maintained on a higher layer by the Taro overlay protocol.
+Assets themselves are represented by a series of MS-SMTs (one each each asset
+ID/type) within the main asset tree. Each asset (in addition to a number of
+other attributes) commits to an ''asset script hash'', that commits to an
+''asset script'' that restricts exactly ''how'' an asset is permitted to be
+transferred from the PoV of the Taro overlay protocol. The initial version of
+the system uses a sub-set of Bitcoin script to allow assets to express arbitrary
+conditions on the valid transfer of an asset.
+
+Taro asset leaves thereby mirror the programmatically of UTXOs on the base
+Bitcoin blockchain. Verifiers of a given Taro asset will reject any invalid
+state transitions. As a result, we inherit a level of programmability on par
+with (and also beyond, via new asset script versions) the base scripting
+system, which is a key requirement for facilitating multi-hop off-chain
+transfers over Lightning (via HTLCs ''embedded'' in the asset script).
+
+===Asset Provenance===
+
+Provenance of an asset is proved using one of two mechanisms. The first of
+which, hence referred to as a "full proof" is a structured file that contains
+serialized proofs from an initial ''genesis output'', with a series of valid
+asset witnesses verifiably transferring ownership of an asset across taproot
+outputs. Full proofs are typically repented as a flat file for consumption,
+verification, display by the Taro protocol. 
+
+The second method of proving/verifying provenance is an MS-SMT of a slightly
+different structure, which is also committed to within the Taproot script tree.
+We refer to this meta-structure as a Universe, as it commits to Taro
+commitments within the chain along with additional proof data.  A Universe is a
+key-value store that can be used to bootstrap provenance verification
+(maintained by those that created the set of assets of interest).  Beyond
+initial genesis output verification, a Universe can also serve as a scalability
+layer by recording all valid Taro asset transfers within the MS-SMT, that maps
+an ''asset identifier'' to the last known valid transfer of the asset.
+
+===Merkle-Sum based Proof of Reserves===
+
+The usage of the MS-SMT data structure enables the system to support efficient
+proofs of supply/non-inflation, allowing participants to easily verify the
+total amount of assets committed to within a given taproot output, as well as
+the total set of issued assets by a given Universe. The merkle-sum augment of
+the SMT allows assets to be divisible, while allowing verifiers to assert that
+similar to regular Bitcoin transactions, no new assets are created during
+transfers outside of specially crafted asset genesis transactions.
+
+===Splits, Merges, collectibles and Normal Divisible Assets===
+
+Taro is able to represent collectibles, and normal divisible assets. Normal
+assets commit to a total value of held assets, which can be split up ''within'' a
+tree similar to normal Bitcoin UTXOs, as well as across top-level Taproot
+outputs.  We refer to these as internal and external splits. Normal assets can
+also be merged, in a similar process as UTXO consolidation on the base layer.
+During transfer of assets, the holder of an asset proves that they hold a valid
+split (via a merkle-sum proof), with each created asset committing to a new
+merkle-sum output split set to enforce non-inflation during transfers.
+
+Collectibles on the other hand cannot be split, nor merged. They're typically
+created in a batch, and typically represent a claim/credentials on a
+chain-level or real-world asset/functionality (assuming an existing trust
+relationship). An example of a collection would be a series of limited edition
+digital collectables such as baseball cards, or trading card games.
+
+Normal assets can be transferred off-chain in a multi-hop fashion using the
+Lightning Network, while collectibles assets must either be transferred
+off-chain or lifted into a multi-party channel to permit transfers amongst a
+known set of participants.
+
+===Specification===
+
+====Asset Tree Representation====
+
+=====Asset Root Commitment=====
+
+The Taro asset tree is a core component of the system. An asset tree is an
+MS-SMT commitment to a series of asset identifiers, grouped by their genesis
+asset ID. A given Taro asset tree is composed of two nested MS-SMT instances:
+
+# The first level maps an <code>asset_id</code> or <code>asset_key_family</code> to a sub-tree root hash of a given asset.
+# The second level maps an <code>asset_script_key</code> or <code>asset_id || asset_script_key</code> to a serialized Taro asset leaf.
+
+The root hash of an asset leaf, observing [[../master/bip-0341.mediawiki|BIP-341]] is
+represented as a Tapscript tree with a single leaf:
+* <code>tagged_hash("TapLeaf", leaf_version || taro_version || asset_tree_root)</code>
+
+A <code>leaf_version</code> of ??? is selected. From the PoV of the Bitcoin
+system, we've simply committed to a tapscript leaf with an unparseable Script.
+In the future, if the Bitcoin system is soft forked to gain awayness of the
+Taro-specific commitments, then the same or different leaf version can be used
+to gate verification of the new behavior.
+
+An <code>asset_id</code> is the 32-byte hash of: 
+* <code>sha256(genesis_outpoint || asset_tag || asset_meta)</code>
+
+where:
+* <code>genesis_outpoint</code> is the first previous input outpoint used in the asset genesis transaction serialized in Bitcoin wire format.
+* <code>asset_tag</code> is a random 32-byte value that represents a given asset, and can be used to link a series of discrete assets into a single asset family. In practice, this will typically be the hash of a human readable asset name.
+* <code>asset_meta</code> is an opaque 32-byte value that can be used to commit to various metadata including external links, documents, stats, attributes, images, etc. Importantly, this field is considered to be ''immutable''.
+
+Given the above structure, the <code>asset_id</code> is guaranteed to be
+globally unique from the PoV of the chain, as thanks to
+[[../master/bip-0034.mediawiki|BIP 34]]
+as outpoints can never repeat once serialized within the block chain.
+
+In addition, we enforce a rule that a given output MUST only have a ''single''
+root Taro asset commitment (any other duplicates cannot be spent due to the way
+asset witnesses bind to the input outpoint). 
+
+The <code>asset_tag</code> field cannot be enforced to be ''globally'' unique.
+Instead to ensure locally unique <code>asset_id</code> instances within initial
+asset creation, each <code>asset_tag</code> and <code>asset_meta</code> value
+MUST only appear once during asset creation.
+
+The top-level MS-SMT commits to set of all held defined assets. The root hash
+of this MS-SMT tree is referred to as the <code>asset_tree_root</code>. The
+MS-SMT is structured as follows:
+* key: <code>asset_id</code> or <code>asset_key_family<code>
+* value: <code>taro_version || asset_id_tree_root || asset_sum</code>
+* sum_value: <code>asset_sum</code>
+
+Similar to the <code>asset_id</code>, the <code>asset_key_family</code> is
+derived using the first input outpoint as a sort of chain randomness to ensure
+uniqueness within the system. Given a <code>genesis_outpoint</code> and a
+public key <code>asset_key_internal<code>, then <code>asset_key_family</code>
+is derived as follows:
+* <code>asset_key_family</code> = <code>asset_key_internal + sha256(asset_key_internal || genesis_outpoint)</code>
+
+The top level tree can be easily used to prove the existence of a set of given
+assets, the total amount of asset units held, as well as the sum of a given
+asset held.
+
+The <code>asset_id_tree_root</code> value is itself another nested MS-SMT with
+the following structure:
+* key: <code>asset_script_key</code> or <code>asset_id || asset_script_key</code>
+* value: <code>asset_leaf || leaf_sum</code>
+* sum_value: <code>leaf_sum</code>
+
+Within the MS-SMT held by the tree rooted at a given
+<code>asset_id_tree_root</code>, a new Taro MS-SMT is created for each
+<code>asset_id</code> or <code>asset_key_family</code>an output holds. The
+leaves of the MS-SMT are keyed by the <code>asset_script_key</code> or
+<code>asset_id || asset_script_key</code> unlocking script. The root hash of
+the asset tree is calculated as either: 
+* <code>asset_tree_root = sha256(asset_id || left_hash || right_hash || sum_value)</code>
+or 
+* <code>asset_tree_root = sha256(asset_key_family || left_hash || right_hash || sum_value)</code>
+
+where:
+* <code>asset_key_family</code> is the 32-byte hash of a public key derived from the genesis outpoint which can be used to collocate assets intended to be fungible with one another (issuing multiple tranches of the same asset) or collectibles.
+* <code>asset_id</code> is the 32-byte asset ID specified above
+* <code>left_hash</code> is the hash of the left sub-tree.
+* <code>right_hash</code> is the hash of the right sub-tree.
+* <code>amt_sum</code> is the sum of the <code>amt</code> values of each of the asset leaves (essentially asset UTXOs).
+
+Committing to the total sum of the asset values in a given asset sub-tree for a
+given asset allows asset holders to easily prove how much of a given asset they
+own, which when combined with the asset creation and "Universe" concept, allow
+for a built-in mechanism of proof of reserves.
+
+The usage of the <code>asset_key_family</code> (as we'll see below) allows
+issuers to collocate assets intended to be fungible with each other within the
+same asset sub tree. The derivation of the <code>asset_key_family</code>
+ensures that similar to the <code>asset_id</code> this value is globally unique
+within the chain. Assets that don't specify an <code>asset_key_family</code>
+use a slightly different schema to key into the main MS-SMT, and can only be
+issued in a single batch.
+
+When an <code>asset_key_family</code> is specified during asset
+issuance/minting, similar to the top level-SMT, the internal MS-SMT modifies
+its internal key to also factor in the derived <code>asset_id</code> for each
+asset. As a result, the lowest level key factors in the <code>asset_id</code>
+as well as the <code>asset_script_key</code>. This again ensures that all
+assets and script keys are placed within a unique location within the MS-SMt.
+
+Note that due to the structure of the tree, for a given Taro asset sub-tree
+within a valid taproot output, all <code>asset_script_key</code> values MUST
+be unique.
+
+=====Asset Leaf Format=====
+
+The leaves of an asset tree for a given <code>asset_id</code> commit to a blob
+of metadata expressed in the
+[https://github.com/lightning/bolts/blob/master/01-messaging.md#type-length-value-format
+TLV] format used by the Lightning Network's wire protocol. The TLV structure is
+canonical and deterministic, making it suitable to be used for cryptographic
+commitments and signed digests. In addition, the TLV format supports both
+backwards and forwards compatibility, making the underlying structure of the
+asset commitments highly extensible.
+
+An asset leaf is a serialized TLV blob, with the following key-value mappings:
+* type: 0 (<code>taro_version</code>)
+** value: 
+*** [<code>u8</code>:<code>version</code>]
+* type: 1 (<code>asset_id</code>)
+** value:
+*** [<code>32*byte</code>:<code>id_bytes</code>]
+* type: 2 (<code>asset_type</code>)
+** value: 
+*** [<code>u8</code>:<code>type</code>]
+* type: 3 (<code>amt</code>)
+** value: 
+*** [<code>BigSize</code>:<code>amt</code>]
+* type: 3 (<code>lock_time</code>)
+** value: 
+*** [<code>BigSize</code>:<code>block_height</code>]
+* type: 4 (<code>prev_asset_witnesses</code>)
+** value: 
+*** [<code>u16</code>:<code>num_inputs</code>][<code>asset_witnesses...</code>], where:
+**** [<code>...*byte</code>:<code>asset_witnesses</code>]:
+***** [<code>asset_witness</code>]:
+****** type: 0 (<code>prev_asset_id</code>)
+******* value: [<code>prev_outpoint || asset_id || asset_script_key</code>]
+****** type: 1 (<code>asset_witness</code>)
+******* value: [<code>...*byte</code>:<code>asset_witness</code>]
+****** type: 2 (<code>split_commitment_proof</code>)
+******* value: [<code>...*byte</code>:<code>split_proof</code>]
+* type: 1 (<code>split_commitment</code>)
+** value: [<code>32*byte</code>:<code>split_commitment_root</code>]
+* type: 5 (<code>asset_script_version</code>)
+** value: 
+*** [<code>u16</code>:<code>script_version</code>]
+* type: 6 (<code>asset_script_key</code>)
+** value: 
+*** [<code>33*byte</code>:<code>pub_key</code>]
+* type: 7 (<code>asset_family_key</code>)
+** value: 
+*** [<code>96*byte</code>:<code>pub_key || schnorr_sig</code>]
+
+where:
+
+* <code>taro_version</code>: is a single byte that denotes the version of Taro being used, which allows a client to determine which of the below TLV values to expect.
+* <code>asset_id</code>: is the <code>asset_id</code> defined above
+* <code>asset_type</code>: is a single byte representing the type of the asset, two starting asset types are defined:
+** <code>0</code>: a normal asset
+** <code>1</code>: a collectible asset
+* <code>amt</code>: is the amount of the asset held in this leaf position
+* <code>lock_time</code>: is a field that restricts ''when'' an asset can be moved based on the included block height.
+* <code>prev_asset_witnesses</code>: is a ''nested'' TLV that contains the asset witnesses needed to verify the merging into the target asset leaf
+** <code>prev_asset_id</code>: references the previous asset input by the input position within the transaction, the asset ID of the previous asset tree, and the asset script hash.
+*** This value is included in any signatures generated within the asset witness itself, serving a purpose similar to the previous outpoint in vanilla Bitcoin.
+*** If this field is all zeroes, then that indicates a ''new'' asset is being created.
+*** For ''internal'' split verification, this field can be used to save space by including only a single signature/witness that covers all other new splits.
+*** If this type isn't present, then a <code>split_commitment</code> MUST be present.
+** <code>split_commitment_proof</code>: is used to permit the spending of an asset UTXO created as a result of an asset split. When an asset is split, the non-change UTXO commits to the location of all other splits within an MS-SMT tree. When spending a change UTXO resulting from an asset_split, a normal <code>asset_witness</code> isn't required, instead the owner of the change asset UTXO must prove that it holds a valid split which was authorized by the main transfer transaction.
+*** Outputs with the same <code>split_commitment</code> are said to share a single <code>asset_witness</code> as such outputs are the result of a new asset split. Therefore we only need a single witness and the resulting merkle-sum asset tree to verify a transfer.
+** <code>asset_witness</code>: is a serialized witness in an identical format as Bitcoin's Segwit witness field. This field can only be blank if <code>prev_asset_id</code> is blank.
+* <code>split_commitment</code>: is used to commit to, and permit verification of the new output split distribution for normal assets. The <code>split_commitment_root</code> is an MS-SMT with a key of <code>sha256(output_index || asset_id || asset_script_key)</code>, and the value being the new Taro asset leaf. This is an optional field and is only specified wehn an asset value is split during transfer.
+*** Outputs with the same <code>split_commitment</code> are said to share a single <code>asset_witness</code> as such outputs are the result of a new asset split. Therefore we only need a single witness and the resulting merkle-sum asset tree to verify a transfer.
+* <code>asset_script_version</code>: is a 2 byte asset script version that governs how the following TLV value is to be validated.
+* <code>asset_script_key</code>: is the external public key derived in a BIP 341 manner which may commit to an asset script that encumbers this asset leaf.
+* <code>asset_family_key</code>: is a 32-byte public key as defined by [[../master/bip-0340.mediawiki|BIP-340]] followed by a 64-byte BIP 340 signature over the <code>asset_id</code>. This key can be used to associate distinct assets as identified by their <code>asset_id</code>, effectively allowing further issuance of a base asset. Assets that references the same <code>asset_family_key</code> are to be considered the same asset. This is an optional field, and assets that don't contain this field are effectively considered to be a one-time only issuance event, meaning no further assets related to the derived <code>asset_id</code> can be created.
+* <code>cannonical_universe<code>: is a key (with no corresponding value) which if specified, designates the existence of an on-chain canonical Universe. Specified further in bip-taro-universe.mediawiki, a canonical Universe is maintained by the issuer of an asset and can be used to allow 3rd parties to easily audit the total asset supply and also track future issuance. In short, if this is specified, ''second'' output of the next spend of the outpoint created during asset issuance MUST commit to the root hash of a base Universe and all subsequent spends must only happen after later asset issuance events, and MUST commit to a new valid Universe root. This feature allows light clients to watch a set of outputs on chain to be notified of future asset issuance.
+
+(TODO(roasbeef): merkle sum commitment over input set as well?)
+  * enables probabilistic validation?
+
+An asset leaf serves to store structured data related to an asset, as well as
+the series of previous input asset witnesses needed to verify the proper
+transfer of an asset leaf. The input structure here resembles the normal
+Bitcoin input and output scheme, with the addition of the
+<code>split_commitment</code> which is needed to allow verifiers to reject
+invalid splits, thereby preventing asset inflation.
+
+The <code>asset_script_version</code> is a key design element of the Taro asset
+leaf as it allows for future upgrades in the scripting system used to
+lock/unlock asset leaves. Initially, a version <code>0</code> asset leaf is
+used which denotes that the <code>asset_script_key</code> be a ''valid''
+<code>output_key</code> as specified in BIP 341 and BIP 342. As a result, the
+version 0 Taro VM is an instance of Taproot ''within'' an outer instance.
+Verification logic for <code>asset_script_version</code> is fully defined in
+BIP ???. In the future new asset script versions can be introduced to further
+increase the expressibility of the embedded asset script.
+
+TLV types below 2^16-1 are reserved for use by additional `taro_version`
+interations. Types with a numerical value above this reserved range can be used
+TLV types below 2^16-1 are reserved for use by additional
+<code>taro_version</code> iterations. Types with a numerical value above this
+reserved range can be used to store arbitrary attributes to assets. An eaxmple
+of such an attribute would be storing the _mutable_ stats of an in-game asset.
+Any immutable fields for normal or collectible assets should be instead
+committed to within the `asset_meta` be storing the ''mutable'' stats of an
+in-game asset. Any immutable fields for normal or unique assets should be
+instead committed to within the <code>asset_meta</code> field.
+
+The usage of an MS-SMT for the Taro asset tree itself permits parties to easily
+verify that no new assets are created when inputs are referenced, and also that
+each new split/merge results in a valid split set (via the
+<code>split_commitment_root</code> which is included in the computed witness
+sighash). 
+
+===Asset Creation===
+
+The creation of an asset resembles any other Bitcoin transaction, albeit it
+will typically be a 1-input-1-output transaction. An asset creation transaction
+spends an arbitrary set of inputs, and produces one or many outputs which may
+commit to a set of newly created assets. As a simplifying mechanism, we require
+that a given Taro transaction can only create new assets, or transfer existing,
+but not both.
+
+(TODO(roasbeef): does not allowing transfer+creation actually make anything simpler?)
+
+The following function creates a new valid taproot public key script whose
+internal tapscript tree commits to the representation of the new asset:
+<source lang="python">
+create_new_asset_output(total_units: uint64, asset_tag: [32]byte, 
+    genesis_point: [36]byte, asset_meta: [32]byte, asset_type: uint8, 
+    asset_script_key: [32]byte, taro_attrs: TLV) -> PkScript:
+
+    asset_id = sha256(genesis_point || asset_tag || asset_meta)
+
+    tlv_leaf = new_taro_tlv_leaf(
+        taro_version=0, asset_id, asset_type, total_units, asset_script_version=0, 
+        asset_script_key, attrs=taro_attrs,
+    )
+
+    inner_smt_leaf = new_ms_smt_leaf(
+        key=asset_script_key, value=tlv_encode(tlv_leaf), sum_val=total_units,
+    )
+    inner_smt_root = ms_smt_root_hash(new_ms_smt(inner_smt_leaf))
+
+    outer_smt_leaf = new_ms_smt_leaf(
+        key=asset_id, value=inner_smt_root, sum_val=total_units,
+    )
+    outer_smt_root = mew_smt_root_hash(new_ms_smt(outer_smt_leaf))
+
+    internal_key = new_internal_key()
+
+    return taproot_output_script(key=internal_key, leaves=[taproot_smt_leaf])
+</source>
+
+Note that we require the <code>genesis_point</code> to be known ahead of time
+in order to enforce the uniqueness constraint of the <code>asset_id</code> as
+is defined.
+
+The <code>taro_attrs</code> field can be used to commit to a set of arbitrary,
+and potentially mutable fields associated with an asset. 
+
+In the above example, the resulting taproot tree we create only commits to a
+single leaf, which is the Taro asset root. In practice, one will likely have
+other normal script-path scripts within the tapscript tree.
+
+The above example creates only a single asset. It's possible to also create
+several assets within a single output, thereby batching asset creation.
+
+===Asset Transfers===
+
+Across normal and asset collectibles, two types of transfers are defined: swaps and
+normal sends.
+
+Asset swap transfers take place over multiple rounds of interaction, using
+PSBT extensions (as defined in bip-taro-psbt.mediawiki) to collaboratively
+create a Multi-Input-Multi-Output (MIMO) transaction that spends one or more
+distinct
+assets as inputs, and creates one or more new asset owners as outputs.
+
+Normal sends on the other hand, involve only a single round of interaction, as
+only one party is spending an asset to the wallet of the other party. Compared
+to interactive transfers, only a single Taro asset witness needs to be
+specified.
+
+Constructing and verifying a transfer of an item part of an asset collection
+entails the owner of the asset transferring ownership from their input, into a
+new output under control by the receiver. The set of merkle-sum commitments as
+well as, asset witness validity are used to verify and authenticate asset
+transfers.
+
+Swaps of regular assets involve additional verification steps, as both sides
+need to ensure that no new assets are inadvertently being created (resulting in
+invalid transaction). In order to accomplish this, the transaction must be
+formed in such a way that 3rd party verifiers are able to verify both splits
+(splitting a single asset UTXO multiple instances) and merges (combining
+outputs of the same asset type into one). We use the
+<code>split_commitment</code> field to accomplish this, effectively forcing
+what can be considered a change output (in the Taro domain), to commit to a
+merkle-sum tree of the other created splits.
+
+====Asset Swap Transactions====
+
+In this section, we specify interactive asset transfers wherein two (or more
+parties) collaborate to create a MIMO transaction that transfers one or more
+assets amongst the set of participating parties. We describe the core
+interaction, verification of exchanged proofs, in this setting. We leave further
+details concerning how such a protocol would be mapped to a PSBT-based signing
+ceremony to BIP bip-taro-psbt-mediawiki.
+
+=====Collectible Asset Transfers=====
+
+Transfers of asset collectibles are simpler than normal asset transfers, in that
+they don't require the verification of splitting or merging multiple asset
+UTXOS.  Transfer of assets collectibles happen on two layers:
+
+* First, asset witness and script hash information are exchanged allowing the receiving party (of each input asset) to verify the provenance of the inputs assets, with the sending party delegating ownership to the script hash of the receiving party. 
+** We call this the ''internal'' transfer process.
+* Next, a set of normal Bitcoin signatures/witnesses are exchanged on the lower layer, which spend all input assets (effectively destroying them) and re-create the assets as new commitments in the resulting MIMO transaction.
+** We call this the ''external'' transfer process.
+
+Note that not all inputs need to be inputs that hold Taro assets. This
+naturally lends to new sub-protocols executing batched MIMO atomic swaps in a
+single transaction across a number of parties.
+
+As verification is a cornerstone of the Taro protocol, during the interactive
+transfer process each party carries out the following set of verification assertions:
+* Verify the provenance of any input assets.
+* Verify that a party can generate valid input asset witnesses for each asset.
+* Verify that the new set of Taro asset script outputs created either no longer commits to a transferred asset, or now properly commits to a newly received asset.
+
+The first verification step verifies that an asset has valid lineage. The
+second step verifies that an asset owner can actually spend the asset if they
+choose. The final step verifies that no new assets are created, and instead
+only existing assets with verified provenance are transferred.
+
+Transfers are specified as follows:
+# For each input (which may hold one or more asset collectibles to be transferred), the owner transmits:
+## An opening of the MS-SMT commitment stored in the previous output of each input, transmitted as the identifier of a Universe (to extract a compressed proof) or full proof file.
+### Using this, the receiver(s) of the asset collectibles verify that:
+#### Each proof is a valid opening of the asset tree commitment, with a valid leaf path down to the asset to be transferred.
+#### The merkle sum commitment for each asset to be transferred is valid given the amt (should be 1 for all asset collectibles) of the desired asset.
+#### Given the <code>asset_id</code>, a valid opening revealing the <code>genesisOutpoint</code>, <code>assetTag</code> and <code>assetMeta</code>.
+#### The supplied <code>genesisOutpoint</code> is present in the Universe maintained for the set of unique assets collectibles. A merkle proof of the Universe's current MS-SMT, or a full proof may be used.
+# With initial verification complete, the internal transfer process begins:
+## For each asset collection, ''i'' to be exchanged:
+### The receiver creates a new asset script key commitment, <code>asset_script_key_i</code> (which will be used to delegate ownership of the input asset), and sends this to the owner.
+### The owner takes the raw serialized asset script and closes a new asset witness over the <code>asset_script_key_i</code> script (as part of the serialized asset leaf). This witness is then transmitted to the receiver.
+### The receiver can now construct a new valid leaf (with a valid witness delegating ownership), either creating a new rooted asset tree (if they didn't own any instances of the asset collection lineage) or add it to an existing tree. Call this <code>asset_leaf_i</code>. This new leaf MUST properly reference a valid <code>prev_asset_id</code> to be a valid witness.
+# With internal transfer complete, the final external transfer is executed:
+## The set of inputs (which may be heterogeneous w.r.t asset type) are added to a new version <code>2</code> Bitcoin transaction.
+## The set of new ownership output are exchanged and added to the MIMO transfer transaction. Minimally each party MUST have a new ownership output present in the transaction.
+## For each Taro tagged output ''i'', ''transferring'' an asset:
+### The sender transmits the receiver a non-inclusion proof rooted at the new output, proving that the asset in question in no longer committed to within their asset tree.
+### The sender constructs a new valid taproot output script, including the update asset tree root, and sends this to the receiver for verification.
+## For each ownership output ''receiving'' an asset:
+### The receiver constructs a new valid taproot output script, which provably commits to the new <code>asset_leaf_i</code> fragment.
+# The external transfer is ratified by exchange of a valid set of ''Bitcoin'' input witnesses for each input.
+
+After the final step has been executed, one or both sides can broadcast the
+transaction ratifying it within the main chain. In addition, each party can
+also append to their respective asset proof files (which were transmitted in
+full during the verification process), or delete them if they've transferred an
+asset.
+
+In the case where an active Universe is being used for transfers, then only the
+internal transfer process needs to take place, with the new proofs being
+uploaded to a Universe to be stamped within the chain.
+
+The transfer process above can alternatively be expressed via the following
+fragment of psuedo-code, that specifies a transfer (a full swap) of a series of
+assets owned by two parties, Alice and Bob:
+<source lang="python">
+verify_asset_input_proofs(asset_proofs: map[AssetPrevID]AssetLeafProof) -> bool
+
+    for prev_asset_id, asset_leaf in asset_proofs
+        prev_outpoint, asset_id, asset_script_key = prev_asset_id
+
+        match asset_leaf.proof_type:
+            case FullProof:
+
+                for i in range(len(asset_leaf.inclusion_proofs)):
+                    asset_leaf_tlv = asset_leaf.raw_leaf[i]
+                    leaf_merkle_proof = asset_leaf.inclusion_proof2[i]
+
+                    if i != 0 and asset_leaf_tlv.prev_input.prev_outpoint !=
+                        asset_leaf[i-1].leaf_merkle_proof.outpoint:
+                        fail
+                        
+                    if not verify_inclusion_proof(leaf_merkle_proof, asset_leaf):
+                        fail
+
+                    if not verify_witness(asset_leaf.asset_witness, asset_leaf):
+                        fail
+
+            case CompactProof:
+                if not verify_universe_proof(asset_leaf.inclusion_proofs, asset_id):
+                    fail
+
+transfer_assets(sender_assets: map[AssetID]AssetLeaf, 
+    receiver_scripts: [[32]byte]) -> map[AssetID]AssetLeaf
+
+    new_assets = {}
+    for prev_asset_id, asset_leaf in sender_assets:
+        asset_script_key = asset_script_keyes[i]
+
+        new_leaf = clone_unique_leaf(asset_leaf)
+        new_leaf.asset_script_key = asset_script_key
+        new_leaf.prev_asset_id = prev_asset_id
+        new_leaf.asset_witness = gen_witness(tlv_encode(new_leaf))
+
+        new_assets[prev_asset_id.asset_id] = new_leaf
+
+    return new_assets
+
+taro_interactive_transfer(bob_inputs_assets: map[AssetID]AssetLeafProof, 
+    alice_input_assets: map[AssetID]AssetLeafProof, alice_internal_key: PublicKey, 
+    bob_internal_key: PublicKey, alice_asset_script_keyes: [[32]byte], 
+    bob_asset_script_keyes: [[32]byte]) -> Tx:
+
+    if !verify_asset_input_proofs(list(chain(alice_new_assets, bob_input_assets))):
+      fail
+
+    bob_new_assets = transfer_assets(alice_input_assets, bob_asset_script_keyes)
+    alice_new_assets = transfer_assets(bob_input_assets, alice_asset_script_keyes)
+
+    alice_new_taro_root = alice_compute_root(remove=alice_input_assets)
+    if not verify_non_inclusion(alice_new_taro_root, bob_new_assets):
+      fail
+
+    bob_new_taro_root = bob_compute_root(remove=bob_input_assets)
+    if not verify_non_inclusion(bob_new_taro_root, alice_new_assets):
+      fail
+
+    transfer_tx = new_tx()
+    for prev_asset_id, _ in list(chain(alice_input_assets, bob_inputs_assets)):
+        transfer_tx.add_txin(prev_asset_id.prev_outpoint)
+
+    transfer_tx.add_output(taproot_output_script(key=alice_internal_key, leaves=[alice_new_taro_root]))
+    transfer_tx.add_output(taproot_output_script(key=bob_internal_key, leaves=[bob_new_taro_root]))
+
+    return transfer_tx
+
+</source>
+
+The method above produces a fully signed Bitcoin transaction, that when
+broadcast, will ''atomically'' trade Alice's set of collectible assets for
+Bob's set of collectible assets, with Alice paying an additional 1 BTC to Bob
+to satisfy the conditions of their transfer.
+
+=====Normal Asset Transfers=====
+
+Transfers of normal assets are nearly identical to transfers of asset
+collectibles.  The main difference is that along the way, both sides also need
+to verify the proper splitting and merging of any input assets. 
+
+As an example, let's say Alice owns 10 units of asset Foo and wishes to
+transfer 9 units of them them to Bob. When generating the asset witness to
+transfer the asset, Alice's witness commits to a ''new'' merkle-sum split tree,
+proving that her new leaf is a member of that tree, and the tree still commits
+to only 10 units of the asset.  Alice may not know the final structure, but
+adds an additional constraint that this commitment exists. A valid transfer of
+normal assets is only valid if this condition is upheld.
+
+The example above demonstrates how ''external splits'' (splits across distinct
+taproot outputs) are verified. In addition to this, we also need to verify that
+no new assets have been created within an asset commitment. We use the
+merkle-sum trait of the SMT to verify this.
+
+With that said, transfers of normal assets are identical to transfers of
+collectibles assets with the following additions:
+# Internal transfer verification:
+## For each asset, ''i'', and amount ''n'', to be exchanged:
+### The sender transmits a valid MS-SMT merkle proof proving the existence of the asset, and also the authenticity of the amount to be transferred.
+### The receiver creates a new <code>asset_script_key_i</code> and <code>asset_leaf_i</code> as normal, with the added constraint that the <code>amt</code> field of the new asset MUST match the amount to be transferred.
+### When generating the valid <code>asset_witness</code> for a given asset input, the sender MUST also construct a new MS-SMT tree with a key of <code>sha256(output_index || asset_id || asset_script_key)</code>, and a value of the asset leaf being created (serialized without this field). This will be the <code>split_commitment_root</code> of the change output.
+# External transfer:
+## For each ownership output ''i'', transferring ''n'' units of asset ''y'':
+### The sender no longer needs to transmit a full non-inclusion proof, but instead opens the Taro root commitment of their change output, allowing the receiver to verify that amount <code>t-n</code> is committed to, with <code>t</code> being the prior asset root sum.
+### For each new asset leaf associated with the input split, verify that the serialized leaf is a member of the <code>split_commitment_root</code> within the change output.
+
+Note that for a given input <code>asset_id<code> in a transaction, any
+resulting internal splits will share the same input witness (referenced
+indirectly) as well as <code>split_commitment_root</code>.
+
+The following pseudo-code routines define new methods to create and verify the
+<code>split_commitment_root</code>:
+<source lang="python">
+create_split_commit_root(asset_splits: map[SplitLocator]SplitLeaf) -> [32]byte:
+
+   split_tree = new_mt_smt()
+   for split_locator, split_leaf in range asset_splits:
+       output_index, asset_id, asset_script_key, split_amt = split_locator
+       split_key = sha256(output_index || asset_id || asset_script_key)
+
+       split_tree.insert(key=split_tree, value=split_leaf, sum_val=split_amt)
+
+    return split_tree.root_hash()
+
+verify_split_commit_root(split_loc: SplitLocator, split: SplitLeaf, 
+    split_root: [32]byte, audit_path: [[32]byte]) -> bool:
+
+    output_index, asset_id, asset_script_key, split_amt = split_locator
+    split_key = sha256(output_index || asset_id || asset_script_key)
+
+    split_leaf = new_mt_smt_leaf(key=split_leaf, val=split, sum_val=split_amt)
+
+    hash_val = split_leaf
+    for branch in audit_path:
+        branch_sum = split_leaf.sum_val + branch.sum_val
+
+        hash_val = sha256(hash_val || branch.hash || branch+sum)
+
+    return hash_val == split_root
+
+</source>
+
+====Normal Asset Transfers====
+
+Normal active asset transfers are single sided transfers where only a single
+party is transmitting a collection or normal asset to another party. As a
+result, a MIMO transaction isn't necessary as given the asset in question,
+amount to be transferred, and the desired <code>asset_script_key</code> along
+with a public key, a new asset root and its corresponding taproot output can be
+constructed.
+
+Non-interactive transfers introduce the concept of a on-chain Taro ''address''.
+See [[../master/bip-taro-addr.mediawiki|BIP-???]] for further details on the
+address format.
+
+Given a valid Taro address, if Alice wishes to transfer to Bob ''N'' units of
+asset ''Y'', using Taro address ''C'':
+* Alice uses the Taro address to derive construct a valid leaf, and a new external taproot output as dictated by [[../master/bip-0341.mediawiki|BIP-341]].
+* Alice constructs a new sub-commitment in her asset tree that now instead commits to <code>T-N</code> units of the asset (in the case of a normal asset).
+* Alice signs and broadcasts a new transaction including the two outputs, with a necessary deposit amount of ''K'' satoshis.
+
+Alices internal transfer doesn't include a <code>prev_asset_id</code> nor asset
+witness for Bob's new asset leaf. Instead, Bob will use the referenced
+<code>split_commitment_root</code> to create a
+<code>split_commitment_proof</code> that asserts the existence of the new split
+of amount <code>N</code>. This transfer is valid as the "sig hash" of Alice's
+asset witness also covers the structure of Bob's new asset commitment. 
+
+For non-interactive transfers Bob needs to obtain this proof from somewhere,
+but is able to reconstruct it entirely given the latest proof for Alice's
+non-change output. If Alice wishes to transmit this data on-chain to Bob, then
+she can place the data in Taproot's currently unused annex field.
+
+That's it. Alice can construct the expected root Taro commitment that Bob is
+looking for in the chain. This makes the scheme light client friendly, as
+neutrino nodes can simply look for the resulting taproot output within the
+filters. The "deposit" amount is necessary as Bitcoin doesn't permit zero
+valued outputs. This amount only needs to be slightly above dust, and can be
+seen as a sort of fixed transfer fee.
+
+In order to be able to ''spend'' the asset,  Bob needs to obtain the full asset
+proof that was used as an input, which can be obtained from the relevant
+Universe, or from Alice directly.
+
+<source lang="python">
+non_interactive_send(receiver_script_key: [32]byte, receiver_internal_key: PublicKey, 
+    input_asset: AssetLeaf, amt: uint64) -> Tx
+
+    receiver_leaf = clone_leaf(input_asset.leaf)
+    receiver_leaf.asset_script_key = receiver_script_key
+    receiver_leaf.prev_input = nil
+    receiver_leaf.amt = amt
+
+    inner_smt_leaf = new_ms_smt_leaf(
+        key=receiver_script_key, value=tlv_encode(receiver_leaf), sum_val=amt,
+    )
+    inner_smt_root = ms_smt_root_hash(new_ms_smt(inner_smt_leaf))
+    outer_smt_leaf = new_ms_smt_leaf(
+        key=input_asset.asset_id, value=inner_smt_root, sum_val=amt,
+    )
+    outer_smt_root = mew_smt_root_hash(new_ms_smt(outer_smt_leaf))
+
+    internal_key = new_internal_key()
+
+    receiver_output = taproot_output_script(key=internal_key, leaves=[taproot_smt_leaf])
+
+</source>
+
+In order to be able to ''spend'' this new asset, Bob needs to obtain the full
+provenance proof for the asset in question. Given that Bob is able to locate
+the transfer transaction on-chain (using systems such as BIP 157/158), Bob
+knows the previous input where the asset was stored. Given a known Universe,
+Bob can look up the previous outpoint, then append his new leaf information to
+the end of the file.
+
+====Taro Asset Files & Leaf Verification====
+
+Taro asset files can be used to hermetically store and transmit the proofs of
+provenance of a given asset.  The flat file is a series of merkle proofs within
+the main Bitcoin chain and also within Taproot outputs that hold asset
+commitments. In order to verify the validity and provenance of an asset, a
+verifier walks backwards (or forwards) in the asset transaction graph verifying
+each commitment and asset witness state transition along the way.
+
+The Taro proof file format is specified in bip-taro-proof-file.mediawiki.
+Future iterations of the proof file may also commit to a root append-only
+merkle tree root of each individual proof segment. This would allow for
+probabilistic verification of the provenance of an asset, reducing verification
+costs for 3rd parties and potential receivers of the asset. 
+
+===Asset Universes===
+
+
+Verification of an asset must also verify the provenance of the asset, namely
+that the asset is an indirect descendent of the initial genesis outpoint that
+created the asset itself. As all assets are defined by their provenance,
+failure to verify the history of an asset defeats the entire purpose of the
+system. As an example, the Bitcoin chain is defined as all the blocks that
+ultimately link back up to the main genesis block, if a chain doesn't include
+the genesis block, then it isn't Bitcoin.
+
+The Universe concept is an on-chain (and also off-chain) MS-SMT index into the main
+chain, which indexes the set of revealed proofs, anchoring them back to the main
+chain. Universes are used to bootstrap the provenance of an asset, and can also
+be iterated to (re)construct the proof file for an asset.
+
+Universes are fully specified in bip-taro-universe.mediawiki.
+
+===Multi-Hop Taro Asset Transfer===
+
+Leveraging the embedded asset HTLC/PTLC construct, we can extend the Lightning
+Network to support multi-hop transfers of arbitrary assets and use the Bitcoin
+backbone of the network as an asset agnostic monetary transport network. Only
+the sender and receiver of a multi-hop payment need to be aware of the assets
+being transferred. The internal backbone of the network only sees the
+equivalent resulting bitcoin flows.
+
+Assuming Bob has <code>N</code> beefbux of outbound liquidity, and Alice has
+<code>M</code> beefbux of inbound liquidity (where <code>N>M</code>) then Bob
+can send <code>M</code> beefbux to Alice. The first hop of the transfer takes
+in <code>M+f</code> beefbux (where <code>f</code> is their fee) and sends out
+<code>K = M/B</code> BTC, where <code>code</code> is the agreed/advertised
+beefbux/BTC exchange rate. All final hop of the transfer takes in
+<code>K</code> BTC and sends <code>M</code> beefbuf (in the actual route this
+would be less due to fees) to Alice.
+
+With the above construction, the Lightning Network can be extended to support
+the transfer of arbitrary assets with BTC effectively serving as the "gas
+asset".
+
+The full details of the Lightning Network (BOLT) extensions are specified in
+bLIP ???.
+
+==Applications==
+
+==Test Vectors==
+
+TBD
+
+==Backwards Compatibility==
+
+==Acknowledgement==
+
+Thanks to Peter Todd for popularizing many of the ideas and techniques used in
+the design of Taro many years ago. Components of the design of the system was
+inspired by his earlier work on systems like proofchains.
+
+Thanks to Daniel Stadulis for reading very early versions of this draft, and
+shaping many components of the design during early design jam sessions.
+
+==Reference Implementation==
+
+github.com/lightninglabs/taro

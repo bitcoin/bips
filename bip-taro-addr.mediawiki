@@ -1,0 +1,101 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taro On Chain Addresses
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document describes a way to map a single-asset Taro send to a familiar
+<code>bech32</code> address, as well as a way to map that address into a valid
+Taro script tree that can be included in a broadcast transaction to complete a
+transfer. Once the transaction has been broadcast, the receiver can use the
+previous outpoint of the confirmed transaction to lookup the complete asset
+proof in their chosen Universe.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+The Taro protocol needs an easy way to allow users to send each other assets
+on-chain, without requiring several rounds of interaction to exchange and
+validate proofs. By using the existing <code>bech32</code> address
+serialization standard, such addresses look distinct, while also looking
+familiar enough based on the character set encoding. The described address
+format also addresses a number of possible foot guns, by making it impossible
+to send the wrong asset (based on an address) amongst other protections.
+
+==Specification==
+
+A Taro asset is uniquely defined by its <code>asset_id</code> as well as the
+<code>asset_script_hash</code> that serves as a predicate that must be
+satisfied for transfers. These values, along with an internal Taproot key used
+when creating the Bitcoin output that holds the Taro asset, are encoded into a
+single address.
+
+===Encoding an Address===
+
+Let the human readable prefix (as specified by BIP 173) be:
+
+* <code>taro</code> for mainnet
+* <code>tarot</code> for testnet
+
+Given the 32-byte <code>asset_id</code>, 32-byte
+<code>asset_script_hash</code>, and 32-byte x-only BIP 340/341 internal public
+key, 8-byte amount to send, an address is encoded as:
+* <code>bech32(hrp=taroHrp, asset_id || asset_script_hash || internal_key || amt)</code>
+
+===Decoding and Sending To An Address===
+
+Given a valid Taro address, decompose the contents into the referenced
+<code>asset_id</code>, <code>asset_script_hash</code>, and
+<code>internal_key</code>.
+
+Construct a new blank Taro leaf with the following TLV values:
+* <code>taro_version</code>: <code>0</code>
+* <code>asset_id</code>: <code>asset_id</code>
+* <code>asset_type</code>: <code>0</code>
+* <code>amt</code>: <code>amt_to_send</code>
+* <code>taro_version</code>: <code>0</code>
+* <code>asset_script_version</code>: <code>0</code>
+* <code>asset_script_hash</code>: <code>asset_script_hash</code>
+
+Create a valid tapscript root, using leaf version <code>0x0c</code> with the
+sole leaf being the serialized TLV blob specified above.
+
+Create the top-level taproot public key script, as a segwit v1 witness
+program, as specified in BIP 341, using the included key as the internal key.
+
+With the target taproot public key script constructed, the asset is sent to the
+receiver with the execution of the following steps:
+# Construct a valid transaction that spends an input that holds the referenced <code>asset_id</code> and ''at least'' <code>amt</code> units of the asset.
+# Create a new Taro output commitment based on the input commitment (this will be the change output), that now only commits to <code>S-A</code> units of <code>asset_id</code>, where <code>S</code> is the input amount, and <code>A</code> is the amount specified in the encoded Taro address.
+## This new leaf MUST have a <code>split_commitment</code> specified that commits to the position (keyed by <code>sha256(output_index || asset_id || asset_script_hash)</code> within the transaction of the newly created asset leaf for the receiver.
+## Add an additional output that sends a de minimis (in practice this MUST be above dust) amount to the top-level taproot public key computed earlier.
+## Broadcast and sign the transaction, submitting the resulting Taro state transition proof to a Universe of choice, also known by the receiver.
+# Post the resulting state transition proof to the specified Universe. The submitted proof ''must'' contain the optional auxiliary value of the full <code>split_commitment</code> the receiver requires to spend the asset.
+
+===Spending The Received Asset===
+
+In order to spend (or simply confirm receipt) of the received asset, the
+receiver should:
+# Re-derive the taproot public key script created above that sends to their specified Taro asset leaf.
+# Wait for a transaction creating the output to be confirmed in the blockchain.
+## In practice this may be via light client protocols such as BIP 157/158, or simply a full node with an address index, or import public key.
+# For each previous outpoint referenced in the transaction:
+## Look up the previous outpoint as a key into the chosen canonical Universe/Multiverse.
+### If the key is found, verify the inclusion proof of the value (as described in [[../master/bip-taro-proof-file.mediawiki|bip-taro-proof-file]]), and extract the <code>split_commitment</code> inclusion proof for the output.
+# Walk the Universe tree backwards in time to incrementally construct the full provenance proof needed to spend the asset.
+
+==Test Vectors==
+
+==Reference Implementation==

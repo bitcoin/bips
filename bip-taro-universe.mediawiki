@@ -1,0 +1,209 @@
+<pre>
+ BIP: ???
+  Layer: Applications
+  Title: Taro Asset Universes
+  Author: Olaoluwa Osuntokun <laolu32@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://git
+  Status: Draft
+  Type: Standards Track
+  Created: 2021-12-10
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+Taro asset provenance is defined by the lineage of an asset all the way back to
+the genesis point, which is the outpoint that the unique asset identifier is
+derived from. A Taro Universe is proposed as a way for users/holders of an
+asset to easily bootstrap their recognition of a given genesis point as the
+root of an asset. A Universe is an MS-SMT that indexes into the set of spent
+outpoints that track asset movement/transfer. A Universe can contain only the
+set of genesis outpoints for an asset, several assets, track individual
+transactions, and also be used as an aggregation layer.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+In order to give users/holders of an asset an easy way to bootstrap provenance,
+as well as track the total amount of units issued for a given asset, an
+on-chain merkalized indexing structure is necessary. Further, if we define
+constraints w.r.t how a "canonical" Universe can be updated, then users are
+able to watch a set of on-chain outputs to be notified of further chain
+issuance. Continuing to build off this structure, if users are able to maintain
+a trust relationship with the issuer of an asset (say the asset belongs to a
+closed source game), then they can delegate update rights to a single or
+federated set of parties, allowing them to bundle several asset updates in a
+single transaction, thereby scaling on-chain transfers.
+
+==Design==
+
+A Taro asset Universe MS-SMT differs from the normal MS-SMT in that the key
+index of the lowest tree is an ''outpoint'' rather than an asset script key as
+given an outpoint where an asset ''was'' present, the asset Universe maps to
+the Taro transaction+spending meta data. Given this outpoint indexing
+structure, if we create a new "re genesis" outpoint, then we can construct a
+new virtual Taro transaction graph which provably tracks the movement of assets
+in an off-chain manner, relying on a single or federated party to handle
+updates.
+
+===Specification===
+
+====Asset Universes====
+
+An Asset Universe is a publicly audit able merkle-sum sparse merkle tree
+(MS-SMT) over one or several assets. Unlike the normal Taro asset tree, a
+Universe doesn't itself live within a solely controlled output. Instead a
+Universe may exist on its own as a distinct output. A close analogue to a
+public Universe is a block explorer. A Universe can be used to:
+* bootstrap proof verification by committing to the set of genesis outputs
+* generate more compact proofs w/ an additional trust assumption
+* audit to the total amount of units in existence for a given asset
+* track new asset issuance for a given asset ID
+
+Universes can also be used to essentially compress the history of a series of
+transfers into a single on-chain transaction. From this PoV, a Universe can be
+seen as a sort of Taro asset channel wherein one party (or a
+consortium/threshold of them) can batch update a tree to clear countless
+transfers in a single on-chain transaction. Such a Universe can also be created
+over multiple assets, effectively becoming a Universe of Universes, or a
+''Multiverse''.
+
+During asset creation, the party creating the asset (identified by it's all
+zero <code>prev_asset_id</code> value) MAY also specify a
+<code>cannonical_universe</code> field which specifies additional constraints
+on the set of outputs produced. Namely, if this field is specified during asset
+creation, then the ''second'' output of the next spend after the genesis
+outpoint MUST commit to an updated base Universe that indexes into the prior
+genesis outpoint spend (asset creation). In addition, the internal key used for
+the output MUST be the <code>asset_key_family</code> filed specified during
+asset creation. After each subsequent asset issuance event, this output SHOULD
+be updated to commit to the new updated base Universe that indexes into all
+asset issuance transactions on chain.
+
+Specifying a key effectively blesses a public key on-chain, allowing it to be
+used to commit to the "canonical" history of an asset. In addition, those
+wishing to be "notified" of new asset issuance can watch this output on-chain
+to track any modifications.
+
+====Primordial Universes & Genesis Asset Verification====
+
+Unlike a normal Taro asset tree, a base Universe for a given asset only commits
+to the set of ''genesis outpoints'' for an asset. As this type of Universe only
+commits to the set of constituent assets present at the Beginning, that all other
+transfers depend on, we call this a ''Primordial'' Universe.
+
+Such a Universe can be used to bootstrap provenance and proof verification, as
+assuming a party knows which Universe to query, they're able to verify the
+provenance of a purported valid asset. In addition to bootstrapping provenance
+verification, as Universe trees are themselves an MS-SMT, they can be used to
+audit the total amount of a given asset in existence.
+
+A Primordial Universe, is an MS-SMT with the following structure:
+* The MS-SMT root commits to the sum of the total set of issued assets for a given <code>genesisAssetID</code>
+* key: an outpoint, serialized in a <code>txid:vout</code> structure as we find in Bitcoin.
+* value: the initial Taro asset leaf ''created'' by that outpoint (which will always be a <code>genesisOutpoint</code>) along with a merkle-proof which proves the existence a transaction that ''spent'' that output.
+* sum_value: the value of the leaf itself.
+
+As the Primordial Universe for a given asset can be known at the initial asset
+creation time, based on the referenced <code>universeKey</code> those wishing
+to track any new asset issuance related to a given <code>genesisAssetID</code>
+can watch the output on chain. Each time the output is spent indicates a new
+minting event. As a result, clients are able to watch a select set of outputs
+on-chain, one for each <code>genesisAssetID</code> they care about, effectively
+using the blockchain to be notified each time the total amount of issued assets
+changes.
+
+As the MS-SMT is keyed by the <code>genesisOutpoint</code>, it can be used to
+bootstrap any proof verification of a purported asset, as the initial linkage
+is dependent on the provenance of the referenced <code>genesisOutpoint</code>
+(verification starts at the Beginning and works backwards).
+
+====Asset Multiverses====
+
+An Asset Multiverse is a Universe of Universes. Rather than just storing the
+set of constituent assets (the set of <code>genesisOutpoints</code>), a
+Multiverse commits to several root <code>assetIDs</code>, as well as additional
+proofs of asset transfers (including splits+merges). A Multiverse is therefore
+effectively a commitment to every asset transfer that may have ever happened.
+Importantly, one cannot prove that a Multiverse has complete history, as a
+Multiverse can only commit to what it directly observed, or was shown to it.
+
+A Multiverse has the following structure:
+* The MS-SMT root commits to the sum, of the sum of the total number of asset units committed to.
+** Notice that this will commit to the same sum as the set of Primordial Universes for each given asset (if no additional history is included).
+* The top-level key for the MS-SMT is the <code>asset_id</code>, with the value being the MS-SMT root for the given asset root.
+** The sum value here is the sum value carried up from the sub-tree.
+** The key of this sub MS-SMT is similar to that of a Primordial Universe: a <code>txid:vout</code> outpoint.
+*** The value stored is the asset leaf, along with a merkle-proof that proves the existence of the transaction that ''spent'' that output.
+
+With this structure, it's possible for the maintainers of the Multiverse to
+also store subjectively complete history of the set of transfers. In addition,
+this structure can be used to trace the set of transfers/lineage for a given
+asset. Notice that we effectively commit to the set of all spent outputs
+associated with an asset, with the very first spend being the
+<code>genesisOutpoint</code> spend. As a result, a full proof of an asset's
+provenance is simply a series of keys stored at the lowest level of an SMT,
+with verifies following the transfer from outpoint to outpoint within a tree. 
+
+Using the trait presented above, one can create a flat file that proves the
+provenance of an asset simply by extracting select branches from a Multiverse
+tree, and enumerating the set of keys one needs to assert for validation.
+
+====Pocket Universes: Off-Chain Taro Transfer Compression====
+
+All leaves within a Multiverse are themselves a commitment to an event that
+happened on chain: A Taro asset transfer. Proofs for unique assets have a nice
+property that they scale linearly in the number of asset transfers (you can't
+split/merge so the same unit is being transferred to a differing set of
+owners).  Normal assets give a greater degree of flexibility, but scale worse
+as a single asset held might actually be the merging of several Taro asset
+UTXOs, thereby increasing proofs size as a function of the number of
+splits/merges in an asset's history. Pocket Universes are an off-chain transfer
+compression system that allows a consortium to stamp asset transfers that take
+place in an "imaginary" universe.
+
+To further reduce validation costs, verifiers can chose to only verify a single
+input split all the way back to the genesis outpoint. This implements a naive
+form of probabilistic validation, as the probability that each unverified split
+
+A Pocket Universe is similar to a commit chain. A single party, or a set of
+parties, commits to a set of transfers within the main chain, which themselves
+are anchored to an initial verifiable <code>genesisOutpoint</code>. A Pocket
+Universe is therefore a scaling tool, as with a single new commitment on-chain,
+an essentially unbounded amount of transfers can be timestamped within the
+chain.  Pocket Universes may be useful in cases where a party has issued
+assets, that can only be used with the aide of the issuer, for example in-game
+assets.
+
+=====Taro Virtual Transaction Graphs=====
+
+Assets can be moved into a pocket Universe which is another commitment in the
+main Tapscript tree by "sending" the set of outpoints to a special NUMs asset
+key which is derived from the <code>genesisOutpoint</code> of the given asset.
+The traditional "hash and increment" approach to generating NUMs points can be
+used, or any other variant. As performance isn't a concern, the naive approach
+will likely be used in practice.
+
+Once the assets have been from the PoV of the base Universe, a new parallel
+pocket Universe commitment can be created, which uses the ''new'' outpoint
+created as a result of the above transfer transaction as the very first
+spending input. From here, new transfers can be created, refreezing the
+created outpoints of the virtual Taro VM validation transaction. The result is
+an effective ''freezing'' of assets anchored in the main chain, which then
+permits them to be batched and transferred in the maintained Pocket Universe.
+
+====Asset Universe APIs & Federated Sync====
+
+==Test Vectors==
+
+TBD
+
+==Backwards Compatibility==
+
+==Reference Implementation==
+
+github.com/lightninglabs/taro
