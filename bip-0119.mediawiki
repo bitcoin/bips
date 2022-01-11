@@ -170,14 +170,17 @@ specification for the semantics of OP_CHECKTEMPLATEVERIFY.
 Where
 
     bool CheckDefaultCheckTemplateVerifyHash(const std::vector<unsigned char>& hash) {
+        // note: for anti-DoS, a real implementation *must* cache parts of this computation
+        // to avoid quadratic hashing DoS, including 
         return GetDefaultCheckTemplateVerifyHash(current_tx, current_input_index) == uint256(hash);
     }
 
 The hash is computed as follows:
-
+    // not DoS safe, for reference/testing!
     uint256 GetDefaultCheckTemplateVerifyHash(const CTransaction& tx, uint32_t input_index) {
         return GetDefaultCheckTemplateVerifyHash(tx, GetOutputsSHA256(tx), GetSequenceSHA256(tx), input_index);
     }
+    // not DoS safe for reference/testing!
     uint256 GetDefaultCheckTemplateVerifyHash(const CTransaction& tx, const uint256& outputs_hash, const uint256& sequences_hash,
                                     const uint32_t input_index) {
         bool skip_scriptSigs = std::find_if(tx.vin.begin(), tx.vin.end(),
@@ -185,6 +188,7 @@ The hash is computed as follows:
         return skip_scriptSigs ? GetDefaultCheckTemplateVerifyHashEmptyScript(tx, outputs_hash, sequences_hash, input_index) :
             GetDefaultCheckTemplateVerifyHashWithScript(tx, outputs_hash, sequences_hash, GetScriptSigsSHA256(tx), input_index);
     }
+    // DoS safe, fixed length hash!
     uint256 GetDefaultCheckTemplateVerifyHashWithScript(const CTransaction& tx, const uint256& outputs_hash, const uint256& sequences_hash,
                                     const uint256& scriptSig_hash, const uint32_t input_index) {
         auto h =  CHashWriter(SER_GETHASH, 0)
@@ -198,6 +202,7 @@ The hash is computed as follows:
             << input_index;
         return h.GetSHA256();
     }
+    // DoS safe, fixed length hash!
     uint256 GetDefaultCheckTemplateVerifyHashEmptyScript(const CTransaction& tx, const uint256& outputs_hash, const uint256& sequences_hash,
                                     const uint32_t input_index) {
         auto h =  CHashWriter(SER_GETHASH, 0)
@@ -474,6 +479,38 @@ unintentional introduction of the 'half spend' problem.
 
 Templates, as restricted as they are, bear some risks.
 
+====Denial of Service and Validation Costs====
+
+CTV is designed to be able to be validated very cheaply without introducing DoS, either by checking a
+precomputed hash or computing a hash of fixed length arguments (some of which may be cached from more
+expensive computations).
+
+In particular, CTV requires that clients cache the computation of a hash over all the scriptSigs, sequences,
+and outputs. Before CTV, the hash of the scriptSigs was not required. CTV also requires that the presence of
+any non-empty scriptSig be hashed, but this can be handled as a part of the scriptSigs hash.
+
+As such, evaluating a CTV hash during consensus is always O(1) computation when the caches are available.
+These caches usually must be available due to similar issues in CHECKSIG behavior. Computing the caches
+is O(T) (the size of the transaction).
+
+An example of a script that could experience an DoS issue without caching is:
+
+```
+<H> CTV CTV CTV... CTV
+```
+
+Such a script would cause the intepreter to compute hashes (supposing N CTV's) over O(N*T) data.
+If the scriptSigs non-nullity is not cached, then the O(T) transaction could be scanned over O(N)
+times as well (although cheaper than hashing, still a DoS). As such, CTV caches hashes and computations
+over all variable length fields in a transaction.
+
+For CTV, the Denial-of-Service exposure and validation costs are relatively clear. Implementors must be careful
+to correctly code CTV to make use of existing caches and cache the (new for CTV) computations over scriptSigs.
+Other more flexible covenant proposals may have a more difficult time solving DoS issues as more complex computations may
+be less cacheable and expose issues around quadratic hashing, it is a tradeoff CTV makes in favor of cheap and secure
+validation at the expense of flexibility. For example, if CTV allowed the hashing only select outputs by a bitmask,
+caching of all combinations of outputs would not be possible and would cause a quadratic hashing DoS vulnerability.
+
 ====Permanently Unspendable Outputs====
 
 The preimage argument passed to CHECKTEMPLATEVERIFY may be unknown or otherwise unsatisfiable.
@@ -564,6 +601,7 @@ recursion issues to OP_COV which make it unlikely for inclusion in Bitcoin.
 Given the simplicity of this approach to implement and analyze, and the benefits realizable by user
 applications, CHECKTEMPLATEVERIFY's template based approach is proposed in lieu of more complete
 covenants system.
+
 
 ====Future Upgrades====
 
