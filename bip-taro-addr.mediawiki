@@ -37,7 +37,7 @@ to send the wrong asset (based on an address) amongst other protections.
 ==Specification==
 
 A Taro asset is uniquely defined by its <code>asset_id</code> as well as the
-<code>asset_script_hash</code> that serves as a predicate that must be
+<code>asset_script_key</code> that serves as a predicate that must be
 satisfied for transfers. These values, along with an internal Taproot key used
 when creating the Bitcoin output that holds the Taro asset, are encoded into a
 single address.
@@ -50,14 +50,14 @@ Let the human readable prefix (as specified by BIP 173) be:
 * <code>tarot</code> for testnet
 
 Given the 32-byte <code>asset_id</code>, 32-byte
-<code>asset_script_hash</code>, and 32-byte x-only BIP 340/341 internal public
+<code>asset_script_key</code>, and 32-byte x-only BIP 340/341 internal public
 key, 8-byte amount to send, an address is encoded as:
-* <code>bech32(hrp=taroHrp, asset_id || asset_script_hash || internal_key || amt)</code>
+* <code>bech32(hrp=taroHrp, asset_id || asset_script_key || internal_key || amt)</code>
 
 ===Decoding and Sending To An Address===
 
 Given a valid Taro address, decompose the contents into the referenced
-<code>asset_id</code>, <code>asset_script_hash</code>, and
+<code>asset_id</code>, <code>asset_script_key</code>, and
 <code>internal_key</code>.
 
 Construct a new blank Taro leaf with the following TLV values:
@@ -67,7 +67,7 @@ Construct a new blank Taro leaf with the following TLV values:
 * <code>amt</code>: <code>amt_to_send</code>
 * <code>taro_version</code>: <code>0</code>
 * <code>asset_script_version</code>: <code>0</code>
-* <code>asset_script_hash</code>: <code>asset_script_hash</code>
+* <code>asset_script_key: <code>asset_script_key>
 
 Create a valid tapscript root, using leaf version <code>0x0c</code> with the
 sole leaf being the serialized TLV blob specified above.
@@ -79,7 +79,7 @@ With the target taproot public key script constructed, the asset is sent to the
 receiver with the execution of the following steps:
 # Construct a valid transaction that spends an input that holds the referenced <code>asset_id</code> and ''at least'' <code>amt</code> units of the asset.
 # Create a new Taro output commitment based on the input commitment (this will be the change output), that now only commits to <code>S-A</code> units of <code>asset_id</code>, where <code>S</code> is the input amount, and <code>A</code> is the amount specified in the encoded Taro address.
-## This new leaf MUST have a <code>split_commitment</code> specified that commits to the position (keyed by <code>sha256(output_index || asset_id || asset_script_hash)</code> within the transaction of the newly created asset leaf for the receiver.
+## This new leaf MUST have a <code>split_commitment</code> specified that commits to the position (keyed by <code>sha256(output_index || asset_id || asset_script_key)</code> within the transaction of the newly created asset leaf for the receiver.
 ## Add an additional output that sends a de minimis (in practice this MUST be above dust) amount to the top-level taproot public key computed earlier.
 ## Broadcast and sign the transaction, submitting the resulting Taro state transition proof to a Universe of choice, also known by the receiver.
 # Post the resulting state transition proof to the specified Universe. The submitted proof ''must'' contain the optional auxiliary value of the full <code>split_commitment</code> the receiver requires to spend the asset.
