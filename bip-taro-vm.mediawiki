@@ -56,14 +56,25 @@ commitment (which lives in a taproot output), and its valid opening, the set
 the previous asset ID are compressed into a single input, and the present
 <code>split_commitment</code> is used to compress the output state.
 
+State transition validation may take one or two asset leaves within a single
+transaction (with the leaves living in different outputs). When a single leaf
+is present, no splits occurred in the state transition, or the asset is a
+collectible. When two leaves are specified, then one of the leaves was a split
+resulting from a split event at the Taro layer. In this case, the split
+commitment proof, as well as the validity of the state transition creating the
+splits are validated.
+
+
 ====Mapping Inputs====
+
+Input mapping is only executed for state transitions that specify
+<code>prev_asset_witnesses</code>.
 
 Given a set of inputs, each identified by a <code>prev_asset_id</code>, the
 input commitment (which is used as the previous output) is constructed as
 follows:
 
 # Initialize a new empty MS-SMT tree as specified in [[../master/bip-taro-ms-smt.mediawiki|bip-taro-ms-smt]].
-# If the Taro output to be validated only specifies a <code>split_commitment</code>, then the <code>prev_asset_witnesses</code> of the referenced root output are used in place.
 # For each Taro input ''c_i'', identified in the <code>prev_asset_witnesses</code> field:
 ## Serialize the referenced previous asset leaf (identified by <code>prev_outpoint || asset_id || asset_script_hash</code>) in TLV format.
 ## Insert this leaf into the MS-SMT tree, with a key of the <code>prev_id_identifier</code>, a value of the serialized leaf, and sum value of the asset amount contained in the leaf.
@@ -80,29 +91,37 @@ verification, as there may be multiple input witnesses, during validation, the
 
 ====Mapping Outputs====
 
+Output mapping is only executed for state transitions that specify
+<code>prev_asset_witnesses</code>.
+
 Given a Taro output, and any associated outputs contained within its
 <code>split_commitment_root</code>, the output commitment is constructed as
 follows:
 
-# If the Taro output to be validated includes a
 # Let the output value be the sum of all the <code>amt</code> fields on the top level as well as the split commitment cohort set, in other words the last 4-bytes of the <code>split_commitment_root</code>.
 # Let the output script be the first 32-bytes of the <code>split_commitment_root</code> value converted to a segwit v1 witness program (taproot).
 
 ====Validating a State Transition====
 
-Once the set of inputs and outputs have been mapped to our virtual Bitcoin
+If a state transition specifies a <code>prev_asset_witnesses</code> field, then
+once the set of inputs and outputs have been mapped to our virtual Bitcoin
 transaction (creating a v2 Bitcoin transaction with a single input and output),
 validation proceeds as normal according to BIP 341+342 with the following
 modifications:
 
+
 # If the <code>input_asset_sum</code> is not exactly equal to the <code>output_asset_sum</code> validation MUST fail.
-# If the Taro output to be validated only specifies a <code>split_commitment_root</code> and no explicit inputs, then a valid inclusion proof for the output MUST be presented and valid.
 # The previous public key script for each input is to be the <code>asset_script_hash</code> for each previous input, mapped to a v1 segwit witness program (taproot).
 # The input value for each included input is to be the <code>amt</code> field of the previous Taro output being spent.
 # All signatures included in the witness MUST be exactly 64-bytes in length, which triggers <code>SIGHASH_DEFAULT</code> evaluation.
 # If the <code>prev_asset_id</code> is blank, then ALL witnesses MUST be blank as well and the <code>prev_outpoint</code> values as well. In this case, verification succeeds as this is only a creation/minting transaction.
 # If the <code>asset_id</code> value is NOT the same for each Taro input and output, validation MUST fail.
 ## Alternatively, if each input and output has the same referenced <code>asset_family_key</code>, then only the <code>asset_tags</code> MUST match.
+
+Otherwise, if a state transition only specifies a <code>split_commitment_proof<code>, then:
+# If the Taro output to be validated only specifies a <code>split_commitment_proof</code> and no explicit inputs, then a valid inclusion proof for the output MUST be presented and valid.
+## If the proof is invalid, then validation MUST fail.
+# Given the "parent" split, execute the input+output mapping and verify the state transition using the logic above.
 
 (TODO(roasbeef): lift the sighash requirement here? useful for swappy stuff??)
 
