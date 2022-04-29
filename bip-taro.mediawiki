@@ -209,8 +209,14 @@ asset ID. A given Taro asset tree is composed of two nested MS-SMT instances:
 # The second level maps an <code>asset_script_key</code> or <code>asset_id || asset_script_key</code> to a serialized Taro asset leaf.
 
 The root hash of an asset tree, observing [[../master/bip-0341.mediawiki|BIP-341]] is
-represented as a Tapscript tree with a single leaf:
-* <code>tagged_hash("TapLeaf", leaf_version || taro_version || asset_tree_root)</code>
+represented as a Tapscript tree that commits to a single unique leaf of:
+* <code>tagged_hash("TapLeaf", leaf_version || taro_marker || taro_version || asset_tree_root)</code>
+
+where:
+* <code>taro_marker</code> is the <code>sha256</code> hash of the ascii string "taro".
+* <code>taro_version</code> is the version of the taro system which defines how the remainder of the commitment value is to be interpreted.
+* <code>asset_tree_root</code> is a 40 byte (32 byte for hash, 8 bytes for value) MS-SMT root.
+
 
 A <code>leaf_version</code> of ??? is selected. From the PoV of the Bitcoin
 system, we've simply committed to a tapscript leaf with an unparseable Script.
@@ -219,12 +225,13 @@ Taro-specific commitments, then the same or different leaf version can be used
 to gate verification of the new behavior.
 
 An <code>asset_id</code> is the 32-byte hash of: 
-* <code>sha256(genesis_outpoint || asset_tag || asset_meta)</code>
+* <code>sha256(genesis_outpoint || asset_tag || asset_meta || output_index)</code>
 
 where:
 * <code>genesis_outpoint</code> is the first previous input outpoint used in the asset genesis transaction serialized in Bitcoin wire format.
 * <code>asset_tag</code> is a random 32-byte value that represents a given asset, and can be used to link a series of discrete assets into a single asset family. In practice, this will typically be the hash of a human readable asset name.
 * <code>asset_meta</code> is an opaque 32-byte value that can be used to commit to various metadata including external links, documents, stats, attributes, images, etc. Importantly, this field is considered to be ''immutable''.
+* <code>output_index</code> is the index of the output which contains the unique Taro commitment in the genesis transaction. 
 
 Given the above structure, the <code>asset_id</code> is guaranteed to be
 globally unique from the PoV of the chain, as thanks to
@@ -232,8 +239,136 @@ globally unique from the PoV of the chain, as thanks to
 as outpoints can never repeat once serialized within the block chain.
 
 In addition, we enforce a rule that a given output MUST only have a ''single''
-root Taro asset commitment (any other duplicates cannot be spent due to the way
-asset witnesses bind to the input outpoint). 
+root Taro asset commitment. In order to verify this property, we enforce the
+following constraints on the position of the root Taro asset tree commitment:
+* The asset root commitment MUST be the leftmost or rightmost leaf in the tapscript tree:
+** We enforce this by requiring the reveal of the taro commitment in the script tree to either be of depth 0 or 1.
+* For a reveal proof of depth 0 (a 32 byte control block), the Taro commitment is the only element in the control block proof, as it directly becomes the root hash.
+* For a reveal proof of depth 1 (a 64 byte control block), we require the prover to also reveal the pre-image of the sibling hash.
+** With a root position of depth 1, the Taro commitment is either the leftmost or rightmost element of the fully sorted tapscript tree.
+** To be a valid Taro root commitment, the sibling hash pre-image MUST either:
+*** Be exactly 64 bytes, which means that the sibling is itself a tap branch (a Taro root pre-image is itself 76 bytes: 2 byte version, 32 byte taro marker, 2 byte taro version, 32 byte hash, 8 byte sum value), as bound by its BIP-340 tagged hash tag.
+*** Or, is a tap leaf, as verifiable via the unique BIP-340 tagged hash tag.
+**** In this case, the leaf MUST be verified against the raw message digest to detect and reject duplicate Taro commitment inclusion in the tapscript tree (see the <code>taro_marker</code>).
+
+Due to the lexicographical sorting of tap branches/leaves before hashing, we
+lose the ordering information within the merkle tree. As a result, we're
+instead forced to require reveal of the sibling pre-image.
+
+The following algorithm can be used to assert the uniqueness of the Taro
+commitment in a tapscript tree:
+<source lang="python">
+taro_commitment_is_valid(commitment_output: TxOut, control_block: ControlBlock, 
+    sibling_preimage: TaroTapReveal, taro_root: []byte) -> bool
+    
+    taro_root_hash = tagged_hash("TapLeaf", taro_root)
+    internal_key = parse_key(control_block.internal_key_bytes)
+
+    match len(control_block.size):
+       # Just the internal public key, so we can just verify the commitment below.
+       case 32:
+           expected_output_key = internal_key + tagged_hash("TapTweak", internal_key || taro_root_hash)*G
+
+           return expected_output_key == witness_program(commitment_output.pk_script)
+
+       # More than one element in the tree, so need to verify each sub-case.
+       case 65:
+           
+           match sibling_preimage:
+               # The pre-image is a non-taro leaf, so verify the hashes match up.
+               case LeafReveal(leaf_bytes):
+                   # The leaf can't share the taro marker bytes, otherwise it
+                   # may be a legitimate commitment.
+                   if leaf_bytes[2:].starts_with(taro_marker):
+                       return false
+
+                   leaf_hash = tagged_hash("TapLeaf", leaf_bytes)
+
+                   if leaf_hash != control_block.sibling_hash:
+                       return false
+
+               # The pre-image is itself a branch, so we need the two siblings
+               # used to construct the branch.
+               case BranchReveal(sibling_1, sibling_2):
+                   expected_branch_hash = tagged_hash("TapBranch", sort(sibling_1, sibling_2))
+
+                   if expected_branch_hash != construct.sibling_hash:
+                       return false
+
+               # We know the tree is well formed now, so we'll verify the root
+               # commitment.
+               root_hash = tagged_hash("TapBranch", sort(taro_root_hash, control_block.sibling_hash))
+
+               expected_output_key = internal_key + tagged_hash("TapTweak", internal_key || root_hash)*G
+
+               return expected_output_key == witness_program(commitment_output.pk_script)
+
+       default:
+           return false
+
+</source>
+
+In addition to verifying that a commitment is unique within the constraints of
+a single taproot tree, we also need to verify that there is no other
+_duplicate_ or unexpected commitment across the remaining outputs in the
+genesis transaction. We can do this by asserting that:
+* For each output on the genesis transaction that isn't creating an asset:
+** If top level key was derived using BIP 86, then verify the key derivation.
+** If the key commits to a script path:
+*** If only a single element is in the tree, verify that isn't a duplicate commitment.
+*** If the tree contains more than one element, then verify that the pre-image of the two branches isn't a duplicate commitment.
+
+In the case of a typical genesis transaction (1 input, 1 output) no additional
+information needs to be exchanged. However if the transaction also has
+additional outputs, then a minimal control block reveal (32 or 65 bytes) is
+required.
+
+The following algorithm can be used to verify that an output elsewhere in the
+transaction doesn't commit to a duplicate Taro commitment:
+<source lang="python">
+verify_no_taro_up_my_sleeves(genesis_tx: Tx, taro_root: []byte) -> bool
+
+    for tx_out in genesis_tx.tx_outs:
+        # We can ignore any non-P2TR output, as they can't commit to taro assets.
+        if !commitment_expected(tx_out):
+            continue
+
+        # We're expecting a commitment at this point, so we'll walk through
+        # our two cases.
+        match tx_out.taproot_commitment:
+            # A single leaf, so we just verify it isn't the taro commitment.
+            case SingleLeaf(leaf_bytes, internal_key):
+               # Someone has some 'splaining to do...
+               if leaf_bytes == taro_root:
+                   return false
+
+               leaf_hash = tagged_hash("TapLeaf", leaf_bytes)
+               expected_output_key = internal_key + tagged_hash("TapTweak", internal_key || leaf_hash)*G
+
+               if expected_output_key != witness_program(tx_out.pk_script):
+                   return false
+
+           # More than one element, so we verify that neither of the pre-image
+           # are a duplicate commitment.
+           case MultiLeaf(branch_1_bytes, branch_2_bytes):
+               if branch_1_bytes == taro_root:
+                   return false
+
+               if branch_2_bytes == taro_root:
+                   return false
+               
+               branch_hash = tagged_hash("TapBranch", sort(branch_1_bytes, branch_2_bytes))
+
+               expected_output_key = internal_key + tagged_hash("TapTweak", internal_key || leaf_hash)*G
+
+               if expected_output_key != witness_program(tx_out.pk_script):
+                   return false
+    return true
+</source>
+
+A deterministic algorithm that constructs a final taproot merkle tree hash
+given either a set of individual leaves, or a complete tapscript tree (the root
+hash) is described in <code>bip-taro-taproot-merkle-tree.mediawiki</code>.
 
 The <code>asset_tag</code> field cannot be enforced to be ''globally'' unique.
 Instead to ensure locally unique <code>asset_id</code> instances within initial
@@ -469,6 +604,134 @@ other normal script-path scripts within the tapscript tree.
 
 The above example creates only a single asset. It's possible to also create
 several assets within a single output, thereby batching asset creation.
+
+===Asset Burning===
+
+Given the requirement that Taro commitments be unique within the context of a
+tapscript commitment, Taro assets can also be ''provably burned''.
+
+In order to burn an asset, the holder of the asset can simply ''remove'' the
+Taro asset leaf from their asset tree.
+
+In order to prove to a 3rd party that an asset has been burnt, the holder of
+said asset must reveal the following information:
+* A non-inclusion proof rooted at their asset tree that proves that asset in question is no longer committed to.
+* A proof for each other top-level output in the burning transaction that asserts the following:
+** For each output, that doesn't commit to the asset tree the non-inclusion proof is rooted at, the first depth of the control block leaf reveal must be presented:
+*** If the output key was created via BIP 86, then simply verify the mapping based on the internal key. In this case there is no script tree being committed to.
+*** If the proof is of depth 0, meaning only a single value is committed to, then assert the item isn't a duplicate Taro asset root.
+**** If the leaf is a Taro commitment, present a non-inclusion proof showing the asset is no longer being committed to.
+*** If the proof is of depth 1, then assert that either both elements are tap branches, or one of the items is a leaf that isn't a duplicate Taro asset root.
+**** If either of the leaves are a valid Taro commitment, create a non-inclusion proof showing the asset is no longer being committed to.
+
+Asset burning and verification can be expressed via the following algorithms:
+
+<source lang="python">
+can_commit_to_taro(tx_out: TxOut) -> bool
+    match tx_out.pk_script:
+       case PayToTapRoot(output_key, internal_key):
+          if is_bip_86(output_key, internal_key):
+              return false
+
+           return true
+
+       default:
+          return false
+
+burn_asset(asset_id: AssetID, asset_script_key: SchnorrKey, taro_root: MerkleSumSMT, tx_outs: []TxOut) -> (PkScript, SMTProof):
+    # Obtain the asset SMT sub-tree within the main taro commitment.
+    asset_smt = taro_root.fetch_asset_tree(asset_key)
+
+    # Next, delete the asset leaf and propagate that change to generate a new root.
+    new_asset_root = asset_smt.delete_leaf(asset_id, asset_script_key).merkle_up()
+
+    # We'll now replace the asset ID sub tree in the main taro tree.
+    new_taro_root = asset_smt.replace_key(asset_id).merkle_up()
+
+    # Now that we have the new root, we'll use a fresh internal key and generate the output for it.
+    internal_key = new_internal_key()
+    taro_output = taproot_output_script(key=internal_key, leaves=[new_taro_root])
+
+    # The final step is to generate a non-inclusion proof to show the asset is no being committed to.
+    asset_burn_proof = gen_non_inclusion_proof(new_taro_root, asset_id, asset_script_key)
+
+    # We'll also supplement the proof above with sub-proofs for each other
+    # output in the burning transaction, to prove that the asset no longer
+    # exists.
+    for tx_out in tx_outs:
+        if !can_commit_to_taro(tx_out):
+            continue
+
+        asset_burn_proof.exclusion_proofs[tx_out] = gen_non_inclusion_proof(
+            tx_out.taro_root, asset_id, asset_script_key,
+        )
+
+    return (taro_output,  asset_burn_proof)
+
+no_taro_commitment(tx_out: TxOut) -> bool
+    // Take a look at the taproot commitment for this this output. Again
+    // there're two cases: single leaf, and multi leaf.
+    match tx_out.taproot_commitment:
+        # A single leaf, verify that the market bytes aren't present.
+        case SingleLeaf(leaf_bytes, internal_key):
+           if leaf_bytes[2:].starts_with(taro_marker):
+               return false
+
+       # More than one element, verify that each of those pre-images don't
+       # contain the market bytes.  
+       case MultiLeaf(branch_1_bytes, branch_2_bytes):
+           if branch_1_bytes(taro_marker):
+               return false
+
+           if branch_2_bytes[2:].starts_with(taro_marker):
+               return false
+
+    return true
+
+verify_burn_asset_proof(burn_txn: Tx, taro_root: MerkleSumSMT, burnt_asset: AssetBurnProof) -> bool
+    # Using their latest taro root, verify that the non-inclusion proof is valid.
+    if !verify_non_inclusion_proof(burn_txn, taro_root, burnt_asset.proof):
+        return false
+
+    # Verify that the burning transaction also properly commits to the new root in a unique manner.
+    if !taro_commitment_is_valid(
+        burn_txn.taro_txout, burnt_asset.reveal_proof, burnt_asset.sibling, 
+        taro_root,
+    ):
+        return false
+
+    # Verify that no other duplicate taro commitment is found in the
+    # transaction.
+    if !verify_no_taro_up_my_sleeves(burn_txn, taro_root):
+        return false
+    
+    # Finally verify the series of other non-inclusion proofs for each _other_
+    # output in the burning transaction. This ensures that the asset isn't
+    # being committed to elsewhere.
+    for tx_out in burn_tx.tx_outs:
+        # Filter out any non-P2TR or BIP 86 outputs as they can't commit to
+        # taro assets.
+        if !can_commit_to_taro(tx_out):
+            continue
+
+        # If the output can, but doesn't commit to any tassets, then we can
+        # skip it. We recognize this using the taro bytes market.
+        if no_taro_commitment(tx_out):
+            continue
+
+        # The asset has a commitment, so we'll locate the non-inclusion proof
+        # to verify.
+        output_proof = burn_asset.tx_out_non_inclusion_proof(tx_out)
+        if !verify_non_inclusion_proof(
+            burn_tx, tx_out, output_proof.taro_root, output_proof.non_inclusion_proof
+        ):
+            return false
+
+    return true
+</source>
+
+In practice, verifiers will also likely want to assert that the merkle sum
+amount being committed to is inline with their expectations.
 
 ===Asset Transfers===
 
