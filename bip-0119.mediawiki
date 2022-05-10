@@ -167,31 +167,40 @@ OP_CHECKTEMPLATEVERIFY as implemented in C++ in the context of Bitcoin Core can
 be seen in the reference implementation.
 
 The execution of the opcode is as follows:
-    def execute_bip_119(self):
-        # Before soft-fork activation / failed activation
-        if not self.flags.script_verify_default_check_template_verify_hash:
-            # Potentially set for node-local policy to discourage premature use
-            if self.flags.script_verify_discourage_upgradable_nops:
-                return self.errors_with(errors.script_err_discourage_upgradable_nops)
-            return self.return_as_nop()
-        # CTV always requires at least one stack argument
-        if len(self.stack) < 1:
-            return self.errors_with(errors.script_err_invalid_stack_operation)
-        # CTV only verifies the hash against a 32 byte argument
-        if len(self.stack[-1]) == 32:
-            # Ensure the precomputed data required for anti-DoS is available,
-            # or cache it on first use
-            if self.context.precomputed_ctv_data == None:
-                self.context.precomputed_ctv_data = self.context.tx.get_default_check_template_precomputed_data()
-            if stack[-1] != self.context.tx.get_default_check_template_hash(self.context.nIn, self.context.precomputed_ctv_data)
-                return self.errors_with(errors.script_err_template_mismatch)
-            return self.return_as_nop()
-        # future upgrade can add semantics for this opcode with different length args
-        # so discourage use when applicable
+<source lang="python">
+def execute_bip_119(self):
+    # Before soft-fork activation / failed activation
+    # continue to treat as NOP4
+    if not self.flags.script_verify_default_check_template_verify_hash:
+        # Potentially set for node-local policy to discourage premature use
         if self.flags.script_verify_discourage_upgradable_nops:
             return self.errors_with(errors.script_err_discourage_upgradable_nops)
-        else:
-            return self.return_as_nop()
+        return self.return_as_nop()
+
+    # CTV always requires at least one stack argument
+    if len(self.stack) < 1:
+        return self.errors_with(errors.script_err_invalid_stack_operation)
+
+    # CTV only verifies the hash against a 32 byte argument
+    if len(self.stack[-1]) == 32:
+        # Ensure the precomputed data required for anti-DoS is available,
+        # or cache it on first use
+        if self.context.precomputed_ctv_data == None:
+            self.context.precomputed_ctv_data = self.context.tx.get_default_check_template_precomputed_data()
+
+        # If the hashes do not match, return error
+        if stack[-1] != self.context.tx.get_default_check_template_hash(self.context.nIn, self.context.precomputed_ctv_data)
+            return self.errors_with(errors.script_err_template_mismatch)
+
+        return self.return_as_nop()
+
+    # future upgrade can add semantics for this opcode with different length args
+    # so discourage use when applicable
+    if self.flags.script_verify_discourage_upgradable_nops:
+        return self.errors_with(errors.script_err_discourage_upgradable_nops)
+    else:
+        return self.return_as_nop()
+</source>
 
 The computation of this hash can be implemented as specified below (where self
 is the transaction type). Care must be taken that in any validation context,
@@ -202,46 +211,50 @@ including hashes of the scriptsigs, sequences, and outputs. See the section
 "Denial of Service and Validation Costs" below. This is not a performance
 optimization.
 
-    def get_default_check_template_precomputed_data(self):
-        result = {}
-        # If there are no scriptSigs we do not need to precompute a hash
-        if any(inp.scriptSig for inp in self.vin):
-            result["scriptSigs"] = sha256(b"".join(ser_string(inp.scriptSig) for inp in self.vin))
-        # The same value is also pre-computed for and defined in BIP-341 and can be shared
-        result["sequences"] = sha256(b"".join(struct.pack("<I", inp.nSequence) for inp in self.vin))
-        # The same value is also pre-computed for and defined in BIP-341 and can be shared
-        result["outputs"] = sha256(b"".join(out.serialize() for out in self.vout))
-        return result
+<source lang="python">
+def get_default_check_template_precomputed_data(self):
+    result = {}
+    # If there are no scriptSigs we do not need to precompute a hash
+    if any(inp.scriptSig for inp in self.vin):
+        result["scriptSigs"] = sha256(b"".join(ser_string(inp.scriptSig) for inp in self.vin))
+    # The same value is also pre-computed for and defined in BIP-341 and can be shared
+    result["sequences"] = sha256(b"".join(struct.pack("<I", inp.nSequence) for inp in self.vin))
+    # The same value is also pre-computed for and defined in BIP-341 and can be shared
+    result["outputs"] = sha256(b"".join(out.serialize() for out in self.vout))
+    return result
 
-    # parameter precomputed must be passed in for DoS resistance
-    def get_default_check_template_hash(self, nIn, precomputed = None):
-        if precomputed == None:
-            precomputed = self.get_default_check_template_precomputed_data()
-        r = b""
-        # pack as 4 byte signed integer
-        r += struct.pack("<i", self.nVersion)
-        # pack as 4 byte unsigned integer
-        r += struct.pack("<I", self.nLockTime)
-        # we do not include the hash in the case where there is no
-        # scriptSigs
-        if "scriptSigs" in precomputed:
-            r += precomputed["scriptSigs"]
-        # pack as 4 byte unsigned integer
-        r += struct.pack("<I", len(self.vin))
-        r += precomputed["sequences"]
-        # pack as 4 byte unsigned integer
-        r += struct.pack("<I", len(self.vout))
-        r += precomputed["outputs"]
-        # pack as 4 byte unsigned integer
-        r += struct.pack("<I", nIn)
-        return sha256(r)
+# parameter precomputed must be passed in for DoS resistance
+def get_default_check_template_hash(self, nIn, precomputed = None):
+    if precomputed == None:
+        precomputed = self.get_default_check_template_precomputed_data()
+    r = b""
+    # pack as 4 byte signed integer
+    r += struct.pack("<i", self.nVersion)
+    # pack as 4 byte unsigned integer
+    r += struct.pack("<I", self.nLockTime)
+    # we do not include the hash in the case where there is no
+    # scriptSigs
+    if "scriptSigs" in precomputed:
+        r += precomputed["scriptSigs"]
+    # pack as 4 byte unsigned integer
+    r += struct.pack("<I", len(self.vin))
+    r += precomputed["sequences"]
+    # pack as 4 byte unsigned integer
+    r += struct.pack("<I", len(self.vout))
+    r += precomputed["outputs"]
+    # pack as 4 byte unsigned integer
+    r += struct.pack("<I", nIn)
+    return sha256(r)
+</source>
 
 
 A PayToBareDefaultCheckTemplateVerifyHash output matches the following template:
 
-    # Extra-fast test for pay-to-basic-standard-template CScripts:
-    def is_pay_to_bare_default_check_template_verify_hash(self):
-        return len(self) == 34 and self[0] == 0x20 and self[-1] == OP_CHECKTEMPLATEVERIFY
+<source lang="python">
+# Extra-fast test for pay-to-basic-standard-template CScripts:
+def is_pay_to_bare_default_check_template_verify_hash(self):
+    return len(self) == 34 and self[0] == 0x20 and self[-1] == OP_CHECKTEMPLATEVERIFY
+</source>
 
 
 ==Deployment==
