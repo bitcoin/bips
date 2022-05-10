@@ -212,6 +212,34 @@ including hashes of the scriptsigs, sequences, and outputs. See the section
 optimization.
 
 <source lang="python">
+
+def ser_compact_size(l):
+    r = b""
+    if l < 253:
+        # Serialize as unsigned char
+        r = struct.pack("B", l)
+    elif l < 0x10000:
+        # Serialize as unsigned char 253 followed by unsigned 2 byte integer (little endian)
+        r = struct.pack("<BH", 253, l)
+    elif l < 0x100000000:
+        # Serialize as unsigned char 254 followed by unsigned 4 byte integer (little endian)
+        r = struct.pack("<BI", 254, l)
+    else:
+        # Serialize as unsigned char 255 followed by unsigned 8 byte integer (little endian)
+        r = struct.pack("<BQ", 255, l)
+    return r
+
+def ser_string(s):
+    return ser_compact_size(len(s)) + s
+
+class CTxOut:
+    def serialize(self):
+        r = b""
+        # serialize as signed 8 byte integer (little endian)
+        r += struct.pack("<q", self.nValue)
+        r += ser_string(self.scriptPubKey)
+        return r
+
 def get_default_check_template_precomputed_data(self):
     result = {}
     # If there are no scriptSigs we do not need to precompute a hash
@@ -221,6 +249,7 @@ def get_default_check_template_precomputed_data(self):
     # each nSequence is packed as 4 byte unsigned integer (little endian)
     result["sequences"] = sha256(b"".join(struct.pack("<I", inp.nSequence) for inp in self.vin))
     # The same value is also pre-computed for and defined in BIP-341 and can be shared
+    # See class CTxOut above for details.
     result["outputs"] = sha256(b"".join(out.serialize() for out in self.vout))
     return result
 
@@ -229,21 +258,21 @@ def get_default_check_template_hash(self, nIn, precomputed = None):
     if precomputed == None:
         precomputed = self.get_default_check_template_precomputed_data()
     r = b""
-    # pack as 4 byte signed integer (little endian)
+    # Serialize as 4 byte signed integer (little endian)
     r += struct.pack("<i", self.nVersion)
-    # pack as 4 byte unsigned integer (little endian)
+    # Serialize as 4 byte unsigned integer (little endian)
     r += struct.pack("<I", self.nLockTime)
     # we do not include the hash in the case where there is no
     # scriptSigs
     if "scriptSigs" in precomputed:
         r += precomputed["scriptSigs"]
-    # pack as 4 byte unsigned integer (little endian)
+    # Serialize as 4 byte unsigned integer (little endian)
     r += struct.pack("<I", len(self.vin))
     r += precomputed["sequences"]
-    # pack as 4 byte unsigned integer (little endian)
+    # Serialize as 4 byte unsigned integer (little endian)
     r += struct.pack("<I", len(self.vout))
     r += precomputed["outputs"]
-    # pack as 4 byte unsigned integer (little endian)
+    # Serialize as 4 byte unsigned integer (little endian)
     r += struct.pack("<I", nIn)
     return sha256(r)
 </source>
