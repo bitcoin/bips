@@ -1,0 +1,228 @@
+pre>
+  BIP: ?
+  Layer: Peer Services
+  Title: Generic Package Relay
+  Author: Gloria Zhao <gloriajzhao@gmail.com>
+  Comments-Summary:
+  Comments-URI:
+  Status: Draft
+  Type: Standards Track
+  Created: 2022-04-14
+  License: PD
+</pre>
+
+==Abstract==
+
+This document proposes network messages for requesting and relaying groups of transactions together.
+
+==Motivation==
+
+# Propagate transactions that are incentive-compatible to mine, even if they don't meet minimum feerate alone.
+
+# Minimize storage of '''orphan''' transactions. A node considers a transaction to be an orphan if one or more inputs refers to an output the node does not know about.  Avoid requesting transactions by txid as opposed to wtxid (see BIP 339).
+
+==Specification==
+
+A '''package''' is an ordered list of transactions, representable by a connected Directed Acyclic
+Graph (a directed edge exists between a transaction that spends the output of another transaction).
+
+Two main ideas are introduced:
+
+# Download and validate packages of transactions together.
+
+# Provide information to help peers decide whether to request and/or how validate transactions which are part of a package.
+
+===Intended Protocol Flow===
+
+Due to the asynchronous nature of a distributed transaction relay network, nodes may not receive all
+of the information needed to validate a transaction at once. For example, after a node completes
+Initial Block Download (IBD) and first starts participating in transaction relay with an empty
+mempool, it is common to receive orphans. In such scenarios where a node is aware that it is missing
+information, a '''receiver-initiated''' dialogue is appropriate:
+
+# Receiver requests package information.
+
+# The sender provides package information, including the wtxids of the transactions in the package and anything else that might be relevant (e.g. total fees and size).
+
+# The receiver uses the package information to decide how to request and validate the transactions.
+
+[[File:./bip-package-relay/receiver_init_dialogue.png|600px]]
+
+''Diagram: A receiver-initiated dialogue.''
+
+Sometimes, no matter what order transactions are received by a node, validating them individually is
+insufficient. When the sender is aware of additional information that the receiver needs to accept a
+package, a proactive '''sender-initiated''' dialogue should be enabled:
+
+# Sender announces they have package information pertaining to a transaction that might otherwise be undesired on its own.
+
+# The receiver requests package information.
+
+# The sender provides package information, including the wtxids of the transactions in the package and anything else that might be relevant (e.g. total fees and size).
+
+# The receiver uses the package information to decide how to request and validate the transactions.
+
+[[File:./bip-package-relay/sender_init_dialogue.png|600px]]
+
+''Diagram: A sender-initiated dialogue.''
+
+Package relay is negotiated between two peers during the version handshake. Package relay requires
+both peers to support wtxid-based relay because package transactions are referenced by their wtxid.
+
+[[File:./bip-package-relay/sendpackages_negotiation.png|900px]]
+
+''Diagram: Package relay feature negotiation happens between version and verack.''
+
+===New Messages===
+
+Three new protocol messages are added for use in any version of package relay.
+
+====sendpackages====
+
+{|
+|  Field Name  ||  Type  ||  Size  ||  Purpose
+|-
+|version || uint32_t || 4 || Denotes a package version supported by the node.
+|-
+|}
+
+# The "sendpackages" message has the structure defined above, with pchCommand == "sendpackages".
+
+# During version handshake, nodes should send a "sendpackages" message indicate they support package relay and may request packages. Nodes should send a "sendpackages" message for each version they support.
+
+# Upon receipt of a "sendpackages" message with a version that is not supported, a node must treat the peer as if it never received the message.
+
+# The "sendpackages" message MUST be sent before sending a "verack" message. If a "sendpackages" message is received afer "verack", the sender may be disconnected.
+
+# A node that sent fRelay=false in their "version" message MUST NOT send a "sendpackages" message.
+
+# A node that sends "sendpackages" MUST also send "wtxidrelay". Upon receipt of a "verack", if the sender has sent a "sendpackages" but not "wtxidrelay", the sender may be disconnected.
+
+
+====getpkgtxns====
+
+{|
+|  Field Name  ||  Type  ||  Size  ||   Purpose
+|-
+|txns_length||CompactSize||1 or 3 bytes|| The number of transactions requested.
+|-
+|txns||List of wtxids||txns_length * 32|| The wtxids of each transaction in the package.
+|}
+
+# The "getpkgtxns" message has the structure defined above, with pchCommand == "getpkgtxns".
+
+# A "getpkgtxns" message should be used to request all or some of the transactions previously announced in a "pkginfo" message, specified by witness transactiosome id. This message is intended to allow nodes to avoid downloading and storing transactions that cannot be validated immediately.
+
+# Upon receipt of a "getpkgtxns" message, a node must respond with either a "pkgtxns" containing the requested transactions or a "notfound" message indicating one or more of the transactions is unavailable.
+
+====pkgtxns====
+
+{|
+|  Field Name  ||  Type  ||  Size  ||   Purpose
+|-
+|txns_length||CompactSize||1 or 3 bytes|| The number of transactions provided.
+|-
+|txns||List of transactions||variable|| The transactions in the package.
+|}
+
+# The "pkgtxns" message has the structure defined above, with pchCommand == "pkgtxns".
+
+# A "pkgtxns" message should contain the transaction data requested using "getpkgtxns".
+
+# Upon reeipt of a "pkgtxns" message, the node should validate the transactions together as a package rather than individually.
+
+# A "pkgtxns" message should only be sent to a peer that requested the package using "getpkgtxns".  If a node receives an unsolicited package, the sender may be disconnected.
+
+===Protocol Extensions===
+
+When introducing a new type of package, assign it a version number "n" and use an additional
+"sendpackages" message during version handshake to negotiate support for it. An additional package
+information message "pkginfon" and inv type "MSG_PKGn" should be defined for the type of package.
+However, "getpkgtxns" and "pkgtxns" do not need to be changed.
+
+==Compatibility==
+
+Older clients remain fully compatible and interoperable after this change. Clients implementing this
+protocol will only attempt to send and request packages if agreed upon during the version handshake.
+
+==Rationale==
+
+===P2P Message Design===
+
+====Alternative Designs====
+
+Several alternative designs were considered. One should measure alternative solutions based on the
+resources used to communicate (not necessarily trustworthy) information: We would like to minimize
+network bandwidth, avoid downloading a transaction more than once, avoid downloading transactions
+that are eventually rejected, and minimize storage allocated for not-yet-validated transactions.
+
+Consider these scenarios specifically transaction relay:
+
+Alice (the "sender") is relaying transactions to Bob (the "receiver").
+Alice's mempool has a minimum feerate of 1sat/vB and Bob's has a minimum feerate of 3sat/vB.
+For simplicity, all transactions are 1600Wu in virtual size and 500 bytes in serialized size.
+Apart from the spending relationships specified, all other inputs are from confirmed UTXOs.
+
+# Package {A, B} where A pays 0 satoshis and B pays 8000 satoshis in fees.
+
+# Package {C, D} where C pays 0 satoshis and D pays 1200 satoshis in fees.
+
+# Package {E, F, G, H, J} that pays 4000, 8000, 0, 2000, and 4000 satoshis in fees, respectively.
+
+[[File:./bip-package-relay/tx_scenarios.png|800px]]
+
+''Diagram: Transaction scenarios to consider when evaluating alternative designs. Note that the average transaction size is much larger than a SHA256 hash.''
+
+'''Package Information Only:''' Just having "pkginfo" gives enough information for the receiver to
+accept the package. Omit the "getpkgtxns" and "pkgtxns" messages. While this option is a good
+fallback if batched transaction download fails for some reason, it shouldn't be used as the default
+because it 'always' requires storage of unvalidated transactions.
+
+[[File:./bip-package-relay/package_info_only.png|1200px]]
+
+''Diagram: Alternative design where package relay only involves information.''
+
+'''No Package Information Round:''' Instead of having a package information round, just use the
+child's wtxid to refer to the package and always send the entire package together. This would cause
+nodes to redownload duplicate transactions.
+
+[[File:./bip-package-relay/no_package_info.png|900px]]
+
+''Diagram: Alternative design where nodes relay package transactions directly.''
+
+===Versioning System===
+
+Attempting to support arbitrary packages in mempool validation may result in very complex logic, new
+Denial of Service attack vectors, and policy limitations that could be leveraged to censor
+transactions (aka "pinning attacks"). However, the p2p protocol should be extensible to support
+multiple types of packages based on future desired use cases. It should also be possible to support
+some subset of the existing package types. For example, if a node's mempool policy doesn't support
+or a node implementation deprecates version 2, it should be easy to announce support for version 1,
+but not version 2, packages.
+
+==Implementation==
+
+WIP
+
+==Copyright==
+
+This document is placed in the public domain.
+
+==Acknowledgements==
+
+Thank you to John Newbery, Anthony Towns, and Martin Zumsande for input on the design.
+
+Thank you to Gregory Sanders for input on the document itself.
+
+Much of this work builds off of ideas and code by Suhas Daftuar and Antoine Riard. [0][1][2][3]
+
+==References==
+
+[0]: https://gist.github.com/sdaftuar/8756699bfcad4d3806ba9f3396d4e66a
+
+[1]: https://github.com/bitcoin/bitcoin/issues/14895
+
+[2]: https://github.com/bitcoin/bitcoin/pull/16401
+
+[3]: https://github.com/bitcoin/bitcoin/pull/19621
+
