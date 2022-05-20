@@ -1,0 +1,145 @@
+pre>
+  BIP: ?
+  Layer: Peer Services
+  Title: Tx-with-Unconfirmed-Ancestors (v2) Packages
+  Authors: Gloria Zhao <gloriajzhao@gmail.com>
+	   John Newbery <john@johnnewbery.com>
+  Comments-Summary:
+  Comments-URI:
+  Status: Draft
+  Type: Standards Track
+  Created: 2022-05-19
+  License: PD
+</pre>
+
+==Abstract==
+
+Extension of package relay for transaction with all unconfirmed ancestors to reduce orphans and
+txid-based relay.
+
+==Motivation==
+
+Txid-based transaction relay is problematic since a transaction's witness may be malleated without
+changing its txid; a node cannot use txid to deduplicate transactions it has already downloaded
+or validated. Ideally, two nodes that both support BIP339 wtxid-based transaction relay shouldn't
+ever need to use txid-based transaction relay.
+
+A single use case of txid-based relay remains: handling "orphans," or transactions spending
+output(s) from a transaction they are unaware of.  Orphans are common for new nodes that have just
+completed Initial Block Download (IBD) and do not have an up-to-date mempool.
+
+Nodes may handle orphans by storing them in a cache and requesting any missing parent(s) by txid
+(inputs specify by txid, not wtxid). These parents may end up being orphans as well, if they also
+spend unconfirmed inputs that the node is unaware of. This method of handling orphans is problematic
+for two reasons: it requires nodes to allocate memory for unvalidated data received on the p2p
+network and txid-based relay between two wtxid-relay peers.
+
+This proposal aims to make orphan-fetching more efficient and no longer require txid-based relay.
+
+==Specification==
+
+===Intended Protocol Flow===
+
+Upon encountering an orphan, a receiver may request package information delineating all of the
+ancestors and then request the missing ones. This is done without using txid-based relay.
+
+[[File:./bip-v2-packages/protocol_flow.png|1200px]]
+
+''Diagram: Legacy vs. tx-with-unconfirmed-ancestors package relay orphan fetching.''
+
+Tx-With-Ancestors package relay is negotiated between two peers during the version handshake using a
+"sendpackages" message containing version=2. This message should be sent in addition to a version=1
+"sendpackges" message if peers also wish to relay version 1 packages. It requires both peers to
+support wtxid-based relay because package transactions are referenced by their wtxid.
+
+[[File:./bip-v2-packages/version_negotiation.png|1200px]]
+
+''Diagram: Negotiation of multiple version of package relay between peers.''
+
+===New Messages===
+
+A new getdata type MSG_PKG2 and a new PKGINFO2 protocol message are added.
+
+====pkginfo2====
+
+{|
+|  Field Name  ||  Type  ||  Size  ||   Purpose
+|-
+|blockhash || uint32_t || 4 || The chain tip at which this package is defined.
+|-
+|txns_length||CompactSize||1 or 3 bytes|| The number of transactions provided.
+|-
+|txns||List of wtxids||txns_length * 32|| The wtxids of each transaction in the package.
+|}
+
+
+# The "pkginfo2" message has the structure defined above, with pchCommand == "pkginfo2".
+
+# Upon receipt of a "pkginfo" message, the node may use it to request the transactions not already in its mempool.
+
+# Upon receipt of a malformed "pkginfo2" message or package that does not abide by the rules of version 2 packages, the sender may be disconnected.
+
+# A node MUST NOT send a "pkginfo2" message that has not been requested by the recipient. Upon receipt of an unsolicited "pkginfo", a node should disconnect the sender.
+
+# A "pkginfo2" message should only be sent if both peers agreed to send version 2 packages in the version handshake. If a "pkginfo2" message is received from a peer with which version 2 package relay was not negotiated, the sender should be disconnected.
+
+====MSG_PKG2====
+
+# A new inv type (MSG_PKG2 == 0x7) is added, for use only in getdata requests pertaining to version 2 packages.
+
+# As a getdata request type, it indicates that the sender wants a "pkginfo2" containing all of the unconfirmed ancestors of a transaction, referenced by wtxid.
+
+# Upon receipt of a "getdata(MSG_PKG2)" request for, the node should respond with the "pkginfo2" corresponding to the requested transaction and its current chain tip, or with NOTFOUND. The node should not assume that the sender is requesting the transaction data as well.
+
+# The inv type should not be used in announcements, i.e. "inv(MSG_PKG2)".
+
+===Version 2 Packages===
+
+Version 2 package relay supports tx-with-ancestors packages. All v2 packages sent between nodes MUST
+abide by the rules below, otherwise the package is malformed and the sender should be disconnected.
+A v2 or ''tx-with-unconfirmed-ancestors'' package can be defined for any transaction that spends
+unconfirmed inputs. This package can be identified by the transaction's wtxid and the current chain
+tip block hash.
+
+# ''Sorted topologically.'' For every transaction t in the package, if any of t's parents are present in the package, the parent must appear somewhere in the list before t.
+
+# ''All unconfirmed ancestors.'' All of the child's unconfirmed ancestors must be present. The package must not contain any other transactions.
+
+# ''No conflicts.'' None of the transactions in the package may conflict with each other (i.e. spend the same prevout).
+
+# '''Maximum count and size.''' The number of transactions does not exceed 25. The total weight (as defined by BIP141) of the transactions does not exceed 404000 Wu.
+
+==Compatibility==
+
+Older clients remain fully compatible and interoperable after this change. Clients implementing this
+protocol will only attempt to send and request packages if agreed upon during the version handshake.
+
+==Implementation==
+
+Note on validation: the mempool policy created for child-with-unconfirmed-parents packages is
+insufficient to ensure that a the fees of a tx-with-ancestors package would be evaluated correctly
+(probably the best algorithm is to submit each transaction with its ancestor subset of the package).
+The recommendation is to submit the transactions individually.
+
+==Implementation==
+
+WIP
+
+==Copyright==
+
+This document is placed in the public domain.
+
+==Acknowledgements==
+
+Much of this work builds off of ideas and code by Suhas Daftuar and Antoine Riard. [0][1][2][3]
+
+==References==
+
+[0]: https://gist.github.com/sdaftuar/8756699bfcad4d3806ba9f3396d4e66a
+
+[1]: https://github.com/bitcoin/bitcoin/issues/14895
+
+[2]: https://github.com/bitcoin/bitcoin/pull/16401
+
+[3]: https://github.com/bitcoin/bitcoin/pull/19621
+
