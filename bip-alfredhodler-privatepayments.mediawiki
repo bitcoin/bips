@@ -1,0 +1,238 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Private Payments
+  Author: Alfred Hodler <alfred_hodler@protonmail.com>
+  Status: Draft
+  Type: Informational
+  Created: 2022-07-10
+  License: MIT
+</pre>
+
+In the following text the BIP number is provisionally set to 999 for technical purposes until a BIP number is assigned.
+
+==Abstract==
+
+This BIP makes it possible for two parties to transact using addresses that only they can calculate. This is done using exclusively on-chain methods and in a manner that minimizes blockchain footprint. Receiving parties can share their payment codes publicly without a loss of privacy, as every sender will calculate a unique set of addresses for each payment code.
+
+==Motivation==
+
+A recipient that wishes to receive funds normally has several options:
+
+# Sharing a static address.
+# Sharing a BIP32 extended public key.
+# Using a payment server.
+# Sharing a BIP47 payment code.
+
+The first method works well enough for one-time payments between two parties as long as the address is shared through a private channel. It does not work well for recurring payments because address reuse leads to a loss of privacy. Using this method for donations exacerbates the problem since the address will serve as a focal point for data collection and analysis.
+
+The second method works only for recurring payments between two parties. Furthermore, it does not say anything about address types and makes it possible for a sender to send to a script that a recipient cannot spend from.
+
+The third method works in the case of recipients that have the resources to set up and maintain a payment server that will generate a fresh address for each payment. These are usually businesses and the method is usually out of reach for the average user.
+
+The fourth method addresses most of the above shortcomings. However, it introduces the following problems:
+
+* The BIP does not say anything about address types. Receiving wallets therefore have to watch all address types that can be created from a single public key. Even then, a sender could send to a script that a receipient cannot spend from.
+
+* The BIP uses a notification mechanism that relies on publicly known per-recipient notification addresses. If Alice wants to send funds to Bob, she has to use the same notification address that everyone else uses to notify Bob. If Alice is not careful with coin selection, i.e. ensuring that her notification UTXO is not linked to her, she will publicly expose herself as someone who is trying to send funds to Bob and their relationship becomes permanently visible on the blockchain.
+
+==Method==
+
+When Alice wants to start paying Bob in private, she imports his payment code into a compatible wallet. Her wallet extracts Bob's public key from the payment code, constructs a notification transaction and sends it to a static address that all users of this BIP watch. If Bob finds a notification transaction addressed to himself, he imports Alice's public key contained therein and stores it. Bob then performs ECDH using Alice's public key and his own private key in order to calculate a common set of addresses to watch. Alice calculates the same set of addresses on her end and uses them to send coins to Bob. If Alice engages in coin control, both the initial notification transaction and subsequent payment transactions cannot be attributed to either party. Even if Alice uses coins that are already associated with her, chain analysis will identify her as a sender but Bob's privacy will remain entirely preserved.
+
+==Specification==
+
+===Definitions===
+
+* Alice: sender
+* Bob: recipient
+* Payment code: static string that Bob generates and shares with others so that he can receive payments
+* P: public key contained in Bob's payment code
+* p: private key associated with Bob's public key P
+* N: extended public key used by Alice to derive child keys for each Bob she wants to transact with
+* n: private key associated with Alice's public key N
+* x: Alice's secret recipient index, unique for each Bob
+* N_x: child public key derived from N at index x (non-hardened)
+* n_x: private key associated with N_x
+* Q: static notification address associated with this BIP
+* q: private key that can spend from Q
+* c: Alice's transaction count toward Bob
+* p_c: Bob's private key at index c
+* P_c: Bob's public key at index c
+* A_c: Bob's receive address at index c
+* *: EC multiplication
+* +: EC addition
+* |: string concatenation
+
+The values of q and Q are:
+
+* q: <code>0x6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d</code>
+* Q (mainnet): <code>bc1qz9380vammj5zcz5sjs65yxp6q7qq74klxjycw8</code>
+* Q (testnet): <code>tb1qz9380vammj5zcz5sjs65yxp6q7qq74klv5lt45</code>
+
+===Public Key Derivation Path===
+
+The derivation path for this BIP follows BIP44. The following BIP32 path levels are defined:
+
+<code>
+m / purpose' / coin_type' / account'
+</code>
+
+<code>purpose</code> is set to 999.
+
+<code>(p, P)</code> and <code>(n, N)</code> are keys associated with the above path, depending on which side is performing the calculation.
+
+N_x keys are the direct non-hardened children of N. For instance, the path of <code>N_0</code> from <code>N</code> is <code>m / 0</code>.
+
+===Payment Code Structure and Encoding===
+
+* bytes <code>[0..1]</code>: address type flags (2 bytes, inclusive)
+* bytes <code>[2..35]</code>: compressed public key P (33 bytes, inclusive)
+
+Payment codes are encoded in bech32m and the human readable part is "pay" for mainnet and "payt" for testnet (all types), resulting in payment codes that look like "pay1cqqq8d29g0a7m8ghmycqk5yv24mfh3xg8ptzqcn8xz6d2tjl8ccdnfkpjl7p84".
+
+===Address Types===
+
+Address type flags determine which address types a payment code accepts. This is represented by big-endian ordered 16 bits. For instance, a hypothetical payment code that handles all address types will have all defined bits set to 1.
+
+Currently defined flags:
+
+* 0x0001 - P2PKH
+* 0x0002 - P2WPKH
+* 0x0004 - P2TR
+
+The remaining flags are reserved for future address types.
+
+===Notifications===
+
+Notifications are performed by publishing transactions that contain two outputs:
+
+# minimal P2WPKH output to Q (minimal with respect to some dust threshold).
+# OP_RETURN containing a 67-byte notification payload.
+
+The purpose of the output sending to Q is so that BIP157/158 compatible clients can use compact block filters to detect notifications without having to download every block. This enables the usage of the standard in resource constrained environments. The reason the address is static is so that privacy loss cannot occur through graph building. The private key that can spend from Q is publicly known in order to incentivize UTXO consolidation by random parties.
+
+The value of the OP_RETURN output is constructed using the following formula:
+
+<code>notification_code | N_x | address_types</code>
+
+* <code>notification_code</code> is <code>SHA256(n_x * P)</code> (32 bytes)
+* <code>N_x</code> is the unique public key a sender is using for a particular recipient (33 bytes)
+* <code>address_types</code> is a two-byte bitarray whose bits are set to a subset of the ones representing recepients's accepted address types
+
+When Alice wants to notify Bob that he will receive future payments from her, she performs the following procedure:
+
+# Assigns an unused, unique index <code>x</code> to Bob (0 if Bob is the first party she is notifying).
+# Calculates a notification code: <code>notification_code = SHA256(n_x * P)</code>
+# Commits to a subset of Bob's accepted address types by constructing <code>address_types</code>. Going forward Alice must not send to address types she did not commit to in the notification.
+# Constructs a notification payload by concatenating the above values according to the formula.
+# Selects any UTXO in her wallet, preferably not associated with her.
+# Sends a transaction with one output to Q and one OP_RETURN output whose value is set to the 67 byte notification payload.
+
+When Bob notices a transaction to Q, he extracts the 67 byte payload from the second output and performs the following procedure:
+
+# Breaks down the payload into its three constituent parts.
+# Selects <code>N_x</code> (item #1) and performs <code>SHA256(N_x * p)</code> (Bob does not know the value of <code>x</code>).
+# If the above value matches the notification value (item #0), Bob found a notification addressed to himself and stores <code>N_x</code>.
+# If this process fails for any reason, Bob assumes a spurious notification or one not addressed to himself and gives up.
+
+Since changing <code>x</code> yields a completely different sender identity, Alice can always re-notify Bob from a different index when she does not want to be associated with her previous identity.
+
+===Transacting===
+
+Alice initializes counter <code>c</code> which is unique to Bob and increments with each transaction. <code>c</code> is a 64-bit integer and must be inputted into a hasher as a big-endian encoded array of 8 bytes.
+
+1. Alice calculates a secret point (constant between Alice and Bob):
+
+<code>
+S = n_x * P
+</code>
+
+2. Alice calculates a shared secret:
+
+<code>
+s = SHA256(S, c)
+</code>
+
+3. Alice calculates Bob's ephemeral public key and its associated address where the funds will be sent:
+
+<code>
+P_c = P + s*G
+</code>
+
+4. Alice constructs an address using the key <code>P_c</code>, using one of the address types she committed to in the notification transaction.
+
+Bob constructs his watchlist by mirroring this process on his end, except that his method of calculating S is:
+
+<code>
+S = N_x * p
+</code>
+
+When Bob wants to spend from such addresses, he calculates his private keys in the following manner:
+
+<code>
+p_c = p + s
+</code>
+
+==Test Vectors==
+
+===Alice's Wallet===
+'''BIP32 seed:''' 0xfe
+
+'''Master xprv:''' xprv9s21ZrQH143K2qVytoy3eZSSuc1gfzFrkV4bgoHzYTkgge4UoNP62eV8jkHYNqddaaefpnjwkz71P5m4EW6RuQBJeP9pdfa9WBnjP6XUivG
+
+'''n:''' xprv9xgkGJLpRhrdGVTFqS49xKyH85yUKWfkazSjWUbnaqmRf5ucc2YwruLmFwqwtZ3S3Whxgj52HoyTrtfbzDUrAseWmER9DK3TZUTorzSpkdt
+
+'''N:''' xpub6Bg6fosiG5QvUyXiwTbAKTv1g7oxiyPbxDNLJs1Q9BJQXtEm9ZsCQhfF7CEo94MBjwEz5wBmCuo5AcSeBtKDE73GfGcQ6PATzVBVfdPtY17
+
+'''x:''' 0
+
+'''n_x:''' 011447e7c6426aecd3fb3e76fba39ef3dc1e91dc578e8b535f714234c62675c5
+
+'''N_x:''' 039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca240505753
+
+===Bob's Wallet===
+'''BIP32 seed:''' 0xff
+
+'''Master xprv:''' xprv9s21ZrQH143K47bRNtc26e8Gb3wkUiJ4fH3ewYgJeiGABp7vQtTKsLBzHM2fsfiK7Er6uMrWbdDwwrdcVn5TDC1T1npTFFkdEVoMgTwfVuR
+
+'''p:''' 0x3ba93579cf5b37d18cd2e3507d51b22c3771a2dbfd1b58dd45d08a6e6ed4b965
+
+'''P:''' 0x02943ebcb1dbb1e1cb7c0350687c2c8dbdf1c4f350d849341a6ff61a595f2085e2
+
+'''Accepted scripts:''' 0x03 (legacy + segwit) (0x01 | 0x02)
+
+'''Payment code:''' pay1qqps99p7hjcahv0ped7qx5rg0skgm003cne4pkzfxsdxlas6t90jpp0zpnwgqy
+
+===Alice notifying Bob===
+'''S:''' 0x0295ac9a667d7077def44b11104811e5d91d164dd60cb08275b313a33691320cb3
+
+'''Notification code:''' 0xfbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975
+
+'''Script type commitment flags:''' 0x0002 (segwit only)
+
+'''Notification output script:''' OP_RETURN OP_PUSHBYTES_67 fbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca2405057530002
+
+===Alice sending to Bob===
+'''c:''' 0
+
+'''s:''' 0xb7508ed246458221cc37d01de5d2f94be3a141180da11b78cbffdfd81a75f223
+
+'''s*G:''' 0x03e99301fb24083590fde78473d55a8435b0aed0dad65c516dfb268586fbe134be
+
+'''P_c:''' 0x03145adc275eda50ea188250f85e729b77b22f9868d024aff00ea61d552373cbba
+
+'''A_c:''' bc1q7nmrkdgg3qq3l2ggh46zwv7750q6rjux0nx27a
+
+===Bob spending===
+'''c:''' 0
+
+'''p_c:''' 0xf2f9c44c15a0b9f3590ab36e6324ab781b12e3f40abc745611d06a46894aab88
+
+==Reference==
+* [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
+* [[bip-0043.mediawiki|BIP43 - Purpose Field for Deterministic Wallets]]
+* [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
+* [[bip-0157.mediawiki|BIP157 - Client Side Block Filtering]]
+* [[bip-0158.mediawiki|BIP158 - Compact Block Filters for Light Clients]]
+
