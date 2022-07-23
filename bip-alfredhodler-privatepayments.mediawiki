@@ -51,8 +51,6 @@ When Alice wants to start paying Bob in private, she imports his payment code in
 * x: Alice's secret recipient index, unique for each Bob
 * N_x: child public key derived from N at index x (non-hardened)
 * n_x: private key associated with N_x
-* Q: static notification address associated with this BIP
-* q: private key that can spend from Q
 * c: Alice's transaction count toward Bob
 * p_c: Bob's private key at index c
 * P_c: Bob's public key at index c
@@ -60,12 +58,6 @@ When Alice wants to start paying Bob in private, she imports his payment code in
 * *: EC multiplication
 * +: EC addition
 * |: string concatenation
-
-The values of q and Q are:
-
-* q: <code>0x6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d</code>
-* Q (mainnet): <code>bc1qz9380vammj5zcz5sjs65yxp6q7qq74klxjycw8</code>
-* Q (testnet): <code>tb1qz9380vammj5zcz5sjs65yxp6q7qq74klv5lt45</code>
 
 ===Public Key Derivation Path===
 
@@ -95,51 +87,48 @@ Address type flags determine which address types a payment code accepts. This is
 Currently defined flags:
 
 {| class="wikitable"
-! Address Type !! Flag !! Value
+! Address Type !! Flag !! Flag Value !! Ordinal Value
 |-
-| P2PKH || <code>1 << 0</code> || <code>0x0001</code>
+| P2PKH || <code>1 << 0</code> || <code>0x0001</code> || 0
 |-
-| P2WPKH || <code>1 << 1</code> || <code>0x0002</code>
+| P2WPKH || <code>1 << 1</code> || <code>0x0002</code> || 1
 |-
-| P2TR || <code>1 << 2</code> || <code>0x0004</code>
+| P2TR || <code>1 << 2</code> || <code>0x0004</code> || 2
 |}
 
 The remaining flags are reserved for future address types.
 
+While payment codes use 2-byte bitflag arrays, notifications use ordinal values in the form of a single byte.
+
 ===Notifications===
 
-Notifications are performed by publishing transactions that contain two outputs:
+Notifications are performed by publishing transactions that contain a single 72-byte OP_RETURN output. The value of the OP_RETURN is constructed using the following formula:
 
-# minimal P2WPKH output to Q (minimal with respect to some dust threshold).
-# OP_RETURN containing a 67-byte notification payload.
+<code>search_key | notification_code | N_x | address_type</code>
 
-The purpose of the output sending to Q is so that BIP157/158 compatible clients can use compact block filters to detect notifications without having to download every block. This enables the usage of the standard in resource constrained environments. The reason the address is static is so that privacy loss cannot occur through graph building. The private key that can spend from Q is publicly known in order to incentivize UTXO consolidation by random parties.
-
-The value of the OP_RETURN output is constructed using the following formula:
-
-<code>notification_code | N_x | address_types</code>
-
+* <code>search_key</code> equals <code>BIP999</code> and is a static ASCII-encoded string (6 bytes)
 * <code>notification_code</code> is <code>SHA256(n_x * P)</code> (32 bytes)
 * <code>N_x</code> is the unique public key a sender is using for a particular recipient (33 bytes)
-* <code>address_types</code> is a two-byte bitarray whose bits are set to a subset of the ones representing recepients's accepted address types
+* <code>address_type</code> is the '''ordinal''' value of a single address type that a sender wants to send to (1 byte). This must be selected from the recepient's accepted address types.
 
 When Alice wants to notify Bob that he will receive future payments from her, she performs the following procedure:
 
 # Assigns an unused, unique index <code>x</code> to Bob (0 if Bob is the first party she is notifying).
 # Calculates a notification code: <code>notification_code = SHA256(n_x * P)</code>
-# Commits to a subset of Bob's accepted address types by constructing <code>address_types</code>. Going forward Alice must not send to address types she did not commit to in the notification.
+# Commits to one of Bob's accepted address types by choosing its ordinal value. Going forward Alice must not send to address types other than the one she committed to in the notification.
 # Constructs a notification payload by concatenating the above values according to the formula.
 # Selects any UTXO in her wallet, preferably not associated with her.
-# Sends a transaction with one output to Q and one OP_RETURN output whose value is set to the 67 byte notification payload.
+# Sends a transaction with a single OP_RETURN output whose value is set to the constructed payload.
 
-When Bob notices a transaction to Q, he extracts the 67 byte payload from the second output and performs the following procedure:
+When Bob notices an OP_RETURN starting with the search key, he performs the following procedure:
 
-# Breaks down the payload into its three constituent parts.
-# Selects <code>N_x</code> (item #1) and performs <code>SHA256(N_x * p)</code> (Bob does not know the value of <code>x</code>).
-# If the above value matches the notification value (item #0), Bob found a notification addressed to himself and stores <code>N_x</code>.
+# Breaks down the payload into its four constituent parts.
+# Discards the search key (item #0).
+# Selects <code>N_x</code> (item #2) and performs <code>SHA256(N_x * p)</code> (Bob does not know the value of <code>x</code>).
+# If the above value matches the notification value (item #1), Bob found a notification addressed to himself and stores <code>N_x</code> together with <code>address_type</code>.
 # If this process fails for any reason, Bob assumes a spurious notification or one not addressed to himself and gives up.
 
-Since changing <code>x</code> yields a completely different sender identity, Alice can always re-notify Bob from a different index when she does not want to be associated with her previous identity.
+Since changing <code>x</code> yields a completely different sender identity, Alice can always re-notify Bob from a different index when she does not want to be associated with her previous identity. Alice can also re-notify Bob when she wants to start sending to a different address type. Bob must be able to update his watchlist in that case and he can stop watching addresses associated with the old address type.
 
 ===Transacting===
 
@@ -180,6 +169,7 @@ p_c = p + s
 ==Test Vectors==
 
 ===Alice's Wallet===
+
 '''BIP32 seed:''' 0xfe
 
 '''Master xprv:''' xprv9s21ZrQH143K2qVytoy3eZSSuc1gfzFrkV4bgoHzYTkgge4UoNP62eV8jkHYNqddaaefpnjwkz71P5m4EW6RuQBJeP9pdfa9WBnjP6XUivG
@@ -194,6 +184,7 @@ p_c = p + s
 
 '''N_x:''' 039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca240505753
 
+
 ===Bob's Wallet===
 '''BIP32 seed:''' 0xff
 
@@ -207,14 +198,16 @@ p_c = p + s
 
 '''Payment code:''' pay1qqps99p7hjcahv0ped7qx5rg0skgm003cne4pkzfxsdxlas6t90jpp0zpnwgqy
 
+
 ===Alice notifying Bob===
 '''S:''' 0x0295ac9a667d7077def44b11104811e5d91d164dd60cb08275b313a33691320cb3
 
 '''Notification code:''' 0xfbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975
 
-'''Script type commitment flags:''' 0x0002 (segwit only)
+'''Address type commitment:''' 1 (segwit)
 
-'''Notification output script:''' OP_RETURN OP_PUSHBYTES_67 fbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca2405057530002
+'''Notification output script:''' OP_RETURN OP_PUSHBYTES_72 424950393939fbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca24050575301
+
 
 ===Alice sending to Bob===
 '''c:''' 0
@@ -226,6 +219,7 @@ p_c = p + s
 '''P_c:''' 0x03145adc275eda50ea188250f85e729b77b22f9868d024aff00ea61d552373cbba
 
 '''A_c:''' bc1q7nmrkdgg3qq3l2ggh46zwv7750q6rjux0nx27a
+
 
 ===Bob spending===
 '''c:''' 0
