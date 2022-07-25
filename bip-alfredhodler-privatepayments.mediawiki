@@ -44,20 +44,21 @@ When Alice wants to start paying Bob in private, she imports his payment code in
 * Alice: sender
 * Bob: recipient
 * Payment code: static string that Bob generates and shares with others so that he can receive payments
-* P: public key contained in Bob's payment code
-* p: private key associated with Bob's public key P
-* N: extended public key used by Alice to derive child keys for each Bob she wants to transact with
-* n: private key associated with Alice's public key N
-* x: Alice's secret recipient index, unique for each Bob
-* N_x: child public key derived from N at index x (non-hardened)
-* n_x: private key associated with N_x
-* c: Alice's transaction count toward Bob
-* p_c: Bob's private key at index c
-* P_c: Bob's public key at index c
-* A_c: Bob's receive address at index c
-* *: EC multiplication
-* +: EC addition
-* |: string concatenation
+* ''P'': public key contained in Bob's payment code
+* ''p'': private key associated with Bob's public key ''P''
+* ''N'': extended public key used by Alice to derive child keys for each Bob she wants to transact with
+* ''n'': private key associated with Alice's public key ''N''
+* ''x'': Alice's secret recipient index, unique for each Bob
+* ''N<sub>x</sub>'': child public key derived from ''N'' at index ''x'' (non-hardened)
+* ''n<sub>x</sub>'': private key associated with ''N<sub>x</sub>''
+* ''c'': Alice's transaction count toward Bob
+* ''P<sub>c</sub>'': Bob's public key at index ''c''
+* ''p<sub>c</sub>'': Bob's private key at index ''c''
+* ''A<sub>c</sub>'': Bob's receive address at index ''c''
+* ''H'': SHA256 hash function
+* ''*'': EC multiplication
+* ''+'': EC addition
+* ''|'': string concatenation
 
 ===Public Key Derivation Path===
 
@@ -69,9 +70,9 @@ m / purpose' / coin_type' / account'
 
 <code>purpose</code> is set to 999.
 
-<code>(p, P)</code> and <code>(n, N)</code> are keys associated with the above path, depending on which side is performing the calculation.
+''(p, P)'' and ''(n, N)'' are keys associated with the above path, depending on which side is performing the calculation.
 
-N_x keys are the direct non-hardened children of N. For instance, the path of <code>N_0</code> from <code>N</code> is <code>m / 0</code>.
+''N<sub>x</sub>'' keys are the direct non-hardened children of ''N''. For instance, the path of ''N<sub>0</sub>'' from ''N'' is ''m / 0''.
 
 ===Payment Code Structure and Encoding===
 
@@ -102,69 +103,59 @@ While payment codes use 2-byte bitflag arrays, notifications use ordinal values 
 
 ===Notifications===
 
-Notifications are performed by publishing transactions that contain a single 72-byte OP_RETURN output. The value of the OP_RETURN is constructed using the following formula:
+Notifications are performed by publishing transactions that contain a single 72-byte <code>OP_RETURN</code> output. The value of the <code>OP_RETURN</code> is constructed using the following formula:
 
-<code>search_key | notification_code | N_x | address_type</code>
+''search_key | notification_code | N<sub>x</sub> | address_type''
 
-* <code>search_key</code> equals <code>BIP999</code> and is a static ASCII-encoded string (6 bytes)
-* <code>notification_code</code> is <code>SHA256(n_x * P)</code> (32 bytes)
-* <code>N_x</code> is the unique public key a sender is using for a particular recipient (33 bytes)
-* <code>address_type</code> is the '''ordinal''' value of a single address type that a sender wants to send to (1 byte). This must be selected from the recepient's accepted address types.
+* ''search_key'' equals "BIP999" and is a static ASCII-encoded string (6 bytes)
+* ''notification_code'' is ''H(n<sub>x</sub> * P)'' (32 bytes)
+* ''N<sub>x</sub>'' is the unique public key a sender is using for a particular recipient (33 bytes)
+* ''address_type'' is the '''ordinal''' value of a single address type that a sender wants to send to (1 byte). This must be selected from the recepient's accepted address types.
 
 When Alice wants to notify Bob that he will receive future payments from her, she performs the following procedure:
 
-# Assigns an unused, unique index <code>x</code> to Bob (0 if Bob is the first party she is notifying).
-# Calculates a notification code: <code>notification_code = SHA256(n_x * P)</code>
+# Assigns an unused, unique index ''x'' to Bob (''0'' if Bob is the first party she is notifying).
+# Calculates a notification code: ''notification_code = H(n<sub>x</sub> * P)''
 # Commits to one of Bob's accepted address types by choosing its ordinal value. Going forward Alice must not send to address types other than the one she committed to in the notification.
 # Constructs a notification payload by concatenating the above values according to the formula.
 # Selects any UTXO in her wallet, preferably not associated with her.
-# Sends a transaction with a single OP_RETURN output whose value is set to the constructed payload.
+# Sends a transaction with a single <code>OP_RETURN</code> output whose value is set to the constructed payload.
 
-When Bob notices an OP_RETURN starting with the search key, he performs the following procedure:
+When Bob notices an <code>OP_RETURN</code> starting with the search key, he performs the following procedure:
 
 # Breaks down the payload into its four constituent parts.
-# Discards the search key (item #0).
-# Selects <code>N_x</code> (item #2) and performs <code>SHA256(N_x * p)</code> (Bob does not know the value of <code>x</code>).
-# If the above value matches the notification value (item #1), Bob found a notification addressed to himself and stores <code>N_x</code> together with <code>address_type</code>.
+# Discards the ''search_key'' (item #0).
+# Selects ''N<sub>x</sub>'' (item #2) and performs ''H(N<sub>x</sub> * p)'' (Bob does not know the value of ''x'').
+# If the above value matches the notification value (item #1), Bob found a notification addressed to himself and stores ''N<sub>x</sub>'' together with ''address_type''.
 # If this process fails for any reason, Bob assumes a spurious notification or one not addressed to himself and gives up.
 
-Since changing <code>x</code> yields a completely different sender identity, Alice can always re-notify Bob from a different index when she does not want to be associated with her previous identity. Alice can also re-notify Bob when she wants to start sending to a different address type. Bob must be able to update his watchlist in that case and he can stop watching addresses associated with the old address type.
+Since changing ''x'' yields a completely different sender identity, Alice can always re-notify Bob from a different index when she does not want to be associated with her previous identity. Alice can also re-notify Bob when she wants to start sending to a different address type. Bob must be able to update his watchlist in that case and he can stop watching addresses associated with the old address type.
 
 ===Transacting===
 
-Alice initializes counter <code>c</code> which is unique to Bob and increments with each transaction. <code>c</code> is a 64-bit integer and must be inputted into a hasher as a big-endian encoded array of 8 bytes.
+Alice initializes counter ''c'' which is unique to Bob and increments with each transaction. ''c'' is a 64-bit integer and must be inputted into a hasher as a big-endian encoded array of 8 bytes.
 
 1. Alice calculates a secret point (constant between Alice and Bob):
 
-<code>
-S = n_x * P
-</code>
+''S = n<sub>x</sub> * P''
 
 2. Alice calculates a shared secret:
 
-<code>
-s = SHA256(S, c)
-</code>
+''s = H(S | c)''
 
 3. Alice calculates Bob's ephemeral public key and its associated address where the funds will be sent:
 
-<code>
-P_c = P + s*G
-</code>
+''P<sub>c</sub> = P + s*G''
 
-4. Alice constructs an address using the key <code>P_c</code>, using one of the address types she committed to in the notification transaction.
+4. Alice constructs an address using the key ''P<sub>c</sub>'', using one of the address types she committed to in the notification transaction.
 
-Bob constructs his watchlist by mirroring this process on his end, except that his method of calculating S is:
+Bob constructs his watchlist by mirroring this process on his end, except that his method of calculating ''S'' is:
 
-<code>
-S = N_x * p
-</code>
+''S = N<sub>x</sub> * p''
 
 When Bob wants to spend from such addresses, he calculates his private keys in the following manner:
 
-<code>
-p_c = p + s
-</code>
+''p<sub>c</sub> = p + s''
 
 ==Test Vectors==
 
@@ -180,9 +171,9 @@ p_c = p + s
 
 '''x:''' 0
 
-'''n_x:''' 011447e7c6426aecd3fb3e76fba39ef3dc1e91dc578e8b535f714234c62675c5
+'''n<sub>x</sub>:''' 011447e7c6426aecd3fb3e76fba39ef3dc1e91dc578e8b535f714234c62675c5
 
-'''N_x:''' 039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca240505753
+'''N<sub>x</sub>:''' 039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca240505753
 
 
 ===Bob's Wallet===
@@ -216,15 +207,15 @@ p_c = p + s
 
 '''s*G:''' 0x03e99301fb24083590fde78473d55a8435b0aed0dad65c516dfb268586fbe134be
 
-'''P_c:''' 0x03145adc275eda50ea188250f85e729b77b22f9868d024aff00ea61d552373cbba
+'''P<sub>c</sub>:''' 0x03145adc275eda50ea188250f85e729b77b22f9868d024aff00ea61d552373cbba
 
-'''A_c:''' bc1q7nmrkdgg3qq3l2ggh46zwv7750q6rjux0nx27a
+'''A<sub>c</sub>:''' bc1q7nmrkdgg3qq3l2ggh46zwv7750q6rjux0nx27a
 
 
 ===Bob spending===
 '''c:''' 0
 
-'''p_c:''' 0xf2f9c44c15a0b9f3590ab36e6324ab781b12e3f40abc745611d06a46894aab88
+'''p<sub>c</sub>:''' 0xf2f9c44c15a0b9f3590ab36e6324ab781b12e3f40abc745611d06a46894aab88
 
 ==Reference==
 * [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
