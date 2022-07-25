@@ -17,21 +17,31 @@ A standard for interoperable signed messages based on the Bitcoin Script format,
 
 == Motivation ==
 
-The current message signing standard only works for P2PKH (1...) invoice addresses. We propose to extend and generalize the standard by using a Bitcoin Script based approach. This ensures that any coins, no matter what script they are controlled by, can in-principle be signed for. For easy interoperability with existing signing hardware, we also define a signature message format which resembles a Bitcoin transaction (except that it contains an invalid input, so it cannot be spent on any real network).
+TODO: Proof of sender
+
+The current message signing standard only works for P2PKH (1...) invoice addresses, and only proves the intended recipient of an invoice address agrees to the message.
+We propose to extend and generalize the standard by using a Bitcoin Script based approach.
+This ensures that any coins, no matter what script they are controlled by, can in-principle be signed for.
+For easy interoperability with existing signing hardware, we also define a signature message format which resembles a Bitcoin transaction (except that it contains an invalid input, so it cannot be spent on any real network).
 
 Additionally, the current message signature format uses ECDSA signatures which do not commit to the public key, meaning that they do not actually prove knowledge of any secret keys. (Indeed, valid signatures can be tweaked by 3rd parties to become valid signatures on certain related keys.)
 
+There appears to also be a desire to prove funds availability.
 Ultimately no message signing protocol can actually prove control of funds, both because a signature is obsolete as soon as it is created, and because the possessor of a secret key may be willing to sign messages on others' behalf even if it would not sign actual transactions. No signmessage protocol can fix these limitations.
+However, this proposal offers a way to prove that the message itself was signed by someone who does control an amount of bitcoins.
 
 == Types of Signatures ==
 
-This BIP specifies three formats for signing messages: ''legacy'', ''simple'' and ''full''. Additionally, a variant of the ''full'' format can be used to demonstrate control over a set of UTXOs.
+This BIP specifies three formats for signing messages: ''legacy'', ''simple'' and ''full''. Additionally, a variant of the ''full'' format can be used to demonstrate control over an amount of bitcoins, represented by a set of UTXOs.
 
 === Legacy ===
 
 New proofs should use the new format for all invoice address formats, including P2PKH.
 
 The legacy format MAY be used, but must be restricted to the legacy P2PKH invoice address format.
+
+It can only prove a message is signed by the intended recipient of the given invoice address.
+Notably, it does not prove any control of bitcoins or having had sent any transactions.
 
 === Simple ===
 
@@ -42,6 +52,8 @@ A ''simple'' signature consists of a witness stack, consensus encoded as a vecto
 * <code>message_signature</code> in <code>to_sign</code> is set to the provided simple signature.
 
 and then proceed as they would for a full signature.
+
+It also only can prove the message is signed by the intended recipient of the given invoice address, and cannot prove any control of bitcoins or having had sent any transactions.
 
 === Full ===
 
@@ -76,15 +88,32 @@ The <code>to_sign</code> transaction is:
 
 A full signature consists of the base64-encoding of the <code>to_sign</code> transaction in standard network serialisation once it has been signed.
 
+This signature, as-is, only proves a message is signed by the intended recipient of the given invoice address which creates the <code>message_challenge</code> script.
+It does not prove any control of bitcoins or having had sent any transactions.
+
+TODO: How does this interact with as-of-yet-unspecified "Silent Transactions"?
+
+TODO: Some invalid opcode to allow only in various proof types?
+
+TODO: A way for the initial signer to delegate to another scriptPubKey; needed for better privacy and CoinJoin/Lightning compatibility
+
 === Full (Proof of Funds) ===
 
-A signer may construct a proof of funds, demonstrating control of a set of UTXOs, by constructing a full signature as above, with the following modifications.
+A signer may construct a proof of funds, demonstrating ownership of an amount of bitcoins, by constructing a full signature as above, with the following modifications.
 
 * <code>message_challenge</code> is unused and shall be set to <code>OP_TRUE</code>
 * Similarly, <code>message_signature</code> is then empty.
-* All outputs that the signer wishes to demonstrate control of are included as additional inputs of <code>to_sign</code>, and their witness and scriptSig data should be set as though these outputs were actually being spent.
+* <code>vout[0].nValue</code> should be set to the desired amount of bitcoins to prove ownership of.
+* The signer must select UTXOs with values sum to at least the desired proof amount, and include them as additional inputs of <code>to_sign</code>. Their witness and scriptSig data should be set as though these outputs were actually being spent.
 
 Unlike an ordinary signature, validators of a proof of funds need access to the current UTXO set, to learn that the claimed inputs exist on the blockchain, and to learn their scriptPubKeys.
+
+This signature proves only that the message is signed by someone who owns the specified (in nValue) amount of bitcoins.
+It does not prove anything about the transactions or recipients thereof when the UTXOs were created;
+it does not prove control or ownership of the specific UTXOs;
+and it does not prove anything about who may send a transaction consuming the UTXOs in the future.
+
+TODO: Maybe the stripped transactions & merkle branches for each UTXO should be included so that it's sufficient to only have block headers? But more full nodes is better... so maybe not.
 
 == Detailed Specification ==
 
