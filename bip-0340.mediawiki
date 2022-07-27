@@ -138,7 +138,7 @@ As an alternative to generating keys randomly, it is also possible and safe to r
 
 Input:
 * The secret key ''sk'': a 32-byte array
-* The message ''m'': a 32-byte array
+* The message ''m'': a byte array
 * Auxiliary random data ''a'': a 32-byte array
 
 The algorithm ''Sign(sk, m)'' is defined as:
@@ -174,7 +174,7 @@ It should be noted that various alternative signing algorithms can be used to pr
 
 Input:
 * The public key ''pk'': a 32-byte array
-* The message ''m'': a 32-byte array
+* The message ''m'': a byte array
 * A signature ''sig'': a 64-byte array
 
 The algorithm ''Verify(pk, m, sig)'' is defined as:
@@ -197,7 +197,7 @@ Note that the correctness of verification relies on the fact that ''lift_x'' alw
 Input:
 * The number ''u'' of signatures
 * The public keys ''pk<sub>1..u</sub>'': ''u'' 32-byte arrays
-* The messages ''m<sub>1..u</sub>'': ''u'' 32-byte arrays
+* The messages ''m<sub>1..u</sub>'': ''u'' byte arrays
 * The signatures ''sig<sub>1..u</sub>'': ''u'' 64-byte arrays
 
 The algorithm ''BatchVerify(pk<sub>1..u</sub>, m<sub>1..u</sub>, sig<sub>1..u</sub>)'' is defined as:
@@ -212,6 +212,30 @@ The algorithm ''BatchVerify(pk<sub>1..u</sub>, m<sub>1..u</sub>, sig<sub>1..u</s
 * Return success iff no failure occurred before reaching this point.
 
 If all individual signatures are valid (i.e., ''Verify'' would return success for them), ''BatchVerify'' will always return success. If at least one signature is invalid, ''BatchVerify'' will return success with at most a negligible probability.
+
+=== Usage Considerations ===
+
+==== Messages of Arbitrary Size ====
+
+The signature scheme specified in this BIP accepts byte strings of arbitrary size as input messages.<ref>In theory, the message size is restricted due to the fact that SHA256 accepts byte strings only up to size of 2^61-1 bytes.</ref>
+It is understood that implementations may reject messages which are too large in their environment or application context,
+e.g., messages which exceed predefined buffers or would otherwise cause resource exhaustion.
+
+Earlier revisions of this BIP required messages to be exactly 32 bytes.
+This restriction puts a burden on callers
+who typically need to perform pre-hashing of the actual input message by feeding it through SHA256 (or another collision-resistant cryptographic hash function)
+to create a 32-byte digest which can be passed to signing or verification
+(as for example done in [[bip-0341.mediawiki|BIP341]].)
+
+Since pre-hashing may not always be desirable,
+e.g., when actual messages are shorter than 32 bytes,<ref>Another reason to omit pre-hashing is to protect against certain types of cryptanalytic advances against the hash function used for pre-hashing: If pre-hashing is used, an attacker that can find collisions in the pre-hashing function can necessarily forge signatures under chosen-message attacks. If pre-hashing is not used, an attacker that can find collisions in SHA256 (as used inside the signature scheme) may not be able to forge signatures. However, this seeming advantage is mostly irrelevant in the context of Bitcoin, which already relies on collision resistance of SHA256 in other places, e.g., for transaction hashes.</ref>
+the restriction to 32-byte messages has been lifted.
+We note that pre-hashing is recommended for performance reasons in applications that deal with large messages.
+If large messages are not pre-hashed,
+the algorithms of the signature scheme will perform more hashing internally.
+In particular, the signing algorithm needs two sequential hashing passes over the message,
+which means that the full message must necessarily be kept in memory during signing,
+and large messages entail a runtime penalty.<ref>Typically, messages of 56 bytes or longer enjoy a performance benefit from pre-hashing, assuming the speed of SHA256 inside the signing algorithm matches that of the pre-hashing done by the calling application.</ref>
 
 == Applications ==
 
@@ -248,6 +272,7 @@ The reference implementation is for demonstration purposes only and not to be us
 To help implementors understand updates to this BIP, we keep a list of substantial changes.
 
 * 2022-08: Fix function signature of lift_x in reference code
+* 2023-04: Allow messages of arbitrary size
 
 == Footnotes ==
 
