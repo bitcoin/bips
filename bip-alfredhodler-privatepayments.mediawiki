@@ -4,6 +4,7 @@
   Title: Private Payments
   Author: Alfred Hodler <alfred_hodler@protonmail.com>
           Clark Moody <clark@clarkmoody.com>
+          Ruben Somsen <rsomsen@gmail.com>
   Status: Draft
   Type: Informational
   Created: 2022-07-10
@@ -60,6 +61,7 @@ When Alice wants to start paying Bob in private, she imports his payment code in
 * ''*'': EC multiplication
 * ''+'': EC addition
 * ''|'': string concatenation
+* ''[a..b]'': string slicing (inclusive of ''a'', exclusive of ''b'')
 
 ===Public Key Derivation Path===
 
@@ -77,8 +79,8 @@ m / purpose' / coin_type' / account'
 
 ===Payment Code Structure and Encoding===
 
-* bytes <code>[0..1]</code>: address type flags (2 bytes, inclusive)
-* bytes <code>[2..35]</code>: compressed public key P (33 bytes, inclusive)
+* bytes <code>[0..2]</code>: address type flags (2 bytes)
+* bytes <code>[2..36]</code>: compressed public key P (33 bytes)
 
 Payment codes are encoded in bech32m and the human readable part is "pay" for mainnet and "payt" for testnet (all types), resulting in payment codes that look like "pay1cqqq8d29g0a7m8ghmycqk5yv24mfh3xg8ptzqcn8xz6d2tjl8ccdnfkpjl7p84".
 
@@ -104,19 +106,19 @@ While payment codes use 2-byte bitflag arrays, notifications use ordinal values 
 
 ===Notifications===
 
-Notifications are performed by publishing transactions that contain a 72-byte <code>OP_RETURN</code> output. The value of the <code>OP_RETURN</code> is constructed using the following formula:
+Notifications are performed by publishing transactions that contain a 44-byte <code>OP_RETURN</code> output. The value of the <code>OP_RETURN</code> is constructed using the following formula:
 
 ''search_key | notification_code | N<sub>x</sub> | address_type''
 
 * ''search_key'' equals "BIP999" and is a static ASCII-encoded string (6 bytes)
-* ''notification_code'' is ''H(n<sub>x</sub> * P)'' (32 bytes)
+* ''notification_code'' is ''H(n<sub>x</sub> * P)[0..4]'' (4 bytes)
 * ''N<sub>x</sub>'' is the unique public key a sender is using for a particular recipient (33 bytes)
 * ''address_type'' is the '''ordinal''' value of a single address type that a sender wants to send to (1 byte). This must be selected from the recepient's accepted address types.
 
 When Alice wants to notify Bob that he will receive future payments from her, she performs the following procedure:
 
 # Assigns an unused, unique index ''x'' to Bob (''0'' if Bob is the first party she is notifying).
-# Calculates a notification code: ''notification_code = H(n<sub>x</sub> * P)''
+# Calculates a 4-byte notification code: ''notification_code = H(n<sub>x</sub> * P)[0..4]''
 # Commits to one of Bob's accepted address types by choosing its ordinal value. Going forward Alice must not send to address types other than the one she committed to in the notification.
 # Constructs a notification payload by concatenating the above values according to the formula.
 # Selects any UTXO in her wallet, preferably not associated with her.
@@ -126,11 +128,19 @@ When Bob notices an <code>OP_RETURN</code> starting with the search key, he perf
 
 # Breaks down the payload into its four constituent parts.
 # Discards the ''search_key'' (item #0).
-# Selects ''N<sub>x</sub>'' (item #2) and performs ''H(N<sub>x</sub> * p)'' (Bob does not know the value of ''x'').
-# If the above value matches the notification value (item #1), Bob found a notification addressed to himself and stores ''N<sub>x</sub>'' together with ''address_type''.
+# Selects ''N<sub>x</sub>'' (item #2) and performs ''H(N<sub>x</sub> * p)'' (Bob does not know the value of ''x''). Bob takes the first four bytes of the calculated value.
+# If the four bytes match the notification value (item #1), Bob found a notification addressed to himself and stores ''N<sub>x</sub>'' together with ''address_type''.
 # If this process fails for any reason, Bob assumes a spurious notification or one not addressed to himself and gives up.
 
 Since changing ''x'' yields a completely different sender identity, Alice can always re-notify Bob from a different index when she does not want to be associated with her previous identity. Alice can also re-notify Bob when she wants to start sending to a different address type. Bob must be able to update his watchlist in that case and he can stop watching addresses associated with the old address type.
+
+===Allowing Notification Collisions===
+
+Since ''notification_code'' is a 4-byte truncation of the full value, Bob has a 1 in ~4.3 billion chance of detecting a spurious notification. This is considered acceptable because the cost of doing so is adding a few more addresses to Bob's watchlist. The benefit of this approach is that is saves 28 bytes per notification.
+
+===Scanning Requirement===
+
+There is a scanning requirement on the recipient side in that the recipient must have access to full blocks in order to be able to search them for OP_RETURN outputs containing notifications. For more information on how light clients can get around this limitation and still use the standard, see Appendix B.
 
 ===Transacting===
 
@@ -194,11 +204,11 @@ When Bob wants to spend from such addresses, he calculates his private keys in t
 ===Alice notifying Bob===
 '''S:''' 0x0295ac9a667d7077def44b11104811e5d91d164dd60cb08275b313a33691320cb3
 
-'''Notification code:''' 0xfbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975
+'''Notification code:''' 0xfbe8d683
 
 '''Address type commitment:''' 1 (segwit)
 
-'''Notification output script:''' OP_RETURN OP_PUSHBYTES_72 424950393939fbe8d683683023aaa066ba13cf79c9f8a7d3c69a4705025f3f4f4887a61eb975039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca24050575301
+'''Notification output script:''' OP_RETURN OP_PUSHBYTES_44 424950393939fbe8d683039d138aaf5bc2e27a9740541576eceb90a5f20b4799dbfda48e5c7ca24050575301
 
 
 ===Alice sending to Bob===
@@ -217,6 +227,7 @@ When Bob wants to spend from such addresses, he calculates his private keys in t
 '''c:''' 0
 
 '''p<sub>c</sub>:''' 0xf2f9c44c15a0b9f3590ab36e6324ab781b12e3f40abc745611d06a46894aab88
+
 
 ==Appendix B: Potential OP_RETURN Services==
 
