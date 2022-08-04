@@ -1,0 +1,439 @@
+<pre>
+  BIP: notatether-signedmessage
+  Layer: Applications 
+  Title: Procedure for signing and verifying messages
+  Author: Ali Sherief <ali@notatether.com> 
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ZenulAbidin/bips/wiki/Comments:BIP-notatether-signedmessage
+  Status: Draft
+  Type: Informational
+  License: BSD-2-Clause
+  Created: 2022-08-04
+</pre>
+
+== Copyright ==
+
+This document is licensed under the 2-clause BSD license.
+
+== Abstract ==
+
+Bitcoin wallets have the capability of signing and verifying messages from individual addresses, by using ECDSA and the public/private key pair belonging to that address. These are often used to prove ownership of coins in the address, the address itself, or simply to relay a message as the owner of that particular address.
+
+Message signing in its current form has been present since the earliest Bitcoin implementations, and its processes are largely still the same as how Satoshi designed it, with a few deviations by some wallet software here and there.
+
+The purpose of message signing from an address is to prove that the signer has ownership of that address, since a valid signature implies a person has access the private key to that address. To that extent, message verification consists of two parts: 1) verifying the signature, and 2) ensuring that the address can be derived from the public key.
+
+The original message signing format (hereby referred to in this BIP as the "Satoshi format") will briefly be described here. Parts of this description were copied from BIP137[1].
+
+ECDSA signatures generate a 32-byte r-value and a 32-byte s-value, which collectively represent the signature. Bitcoin signatures have the r and s values mentioned above, and a 1-byte header. Therefore, the size of a signature in the Satoshi format is 65 bytes.
+
+The header is used to specify information about the signature. It can be thought of as a bitmask with each bit in this byte having a meaning. The serialization format of a Bitcoin signature is as follows:
+
+[1 byte of header data][32 bytes for r-value][32 bytes for s-value]
+
+The header byte has a few components to it. First, it stores something known as the recID. This value is stored in the least significant 2 bits of the header, and uniquely identifies the correct signature for the signing public key. The lower bit represents the parity of the Y coordinate of the singature - even or odd - and the higher bit represents the correct r-value: 'r' or 'n+r'. For a rare subset of signatures which have r>=p-n, the only possible r-value will be 'r', thus the highest bit of the recID should be zero.
+
+The following list demonstrates the correct signature corresponding to the value of recID:
+
+0: even Y, r = r
+1: odd Y, r = r
+2: even Y, r = n+r
+3: odd Y, r = n+r
+
+The remaining bytes of the header format must be read together to fetch the correct address format. The Satoshi format defines the following ranges for address types:
+
+Header byte is 27-30: P2PKH uncompressed
+Header byte is 31-34: P2PKH compressed
+
+BIP137 additionally defines the following ranges for compressed segwit address types:
+
+Header byte is 35-38: P2WPKH-P2SH compressed
+Header byte is 39-42: P2WPKH compressed
+
+In the rest of this document, the word "Standardization" will be used to mean reaching a consensus to using a particular proposal by implementing it in software. "Design-standardization" will be used to refer to the original meaning - the verbal consensus of technical persons for a particular proposal without necessarily implementing it in software.
+
+== Motivation ==
+
+The Satoshi format's message verification algorithm has only been designed to validate messages from Legacy addresses, since that was the only existing address type when message signing was invented. Message signing and verification is technically possible for Segwit addresses, and a signature format has even been invented for it, but it has never been standardized by wallet implementations.
+
+The result of this oversight on the part of the wallet developers is that some wallets allow you to sign messages from a Segwit address, such as Electrum, but those messages cannot be verified anywhere except on that particular wallet software.
+
+Critically, no attempt has been made so far to standardize the message signing algorithm for the Segwit address types P2WPKH, P2WPKH-P2SH, also known as Nested and native Segwit respectively (''The existing proposals have only been design-standardized''), and while some of them are Final, such as BIP137, they have only been implemented in a minority of wallets.
+
+The author admits that this problem extends beyond BIPs, to wallet softwares as well, and that an effort must be made to convince them to use the message signing formats defined in other BIPs, with the signing and verification methods defined in this document.
+
+== Rationale ==
+
+This BIP attempts to define the precise algorithms for signing and verifying messages, that are signed using the Satoshi format (a subset of BIP137), BIP137 format, or the Schnorr signature format defined above. Hence, compliance with this BIP implies compliance with BIP137.
+
+This document should be viewed as a set of guidelines for implementing address signing rather than as a standard. That is because it does not attempt to define a novel message signing format. It also avoids extending existing message formats, with one exception (see below).
+
+'''Taproot Signed Messages''': The only non-standard extension to the message signing format that this BIP introduces is in the Signature field format for Taproot addresses, to enable message verification for these addresses and also to make the format compatible with the Satoshi format and BIP137. In this respect, signatures generated by this BIP differ from those from BIP340[2] (albeit BIP340 does not define signing formats for addresses), but the signing and verification algorithms are otherwise compatible with BIP340. The extensions made are as follows:
+
+* The (R,s) payload of the Schnorr signature is preceded by the one-byte header.
+* When constructing the signature, the header must have a value of 46 for Taproot addresses. This is because the points used will always be even, and r values greater than or equal to n are not allowed (hence x = r+n is not a possibility).
+** However, for compatibility reasons, conforming implementations must also identify any header value between 43-46 inclusive as from a Taproot address when verifying a signature. In other words, the recID bits must be set to zero when signing a message.
+* Immediately following the (R,s) payload is the 32-byte x-coordinate of the public key. The public key MUST be interpreted as even and compressed. This is necessary because BIP340 Schnorr signatures do not allow for public key recovery, so the public keys need to be concatenated in the signature.
+
+Thus, the signature payload for Schnorr signatures will be 97 bytes long in total (1-byte header + 64-byte (R,s) + 32-byte public key). For ECDSA signatures, it will be 65 bytes long as usual (1-byte header + 64-byte (r,s)).
+
+This extension should be considered non-standard, until a separate BIP which standardizes this extension is included. 
+
+A number of extensions to the message signature format have been defined, for error reduction purposes. All of these extensions are strictly optional. Implementations are free to implement only the base guidelines and none of the extensions, or some but not all of the extensions, if this is desired. All of the extensions can be implemented independently from each other. Two extensions are defined by this BIP and are listed below:
+
+* Message Sanitization - Before signing and verification, removes all NUL characters, converts tabs to 8 spaces, converts CRLF and CR to LF, strips trailing space and tab from the ends of lines, and strips all trailing whitespace from the end of the message.
+** The original message is always unmodified.
+** Some users experience difficulties in verifying signatures that contain hidden spaces and tabs, due to naunces in current implementations, so this extension remedies that by eliminating the traling spaces and tabs altogether.
+*** In particular, this means that even in the case of a single newline at the end of the message, it is stripped for uniformity with messages without any such newlines.
+** Also, operating systems and programs may have different line ending formats, and lengths for the tab character.
+*** To avoid verification errors due to these mis-matches, tabs are expanded to 8 characters (the recognized length of a tab), and sequences of carrige and line feed are reduced to simply line-feed.
+** Also, parsing NUL characters is a common source of vulnerabilities, because most implementations cannot detect them correctly, therefore, they are stripped form the entire message before signing and verification.
+*** No other non-graphical characters are removed apart from the trailing whitespace.
+** For the purposes of this extension, the defined whitespace characters are space ' ', newline '\n', tab '\t' and carrige return '\r'.
+
+* UTF-8 Serialization - Converts the character set of the message body to UTF-8 before signing and verifying.
+** Due to operating systems using incongruent default character set (for example Windows uses Windows-1252 by default and Linux programs tend to use ISO 8859-1 aka. Latin-1), signed message containing non-ASCII characters might fail verification depending on the operating system. This is because the actual byte sequences of the message are different for each encoding.
+** By converting the message into UTF-8 using a library such as GNU libiconv[3] or ICU[4], errors due to differences in character sets are eliminated.
+** Even in UTF-8, there are several different valid forms to represent the same text. The result is more verification errors because the byte sequences are inherently different. This BIP resolves this issue by normalizing all UTF-8 text into NFC form, which takes the smallest amount of storage space of all UTF-8 forms.
+
+The phrases "Requirements for extension EXTENSION_NAME" and "End extension requirements" by themselves on a line are used to delimit the parameters and processes that are only required for a specific extension.
+
+While BIP 322 has superior message verification capabilities, such as the ability to verify scripts, no attempt is made to define a verification algorithm for BIP 322 in this proposal.
+
+No attempt is made to define the bodies of the Base64Encode, Base64Decode, Base58Check, Bech32, Bech32m encoding algorithms, in order to avoid unnecessarily increasing the length of the BIP. Instead, the reader is referred to existing implementations of these algorithms in the Notes section. Any well-formed implementation of the encoding algorithm can be used where the BIP specifies the algorithm's name. It is recommended to thoroughly test the encoding implementations with specially-crafted data to eliminate the security risk of buffer overruns.
+
+
+== Specification ==
+
+The following terminologies apply for the rest of this document:
+
+"Message Signing Format", or simply "Format", refers to one of the cryptographic algorithms and address formats detailed in the Specification section.
+
+"Method" refers to either message signing, message verification, or both.
+
+"Algorithm" refers to the sub-method required to support signing and verification of one of the defined Formats.
+
+This section, and all of its subsections, uses the terms "must", "should", and "may" as defined in RFC 2119, along with the negated forms of those terms.
+
+The message signing processes consist of two sub-processes - the signing Method, and the verification Method, the specification for both of these items is detailed separately.
+
+The message signing and verification Methods must use at least one of the following Formats to create a signature, depending on the wallet implementation:
+
+* ECDSA signatures, with P2PKH uncompressed addresses.
+* ECDSA signatures, with P2PKH compressed addresses.
+* ECDSA signatures, with P2WPKH-P2SH compressed addresses.
+* ECDSA signatures, with P2WPKH compressed addresses.
+* Schnorr signatures, with P2TR (Taproot) compressed addresses.
+
+For a particular Format:
+* If the implementation is to be used in a wallet software, both its signing and verification Methods must be implemented. In other words, you cannot only implement a Format for signing or verification separately.
+* If the implementation is to be ran as a stand-alone application (for example, hosted on a web page), then only the verification Method is required to be implemented. For this scenario it is recommended that the signing should not be implemented, to eliminate the possibility of untrusted user-generated private key or public key data being supplied as inputs.
+* Conforming implementations must not implement only the signing Method without the verification Method under any circumstances. This inhibits users from verifying that their signatures are correct.
+
+The "ECDSA with P2PKH", "ECDSA with P2WPKH-P2SH", and "ECDSA with P2WPKH" format produce BIP137-compatible signatures. The "ECDSA with P2PKH" format produces a Satoshi format-compatible signature.
+
+Three fields are defined for all Message Signing Formats: Message, Address, and Signature.
+
+In the case of both ECDSA and Schnorr signatures, the address which is used to sign the message is placed inside the Address area. The message that is being signed should be placed in the Message area. The Signature area will be filled with the output of the method described below.
+
+No other fields are defined by this BIP. Conforming implementations must not define additional fields in the message signature.
+
+
+=== Definitions ===
+
+Modulo is written as ''mod'', for example ''x'' modulo ''n'' is written as ''x mod n''.
+
+Byte concatenation is written as ''||'' and implies that both operands shall be cast to byte arrays before concatenation.
+
+Array subscripting for byte arrays is written as ''x[i:j]'' and should be interpreted to create a copy of the byte array ''x'' of length ''(j-i)'' with the ''i''-th byte as the first byte and the ''(j-1)''-th byte as the last byte (''i &ge; 0'', ''j &ge; 0'').
+
+Floor division is written as ''/'' and involves truncating the floating-point remainder from the division result.
+
+Modular inverse is written as ''modinv(x,n)'', where ''n'' is a constant, variable, or expression, and is equivalent to ''x^-1 mod p''.
+
+Modular exponentation is written as ''x^n'' where n is a constant, variable, or expression, and does not include modulus. The modulus must be explicitly specified using ''mod'' eg. ''x^2 mod n''.
+
+Bitwise AND is written as ''AND''.
+
+Bitwise XOR is written as ''XOR''.
+
+Hexadecimal byte arrays are represented as ''hex(byte sequence)'', where the byte sequence consists of sequences of two hexadecimal characters which may or may not be separated by space (for example ''hex(01 02)'' and ''hex(0102)'' both generate the byte array identical to the evaluation of '\x01\x02' in the C programming language). There is no leading '0x' or '0X' in the output.
+
+Cast from byte array or byte sequence to 256-bit integer is represented as ''int(x)''.
+
+Cast from string or 256-bit integer to byte array is represented as ''bytes(x)''.
+
+Construction of a point with an x-coordinate ''x'' and y-coordinate ''y'' is represented as ''(x, y)'' and implies that both ''x'' and ''y'' will be cast to integers before point construction.
+
+For a point ''P'', its x-coordinate is represented as ''P.x'', and its y-coordinate is represented as ''P.y''. All coordinates have 
+
+Test for whether a y-coordinate of a point is even is written has ''is_even(y)'' for integers. ''is_even(P)'' is equivalent to ''is_even(P.y)''. This function is identical to computing ''y AND 1 == 0'' or ''y mod 2 == 0'', because odd numbers represent negative Y coordinates, which is the actual basis for even/odd classification.
+
+For brevity, ''is_odd(P)'' and ''is_odd(P.y)'' is equivalent to ''!is_even(P)'' and ''!is_even(y)'' respectively.
+
+UTF-8 strings are represented as ''"text"'', where ''text'' is the desired text. It should be noted that all string constants in this document contain only ASCII characters.
+
+=== Constants ===
+
+The constant ''Inf'' shall refer to the point at infinity, of the secp256k1 curve.
+
+The constant ''p'' shall refer to the secp256k1 field size, aka. curve characteristic, defined as ''int(FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE FFFFFC2F)''
+
+The constant ''n'' shall refer to the secp256k1 curve order, defined as ''int(FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141)''
+
+The constant ''G'' shall refer to the secp256k1 generator point, defined as ''(79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798, 483ADA77 26A3C465 5DA4FBFC 0E1108A8 FD17B448 A6855419 9C47D08F FB10D4B8)''
+
+
+=== Common steps for all signing and verification Algorithms ===
+
+These steps must be executed before any other step in the Algorithm is ran.
+
+The preliminary steps are listed below, and all operate on the Message field exclusively.
+
+Requirements for extension UTF-8 Serialization:
+# The message is converted to the UTF-8 encoding, if it isn't already in that encoding. If the character set conversion fails (for example if there are invalid bytes in the encoding), then fail signing with a error similar to "UTF-8 conversion error".
+# Scan the message for invalid UTF-8 byte sequences. If any are found, then fail signing with an error similar to "Message contains invalid UTF-8 characters".
+# The resulting UTF-8 should be compressed into NFC form.
+End extension requirements
+
+Requirements for extension Message Sanitization:
+# Scan the message for NUL (0x00, or '\0') bytes. If any are found, fail signing with an error similar to "Message contains embedded NUL characters".
+# Strip all tab and space characters from the ends of all lines.
+# Convert CRLF and CR newlines to LF.
+# Remove all trailing newlines from the end of the message.
+End extension requirements
+
+=== Message signing method ===
+
+The following parameters must be inserted into all supported signing Algorithms:
+
+* The private key (PrivateKey)
+* The public key (PublicKey)
+** Implementations can choose whether to include this parameter or calculate the public key directly in the signing Method, but it is the implementation's responsibility to ensure that the correct public key is being passed to this method.
+*** This is because PublicKey is considered as implementation data, not user-generated data.
+* The address (Address)
+** It is the implementation's responsibility to ensure that Address corresponds to PrivateKey and PublicKey.
+* The message (Message)
+
+Depending on the Format from which the signed message is being created, implementations should choose the apropriate Algorithm from the subsections below.
+
+==== ECDSA signing, with P2PKH uncompressed addresses ====
+
+# Compute ''z = SHA256(Message)''
+# Generate a cryptographically secure random nonce ''k'' between ''1'' and ''n-1''. This can be implemented by generating four 64-bit random unsigned integers. If the resulting integer is out of range (e.g. it's ''0'' or &ge; ''n''), then discard the entire nonce and generate its entirety all over again. This is to avoid attacks on specific parts of the nonce.
+# Compute ''(x,y) = G*k''
+# If ''r mod n == 0'' or ''(x,y) == Inf'', go back to step 3.
+# Compute ''s = modinv(k) * (z + r * PrivateKey) mod n''. If ''s == 0'', go back to step 3.
+# Compute the header byte. If ''r &lt; p-n'' and ''is_even(y)'', set HeaderByte to 30. If ''r &lt; p-n'' and ''is_odd(y)'', set HeaderByte to 27. If ''r &ge; p-n'' and ''is_even(y)'', set HeaderByte to 28. If ''r &ge; p-n'' and ''is_odd(y)'', set HeaderByte to 29. 
+# Compute ''Signature=Base64Encode(HeaderByte || r || s)''
+
+==== ECDSA signing, with P2PKH compressed addresses ====
+
+# Compute ''z = SHA256(Message)''
+# Generate a cryptographically secure random nonce ''k'' between ''1'' and ''n-1''. This can be implemented by generating four 64-bit random unsigned integers. If the resulting integer is out of range (e.g. it's ''0'' or &ge; ''n''), then discard the entire nonce and generate its entirety all over again. This is to avoid attacks on specific parts of the nonce.
+# Compute ''(x,y) = G*k''
+# If ''r mod n == 0'' or ''(x,y) == Inf'', go back to step 3.
+# Compute ''s = modinv(k, n) * (z + r * PrivateKey) mod n''. If ''s == 0'', go back to step 3.
+# Compute the header byte. If ''r &lt; p-n'' and ''is_even(y)'', set HeaderByte to 34. If ''r &lt; p-n'' and ''is_odd(y)'', set HeaderByte to 31. If ''r &ge; p-n'' and ''is_even(y)'', set HeaderByte to 32. If ''r &ge; p-n'' and ''is_odd(y)'', set HeaderByte to 31.
+# Compute ''Signature=Base64Encode(HeaderByte || r || s)''
+
+==== ECDSA signing, with P2WPKH-P2SH compressed addresses ====
+
+# Compute ''z = SHA256(Message)''
+# Generate a cryptographically secure random nonce ''k'' between ''1'' and ''n-1''. This can be implemented by generating four 64-bit random unsigned integers. If the resulting integer is out of range (e.g. it's ''0'' or &ge; ''n''), then discard the entire nonce and generate its entirety all over again. This is to avoid attacks on specific parts of the nonce.
+# Compute ''(x,y) = G*k''
+# If ''r mod n == 0'' or ''(x,y) == Inf'', go back to step 3.
+# Compute ''s = modinv(k, n) * (z + r * PrivateKey) mod n''. If ''s == 0'', go back to step 3.
+# Compute the header byte. If ''r &lt; p-n'' and ''is_even(y)'', set HeaderByte to 38. If ''r &lt; p-n'' and ''is_odd(y)'', set HeaderByte to 35. If ''r &ge; p-n'' and ''is_even(y)'', set HeaderByte to 36. If ''r &ge; p-n'' and ''is_odd(y)'', set HeaderByte to 37. 
+# Compute ''Signature=Base64Encode(HeaderByte || r || s)''
+
+==== ECDSA signing, with P2WPKH compressed addresses ====
+
+# Compute ''z = SHA256(Message)''
+# Generate a cryptographically secure random nonce ''k'' between ''1'' and ''n-1''. This can be implemented by generating four 64-bit random unsigned integers. If the resulting integer is out of range (e.g. it's ''0'' or &ge; ''n''), then discard the entire nonce and generate its entirety all over again. This is to avoid attacks on specific parts of the nonce.
+# Compute ''(x,y) = G*k''
+# If ''r mod n == 0'' or ''(x,y) == Inf'', go back to step 3.
+# Compute ''s = modinv(k, n) * (z + r * PrivateKey) mod n''. If ''s == 0'', go back to step 3.
+# Compute the header byte. If ''r &lt; p-n'' and ''is_even(y)'', set HeaderByte to 42. If ''r &lt; p-n'' and ''is_odd(y)'', set HeaderByte to 39. If ''r &ge; p-n'' and ''is_even(y)'', set HeaderByte to 40. If ''r &ge; p-n'' and ''is_odd(y)'', set HeaderByte to 41. 
+# Compute ''Signature=Base64Encode(HeaderByte || r || s)''
+
+==== Schnorr signing, with P2TR (Taproot) compressed addresses ====
+
+
+# Generate a cryptographically secure random 32-bit number ''a''. This is recommended by BIP340 to avoid private key leaks, particularly if the public key is supplied as a parameter.
+# If PublicKey has an odd ''y'' coordinate, set ''PrivateKey = n - PrivateKey''.
+# Compute ''t = PrivateKey XOR SHA256(SHA256("BIP0340/aux") || SHA256("BIP340/aux") || a)''
+# Compute ''rand = SHA256(SHA256("BIP0340/nonce") || SHA256("BIP340/nonce") || t || PublicKey's x-coordinate || Message)''
+# Compute ''k = int(rand) mod n''. If ''k == 0'', go back to step 2.
+# Compute ''R = k*G''
+# If ''is_odd(R)'', compute ''k = n-k''.
+# Compute ''e = int(SHA256(SHA256("BIP0340/challenge") || SHA256("BIP0340/challenge") || R.x || P.x || Message)) mod n''
+# Compute ''sig = R.x || (k + e*PrivateKey mod n)''
+# Set ''HeaderByte = 46'' (even Y coordinate, ''r'' size will never be ''n+r'' or &ge; ''n'').
+# Compute ''Signature = Base64Encode(HeaderByte || sig || PublicKey)''
+
+=== Message verification method ===
+
+The following parameters must be inserted into all supported verification Algorithms:
+
+* The message (Message)
+* The address (Address)
+* An ECDSA or Schnorr signature (Signature)
+
+The Header byte in the signature shall dictate the verification Algorithm that is used.
+
+Upon verification success, implementations must display a status message similar to: "Genuine signed message from address <Address>".
+
+==== Preliminary steps for all verification Algorithms ====
+
+# Set ''DecodedSignature = Base64Decode(Signature)''
+# Set ''HeaderByte = DecodedSignature[0]''
+#* If HeaderByte is bettwen 27 and 30 inclusive, use "ECDSA verification, P2PKH uncompressed address".
+#* Else, if HeaderByte is bettwen 31 and 34 inclusive, use "ECDSA verification, P2PKH compressed address".
+#* Else, if HeaderByte is bettwen 35 and 38 inclusive, use "ECDSA verification, P2WPKH-P2SH compressed address".
+#* Else, if HeaderByte is bettwen 39 and 42 inclusive, use "ECDSA verification, P2WPKH compressed address".
+#* Else, if HeaderByte is bettwen 43 and 46 inclusive, use "Schnorr verification, P2TR (Taproot) compressed address".
+#* Else, fail verification with an error similar to "Unknown signature type".
+
+==== ECDSA verification, P2PKH uncompressed address ====
+
+# Set ''r = DecodedSignature[1:33]''. If ''r &ge; n'' or ''r == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''s = DecodedSignature[33:65]''. If ''s &ge; n'' or ''s == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''z = SHA256(Message)''
+# Set ''recID = Header AND 0x3''
+# If ''recID AND 0x2 == 0'', set ''x = r'', else set ''x = r+n''
+# Set ''x = (x^3 + 7) mod p''
+# Set ''y = x^((p+1)/4) mod p''
+# Calculate the correct parity of ''y'' using the 'recID':
+#* If (''is_even(beta)'' and ''is_odd(recID)'') or (''is_odd(beta) and is_even(recID)''), set ''y = p-y''. 
+# Set ''R = (x,y)''
+# Set ''e = (-int(z)) % n''
+# Set ''PublicKey = (R*s + G*e) * modinv(r, n)''
+# Compute ''EncodedPublicKey = "04" || hex(x) || hex(y)''
+# Compute ''AddressHash = RIPEMD160(SHA256(EncodedPublicKey'')
+# Compute ''DerivedAddress = Base58Check(hex(00) || AddressHash)''.
+# If ''DerivedAddress == Address'', succeed verificaion. Else fail verification with an error similar to "Wrong address for signature".
+
+==== ECDSA verification, P2PKH compressed address ====
+
+# Set ''r = DecodedSignature[1:33]''. If ''r &ge; n'' or ''r == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''s = DecodedSignature[33:65]''. If ''s &ge; n'' or ''s == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''z = SHA256(Message)''
+# Set ''recID = Header AND 0x3''
+# If ''recID AND 0x2 == 0'', set ''x = r'', else set ''x = r+n''.
+# Set ''x = (x^3 + 7) mod p''
+# Set ''y = x^((p+1)/4) mod p''
+# Calculate the correct parity of ''y'' using the 'recID':
+#* If (''is_even(beta)'' and ''is_odd(recID)'') or (''is_odd(beta) and is_even(recID)''), set ''y = p-y''. 
+# Set ''R = (x,y)''
+# Set ''e = (-int(z)) % n''
+# Set ''PublicKey = (R*s + G*e) * modinv(r, n)''
+# If ''is_even(y)'', compute ''EncodedPublicKey = "02" || hex(x)''. Else, compute ''EncodedPublicKey = "03" || hex(x)''
+# Compute ''AddressHash = RIPEMD160(SHA256(EncodedPublicKey)''
+# Compute ''DerivedAddress = Base58Check(hex(00) || AddressHash)''
+# If ''DerivedAddress == Address'', succeed verificaion. Else fail verification with an error similar to "Wrong address for signature".
+
+==== ECDSA verification, P2WPKH-P2SH compressed address ====
+
+# Set ''r = DecodedSignature[1:33]''. If ''r &ge; n'' or ''r == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''s = DecodedSignature[33:65]''. If ''s &ge; n'' or ''s == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''z = SHA256(Message)''
+# Set ''recID = Header AND 0x3''
+# If ''recID AND 0x2 == 0'', set ''x = r'', else set ''x = r+n''.
+# Set ''x = (x^3 + 7) mod p''
+# Set ''y = x^((p+1)/4) mod p''
+# Calculate the correct parity of ''y'' using the 'recID':
+#* If (''is_even(beta)'' and ''is_odd(recID)'') or (''is_odd(beta) and is_even(recID)''), set ''y = p-y''. 
+# Set ''R = (x,y)''
+# Set ''e = (-int(z)) % n''
+# Set ''PublicKey = (R*s + G*e) * modinv(r, n)''
+# If ''is_even(y)'', compute ''EncodedPublicKey = "02" || hex(x)''. Else, compute ''EncodedPublicKey = "03" || hex(x)''
+# Compute ''AddressHash = RIPEMD160(SHA256(EncodedPublicKey)''
+# Compute ''RedeemScript = hex(00 14) || AddressHash''
+# Compute ''RedeemScriptHash = RIPEMD160(SHA256(RedeemScript))''
+# Compute ''DerivedAddress = Base58Check(hex(05) || RedeemScriptHash)''
+# If ''DerivedAddress == Address'', succeed verificaion. Else fail verification with an error similar to "Wrong address for signature".
+
+==== ECDSA verification, P2WPKH compressed address ====
+
+# Set ''r = DecodedSignature[1:33]''. If ''r &ge; n'' or ''r == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''s = DecodedSignature[33:65]''. If ''s &ge; n'' or ''s == 0'', fail verification with an error similar to "Invalid ECDSA signature parameters".
+# Set ''z = SHA256(Message)''
+# Set ''recID = Header AND 0x3''
+# If ''recID AND 0x2 == 0'', set ''x = r'', else set ''x = r+n''.
+# Set ''x = (x^3 + 7) mod p''
+# Set ''y = x^((p+1)/4) mod p''
+# Calculate the correct parity of ''y'' using the 'recID':
+#* If (''is_even(beta)'' and ''is_odd(recID)'') or (''is_odd(beta) and is_even(recID)''), set ''y = p-y''. 
+# Set ''R = (x,y)''
+# Set ''e = (-int(z)) % n''
+# Set ''PublicKey = (R*s + G*e) * modinv(r, n)''
+# If ''is_even(y)'', compute ''EncodedPublicKey = "02" || hex(x)''. Else, compute ''EncodedPublicKey = "03" || hex(x)''
+# Compute ''AddressHash = RIPEMD160(SHA256(EncodedPublicKey)''
+# Compute ''DerivedAddress = Bech32("bc", 0, AddressHash)''
+# If ''DerivedAddress == Address'', succeed verificaion. Else fail verification with an error similar to "Wrong address for signature".
+
+==== Schnorr verification, P2TR (Taproot) compressed addresss ====
+
+# Set ''r = DecodedSignature[1:33]''. If ''r &ge; p'' or ''r == 0'', fail verification with an error similar to "Invalid Schnorr signature parameters".
+# Set ''s = DecodedSignature[33:65]''. If ''s &ge; n'' or ''s == 0'', fail verification with an error similar to "Invalid Schnorr signature parameters".
+# Set ''x = DecondedSignature[65:97]''. If ''x &ge; p'' or ''x == 0'', fail verification with an error similar to "Invalid Schnorr signature parameters".
+# Compute ''c = x^3 + 7 mod p''
+# Compute ''y = c^((p+1)/4) mod p''
+# If ''y^2 mod p != c'', fail verification with an error similar to "Invalid Schnorr signature parameters".
+# If ''is_even(y)'', set ''P = (x,y)'', else set ''P = (x,p-y)''
+# Compute ''e = int(SHA256(SHA256("BIP0340/challenge") || SHA256("BIP0340/challenge") || r || x || Message)) mod n''
+# Compute ''R = s*G - e*P''. If ''R == Inf'', or ''is_odd(R)'', or ''R.x != r'', fail verification with an error similar to "Invalid Schnorr signature parameters".
+# Compute ''EncodedPublicKey = "02" || hex(x)''
+# Compute ''AddressHash = RIPEMD160(SHA256(EncodedPublicKey)''
+# Compute ''DerivedAddress = Bech32m("bc", 1, AddressHash)''
+# If ''DerivedAddress == Address'', succeed verificaion. Else fail verification with an error similar to "Wrong address for signature".
+
+=== Displaying signed messages ===
+
+Two formats are available to display and process the signed message:
+# Bitcoin-QT format, where the Message, Address, and Signature are displayed and processed seperately. (It is named Bitcoin-QT for legacy reasons.)
+# RFC2440-like format, which will be described below.
+
+The RFC2440-like format has the following structure, where Message, Address, and Signature are as defined at the beginning of this section:
+
+-----BEGIN BITCOIN SIGNED MESSAGE-----
+Message
+-----BEGIN BITCOIN SIGNATURE-----
+Address
+Signature
+-----END BITCOIN SIGNATURE-----
+
+The text must begin with "-----BEGIN BITCOIN SIGNED MESSAGE-----", including the 5 ASCII dashes on both the beginning and end of the line, followed by the Message, followed by "-----BEGIN BITCOIN SIGNATURE-----" along with the dashes similarly, followed by the Address, followed by the Signature, followed by "-----END BITCOIN SIGNATURE-----" with the dashes. All components must be separated by a newline (CRLF, LF, or CR).
+
+A function to read RFC2440-like signatures will be supplied in the Reference Implementation.
+
+== Notes ==
+
+The signing methods do not check whether Address can be generated from the PrivateKey or PublicKey. This ommission allows for the generation and distribution of "forged signatures" - signed messages where Signature derives an address different from the supplied Address, but this vulnerability is mitigated by thorough checking in the verification Method that the address can be generated from the public key, this failing verification for all such signatures. This is why when the signing Method is implemented, the verification Method must also be implemented.
+
+Checking that the correct address can be derived from the public key and displaying an appropriate message, as opposed to just checking the validity of the signature, ensures that a signed message can be cryptographically proven to be legitimate or a fake. In particular, displaying error text such as "The signed message is not genuine" as opposed to "Message verification failed" gives credibility to the theorem that the message is of fraudulent origin, since faults in the verification Method of the implementation can be ruled out.
+
+For instance, a conforming implementation with all extensions implemented can be utilized to demonstrate whether person A can provide a valid signed message from address B, thereby proving whether they have access to that address.
+
+For this reason, it is highly recommended for implementations to implement both the Message Sanitization and UTF-8 serialization extensions, to eliminate byte-level differences that could prevent the signatures from being verified correctly.
+
+A Base64 implementation written in C and assembly is available at the Github repository [https://github.com/aklomp/base64 aklomp/base64], a Base58 and Base58Check implementation written in Python is available at the repository [https://github.com/keis/base58 keis/base58], and a Bech32 and Bech32m implementation in multiple languages is available at the repository [https://github.com/sipa/bech32 sipa/bech32].
+
+== Reference Code ==
+
+The reference code is still under construction, and will be added here when it is finished.
+
+== Acknowledgements ==
+
+The author wishes to thank all those who provided valuable feedback and review related to signed messages, on both the mailing list and the [https://bitcointalk.org/index.php?topic=5407517.0 Bitcointalk discussion thread].
+
+== References ==
+
+[1] - https://github.com/bitcoin/bips/blob/master/bip-0137.mediawiki
+
+[2] - https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki
+
+[3] - https://www.gnu.org/software/libiconv/
+
+[4] - https://icu.unicode.org/
