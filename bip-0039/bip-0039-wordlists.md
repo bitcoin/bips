@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Turkish](turkish.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,19 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+### Turkish
+
+Credits: @hknylcnsy
+
+1. Simple and common Turkish words.
+2. Only words with 4-8 letters.
+3. The first 4 letters are unique among all words.
+4. The letters (â,î,û,ô) used in Turkish are considered equal to (a,e,u/ü,o/ö). (like: kâğıt-kağıt, sükût-sükut)
+5. No complex verb forms.
+6. No plural words.
+7. No offensive/negative words.
+8. No words with double vowels. (like: maalesef, şuur) 
+9. No words to mingle. (like: adam-aday, alet-alev, surat-suret)
+10. No words with repeated syllables. (like: leblebi, baba)
+11. No infinitive words. (like: yapmak, gülmek)
