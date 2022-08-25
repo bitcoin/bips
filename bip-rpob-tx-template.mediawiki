@@ -1,0 +1,284 @@
+<pre>
+  BIP: bip-rpob-tx-template
+  Layer: Applications
+  Title: Revocable Proof-of-Burn Transaction Template
+  Author: Veleslav <veleslav.bips@protonmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-bip-rpob-tx-template
+  Status: Draft
+  Type: Standards Track
+  Created: 2022-08-18
+  License: BSD-3-Clause
+           CC0-1.0
+</pre>
+
+==Introduction==
+
+===Abstract===
+This BIP proposes an application-layer template for revocable proof-of-burn, or ''"RPoB"'', transactions.
+
+* This proposal uses a new transaction version number to allow for future extensions.
+* This proposal recommends that implementations who mine and relay transaction to update their standard transaction templates as defined by this document.
+
+This proposal aims to support decentralised systems, allowing the use ''RPoB'' assertions in a consistent, efficient, reliable, and interoperable way.
+
+''The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.''
+
+===Copyright===
+This document is dual licensed as BSD 3-clause and Creative Commons CC0 1.0 Universal.
+
+===Motivation===
+In signalling theory<ref group="Note">Evolutionary biology theory of communication, or ''"signalling theory"'', where creatures make honest signals that are hard to cheat, for mutual evolutionary advantage.</ref>, proof of burn<ref group="Note">In Bitcoin, ''proof of burn'' places bitcoin value into outputs that provably unspendable. This dose not reduce the wealthy of the network, but instead reduces the velocity of these coins to zero. Transferring the network wealth onto the remaining coins that have a non-zero velocity.</ref> is a costly signal,<ref group="Note">A ''"costly signal"'' indicates dedication, an observer expects that such a signal is not made flippantly because the high cost.</ref> allowing the network to assign a default trust.<ref group="Note">An entity is assigned a ''"default trust"'' value when they are not connected to the trust graph. Without a default source trust, growing a decentralised web-of-trust network is impossible. New users face a catch-22 problem: they are disconnected from the trust graph and don't have a possibility to prove themselves.</ref> Bitcoin naturally provides an implementation of proof of burn without feedback loops,<ref group="Note">A ''"feedback loop"'' is when a trust signal can be amplified by a privileged subset of the network by feeding the creation-cost of this signal back into the process of making the signal.</ref> allowing for default trust to be assigned fairly in decentralised networks.<ref group="Note">New users are able to use a proof-of-burn to bootstrap themselves into new trust networks. 'New-user-with-burn-proofs' can be welcomed-in with basic services and focused attention, as the network knows that it was costly to generate the burn-proof.</ref>
+
+The ability to revoke<ref group="Note">To ''"revoke", is'' publicly asserting that a previous statement should not be valued as originally intended.</ref> past assertions is important for many applications,<ref group="Note">Unexpected things happen, for example, the loss or compromise of private keys.</ref> therefore proposal couples bitcoin proof-of-burn with a revocation mechanic.
+
+In choosing to standardise via the BIP peer-reviewed process, we hope to give the community greater confidence in making use of bitcoin-based revocable proof of burn technology.
+
+====Notes:====
+<references group="Note" />
+
+==Design==
+
+===Conceptual===
+''"Proof-of-Burn"'' transactions have long exited in Bitcoin, ''"OP_RETURN"'' transactions, (named after the op-code ''"return"'', that causes the public key script to return in failure, hence making the output unspendable and "burning" any value allocated to that output), these transactions have been actively mined since the release of Bitcoin-Core 0.9.
+
+Since OP_RETURN doesn't allow the public key script to be spent (as is it's design), there hasn't been any built-in solution addressing the requirements a application-useable proof-of-burn transaction, in particular:
+
+*A standard association with a public key in for transaction.
+*A standard protocol to publicly revoke a proof-of-burn transaction.
+
+In this proposal we satisfy these requirements by specifying a taproot public key in the op_return payload and an another output for revocation.
+
+===Other Requirements===
+Operation under <abbr title="Simple Payment Verification">SPV</abbr> assumptions:
+*Transactions are small: ''RPoB transactions (non-witness-part) are fixed to two possible sizes, depending if there is a change output, or not.''
+*Revocations are quickly and cheaply indexed: ''RPoB revocations only require obtaining the preimage to a double-sha256 hash. This is easily indexed and propagated in a gossip network.''
+
+Ease of implementation:
+*Use of only Taproot and Schnorr: ''To reduce the scope of the transaction, we use only Taproot for inputs and Outputs, and Schnorr for the signature that covers the funding outpoint.''
+
+Transaction funded by 3rd party:
+* It should be secure for an untrusted 3rd party fund the proof-of-burn transaction. ''Allowing for services to fund these transactions and be compensated with some sort of off-chain payment.''
+
+Future extendability:
+*Making use of the transaction version feature of bitcoin. ''This allows for easier indexing strategies in the future, (with a simple consensus change: to include in the coinbase the number of the transactions in the block by their transaction version).''
+* Including a byte for 8 version flag bits. ''This allows for a reliable way to upgrade in the future in a forward-comparable way.''
+
+===Transaction Design Overview:===
+[[File:bip-rpob-tx-template/rpob-template-summary-table.svg]]
+
+==Specification==
+This section specifies our RPoB transaction template.
+
+===Transaction===
+General form:
+<pre>
+version:      0x3
+marker:       0x0
+flag:         0x1
+txin_count:   0x1
+txout_count:  0x2 (without change) or 0x3 (with change)
+lock_time:    (any)
+</pre>
+
+*RPoB transactions MUST use the transaction version (nVersion) 0x03.
+
+*RPoB transactions MUST have only one input and either two or three outputs.
+
+===Input 1: Funding===
+General form:
+<pre>
+signature_script:  (empty)
+witness_script:    <taproot_witness>
+</pre>
+
+*The RPoB transaction input MUST be P2TR (Pay to Tap Root).
+
+===Output 1: Burn and Data===
+General form:
+
+<pre>
+value:              (any)
+public_key_script:  RETURN < 1-byte-rpob_version_flag>
+                           <32-byte-rpob_secp256k1_public_key>
+                           <64-byte-rpob_schnorr_signature>
+</pre>
+
+The public key script fields are:
+
+<pre>
+rpob_version_flag:           1-byte , 0x00 (initial version).
+rpob_secp256k1_public_key:  32-bytes, SECP256K1 compact public key.
+rpob_schnorr_signature:     64-bytes, bip-340 Schnorr Signature.
+</pre>
+
+*The first RPoB transaction contains the burn value, that is made unspendable by the 'OP_RETURN' in the public key script.
+
+===Output 2: Revocation Puzzle===
+General form:
+
+<pre>
+value:              0
+public_key_script:  SIZE 32 EQUALVERIFY HASH256
+                    <32-byte-rpob_revocation_puzzle>
+                    EQUAL
+</pre>
+
+*The Value of the Revocation Puzzle Output MUST be zero.
+
+<code>HASH256</code> is defined by ''double sha256'':
+
+<pre>
+rpob_revocation_puzzle:    32-bytes, public, SHA256(SHA256(
+                                     <32-byte-rpob_revocation_solution>
+                                     ))
+
+rpob_revocation_solution:  32-bytes, secret, publicly reveal this value to revoke the proof-of-burn.
+</pre>
+
+*It is RECOMMENDED that implementations use a value for the <code>rpob_revocation_solution</code> that is derived from the secret key used to generate the  <code>rpob_secp256k1_public_key</code> .
+
+===Output 3, Optional: Change===
+<pre>
+value:              (any)
+public_key_script:  1 <32-byte-taproot_witness_program>
+</pre>
+
+*This output MAY have any value.
+*The public key MUST be a standard P2TW output.
+
+===Signature: Included in Output 1===
+<pre>
+rpob_schnorr_signature:       64-bytes, bip-340, signature (
+                                        <32-byte-rpob_signature_message_hash>,
+                                        <32-byte-secp256k1_private_key>
+                                        )
+
+rpob_signature_message_hash:  32-bytes, bip-340, sha256_taged_hash (
+                                        <77-byte-rpob_signature_message>,
+                                        <16-byte-rpob_hash_tag>
+                                        )
+
+rpob_hash_tag:                16-bytes, utf-8-hash_tag ("rpob/BTC/MAINNET")
+                                    or, utf-8-hash_tag ("rpob/BTC/TESTNET")
+
+rpob_signature_message:       77-bytes, < 1-byte-version_flags>
+                                        <32-byte-input_txid_hash>
+                                        < 4-byte-input_index>
+                                        < 8-byte-burn_output_value>
+                                        <32-byte-rpob_revocation_puzzle>
+</pre>
+
+*The <code>rpob_schnorr_signature</code> uses the [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki BIP-340] algorithm.
+
+==Deployment==
+
+While the ''IsStandard'' rules are quite restricting, it is quite possible to submit transactions directly to miners, or co-operate with miners who would enjoy to have some addition fee-revenue. So the initial process of testing on the main-network should be possible.
+
+If this standard gains significant attention, we are happy to write a supplementary BIP to define a new service bit to allow nodes to signal that this new type of standard transaction is accepted.
+
+==Rationale==
+===Why require RPoB transactions to use a new transaction version?===
+
+This allows for future indexing and enforcement strategies at the consensus layer.
+
+===Why use a hash puzzle for the revocation?===
+
+The hash-puzzle allows for easy indexing of the revocation, in the format:
+
+<code><32-byte-revocation-puzzle> (if revoked: <32-byte-revocation-puzzle-preimage>)</code>
+
+*Since the digest algorithm is double sha256, even for a very large number of revocation, this index would be very cheap to verify.
+
+*We envision nodes keeping track of all the revocation-puzzles listed in the blockchain, as 32-byte each, a million RPoB is only 32mb. This can be further optimised.
+
+Additionally, we do not want to confuse a public key, (that can sign), and a revocation-puzzle (that may only revoke).
+
+===Why must the revocation output be of zero value?===
+
+Revocation can be spent by anyone once the revocation pre-image has been published.
+
+===Why does a RPoB need a signature at all?===
+
+The primary purpose of the signature is to stop replay-attacks. (Somebody takes your public-key and makes transaction where you don't control the revocation).
+
+The secondary purpose is to allow for untrusted parties to create transactions on your behalf. i.e. a 'RPoB' transaction creation service.
+===Why waste precious block space?===
+
+Consuming block-space is a of secondary proof-of-burn that this proposal takes advantage of, as itself is limited and contested for (blocks are almost full on average). There is an opportunity cost of the next best transaction when a miner chooses to include a RPoB transaction their block.
+
+Additionally, transaction fees are important for the long-term health of the bitcoin-network, this proposal increases the demand for the blockchain.
+
+===What do you want to make these RPoB transactions if there is insufficient block-space?===
+
+This isn't our problem. Those who have the economic purpose and resources to make RPoB transactions will outcompete those who do not.
+
+==Backwards Compatibility==
+
+As this is an application layer structure without any preexisting deployment, we foresee no compatibility issues.
+
+==Reference Implementation==
+
+To be made.
+
+==Acknowledgements==
+
+While we have somewhat independently come up with the concept of RPoB, the idea of having a public record of public key enrolments has been around for a long time. None of the ideas in this BIP are new.
+
+We would like to thank Jonas Schnelli, 'M', and 'P', for their past contributions.
+
+==Appendixes==
+
+===Appendix 1: Some alternatives to blockchain-based proof-of-burn:===
+Blockchains provide the our first opportunity to have deterministic and decentralised trust networks. Before blockchains we had proof-of-work and proof-of-payments as the two main gate-keepers for boot-scraping new members into a exclusive group:
+
+==== Proof-of-Work: ====
+For example,
+
+* In games it could be to grind your character up to a certain level.
+* Or it could be to make and present hand-drawn artworks.
+* Or it could be to solve a CAPTCHA.
+
+With proof-of-work blockchains provides a way to quantises an abstract an amount of work into a value. Providing a solution "how much dose this work cost?" problem: your work can be traded for bitcoin, and the bitcoin value is set efficiently in the market.
+
+==== Proof-of-Payment: ====
+For example,
+
+* Buying an expensive uniform item required for the clan.
+* Paying membership dues.
+* Proving a donation to a charity.
+
+With proof-of-payment the problem is the feedback loops, who gets the payment is placed into a privileged position of responsibly. The blockchain solves this with proof-of-burn outputs, the 'payment' goes back to the network, distributed indirectly and proportionally the holders of bitcoin.
+
+==== None: ====
+For example,
+
+* Pretty-Good-Privacy (PGP).
+
+PGP provided the basic cryptographic infrastructure for secure communication, including a basic web-of-trust where users can cross-sign each others keys, to make man-in-the-middle attacks harder to carry out. The primary problem with PGP is that any infrastructure that uses it is open to denial-of-service attack, as making new pgp-key identities is extremely cheap.
+
+The trust network also is open to sybil attack, as huge numbers of keys can all cross-trust each other making it appear that they belong to a large-genuine trust network.
+
+==== Other: ====
+
+* Blockchain Timestamping, i.e. Open-Timestamps.
+
+One of the most simple ways of assiging value to something is to prove that it is old. Timestamping with a blockchain allows users to assert that they didn't just create this account just now. -  However the problem is that timestamps are cheap to make, and if the need for timestamps is predictable, then adversaries can pre-generate many to misuse and attack a network at a later date.
+
+* Blockchain space Use.
+
+Simply putting a statement into a blockchain itself, if there is any free-pressure is indirect form of burn by via the miner.  By out-competing the next-best-transaction set, this has burnt the value in the difference between the fees of the two set.
+
+Thus, it can be shown that if the blocks are full, a RPoB transaction with zero-burn-amount is still a proof-of-bun transaction!
+
+=== Appendix 2: Some notes on blockchain-based proof-of-burn and decentralised networks: ===
+Using a blockchain the relative value of a proof-of-burn is deterministically calculable:
+
+* Trust calculations transferring a proof-of-burn into a "default trust" value are possible. Leading to the creation of trust graphs that can operate reliably without human intervention.
+* Networks using such default trust calculations become inherently resistant to distributed denial of service attacks.
+
+All this cannot easily be achieved without leveraging the functionally of a blockchain such as Bitcoin.
+
+==Footnotes==
+
+<references />
