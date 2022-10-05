@@ -1,0 +1,288 @@
+<pre>
+  BIP: 141
+  Title: Segregated Witness (Consensus layer)
+  Author: Eric Lombrozo <elombrozo@gmail.com>
+          Johnson Lau <jl2012@xbt.hk>
+          Pieter Wuille <pieter.wuille@gmail.com>
+  Status: Draft
+  Type: Standards Track
+  Created: 2015-12-21
+</pre>
+
+==Abstract==
+
+This BIP defines a new structure called a "witness" that is committed to blocks separately from the transaction merkle tree. This structure contains data required to check transaction validity but not required to determine transaction effects. In particular, scripts and signatures are moved into this new structure.
+
+The witness is committed in a tree that is nested into the block's existing merkle root via the coinbase transaction for the purpose of making this BIP soft fork compatible. A future hard fork can place this tree in its own branch.
+
+==Motivation==
+
+The entirety of the transaction's effects are determined by output consumption (spends) and new output creation. Other transaction data, and signatures in particular, are only required to validate the blockchain state, not to determine it.
+
+By removing this data from the transaction structure committed to the transaction merkle tree, several problems are fixed:
+
+# '''Nonintentional malleability becomes impossible'''. Since signature data is no longer part of the transaction hash, changes to how the transaction was signed are no longer relevant to transaction identification. As a solution of transaction malleability, this is superior to the canonical signature approach ([https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki BIP62]):
+#* It prevents involuntary transaction malleability for any type of scripts, as long as all inputs are signed (with at least one CHECKSIG or CHECKMULTISIG operation)
+#* In the case of an m-of-n CHECKMULTISIG script, a transaction is malleable only with agreement of m private key holders (as opposed to only 1 private key holder with BIP62)
+#* It prevents involuntary transaction malleability due to unknown ECDSA signature malleability
+#* It allows creation of unconfirmed transaction dependency chains without counterparty risk, an important feature for offchain protocols such as the Lightning Network
+# '''Transmission of signature data becomes optional'''. It is needed only if a peer is trying to validate a transaction instead of just checking its existence. This reduces the size of SPV proofs and potentially improves the privacy of SPV clients as they can download more transactions using the same bandwidth.
+# '''Some constraints could be bypassed with a soft fork''' by moving part of the transaction data to a structure unknown to current protocol, for example:
+#* Size of witness could be ignored / discounted when calculating the block size, effectively increasing the block size to some extent
+#* Hard coded constants, such as maximum data push size (520 bytes) or sigops limit could be reevaluated or removed
+#* New script system could be introduced without any limitation from the existing script semantic. For example, a new transaction digest algorithm for transaction signature verification is described in [https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki BIP143]
+
+==Specification==
+
+=== Transaction ID ===
+
+A new data structure, <code>witness</code>, is defined. Each transaction will have 2 IDs.
+
+Definition of <code>txid</code> remains unchanged: the double SHA256 of the traditional serialization format:
+  
+  [nVersion][txins][txouts][nLockTime]
+  
+A new <code>wtxid</code> is defined: the double SHA256 of the new serialization with witness data:
+  
+  [nVersion][marker][flag][txins][txouts][witness][nLockTime]
+  
+Format of <code>nVersion</code>, <code>txins</code>, <code>txouts</code>, and <code>nLockTime</code> are same as traditional serialization.
+
+The <code>marker</code> MUST be <code>0x00</code>.
+
+The <code>flag</code> MUST be a 1-byte non-zero value. Currently, <code>0x01</code> MUST be used.
+
+The <code>witness</code> is a serialization of all witness data of the transaction. Each txin is associated with a witness field. A witness field starts with a <code>var_int</code> to indicate the number of stack items for the txin. It is followed by stack items, with each item starts with a <code>var_int</code> to indicate the length. Witness data is NOT script.
+
+A non-witness program (defined hereinafter) txin MUST be associated with an empty witness field, represented by a <code>0x00</code>. If all txins are not witness program, a transaction's <code>wtxid</code> is equal to its <code>txid</code>.
+
+=== Commitment structure ===
+
+A new block rule is added which requires a commitment to the <code>wtxid</code>. The <code>wtxid</code> of coinbase transaction is assumed to be <code>0x0000....0000</code>.
+
+A witness root hash is calculated with all those <code>wtxid</code> as leaves, in a way similar to the hashMerkleRoot in the block header.
+
+The commitment is recorded in a scriptPubKey of the coinbase transaction. It must be at least 38 bytes, with the first 6-byte of <code>0x6a24aa21a9ed</code>, that is:
+  
+   1-byte - OP_RETURN (0x6a)
+   1-byte - Push the following 36 bytes (0x24)
+   4-byte - Commitment header (0xaa21a9ed)
+  32-byte - Commitment hash: Double-SHA256(witness root hash|witness nonce)
+  
+  39th byte onwards: Optional data with no consensus meaning
+  
+and the coinbase's input's witness must consist of a single 32-byte array for the witness nonce.
+
+If there are more than one scriptPubKey matching the pattern, the one with highest output index is assumed to be the commitment.
+
+=== Witness program ===
+
+A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
+
+There are two cases in which witness validation logic are triggered. Each case determines the location of the witness version byte and program, as well as the form of the scriptSig:
+# Triggered by a scriptPubKey that is exactly a push of a version byte, plus a push of a witness program. The scriptSig must be exactly empty.
+# Triggered when a scriptPubKey is a P2SH script, and the BIP16 redeemScript pushed in the scriptSig is exactly a push of a version byte plus a push of a witness program. The scriptSig must be exactly a push of the BIP16 redeemScript.
+
+If the version byte is 0, and the witness program is 20 bytes:
+* It is interpreted as a pay-to-witness-public-key-hash (P2WPKH) program.
+* The witness must consist of exactly 2 items (≤ 520 bytes each). The first one a signature, and the second one a public key.
+* The HASH160 of the public key must match the 20-byte witness program.
+* After normal script evaluation, the signature is verified against the public key with CHECKSIG operation. The verification must result in a single TRUE on the stack.
+
+If the version byte is 0, and the witness program is 32 bytes:
+* It is interpreted as a pay-to-witness-script-hash (P2WSH) program.
+* The witness must consist of an input stack to feed to the script, followed by a serialized script ("witnessScript").
+* The witnessScript (≤ 10,000 bytes) is popped off the initial witness stack. SHA256 of the witnessScript must match the 32-byte witness program.
+* The witnessScript is deserialized, and executed after normal script evaluation with the remaining witness stack (≤ 520 bytes for each stack item).
+* The script must not fail, and result in exactly a single TRUE on the stack.
+
+If the version byte is 0, but the witness program is neither 20 nor 32 bytes, the script must fail.
+
+If the version byte is 1 to 16, no further interpretation of the witness program or witness happens, and there is no size restriction for the witness. These versions are reserved for future extensions.
+
+=== Other consensus critical limits ===
+
+==== Block size ====
+
+Blocks are currently limited to 1,000,000 bytes (1MB) total size. We change this restriction as follows:
+
+''Block cost'' is defined. The cost of each byte in the existing header and transactions is 4, while the cost of each byte in witness data is 1.
+
+The new rule is total ''block cost'' ≤ 4,000,000.
+
+==== Sigops ====
+
+Sigops per block is currently limited to 20,000. We change this restriction as follows:
+
+''Sigop cost'' is defined. The cost of a sigop in traditional script is 4, while the cost of a sigop in witness program is 1.
+
+The new rule is total ''sigop cost'' ≤ 80,000.
+
+== Examples ==
+
+=== P2WPKH witness program ===
+
+The following example is a version 0 pay-to-witness-public-key-hash (P2WPKH) witness program:
+
+    witness:      <signature> <pubkey>
+    scriptSig:    (empty)
+    scriptPubKey: 0 <20-byte-hash>
+                  (0x0014{20-byte-hash})
+
+The '0' in scriptPubKey indicates the following push is a version 0 witness program. The length of the witness program indicates that it is a P2WPKH type. The witness must consist of exactly 2 items. The HASH160 of the pubkey in witness must match the witness program.
+
+The signature is verified as
+
+    <signature> <pubkey> CHECKSIG
+
+Comparing with a traditional P2PKH output, the P2WPKH equivalent occupies 3 less bytes in the scriptPubKey, and moves the signature and public key from scriptSig to witness.
+
+=== P2WSH witness program ===
+
+The following example is an 1-of-2 multi-signature version 0 pay-to-witness-script-hash (P2WSH) witness program.
+
+    witness:      0 <signature1> <1 <pubkey1> <pubkey2> 2 CHECKMULTISIG>
+    scriptSig:    (empty)
+    scriptPubKey: 0 <32-byte-hash>
+                  (0x0020{32-byte-hash})
+
+The '0' in scriptPubKey indicates the following push is a version 0 witness program. The length of the witness program indicates that it is a P2WSH type. The last item in the witness (the "witnessScript") is popped off, hashed with SHA256, compared against the 32-byte-hash in scriptPubKey, and deserialized:
+
+    1 <pubkey1> <pubkey2> 2 CHECKMULTISIG
+
+The script is executed with the remaining data from witness:
+
+    0 <signature1> 1 <pubkey1> <pubkey2> 2 CHECKMULTISIG
+
+A P2WSH witness program allows arbitrarily large script as the 520-byte push limit is bypassed.
+
+The scriptPubKey occupies 34 bytes, as opposed to 23 bytes of BIP16 P2SH. The increased size improves security against possible collision attacks, as 2<sup>80</sup> work is not infeasible anymore (By the end of 2015, 2<sup>84</sup> hashes have been calculated in Bitcoin mining since the creation of Bitcoin). The spending script is same as the one for an equivalent BIP16 P2SH output but is moved to witness.
+
+=== Witness program nested in BIP16 P2SH ===
+
+The following example is the same 1-of-2 multi-signature P2WSH witness program, but nested in a BIP16 P2SH output.
+
+    witness:      0 <signature1> <1 <pubkey1> <pubkey2> 2 CHECKMULTISIG>
+    scriptSig:    <0 <32-byte-hash>>
+                  (0x0020{32-byte-hash})
+    scriptPubKey: HASH160 <20-byte-hash> EQUAL
+                  (0xA914{20-byte-hash}87)
+
+The only item in scriptSig is hashed with HASH160, compared against the 20-byte-hash in scriptPubKey, and interpreted as:
+
+    0 <32-byte-hash>
+
+The P2WSH witness program is then executed as described in the previous example.
+
+Comparing with the previous example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig, which is not prunable in transmission. Although a nested witness program is less efficient in many ways, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
+
+=== Extensible commitment structure ===
+
+The new commitment in coinbase transaction is a hash of the witness root hash and a witness nonce. The nonce currently has no consensus meaning, but in the future allows new commitment values for future softforks. For example, if a new consensus-critical commitment is required in the future, the commitment in
+coinbase becomes:
+
+  Double-SHA256(Witness root hash|Hash(new commitment|witness nonce))
+
+For backward compatibility, the Hash(new commitment|witness nonce) will go to the coinbase witness, and the witness nonce will be recorded in another location specified by the future softfork. Any number of new commitment could be added in this way.
+
+Any commitments that are not consensus-critical to Bitcoin, such as merge-mining, MUST NOT use the witness nonce to preserve the ability to do upgrades of the Bitcoin consensus protocol.
+
+The optional data space following the commitment also leaves room for metadata of future softforks, and MUST NOT be used for other purpose.
+
+=== Trust-free unconfirmed transaction dependency chain ===
+
+Segregated witness fixes the problem of transaction malleability fundamentally, which enables the building of unconfirmed transaction dependency chains in a trust-free manner.
+
+Two parties, Alice and Bob, may agree to send certain amount of Bitcoin to a 2-of-2 multisig output (the "funding transaction"). Without signing the funding transaction, they may create another transaction, time-locked in the future, spending the 2-of-2 multisig output to third account(s) (the "spending transaction"). Alice and Bob will sign the spending transaction and exchange the signatures. After examining the signatures, they will sign and commit the funding transaction to the blockchain. Without further action, the spending transaction will be confirmed after the lock-time and release the funding according to the original contract. It also retains the flexibility of revoking the original contract before the lock-time, by another spending transaction with shorter lock-time, but only with mutual-agreement of both parties.
+
+Such setups is not possible with BIP62 as the malleability fix, since the spending transaction could not be created without both parties first signing the funding transaction. If Alice reveals the funding transaction signature before Bob does, Bob is able to lock up the funding indefinitely without ever signing the spending transaction.
+
+Unconfirmed transaction dependency chain is a fundamental building block of more sophisticated payment networks, such as duplex micropayment channel and the Lightning Network, which have the potential to greatly improve the scalability and efficiency of the Bitcoin system.
+
+== Future extensions ==
+
+=== Compact fraud proof for SPV nodes ===
+
+Bitcoin right now only has two real security models. A user either runs a full-node which validates every block with all rules in the system, or a SPV (Simple Payment Verification) client which only validates the headers as a proof of publication of some transactions. The Bitcoin whitepaper suggested that SPV nodes may accept alerts from full nodes when they detect an invalid block, prompting the SPV node to download the questioned blocks and transactions for validation. This approach, however, could become a DoS attack vector as there is virtually no cost to generate a false alarm. An alarm must come with a compact, yet deterministic fraud proof.
+
+In the current Bitcoin protocol, it is possible to generate compact fraud proof for almost all rules except a few:
+
+# It is not possible to prove a miner has introduced too many Bitcoins in the coinbase transaction outputs without showing the whole block itself and all input transactions.
+# It is not possible to prove the violation of any block specific constraints, such as size and sigop limits, without showing the whole block (and all input transactions in the case of sigop limit)
+# It is not possible to prove the spending of a non-existing input without showing all transaction IDs in the blockchain way back to the genesis block.
+
+Extra witness data can be committed that allows short proofs of block invalidity that SPV nodes can quickly verify:
+
+# Sum trees for transaction fee can be committed making it possible to construct short proofs that the miner does not add excessive fees to the coinbase transaction. Similar for the block size and sigop count limit.
+# Backlinks for the outputs spent by the transaction's inputs can be provided. These backlinks consist of a block hash and an offset that thin clients can easily query and check to verify that the outputs exist.
+
+These commitments could be included in the extensible commitment structure through a soft fork and will be transparent to nodes that do not understand such new rules.
+
+=== New script system ===
+
+Since a version byte is pushed before a witness program, and programs with unknown versions are always considered as anyone-can-spend script, it is possible to introduce any new script system with a soft fork. The witness as a structure is not restricted by any existing script semantics and constraints, the 520-byte push limit in particular, and therefore allows arbitrarily large scripts and signatures.
+
+Examples of new script system include Schnorr signatures which reduce the size of multisig transactions dramatically, Lamport signature which is quantum computing resistance, and Merklized abstract syntax trees which allow very compact witness for conditional scripts with extreme complexity.
+
+The 32-byte limitation for witness program could be easily extended through a soft fork in case a stronger hash function is needed in the future. The version byte is also expandable through a softfork.
+
+=== Per-input lock-time and relative-lock-time ===
+
+Currently there is only one nLockTime field in a transaction and all inputs must share the same value. [https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP68] enables per-input relative-lock-time using the nSequence field, however, with a limited lock-time period and resolution.
+
+With a soft fork, it is possible to introduce a separate witness structure to allow per-input lock-time and relative-lock-time, and a new script system that could sign and manipulate the new data (like [https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki BIP65] and [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP112]).
+
+== Backward compatibility ==
+
+As a soft fork, older software will continue to operate without modification.  Non-upgraded nodes, however, will not see nor validate the witness data and will consider all witness programs as anyone-can-spend scripts (except a few edge cases where the witness programs are equal to 0, which the script must fail). Wallets should always be wary of anyone-can-spend scripts and treat them with suspicion. Non-upgraded nodes are strongly encouraged to upgrade in order to take advantage of the new features.
+
+'''What a non-upgraded wallet can do'''
+
+* Receiving bitcoin from non-upgraded and upgraded wallets
+* Sending bitcoin to non-upgraded and upgraded wallets with traditional P2PKH address (without any benefit of segregated witness)
+* Sending bitcoin to upgraded wallets using a P2SH address
+* Sending bitcoin to upgraded wallets using a native witness program through [https://github.com/bitcoin/bips/blob/master/bip-0070.mediawiki BIP70] payment protocol
+
+'''What a non-upgraded wallet cannot do'''
+
+* Validating segregated witness transaction. It assumes such a transaction is always valid
+
+== Deployment ==
+
+We reuse the double-threshold IsSuperMajority() switchover mechanism used in
+BIP65 with the same thresholds, but for nVersion = 5. The new rules are
+in effect for every block (at height H) with nVersion = 5 and at least
+750 out of 1000 blocks preceding it (with heights H-1000..H-1) also
+have nVersion >= 5. Furthermore, when 950 out of the 1000 blocks
+preceding a block do have nVersion >= 5, nVersion < 5 blocks become
+invalid, and all further blocks enforce the new rules.
+
+(It should be noted that BIP9 involves permanently setting a high-order bit to
+1 which results in nVersion >= all prior IsSuperMajority() soft-forks and thus
+no bits in nVersion are permanently lost.)
+
+=== SPV Clients ===
+
+While SPV clients are unable to fully validate blocks,
+they are able to validate block headers and, thus, can check block version and proof-of-work.
+SPV clients should reject nVersion < 5 blocks if 950 out of 1000 preceding blocks have
+nVersion >= 5 to prevent false confirmations from the remaining 5% of
+non-upgraded miners when the 95% threshold has been reached.
+
+== Credits ==
+
+Special thanks to Gregory Maxwell for originating many of the ideas in this BIP and Luke-Jr for figuring out how to deploy this as a soft fork.
+
+== Reference Implementation ==
+
+https://github.com/sipa/bitcoin/commits/segwit
+
+== References ==
+
+*[[bip-0016.mediawiki|BIP16 Pay to Script Hash]]
+*[[bip-0143.mediawiki|BIP143 Transaction Signature Verification for Version 0 Witness Program]]
+*[[bip-0144.mediawiki|BIP144 Segregated Witness (Peer Services)]]
+
+== Copyright ==
+
+This document is placed in the public domain.
