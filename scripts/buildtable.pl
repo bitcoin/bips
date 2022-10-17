@@ -127,7 +127,7 @@ while (++$bipnum <= $topbip) {
 			my $title_len = length($title);
 			die "$fn has too-long TItle ($title_len > 44 char max)" if $title_len > 44 and not exists $TolerateTitleTooLong{$bipnum};
 		} elsif ($field eq 'Author') {
-			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.]+\.\w+)\>$/ or die "Malformed Author line in $fn";
+			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Author line in $fn";
 			my ($authorname, $authoremail) = ($1, $2);
 			$authoremail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
 			$emails{$authorname}->{$authoremail} = undef;

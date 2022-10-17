@@ -68,8 +68,7 @@ def bytes_from_point(P: Point) -> bytes:
 def xor_bytes(b0: bytes, b1: bytes) -> bytes:
     return bytes(x ^ y for (x, y) in zip(b0, b1))
 
-def lift_x(b: bytes) -> Optional[Point]:
-    x = int_from_bytes(b)
+def lift_x(x: int) -> Optional[Point]:
     if x >= p:
         return None
     y_sq = (pow(x, 3, p) + 7) % p
@@ -128,7 +127,7 @@ def schnorr_verify(msg: bytes, pubkey: bytes, sig: bytes) -> bool:
         raise ValueError('The public key must be a 32-byte array.')
     if len(sig) != 64:
         raise ValueError('The signature must be a 64-byte array.')
-    P = lift_x(pubkey)
+    P = lift_x(int_from_bytes(pubkey))
     r = int_from_bytes(sig[0:32])
     s = int_from_bytes(sig[32:64])
     if (P is None) or (r >= p) or (s >= n):

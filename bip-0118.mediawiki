@@ -73,7 +73,7 @@ To convert a 33-byte BIP 118 public key for use with [[bip-0340.mediawiki|BIP 34
 
 ==== Signature message ====
 
-The function ''SigMsg118(hash_type, ext_flag)'' computes the message being signed as a byte array, analogously to ''SigMsg(hash_type, ext_flag)'' defined in [[bip-0341.mediawiki|BIP 341]], ''SigExt118(hash_type,key_version)'' computes the extension, similarly to [[bip-0342.mediawiki|BIP 342]].
+We define the functions ''Msg118(hash_type)'' and ''Ext118(hash_type)'' which compute the message being signed as a byte array.
 
 The parameter ''hash_type'' is an 8-bit unsigned value, reusing values defined in [[bip-0341.mediawiki|BIP 341]], with the addition that the values <code>0x41</code>, <code>0x42</code>, <code>0x43</code>, <code>0xc1</code>, <code>0xc2</code>, and <code>0xc3</code> are also valid for BIP 118 public keys.
 
@@ -82,64 +82,56 @@ We define the following constants using bits 6 and 7 of <code>hash_type</code>:
 * <code>SIGHASH_ANYPREVOUT = 0x40</code>
 * <code>SIGHASH_ANYPREVOUTANYSCRIPT = 0xc0</code>
 
-As per [[bip-0341.mediawiki|BIP 341]], the parameter ''ext_flag'' is an integer in the range 0-127, used for indicating that extensions are added at the end of the message. The parameter ''key_version'' is an 8-bit unsigned value (an integer in the range 0-255) used for committing to the public key version.
-
 The following restrictions apply and cause validation failure if violated:
 * Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'',  ''0x03'', ''0x41'', ''0x42'', ''0x43'', ''0x81'', ''0x82'', ''0x83'', ''0xc1'', ''0xc2'', or ''0xc3'').
 * Using <code>SIGHASH_SINGLE</code> without a "corresponding output" (an output with the same index as the input being verified).
 
-If these restrictions aren't violated, ''SigMsg118(hash_type,ext_flag)'' evaluates to the concatenation of the following data, in order (with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte items are encoded in little-endian.
+If these restrictions are not violated, ''Msg118(hash_type)'' evaluates as follows.
+
+If ''hash_type & 0x40 == 0'', then ''Msg118(hash_type) = SigMsg(hash_type, 1)'', where ''SigMsg'' is as defined in [[bip-0341.mediawiki|BIP 341]].
+
+If ''hash_type & 0x40 != 0'', then ''Msg118(hash_type)'' is the concatenation of the following data, in order (with byte size of each item listed in parentheses). Numerical values in 2, 4, or 8-byte items are encoded in little-endian.
 
 * Control:
 ** ''hash_type'' (1).
 * Transaction data:
 ** ''nVersion'' (4): the ''nVersion'' of the transaction.
 ** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
-** If ''hash_type & 0xc0'' is zero:
-*** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
-*** ''sha_amounts'' (32): the SHA256 of the serialization of all spent output amounts.
-*** ''sha_scriptpubkeys'' (32): the SHA256 of the serialization of all spent output ''scriptPubKey''s.
-*** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
 ** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
 *** ''sha_outputs'' (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
 * Data about this input:
-** ''spend_type'' (1): equal to ''(ext_flag * 2) + annex_present'', where ''annex_present'' is 0 if no annex is present, or 1 otherwise (the original witness stack has two or more witness elements, and the first byte of the last element is ''0x50'')
-** If ''hash_type & 0xc0'' is non-zero:
-*** If ''hash_type & 0xc0'' is <code>SIGHASH_ANYONECANPAY</code>:
-**** ''outpoint'' (36): the <code>COutPoint</code> of this input (32-byte hash + 4-byte little-endian).
-*** If ''hash_type & 0xc0'' is <code>SIGHASH_ANYONECANPAY</code> or <code>SIGHASH_ANYPREVOUT</code>:
-**** ''amount'' (8): value of the previous output spent by this input.
-**** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
-*** ''nSequence'' (4): ''nSequence'' of this input.
-** If ''hash_type & 0xc0'' is zero:
-*** ''input_index'' (4): index of this input in the transaction input vector. Index of the first input is 0.
+** ''spend_type'' (1): equal to 2 if no annex is present, or 3 otherwise (the original witness stack has two or more witness elements, and the first byte of the last element is ''0x50'')
+** If ''hash_type & 0xc0'' is <code>SIGHASH_ANYPREVOUT</code>:
+*** ''amount'' (8): value of the previous output spent by this input.
+*** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
+** ''nSequence'' (4): ''nSequence'' of this input.
 ** If an annex is present (the lowest bit of ''spend_type'' is set):
 *** ''sha_annex'' (32): the SHA256 of ''(compact_size(size of annex) || annex)'', where ''annex'' includes the mandatory ''0x50'' prefix.
 * Data about this output:
 ** If ''hash_type & 3'' equals <code>SIGHASH_SINGLE</code>:
 *** ''sha_single_output'' (32): the SHA256 of the corresponding output in <code>CTxOut</code> format.
 
-Similarly, ''SigExt118(hash_type,key_version)'' evaluates to the concatenation of:
+Similarly, ''Ext118(hash_type)'' evaluates to the concatenation of the following data, in order:
 
 * Extension:
 ** If ''hash_type & 0xc0'' is not <code>SIGHASH_ANYPREVOUTANYSCRIPT</codE>:
 *** ''tapleaf_hash'' (32): the tapleaf hash as defined in [[bip-0341.mediawiki|BIP 341]]
-** ''key_version'' (1).
+** ''key_version'' (1): a constant value ''0x01'' representing that this is a signature for a BIP 118 public key.
 ** ''codesep_pos'' (4): the opcode position of the last executed <code>OP_CODESEPARATOR</code> before the currently executed signature opcode, with the value in little endian (or ''0xffffffff'' if none executed). The first opcode in a script has a position of 0. A multi-byte push opcode is counted as one opcode, regardless of the size of data being pushed.
-
-Note that if ''hash_type & 0x40'' is zero, ''SigMsg118(hash_type,ext_flag) == SigMsg(hash_type,ext_flag)'', and ''SigExt118(hash_type,0x00) == ext'' (where ''ext'' is the message extension as defined in [[bip-0342.mediawiki|BIP 342]]).
 
 To verify a signature ''sig'' for a BIP 118 public key ''p'':
 
-* If the ''sig'' is 64 bytes long, return ''Verify(p, hash<sub>TapSigHash</sub>(0x00 || SigMsg118(0x00, 1) || SigExt118(0x00, 0x01), sig)'', where ''Verify'' is defined in [[bip-0340.mediawiki|BIP 340]].
-* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00 and Verify(p, hash<sub>TapSighash</sub>(0x00 || SigMsg118(sig[64], 1) || SigExt118(sig[64], 0x01), sig[0:64])''.
+* If the ''sig'' is 64 bytes long, return ''Verify(p, hash<sub>TapSigHash</sub>(0x00 || Msg118(0x00) || Ext118(0x00)), sig)''
+* If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00 and Verify(p, hash<sub>TapSighash</sub>(0x00 || Msg118(sig[64]) || Ext118(sig[64])), sig[0:64])''.
 * Otherwise, fail.
+
+''Verify'' is as defined in [[bip-0340.mediawiki|BIP 340]].
 
 The key differences from [[bip-0342.mediawiki|BIP 342]] signature verification are:
 
 * In all cases, <code>key_version</code> is set to the constant value <code>0x01</code> instead of <code>0x00</code>.<ref>'''Why change key_version?''' Changing <code>key_version</code> ensures that if the same private key is used to generate both a [[bip-0342.mediawiki|BIP 342]] key and a BIP 118 public key, that a signature for the [[bip-0342.mediawiki|BIP 342]] key is not also valid for the BIP 118 public key (and vice-versa).</ref>
 * If <code>SIGHASH_ANYPREVOUT</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code> is not included in the digest.
-* If <code>SIGHASH_ANYPREVOUTANYSCRIPT</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code>, <code>scriptPubKey</code> and <code>tapleaf_hash</code> are not included in the digest.
+* If <code>SIGHASH_ANYPREVOUTANYSCRIPT</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code>, <code>amount</code>, <code>scriptPubKey</code> and <code>tapleaf_hash</code> are not included in the digest.
 
 == Security ==
 
