@@ -398,18 +398,17 @@ derived using the first input outpoint as a sort of chain randomness to ensure
 uniqueness within the system as well as the output index and asset type to
 prevent collisions.
 The <code>asset_group_key</code> is derived as follows:
-* <code>asset_group_key</code> = <code>asset_key_internal +
-sha256(asset_key_internal || genesis_outpoint || output_index || asset_type)
-</code>
+* <code>asset_group_key = TapTweak(asset_internal_group_key, asset_group_script_root)</code>
 
 where:
-* <code>asset_key_internal</code> is a 32-byte public key as defined by
-[[../master/bip-0340.mediawiki|BIP-340]]
-* <code>genesis_outpoint</code> is the first previous input outpoint used in the
-asset genesis transaction serialized in Bitcoin wire format.
-* <code>output_index</code> (4 byte, big-endian) is the index  of the output
-which contains the unique Taproot Asset commitment in the genesis transaction. 
-* <code>asset_type</code> (1 byte) is the type of the asset being minted.
+* <code>asset_raw_group_key</code> is a 32-byte public key as defined by [[../master/bip-0340.mediawiki|BIP-340]]
+* <code>asset_internal_group_key = SingleTweak(asset_raw_group_key, asset_id)</code> 
+* <code>asset_group_script_root</code> is a taproot that can hold arbitrary asset scripts enforcing conditions for minting the asset.
+
+and
+* <code>TapTweak</code> is the taproot tweak function as defined in [[../master/bip-0341.mediawiki|BIP-341]]. 
+* <code>SingleTweak</code> is a tweak function that unlike <code>TapTweak</code> uses an untagged hash: 
+<code>tweaked_pubkey = pubkey * sha256(tweak || pubkey) * G</code>
 
 The top level tree can be easily used to prove the existence of a set of given
 assets, the total amount of asset units held, as well as the sum of a given
@@ -526,7 +525,7 @@ specification):
 *** [<code>33*byte</code>:<code>pub_key</code>]
 * type: 17 (<code>asset_group_key</code>)
 ** value: 
-*** [<code>96*byte</code>:<code>pub_key || schnorr_sig</code>]
+*** [<code>32*byte</code>:<code>pub_key</code>]
 
 where:
 
@@ -545,12 +544,15 @@ where:
 *** If this type isn't present, then a <code>split_commitment</code> MUST be present.
 ** <code>split_commitment_proof</code>: is used to permit the spending of an asset UTXO created as a result of an asset split. When an asset is split, the non-change UTXO commits to the location of all other splits within an MS-SMT tree. When spending a change UTXO resulting from an asset_split, a normal <code>asset_witness</code> isn't required, instead the owner of the change asset UTXO must prove that it holds a valid split which was authorized by the main transfer transaction (the <code>root_asset</code>).
 *** Outputs with the same <code>split_commitment</code> are said to share a single <code>asset_witness</code> as such outputs are the result of a new asset split. Therefore we only need a single witness and the resulting merkle-sum asset tree to verify a transfer.
-** <code>asset_witness</code>: is a serialized witness in an identical format as Bitcoin's Segwit witness field. This field can only be blank if <code>prev_asset_input</code> is blank.
+** <code>asset_witness</code>: is a serialized witness in an identical format as Bitcoin's Segwit witness field. 
+*** If <code>prev_asset_input</code> is all zeroes, the witness will be either
+**** empty, to indicate this asset does not support further issuance. In this case <code>asset_group_key</code> MUST NOT be present.
+**** non-empty, in case the witness will be interpreted according to [[../master/bip-0340.mediawiki#specification|BIP-341]] validation rules using the <code>asset_group_key</code> in place of the <code>asset_script_key</code>. In this case <code>asset_group_key</code> MUST be present.
 * <code>split_commitment_root</code>: is used to commit to, and permit verification of the new output split distribution for normal assets. The <code>split_commitment_root</code> is an MS-SMT with a key of <code>sha256(output_index || asset_id || asset_script_key)</code>, and the value being the new Taproot Asset leaf. This is an optional field and is only specified when an asset value is split during transfer.
 *** Outputs with the same <code>split_commitment_root</code> are said to share a single <code>asset_witness</code> as such outputs are the result of a new asset split. Therefore we only need a single witness and the resulting merkle-sum asset tree to verify a transfer.
 * <code>asset_script_version</code>: is a 2 byte asset script version that governs how the following TLV value is to be validated.
 * <code>asset_script_key</code>: is the external public key derived in a BIP 341 manner which may commit to an asset script that encumbers this asset leaf.
-* <code>asset_group_key</code>: is a 32-byte public key as defined by [[../master/bip-0340.mediawiki|BIP-340]] followed by a 64-byte BIP 340 signature over the <code>asset_id</code>. This key can be used to associate distinct assets as identified by their <code>asset_id</code>, effectively allowing further issuance of a base asset. Assets that references the same <code>asset_group_key</code> are to be considered the same asset. This is an optional field, and assets that don't contain this field are effectively considered to be a one-time only issuance event, meaning no further assets related to the derived <code>asset_id</code> can be created.
+* <code>asset_group_key</code>: is a 32-byte public key as defined by [[../master/bip-0340.mediawiki|BIP-340]]. This key can be used to associate distinct assets as identified by their <code>asset_id</code>, effectively allowing further issuance of a base asset. Assets that references the same <code>asset_group_key</code> are to be considered the same asset. This is an optional field, and assets that don't contain this field are effectively considered to be a one-time only issuance event, meaning no further assets related to the derived <code>asset_id</code> can be created.
 * <code>canonical_universe</code>: is a key (with no corresponding value) which if specified, designates the existence of an on-chain canonical Universe. Specified further in [[./bip-tap-universe.mediawiki]], a canonical Universe is maintained by the issuer of an asset and can be used to allow 3rd parties to easily audit the total asset supply and also track future issuance. In short, if this is specified, ''second'' output of the next spend of the outpoint created during asset issuance MUST commit to the root hash of a base Universe and all subsequent spends must only happen after later asset issuance events, and MUST commit to a new valid Universe root. This feature allows light clients to watch a set of outputs on chain to be notified of future asset issuance.
 
 (TODO(roasbeef): merkle sum commitment over input set as well? enables probabilistic validation?)
