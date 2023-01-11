@@ -1,0 +1,157 @@
+<pre>
+  BIP: ?
+  Layer: Mempool Policy
+  Title: Ephemeral Anchors
+  Author: Gregory Sanders <gsanders87@gmail.com>
+  Status: Draft
+  License: BSD-3-Clause
+  Type: Standards Track
+  Created: 2023-01-11
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+Ephemeral Anchors are a mempool policy carve-out that allows any value utxos,
+even 0-value dust, to be created, provided it is also consumed within the same
+mempool package. This ephemeral anchor is a "mutex lock" for the transaction,
+allowing for robust fee bumping by wallets, not requiring any special key material
+to do so, and avoiding all known transaction pinning vectors.
+
+===Motivation===
+
+One definition of transaction pinning is the intentional or unintentional blocking
+of a getting a transaction mined that would otherwise be rational for the miner
+to include in the next block without the attacker paying anything in many cases.
+This can result in wallets simply not supporting fee bumping due to complexity,
+or in certain smart contract cases such as Hash Time Locked Contracts, outright theft.
+
+[https://github.com/bitcoin/bitcoin/pull/28948 V3] transactions, which this proposal is built on, greatly mitigates [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP125]
+pinning vectors, where an adversary can vastly increase the required fees to replace a
+transaction that will not be mined quickly, or disallow replacement altogether.
+Depending on certain factors, this economic value can reach over 500 times increase
+in required fees to replace the attacker's transaction. V3 transactions end
+up reducing this attack surface by 100 times, resulting in 5 times increase in fees
+using the same running example. This policy can be thought of as a "RBF carve-out".
+
+The major pinning vector left is "package limit pinning", where a counterparty
+either maliciously or accidentally pins a transaction by exhausting the maximum
+descendant limit of a transaction package using their own outputs, and is unwilling
+or unable to get the package mined. This leaves the honest user unable to spend their
+own outputs in the transaction package, as there is no RBF rule in place for evicting
+"sibling" output spends from the same parent transaction.
+
+One existing mitigation for this issue is the [https://github.com/bitcoin/bitcoin/pull/15681 CPFP carve out], which allows
+a "one more" policy these limits, given some restrictions. This carve-out only works for
+transactions with up to two immediately-spendable outputs. This leaves a lot to be
+desired:
+
+* It does not solve many-party contract pinning, such as a three-party payment channel
+* It does not solve batched payments pinning if the service is unable to double-spend its own inputs. For example, an exchange may require strict separation between client funds and fee funds for security reasons.
+* In two-party smart contracts, all but two outputs must be relative-timelocked, which interferes with tooling such as [https://bitcoin.sipa.be/miniscript/ Miniscript] and smart contract composition such as making an output that is directly deposited into another smart contract or any wallet with standard address types.
+
+This proposal gives a standard way to create a 0-fee "parent" transaction
+which can be fee-bumped by any wallet by introducing a special 0-value anchor output
+which MUST be spent within the same relay package.
+
+===Implications===
+
+In conjunction with V3 rules of a transaction having up to one child,
+if a "parent" transaction has an ephemeral anchor, any spend of that parent transaction's
+outputs must also include the ephemeral anchor spend in the same transaction, meaning it can
+be double-spent by any other party via existing RBF rules. This "mutex lock" supersedes
+the LN-focused CPFP carve-out, neatly solving the remaining issues with multiparty constructs and Miniscript
+compatibility.
+
+===Expected Use Cases===
+
+* Batched payments with segregated fee pools: Batched payments that can be fee bumped without access to customer deposit related key material
+* Simplified watchtowers: No requirement for watchtowers to be registered with privileged key material
+* Payment accelerators: Users can submit transactions to transaction accelerators, who can fee bump using their own infrastructure
+* Multiparty smart contracts: LN BOLTs can be revamped to remove `1 CSV` and value-sapping anchors.
+* [https://bitcoin.stackexchange.com/questions/100537/what-is-spacechain Spacechains]
+
+===Unsolved Pinning Scenarios===
+
+One major class of pinning vectors yet unsolved is when the pre-signed transaction uses
+SIGHASH_ANYONECANPAY. This mode should be avoided as a pinning DoS is trivial.
+
+Second is any other transaction type such as coinjoins, where the wallet user doesn't
+have "veto" power over all inputs in the transaction. A counterparty can double-spend
+their inputs, and this can still result in a variety of pinning vectors, albeit
+perhaps reduced in severity or chance of success.
+
+===Related Work===
+
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-September/018168.html Transaction Sponsors] is a softfork proposal to allow transactions to
+indirectly sponsor transactions with no explicit relationship in the classical utxo
+model. Ephemeral Anchors can be viewed as a type of opt-in transaction sponsors implemented
+purely in policy.
+
+Using a 0-value CPFP anchor is not a new idea, see:
+
+* [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-May/015931.html LN-dev discussion on 0-value anchors]
+
+The discussion lacked a solution to the issue of the dust entering into the utxo set
+causing negative externalities, and also was more weakly motivated by not solving package limit pinning.
+Repackaging the idea within the context of ancestor package relay and in light of the latest transaction pinning
+research, we can mitigate the negative externalities while solving substantial problems.
+
+==Definitions==
+
+Ephemeral anchor: An output with the scriptPubKey of exactly <code>OP_1 <0x4e73></code>, which is a non-taproot witness v1 script.
+
+Ephemeral anchor transaction: A transaction that has an ephemeral anchor
+
+==Specification==
+
+A new output script type is made policy standard to spend, known as an ephemeral anchor.
+
+Ephemeral anchors of any satoshi value are standard for relay.
+
+When received by a peer for inclusion to the mempool an ephemeral anchors transaction MUST:
+
+* Be an otherwise valid V3 transaction
+* Be 0-fee
+* Have only one ephemeral anchor
+* Have the ephemeral anchor spent in the same ancestor relay package
+
+or will be rejected by policy. All other policy checks are left in place.
+If included in an otherwise valid block, these additional constraints do not apply
+as this is a policy-only change.
+
+It is recommended that miners should not mine ephemeral anchor transactions
+without also mining the spend in the same block. This means miners should not
+prioritise transactions that create ephemeral anchors but instead should just prioritise the spend;
+mining software is encouraged to enforce that limitation.
+
+No witness data for ephemeral anchors spends should be allowed, to preclude witness
+stuffing.
+
+== Backward compatibility ==
+
+Ephemeral anchor spends were previously non-standard, so there are no known conflicts
+with previous usage.
+
+==Implementation==
+
+https://github.com/bitcoin/bitcoin/pull/29001
+
+==Acknowledgements==
+
+Thank you to all those listed for foundational work
+and insightful feedback(in last name order):
+
+* Richard Meyers
+* James O'Beirne
+* Antoine Poinsot
+* Antoine Riard 
+* Jeremy Rubin
+* Bastien Teinturier
+* Anthony Towns
+* Gloria Zhao
+
+==References and Rationale==
+
+<references/>
