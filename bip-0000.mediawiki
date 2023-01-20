@@ -1,0 +1,288 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Ordinal Numbers
+  Author: Casey Rodarmor <casey@rodarmor.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/casey/ord/discussions/126
+  Status: Draft
+  Type: Informational
+  Created: 2022-02-02
+  License: PD
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This document defines a scheme for assigning serial numbers to sats.
+
+=== Copyright ===
+
+This work is placed in the public domain.
+
+=== Motivation ===
+
+Bitcoin has no notion of stable, public accounts or identities. Addresses are
+single-use, and wallet accounts are private. Additionally, the use of addresses
+or public keys as stable identifiers precludes transfer of ownership or key
+rotation.
+
+This proposal is motivated by the desire to provide stable identifiers that may
+be used by Bitcoin applications.
+
+== Description ==
+
+=== Design ===
+
+Every sat is serially numbered, starting at 0, in the order in which it is
+mined. These numbers are termed "ordinal numbers", or "ordinals", as they are
+ordinal numbers in the mathematical sense, giving the order of each sat in the
+totally supply. The word "ordinal" is nicely unambiguous, as it is not used
+elsewhere in the Bitcoin protocol.
+
+The ordinal numbers of sats in transaction inputs are transferred to output
+sats in first-in-first-out order, according to the size and order of the
+transactions inputs and outputs.
+
+If a transaction is mined with the same transaction ID as outputs currently in
+the UTXO set, following the behavior of Bitcoin Core, the new transaction
+outputs displace the older UTXO set entries, destroying the sats contained in
+any unspent outputs of the first transaction. This rule is required to handle
+the two pairs of mainnet transactions with duplicate transaction IDs, namely
+the coinbase transactions of blocks 91812/91842, and 91722/91880, mined before
+[https://github.com/bitcoin/bips/blob/master/bip-0034.mediawiki BIP-34] made
+the creation of transactions with duplicate IDs impossible.
+
+For the purposes of the assignment algorithm, the coinbase transaction is
+considered to have an implicit input equal in size to the subsidy, followed by
+an input for every fee-paying transaction in the block, in the order that those
+transactions appear in the block. The implicit subsidy input carries the
+block's newly created sats. The implicit fee inputs carry the sats that were
+paid as fees in the block's transactions.
+
+Underpaying the subsidy does not change the ordinal numbers of sats mined
+in subsequent blocks. Ordinals depend only on how many sats could have been
+mined, not how many actually were.
+
+=== Specification ===
+
+Sats are numbered and transferred with the following algorithm:
+
+<pre>
+# subsidy of block at given height
+def subsidy(height):
+  return 50 * 100_000_000 >> height // 210_000
+
+# first ordinal of subsidy of block at given height
+def first_ordinal(height):
+  start = 0
+  for height in range(height):
+    start += subsidy(height)
+  return start
+
+# assign ordinals in given block
+def assign_ordinals(block):
+  first = first_ordinal(block.height)
+  last = first + subsidy(block.height)
+  coinbase_ordinals = list(range(first, last))
+
+  for transaction in block.transactions[1:]:
+    ordinals = []
+    for input in transaction.inputs:
+      ordinals.extend(input.ordinals)
+
+    for output in transaction.outputs:
+      output.ordinals = ordinals[:output.value]
+      del ordinals[:output.value]
+
+    coinbase_ordinals.extend(ordinals)
+
+  for output in block.transaction[0].outputs:
+    output.ordinals = coinbase_ordinals[:output.value]
+    del coinbase_ordinals[:output.value]
+</pre>
+
+=== Terminology and Notation ===
+
+A satpoint may be used to indicate the location of a sat within an output. A
+satpoint consists of an outpoint, i.e., a transaction ID and output index, with
+the addition of the offset of the ordinal within that output. For example, if
+the sat in question is at offset 6 in the first output of a transaction, its
+satpoint is:
+
+`680df1e4d43016571e504b0b142ee43c5c0b83398a97bdcfd94ea6f287322d22:0:6`
+
+== Discussion ==
+
+=== Rationale ===
+
+Ordinal numbers are designed to be orthogonal to other aspects of the Bitcoin
+protocol, and can thus be used in conjunction with other layer one and layer
+applications, even ones that were not designed with ordinal numbers in mind.
+
+Ordinal sats can be secured using current and future script types. They can be
+held by single-signature wallets, multi-signature wallets, time-locked, and
+height-locked in all the usual ways.
+
+By assigning ordinal numbers to all sats without the need for an explicit
+creation step, the anonymity set of ordinal number users is maximized.
+
+Since a sat has an output that contains it, and an output has a public key that
+controls it, the owner of a sat can respond to challenges by signing messages
+using the address associated with the controlling UTXO. Additionally, a sat can
+change hands, or its private key can be rotated without a change of ownership,
+by transferring it to a new output.
+
+Ordinals require no changes to blocks, transactions, or network protocols, and
+can thus be immediately adopted, or ignored, without impacting existing users.
+
+Ordinals do not have an explicit on-chain footprint. However, a valid objection
+is that adoption of ordinals will increase demand for outputs, and thus
+increase the size of the UTXO set that full nodes must track. See the
+objections section below.
+
+The ordinal number scheme is extremely simple. The specification above is 15
+lines of code.
+
+Ordinals are fairly assigned. They are not premined, and are assigned
+proportionally to existing bitcoin holders.
+
+Ordinals are as granular as possible, as bitcoin is not capable of tracking
+ownership of sub-sat values.
+
+=== Transfer and the Dust Limit ===
+
+Any single-sat transfer can be accomplished in a single transaction, but the
+resulting transaction may contain outputs below the dust limit, and thus be
+non-standard and difficult to get included in a block. Consider a scenario
+where Alice owns an output containing the range of sats [0,10], the current
+dust limit is 5 sats, and Alice wishes to send send sat 4 and 6 to Bob, but
+retain ordinal 5. Alice could construct a transaction with three outputs of
+size 5, 1, and 5, containing sats [0,4], 5, and [6,10], respectively. The
+second output is under the dust limit, and so such a transaction would be
+non-standard.
+
+This transfer, and indeed any transfer, can be accomplished by breaking the
+transfer into multiple transactions, with each transaction performing one or
+more splits and merging in padding outputs as needed.
+
+To wit, Alice could perform the desired transfer in two transactions. The first
+transaction would send sats [0,4] to Bob, and return as change sat [5,10] to
+Alice. The second transaction would take as inputs an output of at least 4
+sats, the change input, and an additional input of at least one sat; and create
+an output of size 5 to Bob's address, and the remainder as a change output.
+Both transactions avoid creating any non-standard outputs, but still accomplish
+the same desired transfer of sats.
+
+=== Objections ===
+
+''Privacy: Ordinal numbers are public and thus reduce user privacy.''
+
+The applications using ordinal numbers required them to be public, and reduce
+the privacy of only those users that decide to use them.
+
+''Fungibility: Ordinal numbers reduce the fungibility of Bitcoin, as ordinals
+received in a transaction may carry with them some public history.''
+
+As anyone can send anyone else any sats, any reasonable person will assume that
+a new owner of a particular sat cannot be understood to be the old owner, or
+have any particular relationship with the old owner.
+
+''Congestion: Adoption of ordinal numbers will increase the demand for
+transactions, and drive up fees.''
+
+Since Bitcoin requires the development of a robust fee market, this is a strong
+positive of the proposal.
+
+''UTXO set bloat: Adoption of ordinal numbers will increase the demand for
+entries in the UTXO set, and thus increase the size of the UTXO set, which all
+full nodes are required to track.''
+
+The dust limit, which makes outputs with small values difficult to create,
+should encourage users to create non-dust outputs, and to clean them up once
+they no longer have use for the sats that they contain.
+
+=== Security ===
+
+The public key associated with a sat may change. This requires actively
+following the blockchain to keep up with key changes, and requires care
+compared to a system where public keys are static. However, a system with
+static public keys suffers from an inability for keys to be rotated or accounts
+to change hands.
+
+Ordinal-aware software must avoid losing valuable sats by unintentionally
+relinquishing them in a transaction, either to a non-controlled output or by
+using them as fees.
+
+=== Privacy considerations ===
+
+Ordinals are opt-in, and should not impact the privacy of existing users.
+
+Ordinals are themselves public, however, this is required by the fact that many
+of the applications that they are intended to enable require public
+identifiers.
+
+Ordinal aware software should never mix sats which might have some publicly
+visible data associated with their ordinals with sats intended for use in
+payments or savings, since this would associate that publicly visible data with
+the users otherwise pseudonymous wallet outputs.
+
+=== Fungibility considerations ===
+
+Since any sat can be sent to any address at any time, sat that are transferred,
+even those with some public history, should be considered to be fungible with
+other sats with no such history.
+
+=== Backward compatibility ===
+
+Ordinal numbers are fully backwards compatible and require no changes to the
+bitcoin network.
+
+=== Drawbacks ===
+
+==== Large Index Size ====
+
+Indexes supporting fast queries related to ordinals are slow to build and
+consume large amounts of space.
+
+An O(1) index that maps UTXOs to the ordinals that they contain is currently
+100 GiB. The same index including spent outputs is 10 TiB.
+
+An O(1) index supporting the opposite mapping, that of individual ordinals to
+the UTXO that contains them, is likely to be intractable. However, an O(n)
+index where n is the number of times an ordinal has changed hands, is fast and
+practical.
+
+==== Large Location Proofs ====
+
+A proof can be constructed that demonstrates that a particular sat is contained
+in a particular output, however the proofs are large. Such a proof consists of:
+
+- Block headers
+- A Merkle path to the coinbase transaction that created the sat
+- The coinbase transaction that created the sat
+- And for every spend of that sat:
+  - The spend transaction
+  - The transactions that created the inputs before the input that was spent,
+    to determine the values of the preceding inputs, to determine the position
+    of the sat
+  - And, if the sat was used as fees, all prior transaction in the block in
+    which it was spent, and the coinbase transaction, to determine the location
+    of the sat in the outputs.
+
+== Reference implementation ==
+
+This document and an implementation of an index that tracks the position of
+sats in the main chain are maintained [https://github.com/casey/ord here].
+
+== References ==
+
+A variation of this scheme was independently invented a decade ago by jl2012
+[https://bitcointalk.org/index.php?topic=117224.0 on the Bitcoin Forum].
+
+For other colored coin proposals see [https://en.bitcoin.it/wiki/Colored_Coins
+the Bitcoin Wiki entry].
+
+For aliases, an implementation of short on-chain identifiers, see
+[https://github.com/bitcoin/bips/blob/master/bip-0015.mediawiki BIP 15].
