@@ -1,53 +1,69 @@
+"""Run the BIP-324 test vectors."""
+
 import csv
 import os
 import sys
 
 import reference
 
-with open(os.path.join(sys.path[0], 'packet_encoding_test_vectors.csv'), newline='') as csvfile:
-    reader = csv.reader(csvfile)
-    reader.__next__()
+FILENAME_PACKET_TEST = os.path.join(sys.path[0], 'packet_encoding_test_vectors.csv')
+FILENAME_XSWIFTEC_INV_TEST = os.path.join(sys.path[0], 'xswiftec_inv_test_vectors.csv')
+FILENAME_ELLSWIFT_DECODE_TEST = os.path.join(sys.path[0], 'ellswift_decode_test_vectors.csv')
+
+with open(FILENAME_PACKET_TEST, newline='', encoding='utf-8') as csvfile:
+    print(f"Running {FILENAME_PACKET_TEST} tests...")
+    reader = csv.DictReader(csvfile)
     for row in reader:
-        in_idx, in_priv_ours, in_ellswift_ours, in_ellswift_theirs, in_initiating, in_content, in_multiply, in_aad, in_ignore, mid_x_ours, mid_x_shared, mid_shared_secret, mid_initiator_l, mid_initiator_p, mid_responder_l, mid_responder_p, mid_send_garbage_terminator, mid_recv_garbage_terminator, mid_session_id, out_ciphertext, out_ciphertext_endswith = row
+        in_initiating = int(row['in_initiating'])
+        bytes_priv_ours = bytes.fromhex(row['in_priv_ours'])
+        int_priv_ours = int.from_bytes(bytes_priv_ours, 'big')
+        assert row['mid_x_ours'] == (int_priv_ours * reference.SECP256K1_G).x.to_bytes().hex()
+        bytes_ellswift_ours = bytes.fromhex(row['in_ellswift_ours'])
+        assert row['mid_x_ours'] == reference.ellswift_decode(bytes_ellswift_ours).hex()
+        bytes_ellswift_theirs = bytes.fromhex(row['in_ellswift_theirs'])
+        assert row['mid_x_theirs'] == reference.ellswift_decode(bytes_ellswift_theirs).hex()
+        x_shared = reference.ellswift_ecdh_xonly(bytes_ellswift_theirs, bytes_priv_ours)
+        assert row['mid_x_shared'] == x_shared.hex()
+        shared_secret = reference.v2_ecdh(bytes_priv_ours, bytes_ellswift_theirs,
+            bytes_ellswift_ours, in_initiating)
+        assert row['mid_shared_secret'] == shared_secret.hex()
 
-        assert mid_x_ours == (int.from_bytes(bytes.fromhex(in_priv_ours), 'big') * reference.SECP256K1_G).x.to_bytes().hex()
-        assert mid_x_shared == reference.ellswift_ecdh_xonly(bytes.fromhex(in_ellswift_theirs), bytes.fromhex(in_priv_ours)).hex()
-        assert mid_shared_secret == reference.v2_ecdh(bytes.fromhex(in_priv_ours), bytes.fromhex(in_ellswift_theirs), bytes.fromhex(in_ellswift_ours), int(in_initiating)).hex()
-
-        peer = reference.initialize_v2_transport(bytes.fromhex(mid_shared_secret), int(in_initiating))
-        assert mid_initiator_l == peer['initiator_L'].hex()
-        assert mid_initiator_p == peer['initiator_P'].hex()
-        assert mid_responder_l == peer['responder_L'].hex()
-        assert mid_responder_p == peer['responder_P'].hex()
-        assert mid_send_garbage_terminator == peer['send_garbage_terminator'].hex()
-        assert mid_recv_garbage_terminator == peer['recv_garbage_terminator'].hex()
-        assert mid_session_id == peer['session_id'].hex()
-        for _ in range(int(in_idx)):
+        peer = reference.initialize_v2_transport(shared_secret, in_initiating)
+        assert row['mid_initiator_l'] == peer['initiator_L'].hex()
+        assert row['mid_initiator_p'] == peer['initiator_P'].hex()
+        assert row['mid_responder_l'] == peer['responder_L'].hex()
+        assert row['mid_responder_p'] == peer['responder_P'].hex()
+        assert row['mid_send_garbage_terminator'] == peer['send_garbage_terminator'].hex()
+        assert row['mid_recv_garbage_terminator'] == peer['recv_garbage_terminator'].hex()
+        assert row['out_session_id'] == peer['session_id'].hex()
+        for _ in range(int(row['in_idx'])):
             reference.v2_enc_packet(peer, b"")
-        ciphertext = reference.v2_enc_packet(peer, bytes.fromhex(in_content) * int(in_multiply), bytes.fromhex(in_aad), int(in_ignore))
-        if len(out_ciphertext):
-            assert out_ciphertext == ciphertext.hex()
-        if len(out_ciphertext_endswith):
-            assert ciphertext.hex().endswith(out_ciphertext_endswith)
+        ciphertext = reference.v2_enc_packet(
+            peer,
+            bytes.fromhex(row['in_contents']) * int(row['in_multiply']),
+            bytes.fromhex(row['in_aad']), int(row['in_ignore']))
+        if len(row['out_ciphertext']):
+            assert row['out_ciphertext'] == ciphertext.hex()
+        if len(row['out_ciphertext_endswith']):
+            assert ciphertext.hex().endswith(row['out_ciphertext_endswith'])
 
-with open(os.path.join(sys.path[0], 'xswiftec_test_vectors.csv'), newline='') as csvfile:
-    reader = csv.reader(csvfile)
-    reader.__next__()
+with open(FILENAME_XSWIFTEC_INV_TEST, newline='', encoding='utf-8') as csvfile:
+    print(f"Running {FILENAME_XSWIFTEC_INV_TEST} tests...")
+    reader = csv.DictReader(csvfile)
     for row in reader:
-        u = reference.FE.from_bytes(bytes.fromhex(row[0]))
-        x = reference.FE.from_bytes(bytes.fromhex(row[1]))
+        u = reference.FE.from_bytes(bytes.fromhex(row['u']))
+        x = reference.FE.from_bytes(bytes.fromhex(row['x']))
         for case in range(8):
             ret = reference.xswiftec_inv(x, u, case)
             if ret is None:
-                assert row[2 + case] == ""
+                assert row[f"case{case}_t"] == ""
             else:
-                assert row[2 + case] == ret.to_bytes().hex()
+                assert row[f"case{case}_t"] == ret.to_bytes().hex()
                 assert reference.xswiftec(u, ret) == x
 
-with open(os.path.join(sys.path[0], 'xelligatorswift_test_vectors.csv'), newline='') as csvfile:
-    reader = csv.reader(csvfile)
-    reader.__next__()
+with open(FILENAME_ELLSWIFT_DECODE_TEST, newline='', encoding='utf-8') as csvfile:
+    print(f"Running {FILENAME_ELLSWIFT_DECODE_TEST} tests...")
+    reader = csv.DictReader(csvfile)
     for row in reader:
-        ellswift = bytes.fromhex(row[0])
-        x = bytes.fromhex(row[1])
-        assert reference.ellswift_ecdh_xonly(ellswift, (1).to_bytes(32, 'big')) == x
+        ellswift = bytes.fromhex(row['ellswift'])
+        assert reference.ellswift_decode(ellswift).hex() == row['x']
