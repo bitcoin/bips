@@ -1,0 +1,750 @@
+<pre>
+  BIP: xxxx
+  Layer: Consensus (soft fork)
+  Title: OP_VAULT
+  Author: James O'Beirne <vaults@au92.org>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-xxxx
+  Status: Draft
+  Type: Standards Track
+  Created: 2020-02-03
+  License: BSD-3-Clause
+  Post-History: 2023-01-09: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2023-January/021318.html [bitcoin-dev] OP_VAULT announcment
+</pre>
+
+
+== Introduction ==
+
+This BIP proposes new tapscript opcodes, <code>OP_VAULT</code> and
+<code>OP_UNVAULT</code>, that add consensus support for a specialized covenant. 
+These opcodes allow users to enforce a delay period before designated coins may
+be spent to an arbitrary destination, with the exception of a prespecified
+"recovery" path. At any time prior to final withdrawal, the coins can be spent to
+the prespecified path.
+
+
+=== Motivation ===
+
+The hazard of custodying Bitcoin is well known. Users of Bitcoin must go to
+significant effort to secure their private keys, and hope that once provisioned
+their custody system does not yield to any number of evolving and
+persistent threats. Users have little means to intervene once compromise is
+detected. This proposal introduces a mechanism that significantly
+mitigates the worst-case outcome of key compromise: coin loss.
+
+Introducing a way to intervene during unexpected spends allows users to
+incorporate highly secure key storage methods or unusual fallback strategies
+that are only exercised in the worst case, and which may otherwise be
+operationally prohibitive. The goal of this proposal is to make this strategy
+usable for custodians of any size with minimal complication.
+
+==== Example uses ====
+
+An individual custodying Bitcoin uses the common "single signature and
+passphrase" configuration with a hardware wallet. They are concerned about the
+risk associated with relying on a single manufacturer for key management as
+well as physical access to the hardware, so they generate a new key that is
+highly secure, but would be impractical for daily use. For example the key
+could be generated in some analog fashion, or on an old computer (with added
+entropy) that is then destroyed, with the private key replicated only in paper
+form. Or the key could be a 2-of-3 multisig using devices from different
+manufacturers. Perhaps the key is geographically distributed.
+
+This individual can use <code>OP_VAULT</code> to make use of the highly secure
+key as the unlikely recovery path, while using their existing signing procedure
+as the withdrawal trigger key, with a configured spend delay of 1 day. They can
+run software on their mobile device that monitors the blockchain for spends of
+the vault outpoints.
+
+If the vaulted coins move in an unexpected way, the user can immediately sweep
+them to the highly secure recovery path, but spending the coins on a daily
+basis works in the same way it did prior to vaulting - aside from the spend
+delay.
+
+The recovery key could be any number of things: a 2-of-3 multisig with keys
+that live on different devices, a 3-of-5 with socially distributed keys, a
+Taproot construction that incorporates one of these methods along with a
+time-delayed fallback to an "easier" recovery method, in case the highly secure
+key winds up being ''too'' highly secure.
+
+Institutional custodians of Bitcoin would likely use vaults in similar fashion.
+
+===== Avoiding the hostage situation =====
+
+This proposal uniquely provides a solution to the "hostage situation;" by
+setting the spend delay to, say, a week, and using as the recovery path a
+script that enforces a longer relative timelock, the owner of the vault can
+prove that he is unable to access its value immediately. To the author's
+knowledge, this is the only way to configure this defense without rolling
+timelocked coins for perpetuity or relying on a trusted third party.
+
+== Goals ==
+
+[[File:bip-VAULT/vaults-Basic.png|frame|center]]
+
+Vaults in Bitcoin have been discussed formally since 2016
+([http://fc16.ifca.ai/bitcoin/papers/MES16.pdf MES16]) or earlier. The value of
+having a configurable delay period with recovery capability in light of an
+unexpected spend has been widely recognized. 
+
+The only way to implement vaults given the existing consensus rules, aside from
+[https://github.com/revault emulating vaults with large multisig
+configurations], is to use presigned transactions created with a one-time-use
+key. This approach was first demonstrated
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-April/017755.html
+in 2020].
+
+Unfortunately, this approach has a number of practical shortcomings:
+* generating and securely delete ephemeral keys, which are used to emulate the vault covenant, is required,
+* amounts and withdrawal patterns must be precommitted to,
+* there is a necessity to precommit to an address that the funds must pass through on their way to the final withdrawal target, which is likely only known at unvault time,
+* the particular fee management technique or wallet must be decided upon vault creation,
+* coin loss follows if a vault address is reused,
+* the transaction data that represents the "bearer asset" of the vault must be stored for perpetuity else value is lost, and
+* the vault creation ceremony must be performed each time a new balance is to be deposited.
+
+The deployment of a "precomputed" covenant mechanism like
+[https://github.com/bitcoin/bips/blob/master/bip-0119.mediawiki OP_CHECKTEMPLATEVERIFY] or
+[https://github.com/bitcoin/bips/blob/master/bip-0118.mediawiki SIGHASH_ANYPREVOUT] 
+would both remove the necessity to use an ephemeral key, since the
+covenant is enforced on-chain, and lessen the burden of sensitive data storage,
+since the necessary transactions can be generated from a set of compact
+parameters. This approach was demonstrated [https://github.com/jamesob/simple-ctv-vault in
+2022].
+
+However, the limitations of precomputation still apply: amounts,
+destinations, and fee management are all fixed. Funds must flow through a fixed
+intermediary to their final destination. Batch operations, which may be vital
+for successful recovery during fee spikes or short spend delay, are not possible.
+
+[[File:bip-VAULT/withdrawal-comparison.drawio.png|frame|center]]
+
+Having a "general" covenant mechanism that can encode arbitrary transactional
+state machines would allow us to solve these issues, but at the cost of complex
+and large scripts that would probably be duplicated many times over in the
+blockchain. The particular design and deployment timeline of such a general
+framework is also uncertain. There are no sample vault implementations using
+these means known to the author.
+
+This proposal intends to address the problems outlined above by
+providing a delay period/recovery path use with minimal transactional and
+operational overhead using a specialized covenant.
+
+The design goals of the proposal are:
+
+* '''efficient reuse of an existing vault configuration.'''<ref>'''Why does this support address reuse?''' The proposal doesn't rely on or encourage address reuse, but certain uses are unsafe if address reuse cannot be handled - for example, if a custodian gives its users a vault address to deposit to, it cannot enforce that those users make a single deposit for each address.</ref> A single vault configuration, whether the same literal <code>scriptPubKey</code> or not, should be able to “receive” multiple deposits. 
+
+* '''batched operations''' for recovery and withdrawal to allow managing multiple vault coins efficiently.
+
+* '''unbounded partial withdrawals''', which allows users to withdrawal partial vault balances without having to perform the setup ceremony for a new vault.
+
+* '''dynamic unvault targets''', which allow the proposed withdrawal target for a vault to be specified at withdrawal time rather than when the vault is first created. This would remove the need for a prespecified, intermediate wallet that only exists to route unvaulted funds to their desired destination.
+
+* '''dynamic fee management''' that, like dynamic targets, defers the specification of fee rates and source to unvault time rather than vault creation time.
+
+These goals are accompanied by basic safety considerations (e.g. not being
+vulnerable to pinning) and a desire for concision, both in terms of the number
+of outputs created as well as script sizes.
+
+This proposal is designed to be compatible with any future sighash modes (e.g. <code>SIGHASH_GROUP</code>) or fee management strategies (e.g. [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-September/018168.html transaction sponsors]) that may be introduced. Use of these opcodes will benefit from, but do not strictly rely on, future transaction versions (e.g. [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-September/020937.html v3]) and [https://github.com/instagibbs/bips/blob/ephemeral_anchor/bip-ephemeralanchors.mediawik ephemeral anchors].
+
+== Design ==
+
+=== State machine ===
+
+[[File:bip-VAULT/opvault-flow.drawio.png|frame|center]]
+
+The vault has a number of stages, some of them optional:
+
+* '''vault transaction''': encumbers some coins with an <code>OP_VAULT</code> script invocation.
+
+* '''trigger transaction''': spends one or more <code>OP_VAULT</code> outputs into one compatible <code>OP_UNVAULT</code> output, which broadcasts the intent to withdrawal to some specific set of outputs. This transaction may have an additional output which allocates some of the vault balance into a partial revault, which simply encumbers the revaulted portion of the value into the same <code>scriptPubKey</code> of the originating <code>OP_VAULT</code> output(s).
+
+* '''withdrawal transaction''': spends <code>OP_UNVAULT</code> inputs into a compatible set of final withdrawal outputs per the target hash. The only authorization for this spend is the content hash of the withdrawal outputs.
+
+* '''recovery transaction''': spends one or more <code>OP_VAULT</code> or <code>OP_UNVAULT</code> inputs, which can be done at any time prior to withdrawal confirmation, to the prespecified recovery path. This transaction can optionally require a witness satisfying a specified ''recovery authorization'' script, an optional scriptPubKey gating the initiation of recovery. The use of recovery authorization has certain trade-offs discussed later.
+
+
+=== Parameters ===
+
+<code><recovery-params></code>
+
+The recovery parameters dictate both where funds can be swept to during a
+recovery, and what kind of authorization (if any) is needed to initiate a
+recovery. It is specified in the form 
+
+<source>
+<recovery sPK tagged hash (32 bytes)>[<optional auth. scriptPubKey ...>]
+</source>
+
+The first component commits to the destination that vault funds can be swept to
+at any point prior to the finalization of a withdrawal.
+
+The recovery scriptPubKey would usually correspond to a spending script that is
+inconvenient to exercise but highly secure.
+
+The second component, the recovery authorization scriptPubKey, is optional. It
+is a raw scriptPubKey that, if specified, must be satisfied to allow the input
+to be recovered. The benefit of using this parameter will be discussed later.
+If this component is not given, the de facto "authorization" is the reveal of
+the <code><recovery sPK tagged hash></code> preimage.
+
+Vaults which share the same recovery path can always be swept in batch operations,
+which is an important practical aspect of managing large numbers of vaults.
+
+<code><spend-delay></code>
+
+The spend delay dictates the duration of blocks or time which must
+elapse for the trigger <code>OP_UNVAULT</code> output to be claimable into the
+withdrawal target outputs. Encoded as the least significant 23 bits of a
+[https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP-0068] style
+relative locktime.
+
+'''Trigger key'''
+
+The trigger key, committed to with <code><trigger-sPK-hash></code>, is used to
+authorize the ''trigger transaction'' - an on-chain declaration to attempt a
+withdrawal to a certain set of target outputs.
+
+This functions as the "normal" spending key, but if an attacker obtains access
+to this key, the outcome is not catastrophic: any withdrawal attempt can be
+interrupted (within the spend delay) and swept to the recovery path. 
+
+The trigger key can be an arbitrary scriptPubKey so long as it represents a
+valid witness program. <code>OP_VAULT</code> outputs which have the same
+recovery params and spend delay can be spent into the same
+<code>OP_UNVAULT</code> output for a batched withdrawal process. 
+
+<code><target-outputs-hash></code>
+
+An arbitrary set of target withdrawal outputs that is specified as a parameter to <code>OP_UNVAULT</code> as a 32 byte tagged hash. The preimage is a list of destination output scriptPubKeys and amounts. If the trigger remains uncontested -- if it isn't swept to recovery before the spend delay elapses -- the vaulted funds may be spent into a compatible set of target outputs.
+
+
+=== Fee management ===
+
+A primary consideration of this proposal is how fee management is handled.
+Providing dynamic fee management is critical to the operation of a vault, since 
+
+* precalculated fees are prone to making transactions unconfirmable by high fee environments, and
+* a fee wallet that is prespecified might be compromised or lost before use.
+
+But dynamic fee management can introduce
+[https://bitcoinops.org/en/topics/transaction-pinning/ pinning vectors]. Care
+has been taken to avoid unnecessarily introducing these vectors when using the new 
+content-based spending policies that this proposal introduces.
+
+Originally, this proposal had a hard dependency on reformed transaction
+nVersion=3 policies, including ephemeral anchors, but it has since been revised
+to simply benefit from these changes in policy as well as other potential fee
+management mechanisms.
+
+
+== Specification ==
+
+The tapscript opcodes <code>OP_SUCCESS187</code> (<code>0xbb</code>) and
+<code>OP_SUCCESS188</code> (<code>0xbc</code>) are claimed to implement the
+<code>OP_VAULT</code> and <code>OP_UNVAULT</code> rules, respectively.
+
+=== <code>OP_VAULT</code> evaluation ===
+
+==== Witness program ====
+
+When evaluating <code>OP_VAULT</code> (<code>OP_SUCCESS187</code>,
+<code>0xbb</code>), the witness program is pushed onto the stack for the
+following result (stack shown top to bottom):
+
+<source>
+OP_VAULT            (*) being evaluated
+<trigger-sPK-hash> 
+<spend-delay> 
+<recovery-params> 
+</source>
+
+where
+
+* <code><trigger-sPK-hash></code> is a 32 byte tagged hash of the scriptPubKey used to authorize the spend of this output into an <code>OP_UNVAULT</code> trigger output 
+** <code>tagged_hash("VaultTriggerSPK", spk)</code>, per BIP-0340.
+** If this value is not 32 bytes, script execution when spending this output MUST fail and terminate immediately. 
+** Because this parameter's scriptPubKey is committed to using a hash, witness version upgradeability for the trigger key is preserved.
+
+* <code><spend-delay></code> is a <code>CScriptNum</code>-encoded number (up to 4 bytes) 
+** It is interpreted as the least significant 23 bits of a [https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP-0068] relative timelock.
+** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
+
+* <code><recovery-params></code> is a variable length data push, consisting of two components:
+*# a 32 byte tagged hash, the ''recovery sPK hash'', committing to the scriptPubKey which coins may be recovered to 
+*#* <code>tagged_hash("VaultRecoverySPK", spk)</code> from the [https://github.com/bitcoin/bips/blob/master/bip-0340/reference.py BIP-0340 reference code].
+*# 0 or more bytes that optionally specify a scriptPubKey that needs to be satisfied to authorize the recovery transaction. 
+*#* This optional parameter changes the allowable structure of recovery transactions.
+** If <code><recovery-params></code> is less than 32 bytes, script execution when spending this output MUST fail and terminate immediately.
+** Because the recovery scriptPubKey is committed to with a hash, witness version upgradeability is preserved.
+
+==== Check for recovery ====
+
+After the witness program is parsed, it must be determined whether this input
+is being spent towards a recovery. If an output in the spending transaction is
+found whose scriptPubKey hashes to the recovery sPK hash (the
+first component of <code><recovery-params></code>), the interpreter will
+evaluate for recovery. Otherwise, the interpreter will evaluate assuming a withdrawal
+is being triggered.
+
+In pseudocode:
+
+<source lang="python">
+is_recovery = False
+recovery_out: Optional[CTxOut] = None
+
+for out in spending_tx.vout:
+    if tagged_hash("VaultRecoverySPK", out.scriptPubKey) == recovery_sPK_hash:
+        is_recovery = True
+        recovery_out = out
+
+if is_recovery:
+    eval_for_recovery()
+else:
+    eval_for_withdrawal_trigger()
+</source>
+
+==== <code>OP_VAULT</code> evaluation for recovery spend ====
+
+* If the recovery output does not have an <code>nValue</code> greater than this input's amount, the script MUST fail and terminate immediately.
+* (Deferred) if the recovery output does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT</code>/<code>OP_UNVAULT</code> inputs with a corresponding recovery sPK hash, the transaction validation MUST fail.
+** Note that in the draft implementation, this is facilitated by a "deferred check" which is queued by the script interpreter, but executed after the script interpreter has finished, in other validation code.<ref>'''Why does this proposal require a "deferred checks" framework for correct script evaluation?''' The deferred checks framework is an augmentation to execution of the Bitcoin script interpreter. Currently, the validity of each input is checked in an order-indepdendent manner across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref>
+* The script must FAIL (by policy, not consensus) and terminate immediately if neither<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
+*# the input is marked as opt-in replaceable by having an nSequence number less than <code>0xffffffff - 1</code>, per [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP-0125], nor
+*# the version of the recovery transaction has an nVersion equal to 3.
+
+The stack may now have 0 or more elements. Any items on the stack will be used to verify the recovery authorization witness program, if any.
+
+* If the ''recovery authorization sPK'' is not null:
+** If <code>VerifyWitnessProgram(<stack elements>, <recovery-auth-sPK>, ...)</code> fails, the script MUST fail and terminate immediately.
+** (This validates that the recovery has been authorized.)
+* else (if the recovery is allowed to be unauthorized):
+** If the spending transaction has more than two outputs, the script MUST fail and terminate immediately.
+** If the spending transaction has two outputs, and the output not the recovery output is not an ephemeral anchor, the script MUST fail and terminate immediately.<ref>'''Why can unauthorized recoveries only process a single recovery path?''' Because there is no signature required for unauthorized recoveries, if additional outputs were allowed, someone observing a recovery in the mempool would be able to rebundle and broadcast the recovery with a lower fee rate.</ref>
+
+
+(Note: the above rules imply that if all inputs have a recovery authorization sPK specified, the structure of the recovery transaction is "free form," and the only requirement is that for each <code>OP_VAULT</code>/<code>OP_UNVAULT</code> input, there exists a compatible ''recovery output'' which preserves its full <code>nValue</code>.)
+
+If none of the conditions fail, a single true value (<code>0x01</code>) is left on the stack.
+
+==== <code>OP_VAULT</code> evaluation for withdrawal trigger ====
+
+Else, if it has been determined that the spend is not within a recovery
+transaction, it must be evaluated for eligibility as a withdrawal trigger
+spend.
+
+===== Witness stack =====
+
+There must be at least 4 items on the stack (shown top to bottom):
+
+<source>
+<trigger-vout-idx>
+<target-outputs-hash>
+<trigger-sPK>
+<trigger witness stack item 1> [...] <item n>
+</source>
+
+If the witness stack consists of fewer than four items the script MUST fail and
+terminate immediately.
+
+(Note: in practice, the witness stack will have included the other items necessary to reveal 
+a witness v1 (or greater) script-path spend, per [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#user-content-Constructing_and_spending_Taproot_outputs BIP-0341]. This is demonstrated in detail in [[#Transaction examples|the transaction examples section]].)
+
+The items on the stack must be validated as follows:
+
+* <code><trigger-vout-idx></code> is a <code>CScriptNum</code> of up to 4 bytes.
+** It indicates the vout index of this input's corresponding <code>OP_UNVAULT</code> output.
+*** Validation rules for this output are described below.
+** If this value does not decode as a valid CScriptNum value, the script MUST fail and terminate immediately.
+** If this value does not correspond to a valid output in the spending transaction, the script MUST fail and terminate immediately.
+
+* <code><target-outputs-hash></code> is a 32 byte data push.
+** It is the hash of the proposed withdrawal target output set, defined by <code>target_outputs_hash(outputs)</code> below. Note that this value is duplicated here.<ref>'''Why, when spending an OP_VAULT output into a trigger, does the target hash need to be duplicated on the witness stack?''' The target hash exists in the <code>OP_UNVAULT</code> output script, likely behind a taproot pubkey. Its presence is required on the witness stack also so that the expected taproot pubkey for the <code>OP_UNVAULT</code> output can be constructed for comparison.</ref>
+** If this value is not 32 bytes, the script MUST fail and terminate immediately.
+
+* <code><trigger-sPK></code> is a variable length data push.
+** It must be the scriptPubKey that is the preimage to the <code><trigger-sPK-hash></code> specified in the spent <code>OP_VAULT</code> input.
+** If this value does not tagged-hash to <code><trigger-sPK-hash></code> supplied by the <code>OP_VAULT</code> parameter, the script MUST fail and terminate immediately.
+*** Verify <code>tagged_hash("VaultTriggerSPK", <trigger-sPK>) == <trigger-sPK-hash></code>
+** If this value does not correspond to a valid witness program, the script MUST fail and terminate immediately.
+
+* the remaining elements serve as the witness stack to satisfy the <code><trigger-sPK></code> witness program.
+** If <code>VerifyWitnessProgram(<remaining stack elements>, <trigger-sPK>, ...)</code> fails, the script MUST fail and terminate immediately.
+** (This validates that the withdrawal trigger has been authorized.)
+
+===== Transaction outputs validation =====
+
+Once the contents of the witness stack have been parsed and validated, the transaction outputs must be checked.
+
+First, we must check for a ''revault output'': an output in the trigger transaction whose
+scriptPubKey exactly matches that of the <code>OP_VAULT</code> input being
+spent. Its presence is optional.
+
+For each vault input citing a particular <code><trigger-vout-idx></code>, the output 
+located at <code>vout[<trigger-vout-idx>]</code> (the "trigger output") must:
+
+* have as its scriptPubKey a witness program version 1 with a single <code>OP_UNVAULT</code> tapscript, having the internal key <code>lift_x(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)</code>, per the NUMS point mentioned in [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#user-content-Design BIP-0341].<ref>'''Why must the OP_UNVAULT taproot use a NUMS point as its internal key?''' This ensures that an OP_UNVAULT trigger output is verifiable as expected. It also ensures that it is spendable only by the conditions of the vault.</ref>
+** If the witness program has a version less than 1, the script MUST fail and terminate immediately.
+** If the scriptPubKey of the output does not match the expected scriptPubKey, as computed by creating a taproot output using the cited NUMS point and a single tapscript spend condition of the form<br /><code><recovery-params-from-stack> <spend-delay-from-stack> <target-outputs-hash-from-stack> OP_UNVAULT</code>,<br />the script MUST fail and terminate immediately.
+** Witness versions greater than 1 are allowed for upgradeability.
+
+* If there does not exist a revault output in the transaction for this input:
+** (deferred) the <code>nValue</code> of the trigger output must equal the sum of all vault inputs which cite it as their corresponding trigger output.
+*** If these values are not equal, the script MUST fail and terminate immediately.
+* else (if there does exist a revault output for this input):
+** (deferred) the <code>nValue</code>s of the trigger output and the revault output must sum to the sum of all vault inputs which both 
+*** cite this trigger output as the trigger-vout-idx and 
+*** have a scriptPubKey identical to the revault output's.
+** If these values are not equal, the script MUST fail and terminate immediately.
+
+If none of the conditions above results in a failure of the script interpreter, the 
+stack will consist of a single true value (<code>0x01</code>).
+
+The above amount check can be expressed in Python as:
+
+<source lang="python">
+
+spending_tx: CTransaction
+vault_inputs: [CTxIn] = [inp for inp in spending_tx.vin if inp.is_OP_VAULT]
+
+"Where we'll accumulate the expected totals for each vault input."
+vault_totals_for_outputs: dict[(int, int), int] = defaultdict(0)
+
+"Build the expected totals."
+for vault_in in vault_inputs:
+    maybe_revault_idx = find_revault_for_vault(vault_in)
+    vault_total_for_outputs[(vault_in.trigger_vout_idx, maybe_revault_idx)] += vault_in.nValue
+
+
+"Check the expected totals against outputs."
+for (out_idx, maybe_revault_idx), expected_amount in vault_totals_for_outputs.items():
+    total = spending_tx.vout[out_idx].nValue
+
+    if maybe_revault_idx:
+        total += spending_tx.vout[maybe_revault_idx]
+
+    if total != expected_amount:
+        FAIL_AND_TERMINATE_SCRIPT()
+    
+    
+def find_revault_for_vault(vault_in) -> int:
+    """Find the index of a revault output for a particular vault input, if one exists."""
+    for i, out in enumerate(spending_tx.vout):
+        if out.scriptPubKey == vault_in.scriptPubKey:
+            return i
+    return None
+</source>
+
+=== <code>OP_UNVAULT</code> evaulation ===
+
+==== Witness program ====
+
+When evaluating <code>OP_UNVAULT</code> (<code>OP_SUCCESS188</code>,
+<code>0xbc</code>), the witness program is pushed onto the stack for the
+following result (stack shown top to bottom):
+
+<source>
+OP_UNVAULT             (*) being evaluated
+<target-outputs-hash>
+<spend-delay> 
+<recovery-params> 
+</source>
+
+where
+
+* <code><recovery-params></code> is validated exactly as described in [[#witness-program|the above <code>OP_VAULT</code> section]].
+* <code><spend-delay></code> is validated exactly as described in [[#witness-program|the above <code>OP_VAULT</code> section]].
+* <code><target-output-hash></code> is a 32 byte data push.
+** If it is not equal to 32 bytes, the script MUST fail and terminate immediately.
+
+
+==== Check for recovery ====
+
+A check is performed to determine if this input is being spent within the context of
+a recovery transaction, exactly as in [[#check-for-recovery|the <code>OP_VAULT</code> evaluation described above]].
+
+
+==== <code>OP_UNVAULT</code> evaluation for recovery spend ====
+
+This is identical to the [[#op_vault-evaluation-for-recovery-spend|<code>OP_VAULT</code> case described above]].
+
+
+==== <code>OP_UNVAULT</code> evaluation for withdrawal ====
+
+When spending an <code>OP_UNVAULT</code> input into a withdrawal target, no witness stack is required.
+
+* <code><spend-delay></code> is used to check whether the withdrawal of the input has matured.
+** If the input's relative timelock check, as described in [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP-0112] (using this value as "the top item on the stack") fails, the script MUST fail and terminate immediately.
+*** The same <code>CheckSequence(<spend-delay>)</code> code path is used as for [https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki BIP-0112].
+
+* The transaction outputs are then checked to verify that the withdrawal outputs are as expected.
+** If <code>target_outputs_hash(spending_tx.vout) != <target-output-hash></code> per the algorithm defined below, the script MUST fail and terminate immediately.
+
+<source lang="python">
+def target_outputs_hash(vout: [CTxOut]) -> bytes:
+    return hash256(b"".join(serialize_txout(out) for out in vout))
+
+def serialize_txout(txo: CTxOut) -> bytes:
+    spk: bytes = txo.scriptPubKey
+    return struct.pack("<q", txo.nValue) + ser_compact_size(len(spk)) + spk
+</source>
+
+If the above conditions do not fail, a single true value (<code>0x01</code>) is pushed to the stack.
+
+
+== Implementation ==
+
+A sample implementation is available [https://github.com/jamesob/bitcoin/tree/2023-01-opvault here], with an associated [https://github.com/bitcoin/bitcoin/pull/26857 pull request].
+
+
+== End use ==
+
+=== Creating an <code>OP_VAULT</code> output ===
+
+In order to vault coins, they must be spent into a witness v1<ref>'''Can <code>OP_VAULT</code> be used with a future witness version (greater than 1)?''' Yes, however use of yet to be defined witness versions is discouraged, since such a usage makes the coins spendable by anyone.</ref> <code>scriptPubKey</code> 
+that contains a Tapscript spending condition of the form
+
+<source>
+<recovery-params> <spend-delay> <trigger-sPK-hash> OP_VAULT
+</source>
+
+Typically, the internal key for the vault taproot output will be specified so
+that it is controlled by the same descriptor as the recovery path, which
+facilitates another (though probably unused) means of recovering the vault
+output to the recovery path. This has the potential advantage of recovering the
+coin without ever revealing it was a vault. 
+
+Otherwise, the internal key can be chosen to be an unspendable NUMS point to
+force tapscript execution of the <code>OP_VAULT</code> specification.
+
+
+=== Recovery authorization ===
+
+When configuring a vault, the user must decide if they want to have the recovery process gated by the optional recovery authorization scriptPubKey. The choice is left to the user because it entails trade-offs.
+
+==== Unauthorized recovery ====
+
+Unauthorized recovery simplifies vault use in that recovery never requires additional information aside from the location of the vault outpoints and the recovery path - the "authorization" is simply the reveal of the recovery path. 
+
+But because this reveal is the only authorization necessary to spend the vault coins to recovery, the user must expect to recover all such vaults at once, since an observer can replay this recovery (provided they know the outpoints).
+
+Additionally, unauthorized recovery across multiple distinct recovery paths cannot be batched, and fee control is more constrained: because the output structure is limited for unauthorized recovery, fee management relies either on inputs which are completely spent to fees or the use of the optional ephemeral anchor and package relay.
+
+==== Authorized recovery ====
+
+With authorized recovery, the user must keep track of an additional piece of information: how to solve the recovery authorization scriptPubKey when recovery is required. If this key is lost, the user will be unable to initiate the recovery process for their coins. If an attacker obtains the recovery key, they may grief the user during the recovery process by constructing a low fee rate recovery transaction and broadcasting it (though they will not be able to pin because of the replaceability requirement on recovery transactions).
+
+However, authorized recovery configurations have significant benefits. Batched recoveries are possible for vaults with otherwise incompatible recovery parameters. Fee management is much more flexible, since authorized recovery transactions are "free form" and unrelated inputs and outputs can be added, potentially to handle fees.
+
+==== Recommendation: use a simple, offline recovery authorization key seed ====
+
+The benefits of batching and fee management that authorized recovery provides are significant. If the recovery authorization key falls into the hands of an attacker, the outcome is not catastrophic, whereas if the user loses their recovery authorization key as well as their trigger key, the result is likely coin loss. Consequently, the author's recommendation is to use a simple seed for the recovery authorization key that can be written down offline and replicated. 
+
+Note that the recovery authorization key '''is not''' the recovery path key, and
+this is '''much different''' than any recommendation on how to generate the
+recovery path key itself.
+
+=== Address reuse and recovery ===
+
+When creating a vault, four factors affect the resulting P2TR address:
+# The internal key (likely belonging to the recovery wallet)
+# The recovery parameters
+# The spend delay
+# The trigger scriptPubKey
+
+Aside from the spend delay, the end user has the option of varying the other three parameters along descriptors in order to avoid reusing vault addresses without affecting key management.
+
+Worth noting is that when using unauthorized recovery, the reveal of the recovery scriptPubKey will allow any observer to initiate the recovery process for any vault with matching recovery params, provided they are able to locate the vault outpoints. As a result, it is recommended to expect that '''all outputs sharing an identical unauthorized <code><recovery-params></code> should be recovered together'''.
+
+This situation can be avoided with a comparable key management model by varying the generation of each vault's recovery scriptPubKey along a single descriptor, but note that (when configured for unauthorized recovery), this will prevent batched recovery.
+
+==== Recommendation: vary the internal key ====
+
+The recommended mode of use is to keep recovery parameters identical across vaults which should be recovered in batch, but vary the internal key for each vault output along a single descriptor so that no address reuse is necessary.
+
+==== Recommendation: generate new recovery addresses for new trigger keys ====
+
+If using unauthorized recovery, it is recommended that you do not share literal recovery paths
+across separate trigger keys. If one trigger key is compromised, that will necessitate the (unauthorized)
+recovery of all vaults with that trigger key, which will reveal the recovery path preimage. This
+means that an observer might be able to initiate recovery for vaults controlled by an uncompromised
+trigger key.
+
+==== Fee management ====
+
+Fees can be managed in a variety of ways, but it's worth noting that both trigger and recovery transactions must preserve the total value of vault inputs, so vaulted values cannot be repurposed to pay for fees. This does not apply to the withdrawal transaction, which can allocate value arbitrarily.
+
+In the case of vaults that use recovery authorization, all transactions can "bring their own fees" in the form of unrelated inputs and outputs. These transactions are also free to specify ephemeral anchors, once the related relay policies are deployed. This means that vaults using recovery authorization have no dependence on the deploy of v3 relay policy.
+
+In the case of vaults that do not use recovery authorization, the recovery transaction relies on the use of either fully-spent fee inputs or an ephemeral anchor output. This means that vaults which do not use recovery authorization are essentially dependent on v3 transaction relay policy being deployed.
+
+==== Mixing input types ====
+
+<code>OP_VAULT</code>/<code>OP_UNVAULT</code> outputs can be spent
+into a recovery transaction together. Script execution works identically for
+both types of outputs.
+
+[[File:bip-VAULT/batch-sweep.drawio.png|frame|center]]
+
+
+=== Batching ===
+
+==== During trigger ====
+
+<code>OP_VAULT</code> outputs with the same recovery-params and spend-delay can
+be triggered into the same <code>OP_UNVAULT</code> output, creating a batched
+withdrawal trigger. This is allowed regardless of the
+<code><trigger-sPK-hash></code> values of each input, allowing the trigger keys
+to differ.
+
+Trigger transactions can act on multiple incompatible <code>OP_VAULT</code>
+input sets, provided each set has a suitable associated <code>OP_UNVAULT</code>
+output.
+
+Since <code>SIGHASH_DEFAULT</code> can be used to sign the trigger
+authorization, unrelated inputs and outputs can be included, possibly to
+facilitate fee management or the batch withdrawal of incompatible vaults.
+
+==== During withdrawal ====
+
+During final withdrawal, multiple unrelated <code>OP_UNVAULT</code> outputs can
+be used towards the same withdrawal transaction provided that they share
+identical <code><target-outputs-hash></code> parameters. This facilitates
+batched withdrawals.
+
+==== During recovery ====
+
+<code>OP_VAULT</code>/<code>OP_UNVAULT</code> outputs with the same recovery
+scriptPubKey hash can be recovered into the same output.
+
+Recovery-incompatible vaults which have authorized recovery can be recovered in
+the same transaction, so long as each set (grouped by recovery scriptPubKey
+hash) has a suitable associated recovery output. This means that unrelated
+recoveries controlled by the same owner can benefit from sharing common fee
+management.
+
+=== Watchtowers ===
+
+The value of vaults is contingent upon having monitoring in place that will alert the owner when unexpected spends are taking place. This can be done in a variety of ways, with varying degrees of automation and trust in the watchtower.
+
+In the maximum-trust case, the watchtower can be fully aware of all vaulted coins and has the means to initiate the recovery process if spends are not pre-reported to the watchtower.
+
+In the minimum-trust case, the user can supply a probabilistic filter of which coins they wish to monitor; the watchtower would then alert the user if any coins matching the filter move, and the user would be responsible for ignoring false positives and handling recovery initiation.
+
+=== Script descriptors ===
+
+Script descriptors for vault-related outputs will be covered in a subsequent BIP.
+
+
+== Deployment ==
+
+It is anticipated that deployment would happen in the same way [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#user-content-Deployment that BIP-0341 was deployed]. Parameters to be determined.
+
+
+== Rationale ==
+
+<references />
+
+== Transaction examples ==
+
+
+=== Basic creation and withdrawal ===
+
+<source lang="python">
+
+Recovery Taproot: tr(
+  sPK = 5120cafd90c7026f0b6ab98df89490d02732881f2f4b5900856358dddff4679c2ffb,
+  internal_pubkey = c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5)
+
+Trigger Taproot: tr(
+  sPK = 5120418c46636d9e1a683f58e35b42336e776fdcc3b2d4e39e7a0bf1ab0716e3c5fa,
+  internal_pubkey = f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9)
+
+Spend delay: 10
+
+Vault Taproot: tr(
+  sPK = 5120062eb40e358106ea4f39bcac8ce046e44b84e5c0cf8799bd3d08f9ffb4afeb7a,
+  internal_pubkey = c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5,
+  merkle_root = 11765541441f95f7af87fc19fcc1c09a1f5b05514d130320e4dfe6d729690230,
+  leaves =
+    - opvault: [
+        push(5eb59117ddf962d44e11da5ce76c699cd9e6af53764795600543f02960b66023) 
+        10 
+        push(523882cb06ae65b1c2ba6e2009c0bf94e3d93ffe74470b354f854d335d9936e2) 
+        OP_VAULT
+      ] (version=192),
+)
+
+
+"Initial vaulting"
+
+CTransaction 83b4308ccaa83eeb95316050fe2bfd1b027e285ddf31b0bd69762ec113140126: (nVersion=2)
+  vin:
+    - [0] CTxIn(prevout=COutPoint(hash=b4ba2b24be456aacaf743be5fe5de25eb3ebebb52f3faf75aecf45921a810101 n=0) scriptSig= nSequence=0)
+  vout:
+    - [0] Coin(4999990000, sPK=[1 push(062eb40e358106ea4f39bcac8ce046e44b84e5c0cf8799bd3d08f9ffb4afeb7a)])
+  witnesses:
+  nLockTime: 0
+
+
+"Trigger"
+
+CTransaction e0844e873c4319222ebc407b0aa8f385c8a036e3145289d87750d5b895a88b33: (nVersion=2)
+  vin:
+    - [0] CTxIn(prevout=COutPoint(hash=83b4308ccaa83eeb95316050fe2bfd1b027e285ddf31b0bd69762ec113140126 n=0) scriptSig= nSequence=0)
+  vout:
+    - [0] Coin(4999990000, sPK=[1 push(9a15dca153a8651b610a02f3a92df3ada3cd45fd7f6183c7b2c1bc333bed1e63)])
+  witnesses:
+    - [0]
+      - [0.0] [push(bdb4b3f6af17c93308af5ea689b33425497e388a0075f4311540e50d4d3d76f068ab645603333929e5ac62ecc125fc98a053aff53f65b0cffaaeef31efd415ff)]
+      - [0.1] [1 push(418c46636d9e1a683f58e35b42336e776fdcc3b2d4e39e7a0bf1ab0716e3c5fa)]
+      - [0.2] [push(c707f3e01b67c9dac06ad15cf0800cc07278a0a1c4f54cb92457ee5c0d84519a)]
+      - [0.3] [push()]
+      - [0.4] [
+            push(5eb59117ddf962d44e11da5ce76c699cd9e6af53764795600543f02960b66023) 
+            10 
+            push(523882cb06ae65b1c2ba6e2009c0bf94e3d93ffe74470b354f854d335d9936e2) 
+            OP_VAULT
+        ]
+      - [0.5] [push(c0c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5)]
+  nLockTime: 0
+
+
+"Withdrawal"
+
+CTransaction 9595af9728de3ae9ca6110c040ad34f02f9db8b610296f99618354b99d5ec395: (nVersion=2)
+  vin:
+    - [0] CTxIn(prevout=COutPoint(hash=e0844e873c4319222ebc407b0aa8f385c8a036e3145289d87750d5b895a88b33 n=0) scriptSig= nSequence=10)
+  vout:
+    - [0] Coin(1666663333, sPK=[push() push(c42e7ef92fdb603af844d064faad95db9bcdfd3d)])
+    - [1] Coin(1666663333, sPK=[push() push(4747e8746cddb33b0f7f95a90f89f89fb387cbb6)])
+    - [2] Coin(1666663334, sPK=[push() push(7fda9cf020c16cacf529c87d8de89bfc70b8c9cb)])
+  witnesses:
+    - [0]
+      - [0.0] [
+            push(5eb59117ddf962d44e11da5ce76c699cd9e6af53764795600543f02960b66023) 
+            10 
+            push(c707f3e01b67c9dac06ad15cf0800cc07278a0a1c4f54cb92457ee5c0d84519a) 
+            OP_UNVAULT
+        ]
+      - [0.1] [push(c150929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)]
+  nLockTime: 0
+</source>
+
+== References ==
+
+* [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-February/012470.html Bitcoin Vaults (2016)]
+* [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-April/017755.html On-chain vaults prototype (2020)]
+* [https://arxiv.org/abs/2005.11776 Custody Protocols Using Bitcoin Vaults (2020)]
+* [https://jameso.be/vaults.pdf Vaults and Covenants (2023)]
+
+== Acknowledgements ==
+
+The author would like to thank
+
+* AJ Towns and Greg Sanders for discussion, numerous suggestions that improved the proposal, and advice.
+* Jeremy Rubin for inspiration, advice, and mentorship.
+* BL for discussion and insight.
+* John Moffett for early feedback and a test case demonstrating a recursive script evaluation attack.
+* Johan Halseth for providing conceptual review and pointing out a pinning attack.
+* Pieter Wuille for implementation advice.
