@@ -68,9 +68,10 @@ key winds up being ''too'' highly secure.
 
 Institutional custodians of Bitcoin would likely use vaults in similar fashion.
 
-===== Avoiding the hostage situation =====
+===== Avoiding the $5 wrench attack =====
 
-This proposal uniquely provides a solution to the "hostage situation;" by
+This proposal uniquely provides a solution to the 
+[https://web.archive.org/web/20230210123933/https://xkcd.com/538/ "$5 wrench attack."] By
 setting the spend delay to, say, a week, and using as the recovery path a
 script that enforces a longer relative timelock, the owner of the vault can
 prove that he is unable to access its value immediately. To the author's
@@ -90,8 +91,7 @@ The only way to implement vaults given the existing consensus rules, aside from
 [https://github.com/revault emulating vaults with large multisig
 configurations], is to use presigned transactions created with a one-time-use
 key. This approach was first demonstrated
-[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-April/017755.html
-in 2020].
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-April/017755.html in 2020].
 
 Unfortunately, this approach has a number of practical shortcomings:
 * generating and securely delete ephemeral keys, which are used to emulate the vault covenant, is required,
@@ -157,9 +157,9 @@ The vault has a number of stages, some of them optional:
 
 * '''vault transaction''': encumbers some coins with an <code>OP_VAULT</code> script invocation.
 
-* '''trigger transaction''': spends one or more <code>OP_VAULT</code> outputs into one compatible <code>OP_UNVAULT</code> output, which broadcasts the intent to withdrawal to some specific set of outputs. This transaction may have an additional output which allocates some of the vault balance into a partial revault, which simply encumbers the revaulted portion of the value into the same <code>scriptPubKey</code> of the originating <code>OP_VAULT</code> output(s).
+* '''trigger transaction''': spends one or more <code>OP_VAULT</code> inputs into an <code>OP_UNVAULT</code> output which carries forward the same recovery and delay parameters, along with a commitment to the proposed withdrawal target outputs. This publicly broadcasts the intent to withdrawal to some specific set of outputs. This transaction may have an additional output which allocates some of the vault balance into a partial revault, which simply encumbers the revaulted portion of the value into the same <code>scriptPubKey</code> of the originating <code>OP_VAULT</code> output(s).
 
-* '''withdrawal transaction''': spends <code>OP_UNVAULT</code> inputs into a compatible set of final withdrawal outputs per the target hash. The only authorization for this spend is the content hash of the withdrawal outputs.
+* '''withdrawal transaction''': spends <code>OP_UNVAULT</code> trigger inputs into a compatible set of final withdrawal outputs per the target hash, after the trigger inputs have matured per the spend delay. The only authorization for this spend (aside from the relative timelock) is the content hash of the withdrawal outputs.
 
 * '''recovery transaction''': spends one or more <code>OP_VAULT</code> or <code>OP_UNVAULT</code> inputs, which can be done at any time prior to withdrawal confirmation, to the prespecified recovery path. This transaction can optionally require a witness satisfying a specified ''recovery authorization'' script, an optional scriptPubKey gating the initiation of recovery. The use of recovery authorization has certain trade-offs discussed later.
 
@@ -186,7 +186,7 @@ The second component, the recovery authorization scriptPubKey, is optional. It
 is a raw scriptPubKey that, if specified, must be satisfied to allow the input
 to be recovered. The benefit of using this parameter will be discussed later.
 If this component is not given, the de facto "authorization" is the reveal of
-the <code><recovery sPK tagged hash></code> preimage.
+the <code><recovery sPK tagged hash></code> preimage, i.e. the recovery path.
 
 Vaults which share the same recovery path can always be swept in batch operations,
 which is an important practical aspect of managing large numbers of vaults.
@@ -269,6 +269,7 @@ where
 * <code><spend-delay></code> is a <code>CScriptNum</code>-encoded number (up to 4 bytes) 
 ** It is interpreted as the least significant 23 bits of a [https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP-0068] relative timelock.
 ** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
+** If this value is less than 0, script execution when spending this output MUST fail and terminate immediately.
 
 * <code><recovery-params></code> is a variable length data push, consisting of two components:
 *# a 32 byte tagged hash, the ''recovery sPK hash'', committing to the scriptPubKey which coins may be recovered to 
@@ -299,7 +300,7 @@ for out in spending_tx.vout:
         recovery_out = out
 
 if is_recovery:
-    eval_for_recovery()
+    eval_for_recovery(recovery_out)
 else:
     eval_for_withdrawal_trigger()
 </source>
@@ -307,7 +308,7 @@ else:
 ==== <code>OP_VAULT</code> evaluation for recovery spend ====
 
 * If the recovery output does not have an <code>nValue</code> greater than this input's amount, the script MUST fail and terminate immediately.
-* (Deferred) if the recovery output does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT</code>/<code>OP_UNVAULT</code> inputs with a corresponding recovery sPK hash, the transaction validation MUST fail.
+* (Deferred) if the recovery output does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT</code>/<code>OP_UNVAULT</code> inputs with a corresponding recovery sPK hash, the transaction validation MUST fail.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
 ** Note that in the draft implementation, this is facilitated by a "deferred check" which is queued by the script interpreter, but executed after the script interpreter has finished, in other validation code.<ref>'''Why does this proposal require a "deferred checks" framework for correct script evaluation?''' The deferred checks framework is an augmentation to execution of the Bitcoin script interpreter. Currently, the validity of each input is checked in an order-indepdendent manner across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref>
 * The script must FAIL (by policy, not consensus) and terminate immediately if neither<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
 *# the input is marked as opt-in replaceable by having an nSequence number less than <code>0xffffffff - 1</code>, per [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP-0125], nor
