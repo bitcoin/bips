@@ -279,31 +279,25 @@ where
 ** If <code><recovery-params></code> is less than 32 bytes, script execution when spending this output MUST fail and terminate immediately.
 ** Because the recovery scriptPubKey is committed to with a hash, witness version upgradeability is preserved.
 
-==== Check for recovery ====
+==== Witness stack ====
 
 After the witness program is parsed, it must be determined whether this input
-is being spent towards a recovery. If an output in the spending transaction is
-found whose scriptPubKey hashes to the recovery sPK hash (the
-first component of <code><recovery-params></code>), the interpreter will
-evaluate for recovery. Otherwise, the interpreter will evaluate assuming a withdrawal
-is being triggered.
+is being spent towards a recovery. 
 
-In pseudocode:
+Witness stack shown top to bottom:
 
-<source lang="python">
-is_recovery = False
-recovery_out: Optional[CTxOut] = None
-
-for out in spending_tx.vout:
-    if tagged_hash("VaultRecoverySPK", out.scriptPubKey) == recovery_sPK_hash:
-        is_recovery = True
-        recovery_out = out
-
-if is_recovery:
-    eval_for_recovery(recovery_out)
-else:
-    eval_for_withdrawal_trigger()
+<source>
+<recovery-vout-idx>
+[other potential witness stack items ...]
 </source>
+
+where
+
+* <code><recovery-vout-idx></code> is an integer indicating which output, if any, is a recovery output.
+** If this value cannot be decoded as a CScriptNum and cast to an integer, script execution MUST fail and terminate immediately.
+** If this value is less than -1, script execution MUST fail and terminate immediately.
+** If this value is greater than or equal to 0, this spend is a recovery transaction and this value denotes the recovery output that corresponds to this vault input.
+* The parse of the other stack items depends on whether or not this is a recovery spend.
 
 ==== <code>OP_VAULT</code> evaluation for recovery spend ====
 
