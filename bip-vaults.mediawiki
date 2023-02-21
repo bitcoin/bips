@@ -259,10 +259,9 @@ When evaluating <code>OP_VAULT</code> (<code>OP_SUCCESS187</code>,
 
 where
 
-* <code><trigger-sPK-hash></code> is a 32 byte tagged hash of the scriptPubKey used to authorize the spend of this output into an <code>OP_UNVAULT</code> trigger output 
+* <code><trigger-sPK-hash></code> is a 32 byte tagged hash of the scriptPubKey used to authorize the spend of this output into an <code>OP_UNVAULT</code> trigger output<ref>Because the trigger scriptPubKey is committed to using a hash, witness version upgradeability for the trigger key is preserved.</ref>
 ** <code>tagged_hash("VaultTriggerSPK", <trigger-sPK>)</code>, per BIP-0340.
 ** If this value is not 32 bytes, script execution when spending this output MUST fail and terminate immediately. 
-** Because this parameter's scriptPubKey is committed to using a hash, witness version upgradeability for the trigger key is preserved.
 
 * <code><spend-delay></code> is a <code>CScriptNum</code>-encoded number (up to 4 bytes) 
 ** It is interpreted as the least significant 23 bits of a [https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP-0068] relative timelock.
@@ -270,12 +269,10 @@ where
 ** If this value is less than 0, script execution when spending this output MUST fail and terminate immediately.
 
 * <code><recovery-params></code> is a variable length data push, consisting of two components:
-*# a 32 byte tagged hash, the ''recovery sPK hash'', committing to the scriptPubKey which coins may be recovered to 
-*#* <code>tagged_hash("VaultRecoverySPK", spk)</code> from the [https://github.com/bitcoin/bips/blob/master/bip-0340/reference.py BIP-0340 reference code].
-*# 0 or more bytes that optionally specify a scriptPubKey that needs to be satisfied to authorize the recovery transaction. 
-*#* This optional parameter changes the allowable structure of recovery transactions.
+*# a 32 byte tagged hash, the ''recovery sPK hash''<ref>Because the recovery scriptPubKey is committed to with a hash, witness version upgradeability is preserved.</ref>, committing to the scriptPubKey which coins may be recovered to 
+*#* <code>tagged_hash("VaultRecoverySPK", <recovery-sPK>)</code> from the [https://github.com/bitcoin/bips/blob/master/bip-0340/reference.py BIP-0340 reference code].
+*# 0 or more bytes that optionally specify a scriptPubKey that needs to be satisfied to authorize the recovery transaction, referred to as <code><recovery-auth-sPK></code>. 
 ** If <code><recovery-params></code> is less than 32 bytes, script execution when spending this output MUST fail and terminate immediately.
-** Because the recovery scriptPubKey is committed to with a hash, witness version upgradeability is preserved.
 
 ==== Witness stack ====
 
@@ -302,17 +299,11 @@ where
 * If the recovery output does not have an <code>nValue</code> greater than or equal to this input's amount, the script MUST fail and terminate immediately.
 * (Deferred<ref>'''What is a deferred check and why does this proposal require them for correct script evaluation?''' A deferred check is a validation check that is executed only after all input scripts have been validated, and is based on aggregate information collected during each input's EvalScript run.<br /><br />Currently, the validity of each input is (usually) checked concurrently across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref>) if the recovery output does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT</code>/<code>OP_UNVAULT</code> inputs with a corresponding recovery sPK hash, the transaction validation MUST fail.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
 
-The stack may now have 0 or more elements. Any items on the stack will be used to verify the recovery authorization witness program, if any.
+The stack may now have 0 or more elements. Any items on the stack will be used to verify the <code><recovery-auth-sPK></code> witness program, if any.
 
-* If the ''recovery authorization sPK'' is not null:
+* If <code><recovery-auth-sPK></code> is not null:
 ** If <code>VerifyWitnessProgram(<stack elements>, <recovery-auth-sPK>, ...)</code> fails, the script MUST fail and terminate immediately.
 ** (This validates that the recovery has been authorized.)
-* else (if the recovery is allowed to be unauthorized):
-** If the spending transaction has more than two outputs, the script MUST fail and terminate immediately.
-** If the spending transaction has two outputs, and the output not the recovery output is not an ephemeral anchor, the script MUST fail and terminate immediately.<ref>'''Why can unauthorized recoveries only process a single recovery path?''' Because there is no signature required for unauthorized recoveries, if additional outputs were allowed, someone observing a recovery in the mempool would be able to rebundle and broadcast the recovery with a lower fee rate.</ref>
-
-
-(Note: the above rules imply that if all inputs have a recovery authorization sPK specified, the structure of the recovery transaction is "free form," and the only requirement is that for each <code>OP_VAULT</code>/<code>OP_UNVAULT</code> input, there exists a compatible ''recovery output'' which preserves its full <code>nValue</code>.)
 
 If none of the conditions fail, a single true value (<code>0x01</code>) is left on the stack.
 
@@ -488,6 +479,13 @@ In order to prevent possible pinning attacks, recovery transactions must be repl
 * When validating an <code>OP_VAULT</code>/<code>OP_UNVAULT</code> input being spent towards a recovery, the script must FAIL (by policy, not consensus) and terminate immediately if neither<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
 *# the input is marked as opt-in replaceable by having an nSequence number less than <code>0xffffffff - 1</code>, per [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP-0125], nor
 *# the version of the recovery transaction has an nVersion equal to 3.
+
+In order to prevent pinning attacks in the case of unauthorized recovery, the output structure of unauthorized recovery
+transaction is limited.
+
+* If <code><recovery-auth-sPK></code> (as determined from <code><recovery-params></code>) is null, the recovery transaction MUST (by policy) abide by the following constraints:
+** If the spending transaction has more than two outputs, the script MUST fail and terminate immediately.
+** If the spending transaction has two outputs, and the output not the recovery output is not an ephemeral anchor, the script MUST fail and terminate immediately.<ref>'''Why can unauthorized recoveries only process a single recovery path?''' Because there is no signature required for unauthorized recoveries, if additional outputs were allowed, someone observing a recovery in the mempool would be able to rebundle and broadcast the recovery with a lower fee rate.</ref>
 
 == Implementation ==
 
