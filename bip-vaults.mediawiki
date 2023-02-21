@@ -68,9 +68,9 @@ key winds up being ''too'' highly secure.
 
 Institutional custodians of Bitcoin would likely use vaults in similar fashion.
 
-===== Avoiding the $5 wrench attack =====
+===== Provable timelocks =====
 
-This proposal uniquely provides a solution to the 
+This proposal provides a solution to the 
 [https://web.archive.org/web/20230210123933/https://xkcd.com/538/ "$5 wrench attack."] By
 setting the spend delay to, say, a week, and using as the recovery path a
 script that enforces a longer relative timelock, the owner of the vault can
@@ -122,8 +122,8 @@ Having a "general" covenant mechanism that can encode arbitrary transactional
 state machines would allow us to solve these issues, but at the cost of complex
 and large scripts that would probably be duplicated many times over in the
 blockchain. The particular design and deployment timeline of such a general
-framework is also uncertain. There are no sample vault implementations using
-these means known to the author.
+framework is also uncertain. This approach was demonstrated
+[https://blog.blockstream.com/en-covenants-in-elements-alpha/ in 2016].
 
 This proposal intends to address the problems outlined above by
 providing a delay period/recovery path use with minimal transactional and
@@ -135,7 +135,7 @@ The design goals of the proposal are:
 
 * '''batched operations''' for recovery and withdrawal to allow managing multiple vault coins efficiently.
 
-* '''unbounded partial withdrawals''', which allows users to withdrawal partial vault balances without having to perform the setup ceremony for a new vault.
+* '''unbounded partial withdrawals''', which allows users to withdraw partial vault balances without having to perform the setup ceremony for a new vault.
 
 * '''dynamic unvault targets''', which allow the proposed withdrawal target for a vault to be specified at withdrawal time rather than when the vault is first created. This would remove the need for a prespecified, intermediate wallet that only exists to route unvaulted funds to their desired destination.
 
@@ -145,7 +145,7 @@ These goals are accompanied by basic safety considerations (e.g. not being
 vulnerable to pinning) and a desire for concision, both in terms of the number
 of outputs created as well as script sizes.
 
-This proposal is designed to be compatible with any future sighash modes (e.g. <code>SIGHASH_GROUP</code>) or fee management strategies (e.g. [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-September/018168.html transaction sponsors]) that may be introduced. Use of these opcodes will benefit from, but do not strictly rely on, future transaction versions (e.g. [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-September/020937.html v3]) and [https://github.com/instagibbs/bips/blob/ephemeral_anchor/bip-ephemeralanchors.mediawik ephemeral anchors].
+This proposal is designed to be compatible with any future sighash modes (e.g. <code>SIGHASH_GROUP</code>) or fee management strategies (e.g. [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2020-September/018168.html transaction sponsors]) that may be introduced. Use of these opcodes will benefit from, but do not strictly rely on, [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-September/020937.html v3 transaction relay] and [https://github.com/instagibbs/bips/blob/ephemeral_anchor/bip-ephemeralanchors.mediawiki ephemeral anchors].
 
 == Design ==
 
@@ -249,11 +249,9 @@ The tapscript opcodes <code>OP_SUCCESS187</code> (<code>0xbb</code>) and
 ==== Witness program ====
 
 When evaluating <code>OP_VAULT</code> (<code>OP_SUCCESS187</code>,
-<code>0xbb</code>), the witness program is pushed onto the stack for the
-following result (stack shown top to bottom):
+<code>0xbb</code>), the expected format of the stack, shown top to bottom, is:
 
 <source>
-OP_VAULT            (*) being evaluated
 <trigger-sPK-hash> 
 <spend-delay> 
 <recovery-params> 
@@ -262,7 +260,7 @@ OP_VAULT            (*) being evaluated
 where
 
 * <code><trigger-sPK-hash></code> is a 32 byte tagged hash of the scriptPubKey used to authorize the spend of this output into an <code>OP_UNVAULT</code> trigger output 
-** <code>tagged_hash("VaultTriggerSPK", spk)</code>, per BIP-0340.
+** <code>tagged_hash("VaultTriggerSPK", <trigger-sPK>)</code>, per BIP-0340.
 ** If this value is not 32 bytes, script execution when spending this output MUST fail and terminate immediately. 
 ** Because this parameter's scriptPubKey is committed to using a hash, witness version upgradeability for the trigger key is preserved.
 
@@ -301,12 +299,8 @@ where
 
 ==== <code>OP_VAULT</code> evaluation for recovery spend ====
 
-* If the recovery output does not have an <code>nValue</code> greater than this input's amount, the script MUST fail and terminate immediately.
-* (Deferred) if the recovery output does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT</code>/<code>OP_UNVAULT</code> inputs with a corresponding recovery sPK hash, the transaction validation MUST fail.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
-** Note that in the draft implementation, this is facilitated by a "deferred check" which is queued by the script interpreter, but executed after the script interpreter has finished, in other validation code.<ref>'''Why does this proposal require a "deferred checks" framework for correct script evaluation?''' The deferred checks framework is an augmentation to execution of the Bitcoin script interpreter. Currently, the validity of each input is checked in an order-indepdendent manner across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref>
-* The script must FAIL (by policy, not consensus) and terminate immediately if neither<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
-*# the input is marked as opt-in replaceable by having an nSequence number less than <code>0xffffffff - 1</code>, per [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP-0125], nor
-*# the version of the recovery transaction has an nVersion equal to 3.
+* If the recovery output does not have an <code>nValue</code> greater than or equal to this input's amount, the script MUST fail and terminate immediately.
+* (Deferred<ref>'''What is a deferred check and why does this proposal require them for correct script evaluation?''' A deferred check is a validation check that is executed only after all input scripts have been validated, and is based on aggregate information collected during each input's EvalScript run.<br /><br />Currently, the validity of each input is (usually) checked concurrently across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref>) if the recovery output does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT</code>/<code>OP_UNVAULT</code> inputs with a corresponding recovery sPK hash, the transaction validation MUST fail.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
 
 The stack may now have 0 or more elements. Any items on the stack will be used to verify the recovery authorization witness program, if any.
 
@@ -378,9 +372,10 @@ spent. Its presence is optional.
 For each vault input citing a particular <code><trigger-vout-idx></code>, the output 
 located at <code>vout[<trigger-vout-idx>]</code> (the "trigger output") must:
 
-* have as its scriptPubKey a witness program version 1 with a single <code>OP_UNVAULT</code> tapscript, having the internal key <code>lift_x(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)</code>, per the NUMS point mentioned in [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#user-content-Design BIP-0341].<ref>'''Why must the OP_UNVAULT taproot use a NUMS point as its internal key?''' This ensures that an OP_UNVAULT trigger output is verifiable as expected. It also ensures that it is spendable only by the conditions of the vault.</ref>
+* have as its scriptPubKey a witness program with a single <code>OP_UNVAULT</code> tapscript, having the internal x-only key <code>0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code>, per the NUMS point mentioned in [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs BIP-0341].<ref>'''Why must the OP_UNVAULT taproot use a predefined NUMS point as its internal key?''' This ensures that an OP_UNVAULT trigger output is verifiable as expected. It also ensures that it is spendable only by the conditions of the vault.</ref>
 ** If the witness program has a version less than 1, the script MUST fail and terminate immediately.
-** If the scriptPubKey of the output does not match the expected scriptPubKey, as computed by creating a taproot output using the cited NUMS point and a single tapscript spend condition of the form<br /><code><recovery-params-from-stack> <spend-delay-from-stack> <target-outputs-hash-from-stack> OP_UNVAULT</code>,<br />the script MUST fail and terminate immediately.
+** If the witness program has a version greater than 1, the script MUST succeed to enable upgradeability.
+** If the witness program has a version of 1 and the scriptPubKey of the output does not match the expected scriptPubKey, as computed by creating a taproot output using the cited NUMS point and a single tapscript spend condition of the form<br /><code><recovery-params-from-stack> <spend-delay-from-stack> <target-outputs-hash-from-stack> OP_UNVAULT</code>,<br />the script MUST fail and terminate immediately.
 ** Witness versions greater than 1 are allowed for upgradeability.
 
 * If there does not exist a revault output in the transaction for this input:
@@ -486,6 +481,13 @@ def serialize_txout(txo: CTxOut) -> bytes:
 
 If the above conditions do not fail, a single true value (<code>0x01</code>) is pushed to the stack.
 
+== Policy changes ==
+
+In order to prevent possible pinning attacks, recovery transactions must be replaceable.
+
+* When validating an <code>OP_VAULT</code>/<code>OP_UNVAULT</code> input being spent towards a recovery, the script must FAIL (by policy, not consensus) and terminate immediately if neither<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
+*# the input is marked as opt-in replaceable by having an nSequence number less than <code>0xffffffff - 1</code>, per [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP-0125], nor
+*# the version of the recovery transaction has an nVersion equal to 3.
 
 == Implementation ==
 
