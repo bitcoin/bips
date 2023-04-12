@@ -81,6 +81,10 @@ follows:
 # For each Taproot Asset input ''c_i'', identified in the <code>prev_asset_witnesses</code> field:
 ## If the asset input has a <code>split_commitment</code> in the witness, that needs to be removed before the serialization step.
 ## Serialize the referenced previous asset leaf (identified by <code>prev_outpoint || prev_asset_id || prev_asset_script_key</code>) in TLV format.
+### For a minting transaction, a copy of the output leaf with emptied <code>prev_asset_witnesses</code> is used, in addition to these modifications:
+#### If the minted asset has a group key, the <code>asset_script_key</code> of the copied leaf should be set equal to the group key. This enforces that the state transition verification uses the group key when validating the spend.
+#### If the asset has no group key, the <code>asset_script_key</code> field should be blank. This will short-circuit the state transition verification, allowing minting an asset that does not support emission.
+### This is to ensure we can get a complete virtual tx mapping also for minting transactions.
 ## Insert this leaf into the MS-SMT tree, with a key of the <code>prev_id_identifier</code>, a value of the serialized leaf, and sum value of the asset amount contained in the leaf.
 # Obtain the root hash <code>input_root</code> and sum value <code>input_asset_sum</code> resulting from the tree creation and root digest computation.
 # Let the hash of the serialized 36-byte MS-SMT root be the sole previous outpoint (the txid) of the virtual execution transaction.
@@ -183,7 +187,7 @@ modifications:
 ### Set the sequence number to the <code>relative_lock_time</code> field of the input, if it exists.
 ## Set the lock time of the transaction as the <code>lock_time</code> of the input TLV leaf being validated, if it exists.
 ## All signatures included in the witness MUST be exactly 64-bytes in length, which triggers <code>SIGHASH_DEFAULT</code> evaluation.
-## If the <code>prev_asset_id</code> is blank, then ALL witnesses MUST be blank as well and the <code>prev_outpoint</code> values as well. In this case, verification succeeds as this is only a creation/minting transaction.
+## If the <code>asset_script_key</code> is blank, then the <code>asset_group_key</code> MUST be blank, and ALL witnesses MUST be blank. In this case, verification succeeds as this is only a creation/minting transaction for an asset without emission.
 ## If the <code>asset_id</code> value is NOT the same for each Taproot Asset input and output, validation MUST fail.
 ### Alternatively, assert that each input and output references the same <code>asset_group_key</code> field.
 ## Perform external lock time and relative lock time validation:
@@ -204,7 +208,7 @@ The following algorithm implements verification for top level Taproot Asset
 leaves, as well leaves created via split commitments:
 <source lang="python">
 verify_taproot_asset_state_transition(leaf: TaprootAssetLeaf, leaf_split: TaprootAssetLeaf) -> bool
-    if is_valid_issuance_txn(leaf):
+    if is_valid_issuance_txn_no_group_key(leaf):
         return true
 
     if leaf_split is not None:
