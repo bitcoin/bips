@@ -44,34 +44,35 @@ usable for custodians of any size with minimal complication.
 
 ==== Example uses ====
 
-A common configuration for an individual custodying Bitcoin is a "single signature and
-passphrase" with a hardware wallet. They are concerned about the
-risk associated with relying on a single manufacturer for key management as
-well as physical access to the hardware, so they generate a new key that is
-highly secure, but would be impractical for daily use. For example the key
-could be generated in some analog fashion, or on an old computer (with added
-entropy) that is then destroyed, with the private key replicated only in paper
-form. Or the key could be a 2-of-3 multisig using devices from different
-manufacturers. Perhaps the key is geographically distributed.
+A common configuration for an individual custodying Bitcoin is "single
+signature and passphrase" using a hardware wallet. A user with such a
+configuration might concerned about the risk associated with relying on a
+single manufacturer for key management, as well as physical access to the
+hardware. 
 
-This individual can use <code>OP_VAULT</code> to make use of the highly secure
+This individual can use <code>OP_VAULT</code> to make use of a highly secure
 key as the unlikely recovery path, while using their existing signing procedure
-as the withdrawal trigger key, with a configured spend delay of 1 day. They can
-run software on their mobile device that monitors the blockchain for spends of
-the vault outpoints.
+as the withdrawal trigger key with a configured spend delay of e.g. 1 day. 
 
-If the vaulted coins move in an unexpected way, the user can immediately sweep
-them to the highly secure recovery path, but spending the coins on a daily
-basis works in the same way it did prior to vaulting - aside from the spend
-delay.
+The recovery path key can be of a highly secure nature that might otherwise
+make it impractical for daily use. For example, the key could be generated in
+some analog fashion, or on an old computer that is then destroyed, with the
+private key replicated only in paper form. Or the key could be a 2-of-3
+multisig using devices from different manufacturers. Perhaps the key is
+geographically or socially distributed. 
 
-The recovery key could be any Bitcoin script policy: a 2-of-3 multisig with keys
-that live on different devices, a 3-of-5 with socially distributed keys, a
-Taproot construction that incorporates one of these methods along with a
-time-delayed fallback to an "easier" recovery method, in case the highly secure
-key winds up being ''too'' highly secure.
+Since it can be any Bitcoin script policy, the recovery key can include a
+number of spending conditions, e.g. a time-delayed fallback to an "easier"
+recovery method, in case the highly secure key winds up being ''too'' highly
+secure. 
 
-Institutional custodians of Bitcoin would likely use vaults in similar fashion.
+The user can run software on their mobile device that monitors the blockchain
+for spends of the vault outpoints. If the vaulted coins move in an unexpected
+way, the user can immediately sweep them to the recovery path, but spending the
+coins on a daily basis works in the same way it did prior to vaulting (aside
+from the spend delay).
+
+Institutional custodians of Bitcoin may use vaults in similar fashion.
 
 ===== Provable timelocks =====
 
@@ -157,7 +158,7 @@ This proposal is designed to be compatible with any future sighash modes (e.g. <
 In typical usage, a vault is created by encumbering coins under a
 taptree [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki (BIP-341)]
 containing at least two leaves: one with an <code>OP_VAULT</code>-containing script that
-facilitates the expected withdrawal process, and leaf another with
+facilitates the expected withdrawal process, and another leaf with
 <code>OP_VAULT_RECOVER</code> which ensures the coins can be recovered 
 at any time prior to withdrawal finalization.
 
@@ -192,9 +193,9 @@ The vault has a number of stages, some of them optional:
 
 * '''trigger transaction''': spends one or more <code>OP_VAULT</code>-tapleaf inputs into an output which is encumbered by a timelocked withdrawal to a fixed set of outputs, chosen at trigger time. This publicly broadcasts the intent to withdraw to some specific set of outputs.<br /><br />The trigger transaction may have an additional output which allocates some of the vault balance into a partial "revault," which simply encumbers the revaulted portion of the value into the same <code>scriptPubKey</code> as the <code>OP_VAULT</code>-containing input(s) being spent.
 
-* '''withdrawal transaction''': spends the timelocked <code>OP_CHECKTEMPLATEVERIFY</code> trigger inputs into a compatible set of final withdrawal outputs per the CTV hash, after the trigger inputs have matured per the spend delay. Timelocked CTV transactions are the motivating usage of OP_VAULT, but any script template can be specified during the creation of the vault.
+* '''withdrawal transaction''': spends the timelocked, destination-locked trigger inputs into a compatible set of final withdrawal outputs (per, e.g., a <code>CHECKTEMPLATEVERIFY</code> hash), after the trigger inputs have matured per the spend delay. Timelocked CTV transactions are the motivating usage of OP_VAULT, but any script template can be specified during the creation of the vault.
 
-* '''recovery transaction''': spends one or more <code>OP_VAULT_RECOVER</code>-tapleaf inputs to the prespecified recovery path, which can be done at any point before the withdrawal transaction confirms. Each input can optionally require a witness satisfying a specified ''recovery authorization'' script, an optional script prefixing the <code>OP_VAULT_RECOVER</code> fragment. The use of recovery authorization has certain trade-offs discussed later.
+* '''recovery transaction''': spends one or more vault inputs via <code>OP_VAULT_RECOVER</code> tapleaf to the prespecified recovery path, which can be done at any point before the withdrawal transaction confirms. Each input can optionally require a witness satisfying a specified ''recovery authorization'' script, an optional script prefixing the <code>OP_VAULT_RECOVER</code> fragment. The use of recovery authorization has certain trade-offs discussed later.
 
 
 === Fee management ===
@@ -208,7 +209,7 @@ Providing dynamic fee management is critical to the operation of a vault, since
 But dynamic fee management can introduce
 [https://bitcoinops.org/en/topics/transaction-pinning/ pinning vectors]. Care
 has been taken to avoid unnecessarily introducing these vectors when using the new 
-content-based spending policies that this proposal introduces.
+destination-based spending policies that this proposal introduces.
 
 Originally, this proposal had a hard dependency on reformed transaction
 nVersion=3 policies, including ephemeral anchors, but it has since been revised
@@ -262,7 +263,7 @@ After the stack is parsed, the following validation checks are performed:
 * Let the output designated by <code><trigger-vout-idx></code> be called ''triggerOut''.
 * If the scriptPubKey of ''triggerOut'' is not a witness program of the same version and same tapleaf version as the currently executing script, script execution MUST fail and terminate immediately.
 * Let the script constructed by taking the <code><leaf-update-script-body></code> and prefixing it with minimally-encoded data pushes of the <code><n-pushes></code> leaf-update script data items be called the ''leaf-update-script''.
-** The leaf-update data items will be in the same order in the ''leaf-update-script'' as they appeared on the stack.
+** Note: the leaf-update data items will be in the same order in the ''leaf-update-script'' as they appeared on the stack.
 * If the scriptPubKey of ''triggerOut'' does not match that of a taptree that is identical to that of the currently evaluated input, but with the leaf script substituted for ''leaf-update-script'', script execution when spending this output MUST fail and terminate immediately.
 ** Note: the parity bit of the resulting taproot output is allowed to vary, so both values for the new output must be checked.
 * Let the output designated by <code><revault-vout-idx></code> (if the index value is non-negative) be called ''revaultOut''.
@@ -303,7 +304,7 @@ If none of the conditions fail, a single true value (<code>0x01</code>) is left 
 
 In order to prevent possible pinning attacks, recovery transactions must be replaceable.
 
-* When validating an <code>OP_VAULT_RECOVER</code> input being spent, the script must FAIL (by policy, not consensus) and terminate immediately if both<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
+* When validating an <code>OP_VAULT_RECOVER</code> input being spent, the script MUST fail (by policy, not consensus) and terminate immediately if both<ref>'''Why are recovery transactions required to be replaceable?''' In the case of unauthorized recoveries, an attacker may attempt to pin recovery transactions by broadcasting a "rebundled" version with a low fee rate. Vault owners must be able to overcome this with replacement. In the case of authorized recovery, if an attacker steals the recovery authorization key, the attacker may try to pin the recovery transaction during theft. Requiring replaceability ensures that the owner can always raise the fee rate of the recovery transaction, even if they are RBF rule #3 griefed in the process.</ref>
 *# the input is not marked as opt-in replaceable by having an nSequence number less than <code>0xffffffff - 1</code>, per [https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki BIP-0125], and
 *# the version of the recovery transaction has an nVersion other than 3.
 
@@ -325,7 +326,7 @@ A sample implementation is available on bitcoin-inquisition [https://github.com/
 
 == Applications ==
 
-The specification above, perhaps surprisingly, does not cover how a relative timelocked withdrawal process with a fixed target is implemented. The tapleaf update semantics specified in <code>OP_VAULT</code> as well as the output-based authorization enabled by <code>OP_VAULT_RECOVER</code> can be used to implement a vault, but they are incomplete without two other pieces:
+The specification above, perhaps surprisingly, does not specifically cover how a relative timelocked withdrawal process with a fixed target is implemented. The tapleaf update semantics specified in <code>OP_VAULT</code> as well as the output-based authorization enabled by <code>OP_VAULT_RECOVER</code> can be used to implement a vault, but they are incomplete without two other pieces:
 
 * a way to enforce relative timelocks, like <code>OP_CHECKSEQUENCEVERIFY</code>, and
 * a way to enforce that proposed withdrawals are ultimately being spent to a precise set of outputs, like <code>OP_CHECKTEMPLATEVERIFY</code>.
@@ -335,7 +336,7 @@ These two pieces are combined with the tapleaf update capabilities of
 
 === Creating a vault ===
 
-In order to vault coins, they must be spent into a witness v1 <code>scriptPubKey</code>
+In order to vault coins, they can be spent into a witness v1 <code>scriptPubKey</code>
 that contains a taptree of the form
 
 <source>
