@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Dutch](dutch.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,15 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+### Dutch
+
+Credits: @StijnVa
+Words selected from https://github.com/OpenTaal/opentaal-wordlist
+
+1. Words are 4-8 characters long
+2. No accents or special characters.
+3. Words are not contained in any wordlist
+4. No words already used in other language mnemonic sets (english, italian, french, spanish, czech, portuguese)
+5. Words can be uniquely determined by the first 3 letters.
+6. All words have a Damerau–Levenshtein distance of at least 3 of any other word on the list. 
