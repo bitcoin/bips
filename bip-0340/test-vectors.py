@@ -249,6 +249,20 @@ def vector14():
 
     return (None, pubkey, None, msg, sig, "FALSE", "public key is not a valid X coordinate because it exceeds the field size")
 
+def varlen_vector(msg_int):
+    seckey = bytes_from_int(int(16 * "0340", 16))
+    pubkey = pubkey_gen(seckey)
+    aux_rand = bytes_from_int(0)
+    msg = msg_int.to_bytes((msg_int.bit_length() + 7) // 8, "big")
+    sig = schnorr_sign(msg, seckey, aux_rand)
+    comment = "message of size %d (added 2022-12)"
+    return (seckey, pubkey, aux_rand, msg, sig, "TRUE", comment % len(msg))
+
+vector15 = lambda : varlen_vector(0)
+vector16 = lambda : varlen_vector(0x11)
+vector17 = lambda : varlen_vector(0x0102030405060708090A0B0C0D0E0F1011)
+vector18 = lambda : varlen_vector(int(100 * "99", 16))
+
 vectors = [
         vector0(),
         vector1(),
@@ -264,7 +278,11 @@ vectors = [
         vector11(),
         vector12(),
         vector13(),
-        vector14()
+        vector14(),
+        vector15(),
+        vector16(),
+        vector17(),
+        vector18(),
     ]
 
 # Converts the byte strings of a test vector into hex strings
