@@ -539,14 +539,14 @@ where:
 * <code>lock_time</code>: is a field that restricts ''when'' an asset can be moved based on the included block height.
 * <code>relative_lock_time</code>: is a field that restricts ''when'' an asset can be moved based on a number of blocks that needs to passed from the mining of the outer transaction.
 * <code>prev_asset_witnesses</code>: is a ''nested'' TLV that contains the asset witnesses needed to verify the merging into the target asset leaf
-** <code>prev_asset_id</code>: references the previous asset input by the input position within the transaction, the asset ID of the previous asset tree, and the asset script hash.
+** <code>prev_asset_input</code>: references the previous asset input by the input position within the transaction, the asset ID of the previous asset tree, and the asset script hash.
 *** This value is included in any signatures generated within the asset witness itself, serving a purpose similar to the previous outpoint in vanilla Bitcoin.
 *** If this field is all zeroes, then that indicates a ''new'' asset is being created.
 *** For ''internal'' split verification, this field can be used to save space by including only a single signature/witness that covers all other new splits.
 *** If this type isn't present, then a <code>split_commitment</code> MUST be present.
 ** <code>split_commitment_proof</code>: is used to permit the spending of an asset UTXO created as a result of an asset split. When an asset is split, the non-change UTXO commits to the location of all other splits within an MS-SMT tree. When spending a change UTXO resulting from an asset_split, a normal <code>asset_witness</code> isn't required, instead the owner of the change asset UTXO must prove that it holds a valid split which was authorized by the main transfer transaction (the <code>root_asset</code>).
 *** Outputs with the same <code>split_commitment</code> are said to share a single <code>asset_witness</code> as such outputs are the result of a new asset split. Therefore we only need a single witness and the resulting merkle-sum asset tree to verify a transfer.
-** <code>asset_witness</code>: is a serialized witness in an identical format as Bitcoin's Segwit witness field. This field can only be blank if <code>prev_asset_id</code> is blank.
+** <code>asset_witness</code>: is a serialized witness in an identical format as Bitcoin's Segwit witness field. This field can only be blank if <code>prev_asset_input</code> is blank.
 * <code>split_commitment_root</code>: is used to commit to, and permit verification of the new output split distribution for normal assets. The <code>split_commitment_root</code> is an MS-SMT with a key of <code>sha256(output_index || asset_id || asset_script_key)</code>, and the value being the new Taproot Asset leaf. This is an optional field and is only specified when an asset value is split during transfer.
 *** Outputs with the same <code>split_commitment_root</code> are said to share a single <code>asset_witness</code> as such outputs are the result of a new asset split. Therefore we only need a single witness and the resulting merkle-sum asset tree to verify a transfer.
 * <code>asset_script_version</code>: is a 2 byte asset script version that governs how the following TLV value is to be validated.
@@ -785,7 +785,7 @@ Transfers are specified as follows:
 ## For each asset collection, ''i'' to be exchanged:
 ### The receiver creates a new asset script key commitment, <code>asset_script_key_i</code> (which will be used to delegate ownership of the input asset), and sends this to the owner.
 ### The owner takes the raw serialized asset script and closes a new asset witness over the <code>asset_script_key_i</code> script (as part of the serialized asset leaf). This witness is then transmitted to the receiver.
-### The receiver can now construct a new valid leaf (with a valid witness delegating ownership), either creating a new rooted asset tree (if they didn't own any instances of the asset collection lineage) or add it to an existing tree. Call this <code>asset_leaf_i</code>. This new leaf MUST properly reference a valid <code>prev_asset_id</code> to be a valid witness.
+### The receiver can now construct a new valid leaf (with a valid witness delegating ownership), either creating a new rooted asset tree (if they didn't own any instances of the asset collection lineage) or add it to an existing tree. Call this <code>asset_leaf_i</code>. This new leaf MUST properly reference a valid <code>prev_asset_input</code> to be a valid witness.
 # With internal transfer complete, the final external transfer is executed:
 ## The set of inputs (which may be heterogeneous w.r.t asset type) are added to a new version <code>2</code> Bitcoin transaction.
 ## The set of new ownership output are exchanged and added to the MIMO transfer transaction. Minimally each party MUST have a new ownership output present in the transaction.
@@ -812,8 +812,8 @@ assets owned by two parties, Alice and Bob:
 <source lang="python">
 verify_asset_input_proofs(asset_proofs: map[AssetPrevID]AssetLeafProof) -> bool
 
-    for prev_asset_id, asset_leaf in asset_proofs
-        prev_outpoint, asset_id, asset_script_key = prev_asset_id
+    for prev_asset_input, asset_leaf in asset_proofs
+        prev_outpoint, prev_asset_id, prev_asset_script_key = prev_asset_input
 
         match asset_leaf.proof_type:
             case FullProof:
@@ -833,22 +833,22 @@ verify_asset_input_proofs(asset_proofs: map[AssetPrevID]AssetLeafProof) -> bool
                         fail
 
             case CompactProof:
-                if not verify_universe_proof(asset_leaf.inclusion_proofs, asset_id):
+                if not verify_universe_proof(asset_leaf.inclusion_proofs, prev_asset_id):
                     fail
 
 transfer_assets(sender_assets: map[AssetID]AssetLeaf, 
     receiver_scripts: [[32]byte]) -> map[AssetID]AssetLeaf
 
     new_assets = {}
-    for prev_asset_id, asset_leaf in sender_assets:
+    for prev_asset_input, asset_leaf in sender_assets:
         asset_script_key = asset_script_keyes[i]
 
         new_leaf = clone_unique_leaf(asset_leaf)
         new_leaf.asset_script_key = asset_script_key
-        new_leaf.prev_asset_id = prev_asset_id
+        new_leaf.prev_asset_input = prev_asset_input
         new_leaf.asset_witness = gen_witness(tlv_encode(new_leaf))
 
-        new_assets[prev_asset_id.asset_id] = new_leaf
+        new_assets[prev_asset_input.prev_asset_id] = new_leaf
 
     return new_assets
 
@@ -872,8 +872,8 @@ taproot_asset_interactive_transfer(bob_inputs_assets: map[AssetID]AssetLeafProof
       fail
 
     transfer_tx = new_tx()
-    for prev_asset_id, _ in list(chain(alice_input_assets, bob_inputs_assets)):
-        transfer_tx.add_txin(prev_asset_id.prev_outpoint)
+    for prev_asset_input, _ in list(chain(alice_input_assets, bob_inputs_assets)):
+        transfer_tx.add_txin(prev_asset_input.prev_outpoint)
 
     transfer_tx.add_output(taproot_output_script(key=alice_internal_key, leaves=[alice_new_taproot_asset_root]))
     transfer_tx.add_output(taproot_output_script(key=bob_internal_key, leaves=[bob_new_taproot_asset_root]))
@@ -973,7 +973,7 @@ units of asset ''Y'', using Taproot Asset address ''C'':
 * Alice constructs a new sub-commitment in her asset tree that now instead commits to <code>T-N</code> units of the asset (in the case of a normal asset).
 * Alice signs and broadcasts a new transaction including the two outputs, with a necessary deposit amount of ''K'' satoshis.
 
-Alices internal transfer doesn't include a <code>prev_asset_id</code> nor asset
+Alices internal transfer doesn't include a <code>prev_asset_input</code> nor asset
 witness for Bob's new asset leaf. Instead, Bob will use the referenced
 <code>split_commitment_root</code> to create a
 <code>split_commitment_proof</code> that asserts the existence of the new split
