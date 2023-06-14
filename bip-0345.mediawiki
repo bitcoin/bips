@@ -235,6 +235,7 @@ When evaluating <code>OP_VAULT</code> (<code>OP_SUCCESS187</code>,
 [ n leaf-update script data items ... ]
 <trigger-vout-idx> 
 <revault-vout-idx>
+<revault-amount>
 </source>
 
 where
@@ -258,6 +259,11 @@ where
 ** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
 ** If this value is greater than or equal to the number of outputs, script execution when spending this output MUST fail and terminate immediately.
 
+* <code><revault-amount></code> is an up to 7-byte CScriptNum-encoded number indicating the number of satoshis being revaulted.
+** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
+** If this value is not greater than or equal to 0, script execution when spending this output MUST fail and terminate immediately.
+** If this value is non-zero but <code><revault-vout-idx></code> is negative, script execution when spending this output MUST fail and terminate immediately.
+
 After the stack is parsed, the following validation checks are performed:
 
 * Let the output designated by <code><trigger-vout-idx></code> be called ''triggerOut''.
@@ -268,8 +274,11 @@ After the stack is parsed, the following validation checks are performed:
 ** Note: the parity bit of the resulting taproot output is allowed to vary, so both values for the new output must be checked.
 * Let the output designated by <code><revault-vout-idx></code> (if the index value is non-negative) be called ''revaultOut''.
 * If the scriptPubKey of ''revaultOut'' is not equal to the scriptPubKey of the input being spent, script execution when spending this output MUST fail and terminate immediately.
-* If the sum of the amounts of ''triggerOut'' and ''revaultOut'' (if any) are not greater than or equal to the value of this input, script execution when spending this output MUST fail and terminate immediately.
-* (Deferred<ref>'''What is a deferred check and why does this proposal require them for correct script evaluation?''' A deferred check is a validation check that is executed only after all input scripts have been validated, and is based on aggregate information collected during each input's EvalScript run.<br /><br />Currently, the validity of each input is (usually) checked concurrently across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref>) the <code>nValue</code> of ''triggerOut'', plus the <code>nValue</code> of ''revaultOut'' if one exists, must equal the sum of all vault inputs which cite it as their corresponding trigger output. If these values are not equal, the script MUST fail and terminate immediately.
+* Implemetation recommendation: if the sum of the amounts of ''triggerOut'' and ''revaultOut'' (if any) are not greater than or equal to the value of this input, script execution when spending this output SHOULD fail and terminate immediately.
+** Amount checks are ultimately done with deferred checks, but this check can help short-circuit obviously invalid spends.
+* Queue a deferred check<ref>'''What is a deferred check and why does this proposal require them for correct script evaluation?''' A deferred check is a validation check that is executed only after all input scripts have been validated, and is based on aggregate information collected during each input's EvalScript run.<br /><br />Currently, the validity of each input is (usually) checked concurrently across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref> that ensures the satoshis for this input's <code>nValue</code> minus <code><revault-amount></code> are included within the output <code>nValue</code> found at <code><trigger-vout-idx></code>.
+* Queue a deferred check that ensures <code><revault-amount></code> satoshis, if non-zero, are included within the output's <code>nValue</code> found at <code><revault-vout-idx></code>.
+** These deferred checks could be characterized in terms of the pseudocode below (in ''Deferred checks'') as<br /><code>TriggerCheck(input_amount, <revault-amount>, <trigger-vout-idx>, <revault-vout-idx>)</code>.
 
 If none of the conditions fail, a single true value (<code>0x01</code>) is left on the stack.
 
@@ -295,10 +304,65 @@ After the stack is parsed, the following validation checks are performed:
 
 * Let the output at index <code><recovery-vout-idx></code> be called ''recoveryOut''.
 * If the scriptPubKey of ''recoveryOut'' does not have a tagged hash equal to <code><recovery-sPK-hash></code> (<code>tagged_hash("VaultRecoverySPK", recoveryOut.scriptPubKey) == recovery-sPK-hash</code>, where <code>tagged_hash()</code> is from the [https://github.com/bitcoin/bips/blob/master/bip-0340/reference.py BIP-0340 reference code]), script execution when spending this output MUST fail and terminate immediately.
-* If ''recoveryOut'' does not have an <code>nValue</code> greater than or equal to this input's amount, the script MUST fail and terminate immediately.
-* (Deferred) if ''recoveryOut'' does not have an <code>nValue</code> equal to the sum of all <code>OP_VAULT_RECOVER</code>-spent inputs with a corresponding <code>recovery-sPK-hash</code>, the transaction validation MUST fail.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
+** Implementation recommendation: if ''recoveryOut'' does not have an <code>nValue</code> greater than or equal to this input's amount, the script SHOULD fail and terminate immediately.
+* Queue a deferred check that ensures the <code>nValue</code> of ''recoveryOut'' contains the entire <code>nValue</code> of this input.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
+** This deferred check could be characterized in terms of the pseudocode below as <code>RecoveryCheck(<recovery-vout-idx>, input_amount)</code>.
 
 If none of the conditions fail, a single true value (<code>0x01</code>) is left on the stack.
+
+=== Deferred check evaluation ===
+
+Once all inputs for a transaction are validated per the rules above, any
+deferred checks queued MUST be evaluated.
+
+The Python pseudocode for this is as follows:
+
+<source lang="python">
+class TriggerCheck:
+    """Queued by evaluation of OP_VAULT (withdrawal trigger)."""
+    input_amount: int
+    revault_amount: int
+    trigger_vout_idx: int
+    revault_vout_idx: int
+
+
+class RecoveryCheck:
+    """Queued by evaluation of OP_VAULT_RECOVER."""
+    input_amount: int
+    vout_idx: int
+
+
+def validate_deferred_checks(checks: [DeferredCheck], tx: Transaction) -> bool:
+    """
+    Ensure that all value from vault inputs being triggered or recovered is preserved
+    in suitable output nValues.
+    """
+    # Map to hold expected output values.
+    out_map: Dict[int, int] = defaultdict(lambda: 0)
+
+    for c in checks:
+        if isinstance(c, TriggerCheck):
+            out_map[c.trigger_vout_idx] += (c.input_amount - c.revault_amount)
+
+            if c.revault_amount > 0:
+                out_map[c.revault_vout_idx] += c.revault_amount
+
+        elif isinstance(c, RecoveryCheck):
+            out_map[c.vout_idx] += c.input_amount
+
+    for (vout_idx, amount_sats) in out_map.items():
+        if tx.vout[vout_idx].nValue != amount_sats:
+            return False
+
+    return True
+</source>
+
+If the above procedure, or an equivalent, returns false, script execution MUST fail and terminate
+immediately.
+
+This ensures that all compatible vault inputs can be batched into shared
+corresponding trigger or recovery outputs while preserving their entire input value.
+
 
 == Policy changes ==
 
@@ -377,6 +441,7 @@ full leaf-update script (in this case, a timelocked CTV script):
 <source>
 Witness stack:
 
+- <revault-amount>
 - <revault-vout-idx> (-1 if none)
 - <trigger-vout-idx>
 - <target-CTV-hash>
