@@ -1,0 +1,77 @@
+<pre>
+  BIP: 389
+  Layer: Applications
+  Title: Multipath Descriptor Key Expressions
+  Author: Andrew Chow <andrew@achow101.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0389
+  Status: Draft
+  Type: Informational
+  Created: 2022-07-26
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document specifies a modification to Key Expressions of Descriptors that are described in BIP 380.
+This modification allows Key Expressions to indicate BIP 32 derivation path steps that can have multiple values.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Motivation==
+
+Descriptors can describe the scripts that are used in a wallet, but wallets often require at least two descriptors for all of the scripts that they watch for.
+Wallets typically have one descriptor for producing receiving addresses, and the other for change addresses.
+These descriptors are often extremely similar - they produce the same types of scripts, derive keys from the same master key, and use derivation paths that are almost identical.
+The only differences are in the derivation path where one of the steps will be different between the descriptors.
+Thus it is useful to have a notation to represent both descriptors as a single descriptor where one of the derivation steps is a pair of values.
+
+==Specification==
+
+For extended keys and their derivations paths in a Key Expression, BIP 380 states:
+
+* <tt>xpub</tt> encoded extended public key or <tt>xprv</tt> encoded extended private key (as defined in BIP 32)
+** Followed by zero or more <tt>/NUM</tt> or <tt>/NUMh</tt> path elements indicating BIP 32 derivation steps to be taken after the given extended key.
+** Optionally followed by a single <tt>/*</tt> or <tt>/*h</tt> final step to denote all direct unhardened or hardened children.
+
+This is modifed to state:
+
+* <tt>xpub</tt> encoded extended public key or <tt>xprv</tt> encoded extended private key (as defined in BIP 32)
+** Followed by zero or more <tt>/NUM</tt> (may be followed by <tt>h</tt>, <tt>H</tt>, or <tt>'</tt> to indicate a hardened step) path elements indicating BIP 32 derivation steps to be taken after the given extended key.
+** Followed by zero or one <tt>/<NUM;NUM</tt> (each <tt>NUM</tt> may be followed by <tt>h</tt>, <tt>H</tt>, or <tt>'</tt> to indicate a hardened step) path element indicating a tuple of BIP 32 derivation steps to be taken after the given extended key.
+*** Followed by zero or more <tt>;NUM</tt> (may be followed by <tt>h</tt>, <tt>H</tt>, or <tt>'</tt> to indicate a hardened step) additional tuple values of BIP 32 derivation steps
+*** Followed by a single <tt>>/</tt>
+** Followed by zero or more <tt>/NUM</tt> (may be followed by <tt>h</tt>, <tt>H</tt>, or <tt>'</tt> to indicate a hardened step) path elements indicating BIP 32 derivation steps to be taken after the given extended key.
+** Optionally followed by a single <tt>/*</tt> (may be followed by <tt>h</tt>, <tt>H</tt>, or <tt>'</tt> to indicate a hardened step) final step to denote all direct unhardened or hardened children.
+
+When a <tt>/<NUM;NUM;...;NUM></tt> is encountered, parsers should account for a presence of multiple descriptors where the first descriptor uses the first <tt>NUM</tt>, and a second descriptor uses the second <tt>NUM</tt>, and so on, until each <tt>NUM</tt> is accounted for in the production of public keys, scripts, and addresses, as well as descriptor import and export operations.
+Descriptors that contain multiple Key Expressions that each have a <tt>/<NUM;NUM;...;NUM></tt> must have tuples of exactly the same length so that they are derived in lockstep in the same way that <tt>/*</tt> paths in multiple Key expressions are handled.
+
+The common use case for this is to represent descriptors for producing receiving and change addresses.
+When interpreting for this use case, wallets should use the first descriptor for producing receiving addresses, and the second descriptor for producing change addresses.
+For this use case, the element will commonly be the value <tt>/<0;1></tt>
+
+Note that only one <tt>/<NUM;NUM;...;NUM></tt> specifier is allowed in a Key Expression.
+
+==Test Vectors==
+
+TBD
+
+==Backwards Compatibility==
+
+This is an addition to the Key Expressions defined in BIP 380.
+Key Expressions using the format described in BIP 380 are compatible with this modification and parsers that implement this will still be able to parse such descriptors.
+However as this is an addition to Key Expressions, older parsers will not be able to understand such descriptors.
+
+This modification to Key Expressions uses two new characters: <tt><</tt> and <tt>;</tt>.
+These are part of the descriptor character set and so are covered by the checksum algorithm.
+As these are previously unused characters, old parsers will not accidentally mistake them for indicating something else.
+
+This proposal is in contrast to similar proposals such as BIP 88 which allow for multiple derivation indexes in a single element.
+This limitation exists in order to reduce the number of descriptors that are expanded, avoid confusion about how to expand the descriptor, and avoid having expanded descriptors that users are not expecting.
+
+==Reference Implementation==
+
+https://github.com/bitcoin/bitcoin/pull/22838
