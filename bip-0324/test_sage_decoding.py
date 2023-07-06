@@ -5,8 +5,8 @@ Instructions:
 * Clone the SwiftEC repository, and enter the directory:
 
   git clone https://github.com/Jchavezsaab/SwiftEC
-  git checkout 5320a25035d91addde29d14164cce684b56a12ed
   cd SwiftEC
+  git checkout 5320a25035d91addde29d14164cce684b56a12ed
 
 * Generate parameters for the secp256k1 curve:
 
