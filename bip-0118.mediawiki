@@ -77,13 +77,13 @@ We define the functions ''Msg118(hash_type)'' and ''Ext118(hash_type)'' which co
 
 The parameter ''hash_type'' is an 8-bit unsigned value, reusing values defined in [[bip-0341.mediawiki|BIP 341]], with the addition that the values <code>0x41</code>, <code>0x42</code>, <code>0x43</code>, <code>0xc1</code>, <code>0xc2</code>, and <code>0xc3</code> are also valid for BIP 118 public keys.
 
-We define the following constants using bits 6 and 7 of <code>hash_type</code>:
+We define the following constants using bits 5, 6, and 7 of <code>hash_type</code>:
 
 * <code>SIGHASH_ANYPREVOUT = 0x40</code>
-* <code>SIGHASH_ANYPREVOUTANYSCRIPT = 0xc0</code>
+* <code>SIGHASH_ANYSCRIPT = 0x20</code>
 
 The following restrictions apply and cause validation failure if violated:
-* Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'',  ''0x03'', ''0x41'', ''0x42'', ''0x43'', ''0x81'', ''0x82'', ''0x83'', ''0xc1'', ''0xc2'', or ''0xc3'').
+* Using any undefined ''hash_type'' (not ''0x00'', ''0x01'', ''0x02'',  ''0x03'', ''0x41'', ''0x42'', ''0x43'', ''0x61'', ''0x62'', ''0x63'', ''0x81'', ''0x82'', ''0x83'', ''0xc1'', ''0xc2'', ''0xc3'', ''0xe1'', ''0xe2'', or ''0xe3'').
 * Using <code>SIGHASH_SINGLE</code> without a "corresponding output" (an output with the same index as the input being verified).
 
 If these restrictions are not violated, ''Msg118(hash_type)'' evaluates as follows.
@@ -97,14 +97,22 @@ If ''hash_type & 0x40 != 0'', then ''Msg118(hash_type)'' is the concatenation of
 * Transaction data:
 ** ''nVersion'' (4): the ''nVersion'' of the transaction.
 ** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
+** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
+*** If ''hash_type & 0x20'' does not equal <code>SIGHASH_ANYSCRIPT</code>:
+**** ''sha_amounts'' (32): the SHA256 of the serialization of all input amounts.
+**** ''sha_scriptpubkeys'' (32): the SHA256 of all spent outputs' ''scriptPubKeys'', serialized as script inside <code>CTxOut</code>.
+*** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
 ** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
 *** ''sha_outputs'' (32): the SHA256 of the serialization of all outputs in <code>CTxOut</code> format.
 * Data about this input:
 ** ''spend_type'' (1): equal to 2 if no annex is present, or 3 otherwise (the original witness stack has two or more witness elements, and the first byte of the last element is ''0x50'')
-** If ''hash_type & 0xc0'' is <code>SIGHASH_ANYPREVOUT</code>:
-*** ''amount'' (8): value of the previous output spent by this input.
-*** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
+** If ''hash_type & 0x80'' equals <code>SIGHASH_ANYONECANPAY</code>
+*** If ''hash_type & 0x20'' does not equal <code>SIGHASH_ANYSCRIPT</code>:
+**** ''amount'' (8): value of the previous output spent by this input.
+**** ''scriptPubKey'' (35): ''scriptPubKey'' of the previous output spent by this input, serialized as script inside <code>CTxOut</code>. Its size is always 35 bytes.
 ** ''nSequence'' (4): ''nSequence'' of this input.
+** If ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
+*** ''input_index'' (4): index of this input in the transaction input vector. Index of the first input is 0.
 ** If an annex is present (the lowest bit of ''spend_type'' is set):
 *** ''sha_annex'' (32): the SHA256 of ''(compact_size(size of annex) || annex)'', where ''annex'' includes the mandatory ''0x50'' prefix.
 * Data about this output:
@@ -114,7 +122,7 @@ If ''hash_type & 0x40 != 0'', then ''Msg118(hash_type)'' is the concatenation of
 Similarly, ''Ext118(hash_type)'' evaluates to the concatenation of the following data, in order:
 
 * Extension:
-** If ''hash_type & 0xc0'' is not <code>SIGHASH_ANYPREVOUTANYSCRIPT</codE>:
+** If ''hash_type & 0x20'' does not equal <code>SIGHASH_ANYSCRIPT</codE>:
 *** ''tapleaf_hash'' (32): the tapleaf hash as defined in [[bip-0341.mediawiki|BIP 341]]
 ** ''key_version'' (1): a constant value ''0x01'' representing that this is a signature for a BIP 118 public key.
 ** ''codesep_pos'' (4): the opcode position of the last executed <code>OP_CODESEPARATOR</code> before the currently executed signature opcode, with the value in little endian (or ''0xffffffff'' if none executed). The first opcode in a script has a position of 0. A multi-byte push opcode is counted as one opcode, regardless of the size of data being pushed.
@@ -130,23 +138,25 @@ To verify a signature ''sig'' for a BIP 118 public key ''p'':
 The key differences from [[bip-0342.mediawiki|BIP 342]] signature verification are:
 
 * In all cases, <code>key_version</code> is set to the constant value <code>0x01</code> instead of <code>0x00</code>.<ref>'''Why change key_version?''' Changing <code>key_version</code> ensures that if the same private key is used to generate both a [[bip-0342.mediawiki|BIP 342]] key and a BIP 118 public key, that a signature for the [[bip-0342.mediawiki|BIP 342]] key is not also valid for the BIP 118 public key (and vice-versa).</ref>
-* If <code>SIGHASH_ANYPREVOUT</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code> is not included in the digest.
-* If <code>SIGHASH_ANYPREVOUTANYSCRIPT</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code>, <code>amount</code>, <code>scriptPubKey</code> and <code>tapleaf_hash</code> are not included in the digest.
+* If <code>SIGHASH_ANYPREVOUT</code> is set, the digest is calculated as if <code>SIGHASH_ALL</code> was set, except <code>sha_prevouts</code> is not included in the digest.
+* If <code>SIGHASH_ANYPREVOUT|SIGHASH_ANYSCRIPT</code> is set, the digest is calculated as if <code>SIGHASH_ALL</code> was set, except <code>sha_prevouts</code>, <code>sha_amounts</code>, and <code>sha_scriptpubkeys</code> are not included in the digest.
+* If <code>SIGHASH_ANYPREVOUT|SIGHASH_ANYONECANPAY</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code> is not included in the digest.
+* If <code>SIGHASH_ANYPREVOUT|SIGHASH_ANYONECANPAY|SIGHASH_ANYSCRIPT</code> is set, the digest is calculated as if <code>SIGHASH_ANYONECANPAY</code> was set, except <code>outpoint</code>, <code>amount</code>, <code>scriptPubKey</code> and <code>tapleaf_hash</code> are not included in the digest.
 
 == Security ==
 
 ==== Signature replay ====
 
-By design, <code>SIGHASH_ANYPREVOUT</code> and <code>SIGHASH_ANYPREVOUTANYSCRIPT</code> introduce additional potential for signature replay (that is they allow the same signature to be reused on a different transaction) when compared to <code>SIGHASH_ALL</code> and <code>SIGHASH_ANYONECANPAY</code> signatures.
+By design, <code>SIGHASH_ANYPREVOUT</code> and <code>SIGHASH_ANYSCRIPT</code> introduce additional potential for signature replay (that is they allow the same signature to be reused on a different transaction) when compared to <code>SIGHASH_ALL</code> and <code>SIGHASH_ANYONECANPAY</code> signatures.
 
 Both <code>SIGHASH_ALL</code> and <code>SIGHASH_ANYONECANPAY</code> signatures prevent signature replay by committing to one or more inputs, so replay of the signature is only possible if the same input can be spent multiple times, which is not possible on the Bitcoin blockchain (due to enforcement of [[bip-0030.mediawiki|BIP 30]]).
-With <code>SIGHASH_ANYPREVOUT</code> signature replay is possible for different UTXOs with the same <code>scriptPubKey</code> and the same value, while with <code>SIGHASH_ANYPREVOUTANYSCRIPT</code> signature replay is possible for any UTXOs that reuse the same BIP 118 public key in one of their potential scripts.
+With <code>SIGHASH_ANYPREVOUT</code> signature replay is possible for different UTXOs with the same <code>scriptPubKey</code> and the same value, while with <code>SIGHASH_ANYSCRIPT</code> signature replay is possible for any UTXOs that reuse the same BIP 118 public key in one of their potential scripts.
 
 As a consequence, implementors MUST ensure that BIP 118 public keys are only reused when signature replay cannot cause loss of funds (eg due to other features of the protocol or other constraints on the transaction), or when such a loss of funds is acceptable.
 
 ==== Malleability ====
 
-Use of <code>SIGHASH_ANYPREVOUT</code> or <code>SIGHASH_ANYPREVOUTANYSCRIPT</code> may introduce additional malleability vectors.
+Use of <code>SIGHASH_ANYPREVOUT</code> or <code>SIGHASH_ANYSCRIPT</code> may introduce additional malleability vectors.
 
 In particular, a transaction authenticated using only ANYPREVOUT signatures is malleable to anyone able to provide an alternate input satisfied by the signature -- an input changed in this way would produce a new, valid transaction paying the same recipient, but with a different txid.
 Depending on the changes to the inputs, this might conflict with the original transaction (if some inputs remain shared) or might result in a double-payment to the recipient (if they do not).
@@ -158,6 +168,10 @@ This form of malleation can be dealt with by the child transactions also using A
 However child transactions that are authorised by a <code>SIGHASH_ALL</code> or <code>SIGHASH_ANYONECANPAY</code> signature will need new signatures if their inputs are malleated in this way.
 This risk may be mitigated somewhat by using [[bip-0068.mediawiki|BIP 68]]/[[bip-0112.mediawiki|BIP 112]] relative time locks before spending a UTXO that had been authorised via an ANYPREVOUT signature with <code>SIGHASH_ALL</code> or <code>SIGHASH_ANYONECANPAY</code>: a relative timelock can ensure that the inputs have enough confirmations that they can only be replaced in the event of a large block reorg.
 Note that this approach has drawbacks: relative timelocks prevent fee-bumping via child-pays-for-parent, and have the obvious drawback of making the funds temporarily unusable until the timelock expires.
+
+==== Emulation of [bip-0119.mediawiki BIP-0119] ====
+
+<code>SIGHASH_ANYPREVOUT|SIGHASH_ANYSCRIPT</code> can be used with a pre-signed ''scriptSig'' to emulate <code>OP_CHECKTEMPLATE_VERIFY</code>, but requires 34-67 extra witness bytes (65-byte signature instead of 32-byte hash plus <code>OP_1</code>, or 33-byte key).
 
 ==== Privacy considerations ====
 
