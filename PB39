@@ -1,0 +1,149 @@
+   PBI: 39
+  Capa: Aplicaciones
+  Título: Código mnemotécnico para generar claves deterministas
+  Autor: Marek Palatinus <slush@satoshilabs.com>
+          Pavol Rusnak <stick@satoshilabs.com>
+          Aarón Voisine <voisine@gmail.com>
+          Sean Bowe <ewillbefull@gmail.com>
+  Comentarios-Resumen: Desalentar por unanimidad la implementación
+  Comentarios-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0039
+  Estado: Propuesto
+  Tipo: pista de estándares
+  Creado: 2013-09-10
+Tabla de contenido
+Abstracto
+Motivación
+Generando el mnemotécnico
+Lista de palabras
+De mnemotécnico a semilla
+listas de palabras
+Vectores de prueba
+Implementación de referencia
+Otras implementaciones
+Abstracto
+Este BIP describe la implementación de un código mnemotécnico u oración mnemotécnica, un grupo de palabras fáciles de recordar, para la generación de billeteras deterministas.
+
+Consta de dos partes: generar el mnemotécnico y convertirlo en una semilla binaria. Esta semilla se puede usar más tarde para generar billeteras deterministas usando BIP-0032 o métodos similares.
+
+Motivación
+Un código u oración mnemónicos es superior para la interacción humana en comparación con el manejo de representaciones binarias o hexadecimales sin procesar de una semilla de billetera. La oración podría escribirse en papel o hablarse por teléfono.
+
+Esta guía pretende ser una forma de transportar la aleatoriedad generada por computadora con una transcripción legible por humanos. No es una forma de procesar oraciones creadas por el usuario (también conocidas como billeteras cerebrales) en una semilla de billetera.
+
+Generando el mnemotécnico
+El nemotécnico debe codificar la entropía en un múltiplo de 32 bits. Con más entropía se mejora la seguridad pero aumenta la longitud de la oración. Nos referimos a la longitud de entropía inicial como ENT. El tamaño permitido de ENT es de 128 a 256 bits.
+
+Primero, se genera una entropía inicial de bits ENT. Se genera una suma de comprobación tomando los primeros ENT / 32bits de su hash SHA256. Esta suma de comprobación se añade al final de la entropía inicial. A continuación, estos bits concatenados se dividen en grupos de 11 bits, cada uno de los cuales codifica un número del 0 al 2047, que sirve como índice en una lista de palabras. Finalmente, convertimos estos números en palabras y usamos las palabras unidas como una oración mnemotécnica.
+
+La siguiente tabla describe la relación entre la longitud de entropía inicial (ENT), la longitud de la suma de comprobación (CS) y la longitud de la oración mnemotécnica generada (MS) en palabras.
+
+SC = ORL / ​​32
+EM = (ENT + SC) / 11
+
+| ORL | CS | ORL+CS | EM |
++-------+----+--------+------+
+| 128 | 4 | 132 | 12 |
+| 160 | 5 | 165 | 15 |
+| 192 | 6 | 198 | 18 |
+| 224 | 7 | 231 | 21 |
+| 256 | 8 | 264 | 24 |
+Lista de palabras
+Una lista de palabras ideal tiene las siguientes características:
+
+a) selección inteligente de palabras
+
+   - la lista de palabras se crea de tal manera que es suficiente escribir los primeros cuatro
+     letras para identificar inequívocamente la palabra
+b) palabras similares evitadas
+
+   - pares de palabras como "construir" y "construido", "mujer" y "mujeres", o "rápido" y "rápidamente"
+     no solo hacen que recordar la oración sea difícil, sino que también son más erróneos
+     propenso y más difícil de adivinar
+c) listas de palabras ordenadas
+
+   - la lista de palabras está ordenada, lo que permite una búsqueda más eficiente de las palabras clave
+     (es decir, las implementaciones pueden usar búsqueda binaria en lugar de búsqueda lineal)
+   - esto también permite usar trie (un árbol de prefijos), por ejemplo, para una mejor compresión
+La lista de palabras puede contener caracteres nativos, pero deben estar codificados en UTF-8 mediante la Descomposición de compatibilidad de formularios de normalización (NFKD).
+
+De mnemotécnico a semilla
+Un usuario puede decidir proteger su mnemónico con una frase de contraseña. Si no hay una frase de contraseña, se usa una cadena vacía "" en su lugar.
+
+Para crear una semilla binaria a partir del mnemotécnico, usamos la función PBKDF2 con una oración mnemotécnica (en UTF-8 NFKD) utilizada como contraseña y la cadena "mnemónico" + frase de contraseña (nuevamente en UTF-8 NFKD) utilizada como sal. El recuento de iteraciones se establece en 2048 y se utiliza HMAC-SHA512 como función pseudoaleatoria. La longitud de la clave derivada es de 512 bits (= 64 bytes).
+
+Esta semilla se puede usar más tarde para generar billeteras deterministas usando BIP-0032 o métodos similares.
+
+La conversión de la oración mnemotécnica a una semilla binaria es completamente independiente de generar la oración. Esto da como resultado un código bastante simple; no hay restricciones en la estructura de las oraciones y los clientes son libres de implementar sus propias listas de palabras o incluso generadores de oraciones completas, lo que permite flexibilidad en las listas de palabras para la detección de errores tipográficos u otros fines.
+
+Aunque es posible usar un mnemotécnico no generado por el algoritmo descrito en la sección "Generar el mnemotécnico", no se recomienda y el software debe calcular una suma de verificación para la oración mnemotécnica usando una lista de palabras y emitir una advertencia si no es válida.
+
+El método descrito también proporciona una negación plausible, porque cada frase de contraseña genera una semilla válida (y, por lo tanto, una billetera determinista), pero solo la correcta hará que la billetera deseada esté disponible.
+
+listas de palabras
+Dado que la gran mayoría de las billeteras BIP39 solo admiten la lista de palabras en inglés, se desaconseja encarecidamente utilizar listas de palabras que no estén en inglés para generar oraciones mnemotécnicas.
+
+Si todavía siente que su aplicación realmente necesita usar una lista de palabras localizada, use una de las siguientes en lugar de inventar la suya propia.
+
+listas de palabras
+Vectores de prueba
+Los vectores de prueba incluyen entropía de entrada, mnemotécnico y semilla. La frase de contraseña "TREZOR" se utiliza para todos los vectores.
+
+https://github.com/trezor/python-mnemonic/blob/master/vectors.json
+
+Consulte también https://github.com/bip32JP/bip32JP.github.io/blob/master/test_JP_BIP39.json
+
+(Prueba de lista de palabras en japonés con símbolos muy normalizados como frase de contraseña)
+
+Implementación de referencia
+La implementación de referencia, incluidas las listas de palabras, está disponible en
+
+http://github.com/trezor/python-mnemonic
+
+Otras implementaciones
+Ir:
+
+https://github.com/tyler-smith/go-bip39
+Pitón:
+https://github.com/meherett/python-hdwallet
+Elixir:
+https://github.com/aerosol/mnemo
+C objetivo:
+https://github.com/nybex/NYMnemonic
+Haskell:
+https://github.com/haskoin/haskoin
+.NET (estándar):
+https://www.nuget.org/packages/dotnetstandard-bip39/
+.NET C# (PCL):
+https://github.com/Thashiznets/BIP39.NET
+.NET C# (PCL):
+https://github.com/NicolasDorier/NBitcoin
+JavaScript:
+https://github.com/bitpay/bitcore/tree/master/packages/bitcore-mnemonic
+https://github.com/bitcoinjs/bip39 (usado por blockchain.info )
+https://github.com/dashhive/DashPhrase.js
+https://github.com/hujiulong/web-bip39
+Java:
+https://github.com/bitcoinj/bitcoinj/blob/master/core/src/main/java/org/bitcoinj/crypto/MnemonicCode.java
+Rubí:
+https://github.com/sreekanthgs/bip_mnemonic
+Óxido:
+https://github.com/maciejhirsz/tiny-bip39/
+https://github.com/koushiro/bip0039-rs
+Charla:
+https://github.com/eMaringolo/pharo-bip39mnemonic
+Rápido:
+https://github.com/CikeQiu/CKMnemonic
+https://github.com/yuzushioh/WalletKit
+https://github.com/pengpengliu/BIP39
+https://github.com/matter-labs/web3swift/blob/develop/Sources/web3swift/KeystoreManager/BIP39.swift
+https://github.com/zcash-hackworks/MnemonicSwift
+https://github.com/ShenghaiWang/BIP39
+https://github.com/anquii/BIP39
+C++:
+https://github.com/libbitcoin/libbitcoin-system/blob/master/include/bitcoin/system/wallet/mnemonic.hpp
+C (con enlaces de Python/Java/Javascript):
+https://github.com/ElementsProject/libwally-core
+Pitón:
+https://github.com/scgbckbone/btc-hd-wallet
+Dardo:
+https://github.com/dart-bitcoin/bip39
