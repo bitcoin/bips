@@ -209,7 +209,7 @@ As explained before, these messages are sent to set up the connection:
 
 The peers derive their shared secret through X-only ECDH, hashed together with the exactly 64-byte public keys' encodings sent over the wire.
 
-<pre>
+<source lang="python">
 def v2_ecdh(priv, ellswift_theirs, ellswift_ours, initiating):
     ecdh_point_x32 = ellswift_ecdh_xonly(ellswift_theirs, priv)
     if initiating:
@@ -218,7 +218,7 @@ def v2_ecdh(priv, ellswift_theirs, ellswift_ours, initiating):
     else:
         # Responding, place their public key encoding first.
         return sha256_tagged("bip324_ellswift_xonly_ecdh", ellswift_theirs + ellswift_ours + ecdh_point_x32)
-</pre>
+</source>
 
 Here, <code>sha256_tagged(tag, x)</code> returns a tagged hash value <code>SHA256(SHA256(tag) || SHA256(tag) || x)</code> as in [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#specification BIP340].
 
@@ -290,7 +290,7 @@ Finally the <code>ellswift_ecdh_xonly</code> algorithm is:
 
 The authenticated encryption construction proposed here requires two 32-byte keys per communication direction. These (in addition to a session ID) are computed using HKDF<ref name="why_hkdf">'''Why use HKDF for deriving key material?''' The shared secret already involves a hash function to make sure the public key encodings contribute to it, which negates some of the need for HKDF already. We still use it as it is the standard mechanism for deriving many keys from a single secret, and its computational cost is low enough to be negligible compared to the rest of a connection setup.</ref> as specified in [https://tools.ietf.org/html/rfc5869 RFC 5869] with SHA256 as the hash function:
 
-<pre>
+<source lang="python">
 def initialize_v2_transport(peer, ecdh_secret, initiating):
     # Include NETWORK_MAGIC to ensure a connection between nodes on different networks will immediately fail
     prk = HKDF_Extract(Hash=sha256, salt=b'bitcoin_v2_shared_secret' + NETWORK_MAGIC, ikm=ecdh_secret)
@@ -323,7 +323,7 @@ def initialize_v2_transport(peer, ecdh_secret, initiating):
 
     # To achieve forward secrecy we must wipe the key material used to initialize the ciphers:
     memory_cleanse(ecdh_secret, prk, initiator_L, initiator_P, responder_L, responder_K)
-</pre>
+</source>
 
 The session ID uniquely identifies the encrypted channel. v2 clients supporting this proposal may present the entire session ID (encoded as a hex string) to the node operator to allow for manual, out of band comparison with the peer node operator. Future transport versions may introduce optional authentication methods that compare the session ID as seen by the two endpoints in order to bind the encrypted channel to the authentication.
 
@@ -331,17 +331,17 @@ The session ID uniquely identifies the encrypted channel. v2 clients supporting 
 
 To establish a v2 encrypted connection, the initiator generates an ephemeral secp256k1 keypair and sends an unencrypted ElligatorSwift encoding of the public key to the responding peer followed by unencrypted pseudorandom bytes <code>initiator_garbage</code> of length <code>garbage_len < 4096</code>.
 
-<pre>
+<source lang="python">
 def initiate_v2_handshake(peer, garbage_len):
     peer.privkey_ours, peer.ellswift_ours = ellswift_create()
     peer.sent_garbage = rand_bytes(garbage_len)
     send(peer, peer.ellswift_ours + peer.sent_garbage)
-</pre>
+</source>
 
 The responder generates an ephemeral keypair for itself and derives the shared ECDH secret (using the first 64 received bytes) which enables it to instantiate the encrypted transport. It then sends 64 bytes of the unencrypted ElligatorSwift encoding of its own public key and its own <code>responder_garbage</code> also of length <code>garbage_len < 4096</code>. If the first 12 bytes received match the v1 prefix, the v1 protocol is used instead.
 
-<pre>
-TRANSPORT_VERSION = b''
+<source lang="python">
+TRANSPORT_VERSION = b""
 NETWORK_MAGIC = b'\xf9\xbe\xb4\xd9' # Mainnet network magic; differs on other networks.
 V1_PREFIX = NETWORK_MAGIC + b'version\x00'
 
@@ -355,20 +355,20 @@ def respond_v2_handshake(peer, garbage_len):
             send(peer, ellswift_Y + peer.sent_garbage)
             return
     use_v1_protocol()
-</pre>
+</source>
 
 Upon receiving the encoded responder public key, the initiator derives the shared ECDH secret and instantiates the encrypted transport. It then sends the derived 16-byte <code>initiator_garbage_terminator</code> followed by an authenticated, encrypted packet with empty contents<ref name="send_empty_garbauth">'''Does the content of the garbage authentication packet need to be empty?''' The receiver ignores the content of the garbage authentication packet, so its content can be anything, and it can in principle be used as a shaping mechanism too. There is however no need for that, as immediately afterward the initiator can start using decoy packets as (a much more flexible) shaping mechanism instead.</ref> to authenticate the garbage, and its own version packet. It then receives the responder's garbage and garbage authentication packet (delimited by the garbage terminator), and checks if the garbage is authenticated correctly. The responder performs very similar steps but includes the earlier received prefix bytes in the public key. As mentioned before, the encrypted packets for the '''version negotiation phase''' can be piggybacked with the garbage authentication packet to minimize roundtrips.
 
-<pre>
+<source lang="python">
 def complete_handshake(peer, initiating):
-    received_prefix = b'' if initiating else peer.received_prefix
+    received_prefix = b"" if initiating else peer.received_prefix
     ellswift_theirs = receive(peer, 64 - len(received_prefix))
     ecdh_secret = v2_ecdh(peer.privkey_ours, ellswift_theirs, peer.ellswift_ours,
                           initiating=initiating)
     initialize_v2_transport(peer, ecdh_secret, initiating=True)
     # Send garbage terminator + garbage authentication packet + version packet.
     send(peer, peer.send_garbage_terminator +
-               v2_enc_packet(peer, b'', aad=peer.sent_garbage) +
+               v2_enc_packet(peer, b"", aad=peer.sent_garbage) +
                v2_enc_packet(peer, TRANSPORT_VERSION))
     # Skip garbage, until encountering garbage terminator.
     received_garbage = recv(peer, 16)
@@ -383,7 +383,7 @@ def complete_handshake(peer, initiating):
             received_garbage += recv(peer, 1)
     # Garbage terminator was not seen after 4 KiB of garbage.
     disconnect(peer)
-</pre>
+</source>
 
 ==== Packet encryption ====
 
@@ -408,6 +408,7 @@ To provide re-keying every 224 packets, we specify two wrappers.
 The first is '''FSChaCha20Poly1305''', which represents a ChaCha20Poly1305 AEAD, which automatically changes the nonce after every message, and rekeys every 224 messages by encrypting 32 zero bytes<ref name="rekey_why_aead">'''Why is rekeying implemented in terms of an invocation of the AEAD?''' This means the FSChaCha20Poly1305 wrapper can be thought of as a pure layer around the ChaCha20Poly1305 AEAD. Actual implementations can take advantage of the fact that this formulation is equivalent to using byte 64 through 95 of the keystream output of the underlying ChaCha20 cipher as new key, avoiding the need for Poly1305 in the process.</ref>, and using the first 32 bytes of the result. Each message will be used for one packet. Note that in our protocol, any FSChaCha20Poly1305 instance is always either exclusively encryption or exclusively decryption, as separate instances are used for each direction of the protocol. The nonce used for a message is composed of the 32-bit little-endian encoding of the number of messages with the current key, followed by the 64-bit little-endian encoding of the number of rekeyings performed. For rekeying, the first 32-bit integer is set to ''0xffffffff''.
 
 <pre>
+
 REKEY_INTERVAL = 224
 
 class FSChaCha20Poly1305:
@@ -435,6 +436,7 @@ class FSChaCha20Poly1305:
 
     def encrypt(self, aad, plaintext):
         return self.crypt(aad, plaintext, False)
+
 </pre>
 
 The second is '''FSChaCha20''', a (single) stream cipher which is used for the lengths of all packets. Encryption and decryption are identical here, so a single function <code>crypt</code> is exposed. It XORs the input with bytes generated using the ChaCha20 block function, rekeying every 224 chunks using the next 32 bytes of the block function output as new key. A ''chunk'' refers here to a single invocation of <code>crypt</code>. As explained before, the same cipher is used for 224 consecutive chunks, to avoid wasting cipher output. The nonce used for these batches of 224 chunks is composed of 4 zero bytes followed by the 64-bit little-endian encoding of the number of rekeyings performed. The block counter is reset to 0 after every rekeying.
@@ -447,7 +449,7 @@ class FSChaCha20:
         self.key = initial_key
         self.block_counter = 0
         self.chunk_counter = 0
-        self.keystream = b''
+        self.keystream = b""
 
     def get_keystream_bytes(self, nbytes):
         while len(self.keystream) < nbytes:
@@ -473,24 +475,24 @@ class FSChaCha20:
 
 Encryption and decryption of packets then follow by composing the ciphers from the previous section as building blocks.
 
-<pre>
+<source lang="python">
 LENGTH_FIELD_LEN = 3
 HEADER_LEN = 1
 IGNORE_BIT_POS = 7
 
-def v2_enc_packet(peer, contents, aad=b'', ignore=False):
+def v2_enc_packet(peer, contents, aad=b"", ignore=False):
     assert len(contents) <= 2**24 - 1
     header = (ignore << IGNORE_BIT_POS).to_bytes(HEADER_LEN, 'little')
     plaintext = header + contents
     aead_ciphertext = peer.send_P.encrypt(aad, plaintext)
     enc_contents_len = peer.send_L.crypt(len(contents).to_bytes(LENGTH_FIELD_LEN, 'little'))
     return enc_contents_len + aead_ciphertext
-</pre>
+</source>
 
-<pre>
+<source lang="python">
 CHACHA20POLY1305_EXPANSION = 16
 
-def v2_receive_packet(peer, aad=b'', skip_decoy=True):
+def v2_receive_packet(peer, aad=b"", skip_decoy=True):
     while True:
         enc_contents_len = receive(peer, LENGTH_FIELD_LEN)
         contents_len = int.from_bytes(peer.recv_L.crypt(enc_contents_len), 'little')
@@ -502,7 +504,7 @@ def v2_receive_packet(peer, aad=b'', skip_decoy=True):
         header = plaintext[:HEADER_LEN]
         if not (skip_decoy and header[0] & (1 << IGNORE_BIT_POS)):
             return plaintext[HEADER_LEN:]
-</pre>
+</source>
 
 ==== Performance ====
 
