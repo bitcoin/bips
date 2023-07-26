@@ -226,7 +226,7 @@ A sidechain fails to activate if:
 
 Otherwise, the sidechain activates (Active is set to TRUE).
 
-In the block in which the sidechain activates, the coinbase MUST include at least one 0-valued OP_TRUE. This output becomes the initial CTIP for the sidechain.
+In the block in which the sidechain activates, the coinbase MUST include at least one 0-valued OP_DRIVECHAIN output. This output becomes the initial CTIP for the sidechain.
 
 
 
@@ -394,7 +394,7 @@ Every time a deposit/withdrawal is made, the old CTIP is spent and a new one is 
 
 Every M5 is valid, as long as:
 
-* It has at least one OP_TRUE output -- this becomes the new CTIP.
+* It has at least one OP_DRIVECHAIN output -- this becomes the new CTIP.
 * The new CTIP has '''more''' coins in it, than before.
 
 
@@ -405,7 +405,7 @@ We come, finally, to the critical matter: where users can take their money *out*
 M6 is invalid if:
 
 * The blinded hash of M6 does NOT match one of the approved Bundle-hashes.  (In other words: M6 must first be approved by 13,150 upvotes.)
-* The first output of M6 is NOT an OP_TRUE. (This OP_TRUE becomes the new CTIP. In other words: all non-withdrawn coins are paid back to the sidechain.)
+* The first output of M6 is NOT an OP_DRIVECHAIN. (This OP_DRIVECHAIN becomes the new CTIP. In other words: all non-withdrawn coins are paid back to the sidechain.)
 * The second output is NOT an OP_RETURN script of exactly 10 bytes, of which 8 bytes are a serialized Bitcoin amount.
 * The txn fee of M6 is NOT exactly equal to the amount of the previous bullet point.
 
@@ -413,8 +413,16 @@ Else, M6 is valid.
 
 (The point of the latter two bullet points, is to allow the bundle hash to cover the L1 transaction fee.)
 
+===OP_DRIVECHAIN===
 
+This proposal adds a single new opcode, OP_DRIVECHAIN, which has strict semantics for usage.
+OP_NOP5 (0xb4) is redefined as OP_DRIVECHAIN if and only if the entire script is OP_DRIVECHAIN followed by a single-byte push and OP_TRUE (exactly 4 bytes).
+The single-byte push contains the sidechain number.
+Note that this is not a "script number", and cannot be OP_1..OP_16 or any other kind of push; it is also unsigned, and must not be padded even if over sidechain number 127.
+The final OP_TRUE is to ensure this change remains a softfork:
+without it, sidechain numbers 0 and 128 would cause the legacy script interpreter to fail.
 
+If an OP_DRIVECHAIN input is spent, the additional rules for M5 or M6 (see above) must be enforced.
 
 ==Backward compatibility==
 
