@@ -226,7 +226,7 @@ A sidechain fails to activate if:
 
 Otherwise, the sidechain activates (Active is set to TRUE).
 
-In the block in which the sidechain activates, the coinbase MUST include at least one 0-valued OP_TRUE. This output becomes the initial CTIP for the sidechain.
+In the block in which the sidechain activates, the coinbase MUST include at least one 0-valued OP_DRIVECHAIN output. This output becomes the initial CTIP for the sidechain.
 
 
 
@@ -287,11 +287,15 @@ The upvote vector will code "abstain" as 0xFF (or 0xFFFF); it will code "alarm" 
 
 For example: if there are two sidechains, and we wish to upvote the 7th bundle on sidechain #1 plus the 4th bundle on sidechain #2, then the upvote vector would be { 07, 04 }. And M4 would be [0x6A,D77D1776,00,0006,0003].
 
-The version number allows us to shrink the upvote vector in many cases. Version 0x00 requires a full two bytes per sidechain, but it always works. Version 0x01 uses half that (one byte per sidechain), and it works while all sidechains have fewer than 255 disputed withdrawals (ie, 99.99%+ of the time). Version 0x02 uses zero bytes (ie, 6 bytes for the whole M4) and sets this block's M4 equal to the previous block's M4. Version 0x03 upvotes only those withdrawals that are leading their rivals by at least 50 votes.
+The version number allows us to shrink the upvote vector in many cases.
+Version 0x00 omits the upvote vector entirely (ie, 6 bytes for the whole M4) and sets this block's M4 equal to the previous block's M4.
+Version 0x01 uses one byte per sidechain, and can be used while all ACKed withdrawals have an index under 256 (ie, 99.99%+ of the time).
+Version 0x02 uses a full two bytes per sidechain (each encoded in little endian), but it always works no matter how many withdrawl proposals exist.
+Version 0x03 omits the upvote vector, and instead upvotes only those withdrawals that are leading their rivals by at least 50 votes.
 
 If a sidechain has no pending bundles, then it is skipped over when M4 is created and parsed.
 
-For example, an upvote vector of { 2 , N/A, 1 } would be represented as [0x6A,D77D1776,01,00,00]. It means: "upvote the first bundle in sidechain #1; and the first bundle in sidechain #3" (iff sidechains #2 has no bundles proposed).
+For example, an upvote vector of { 2 , N/A, 1 } would be represented as [0x6A,D77D1776,01,01,00]. It means: "upvote the second bundle in sidechain #1; and the first bundle in sidechain #3" (iff sidechains #2 has no bundles proposed).
 
 An upvote vector of { N/A, N/A, 4 } would be [0x6A,D77D1776,01,03].
 
@@ -394,7 +398,7 @@ Every time a deposit/withdrawal is made, the old CTIP is spent and a new one is 
 
 Every M5 is valid, as long as:
 
-* It has at least one OP_TRUE output -- this becomes the new CTIP.
+* It has exactly one OP_DRIVECHAIN output -- this becomes the new CTIP.
 * The new CTIP has '''more''' coins in it, than before.
 
 
@@ -405,15 +409,71 @@ We come, finally, to the critical matter: where users can take their money *out*
 M6 is invalid if:
 
 * The blinded hash of M6 does NOT match one of the approved Bundle-hashes.  (In other words: M6 must first be approved by 13,150 upvotes.)
-* The first output of M6 is NOT an OP_TRUE. (This OP_TRUE becomes the new CTIP. In other words: all non-withdrawn coins are paid back to the sidechain.)
-* The second output is NOT an OP_RETURN script of exactly 10 bytes, of which 8 bytes are a serialized Bitcoin amount.
+* The first output of M6 is NOT an OP_DRIVECHAIN. (This OP_DRIVECHAIN becomes the new CTIP. In other words: all non-withdrawn coins are paid back to the sidechain.)
+* The second output is NOT a zero-value OP_RETURN script of exactly 10 bytes, of which 8 bytes are a serialized Bitcoin amount.
 * The txn fee of M6 is NOT exactly equal to the amount of the previous bullet point.
+* There are additional OP_DRIVECHAIN outputs after the first one.
 
 Else, M6 is valid. 
 
 (The point of the latter two bullet points, is to allow the bundle hash to cover the L1 transaction fee.)
 
+===OP_DRIVECHAIN===
 
+This proposal adds a single new opcode, OP_DRIVECHAIN, which has strict semantics for usage.
+OP_NOP5 (0xb4) is redefined as OP_DRIVECHAIN if and only if the entire script is OP_DRIVECHAIN followed by a single-byte push and OP_TRUE (exactly 4 bytes).
+The single-byte push contains the sidechain number.
+Note that this is not a "script number", and cannot be OP_1..OP_16 or any other kind of push; it is also unsigned, and must not be padded even if over sidechain number 127.
+The final OP_TRUE is to ensure this change remains a softfork:
+without it, sidechain numbers 0 and 128 would cause the legacy script interpreter to fail.
+
+If an OP_DRIVECHAIN input is spent, the additional rules for M5 or M6 (see above) must be enforced.
+
+====Weight adjustments====
+
+To account for the additional drivechain checks, each message adds to the block's weight:
+
+{|class="wikitable"
+! Message !! Additional weight
+|-
+| M1 || 840
+|-
+| M2 || 336
+|-
+| M3 || 848
+|-
+| M4 || ?
+|-
+| M5 || 340
+|-
+| M6 || 352
+|}
+
+<!--
+get: 168 WU for 1 byte
+delete: free?
+create: 168 WU for 33 bytes
+hash: 4 WU??
+search outputs: ?
+permanent "proposal rejected" lookup: infinite??
+read prev block: a lot?? maybe store...
+comparison: 4 WU?
+encode script: ?
+
+M1: 3 get, 2 create
+M2: 1 get, 1 delete, 1 create
+M3: 3 get, 1 delete, 2 create, 2 hash
+  for each coinbase output: search for prior M3 for this sidechain
+  lookup if M3 was ever rejected or paid in the past
+  for each prior proposed withdrawl: (included in 1 get+delete+create)
+M4: 1 get
+  + for every proposed withdraw, 1 get, 1 delete, 1 create, 1 add
+  v0 needs to read and parse previous block
+M5/M6 OP_DRIVECHAIN spends require 2 additional input lookups
+  for each output: check for duplicate OP_DRIVECHAINs
+  amount comparison
+  M6: encode & compare fee amount, 2 hash, counter compare
+-->
 
 
 ==Backward compatibility==
