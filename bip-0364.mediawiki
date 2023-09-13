@@ -47,8 +47,8 @@ we need 64 bit precision.
 
 ===OP_INOUT_AMOUNT===
 
-[OP_INOUT_AMOUNT](https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019420.html) is 
-part of the [OP_TAPLEAFUPDATE_VERIFY](https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019419.html) soft fork proposal.
+[https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019420.html OP_INOUT_AMOUNT] is
+part of the [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019419.html OP_TAPLEAFUPDATE_VERIFY] soft fork proposal.
 This opcode pushes two values onto the stack, the amount from this
 input's utxo, and the amount in the corresponding output, and then expect
 anyone using OP_TLUV to use maths operators to verify that funds are being
@@ -70,145 +70,109 @@ Refer to the reference implementation, reproduced below, for the precise
 semantics and detailed rationale for those semantics.
 
 <source lang="cpp">
-    case OP_ADD64:
-    case OP_SUB64:
-    case OP_MUL64:
-    case OP_DIV64:
-    case OP_LESSTHAN64:
-    case OP_LESSTHANOREQUAL64:
-    case OP_GREATERTHAN64:
-    case OP_GREATERTHANOREQUAL64:
-      {
-        // Opcodes only available post tapscript
-        if (sigversion == SigVersion::BASE
-            || sigversion == SigVersion::WITNESS_V0)
-          return set_error (serror, SCRIPT_ERR_BAD_OPCODE);
-        if (stack.size () < 2)
-          return set_error (serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-        valtype &vcha = stacktop (-2);
-        valtype &vchb = stacktop (-1);
-        if (vchb.size () != 8 || vcha.size () != 8)
-          return set_error (serror, SCRIPT_ERR_EXPECTED_8BYTES);
-        int64_t b = read_le8_signed (vchb.data ());
-        int64_t a = read_le8_signed (vcha.data ());
-        switch (opcode)
-          {
-          case OP_ADD64:
-            if ((a > 0 && b > std::numeric_limits<int64_t>::max () - a)
-                || (a < 0 && b < std::numeric_limits<int64_t>::min () - a))
-              stack.push_back (vchFalse);
-            else
-              {
-                popstack (stack);
-                popstack (stack);
-                push8_le (stack, a + b);
-                stack.push_back (vchTrue);
-              }
-            break;
-          case OP_SUB64:
-            if ((b > 0 && a < std::numeric_limits<int64_t>::min () + b)
-                || (b < 0 && a > std::numeric_limits<int64_t>::max () + b))
-              stack.push_back (vchFalse);
-            else
-              {
-                popstack (stack);
-                popstack (stack);
-                push8_le (stack, a - b);
-                stack.push_back (vchTrue);
-              }
-            break;
-          case OP_MUL64:
-            if ((a > 0 && b > 0 && a > std::numeric_limits<int64_t>::max () / b)
-                || (a > 0 && b < 0
-                    && b < std::numeric_limits<int64_t>::min () / a)
-                || (a < 0 && b > 0
-                    && a < std::numeric_limits<int64_t>::min () / b)
-                || (a < 0 && b < 0
-                    && b < std::numeric_limits<int64_t>::max () / a))
-              stack.push_back (vchFalse);
-            else
-              {
-                popstack (stack);
-                popstack (stack);
-                push8_le (stack, a * b);
-                stack.push_back (vchTrue);
-              }
-            break;
-          case OP_DIV64:
-            {
-              if (b == 0
-                  || (b == -1 && a == std::numeric_limits<int64_t>::min ()))
-                {
-                  stack.push_back (vchFalse);
-                  break;
-                }
-              int64_t r = a % b;
-              int64_t q = a / b;
-              if (r < 0 && b > 0)
-                {
-                  r += b;
-                  q -= 1;
-                } // ensures that 0<=r<|b|
-              else if (r < 0 && b < 0)
-                {
-                  r -= b;
-                  q += 1;
-                } // ensures that 0<=r<|b|
-              popstack (stack);
-              popstack (stack);
-              push8_le (stack, r);
-              push8_le (stack, q);
-              stack.push_back (vchTrue);
+case OP_ADD64:
+case OP_SUB64:
+case OP_MUL64:
+case OP_DIV64:
+case OP_LESSTHAN64:
+case OP_LESSTHANOREQUAL64:
+case OP_GREATERTHAN64:
+case OP_GREATERTHANOREQUAL64:
+{
+    // Opcodes only available post tapscript
+    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+    if (stack.size() < 2)
+        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    valtype& vcha = stacktop(-2);
+    valtype& vchb = stacktop(-1);
+    if (vchb.size() != 8 || vcha.size() != 8)
+        return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
+
+    int64_t b = read_le8_signed(vchb.data());
+    int64_t a = read_le8_signed(vcha.data());
+
+    switch(opcode)
+    {
+        case OP_ADD64:
+            if ((a > 0 && b > std::numeric_limits<int64_t>::max() - a) ||
+                (a < 0 && b < std::numeric_limits<int64_t>::min() - a))
+                stack.push_back(vchFalse);
+            else {
+                popstack(stack);
+                popstack(stack);
+                push8_le(stack, a + b);
+                stack.push_back(vchTrue);
             }
-            break;
-          case OP_LESSTHAN64:
-            popstack (stack);
-            popstack (stack);
-            stack.push_back ((a < b) ? vchTrue : vchFalse);
-            break;
-          case OP_LESSTHANOREQUAL64:
-            popstack (stack);
-            popstack (stack);
-            stack.push_back ((a <= b) ? vchTrue : vchFalse);
-            break;
-          case OP_GREATERTHAN64:
-            popstack (stack);
-            popstack (stack);
-            stack.push_back ((a > b) ? vchTrue : vchFalse);
-            break;
-          case OP_GREATERTHANOREQUAL64:
-            popstack (stack);
-            popstack (stack);
-            stack.push_back ((a >= b) ? vchTrue : vchFalse);
-            break;
-          default:
-            assert (!"invalid opcode");
-            break;
-          }
-      }
-      break;
-    case OP_NEG64:
-      {
-        // Opcodes only available post tapscript
-        if (sigversion == SigVersion::BASE
-            || sigversion == SigVersion::WITNESS_V0)
-          return set_error (serror, SCRIPT_ERR_BAD_OPCODE);
-        if (stack.size () < 1)
-          return set_error (serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-        valtype &vcha = stacktop (-1);
-        if (vcha.size () != 8)
-          return set_error (serror, SCRIPT_ERR_EXPECTED_8BYTES);
-        int64_t a = read_le8_signed (vcha.data ());
-        if (a == std::numeric_limits<int64_t>::min ())
-          {
-            stack.push_back (vchFalse);
-            break;
-          }
-        popstack (stack);
-        push8_le (stack, -a);
-        stack.push_back (vchTrue);
-      }
-      break;
+        break;
+        case OP_SUB64:
+            if ((b > 0 && a < std::numeric_limits<int64_t>::min() + b) ||
+                (b < 0 && a > std::numeric_limits<int64_t>::max() + b))
+                stack.push_back(vchFalse);
+            else {
+                popstack(stack);
+                popstack(stack);
+                push8_le(stack, a - b);
+                stack.push_back(vchTrue);
+            }
+        break;
+        case OP_MUL64:
+            if ((a > 0 && b > 0 && a > std::numeric_limits<int64_t>::max() / b) ||
+                (a > 0 && b < 0 && b < std::numeric_limits<int64_t>::min() / a) ||
+                (a < 0 && b > 0 && a < std::numeric_limits<int64_t>::min() / b) ||
+                (a < 0 && b < 0 && b < std::numeric_limits<int64_t>::max() / a))
+                stack.push_back(vchFalse);
+            else {
+                popstack(stack);
+                popstack(stack);
+                push8_le(stack, a * b);
+                stack.push_back(vchTrue);
+            }
+        break;
+        case OP_DIV64:
+        {
+            if (b == 0 || (b == -1 && a == std::numeric_limits<int64_t>::min())) { stack.push_back(vchFalse); break; }
+            int64_t r = a % b;
+            int64_t q = a / b;
+            if (r < 0 && b > 0)      { r += b; q-=1;} // ensures that 0<=r<|b|
+            else if (r < 0 && b < 0) { r -= b; q+=1;} // ensures that 0<=r<|b|
+            popstack(stack);
+            popstack(stack);
+            push8_le(stack, r);
+            push8_le(stack, q);
+            stack.push_back(vchTrue);
+        }
+        break;
+        break;
+        case OP_LESSTHAN64:            popstack(stack); popstack(stack); stack.push_back( (a <  b) ? vchTrue : vchFalse ); break;
+        case OP_LESSTHANOREQUAL64:     popstack(stack); popstack(stack); stack.push_back( (a <= b) ? vchTrue : vchFalse ); break;
+        case OP_GREATERTHAN64:         popstack(stack); popstack(stack); stack.push_back( (a >  b) ? vchTrue : vchFalse ); break;
+        case OP_GREATERTHANOREQUAL64:  popstack(stack); popstack(stack); stack.push_back( (a >= b) ? vchTrue : vchFalse ); break;
+        default:                       assert(!"invalid opcode"); break;
+    }
+}
+break;
+case OP_NEG64:
+{
+    // Opcodes only available post tapscript
+    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+    if (stack.size() < 1)
+        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    valtype& vcha = stacktop(-1);
+    if (vcha.size() != 8)
+        return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
+
+    int64_t a = read_le8_signed(vcha.data());
+    if (a == std::numeric_limits<int64_t>::min()) { stack.push_back(vchFalse); break; }
+
+    popstack(stack);
+    push8_le(stack, -a);
+    stack.push_back(vchTrue);
+}
+break;
 </source>
 
 https://github.com/Christewart/bitcoin/commits/64bit-arith 
@@ -224,6 +188,7 @@ This work is borrowed from work done on the elements project, with implementatio
 ==References==
 
 https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019419.html
+
 https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-September/019420.html
 
 ==Copyright==
