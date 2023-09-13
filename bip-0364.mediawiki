@@ -1,14 +1,14 @@
 <pre>
-  BIP: ??? (suggestion: 364) 
+  BIP: 364
   Layer: Consensus (soft fork)
-  Title: 64 bit arithmetic operations 
+  Title: 64 bit arithmetic operations
   Author: Chris Stewart <stewart.chris1234@gmail.com>
   Comments-Summary: No comments yet.
-  Comments-URI: ??? 
-  Status: Draft 
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0364
+  Status: Draft
   Type: Standards Track
   Created: 2023-09-11
-  License: PD
+  License: BSD-3-Clause
 </pre>
 
 ==Abstract==
@@ -35,7 +35,7 @@ The arithmetic opcodes (OP_ADD64, OP_SUB64, OP_MUL64, OP_DIV64) behave as follow
 OP_NEG64
 * Fail if less than 1 element on the stack 
 * Fail if the stacks top is not exactly 8 bytes 
-* If the operation results in an overflow (stack top == std::numeric_limits<int64_t>::min()), push false onto the stack 
+* If the operation results in an overflow, push false onto the stack 
 * Push the result of negating the stack top onto the stack and push true onto the stack
 
 ==Motivation==
@@ -68,111 +68,149 @@ This gives the user flexibility to deal if they script to have overflows using O
 
 Refer to the reference implementation, reproduced below, for the precise
 semantics and detailed rationale for those semantics.
-    
-	case OP_ADD64:
-	case OP_SUB64:
-	case OP_MUL64:
-	case OP_DIV64:
-	case OP_LESSTHAN64:
-	case OP_LESSTHANOREQUAL64:
-	case OP_GREATERTHAN64:
-	case OP_GREATERTHANOREQUAL64:
-	{
-	    // Opcodes only available post tapscript
-	    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
 
-	    if (stack.size() < 2)
-		return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+<source lang="cpp">
+    case OP_ADD64:
+    case OP_SUB64:
+    case OP_MUL64:
+    case OP_DIV64:
+    case OP_LESSTHAN64:
+    case OP_LESSTHANOREQUAL64:
+    case OP_GREATERTHAN64:
+    case OP_GREATERTHANOREQUAL64:
+      {
+        // Opcodes only available post tapscript
+        if (sigversion == SigVersion::BASE
+            || sigversion == SigVersion::WITNESS_V0)
+          return set_error (serror, SCRIPT_ERR_BAD_OPCODE);
+        if (stack.size () < 2)
+          return set_error (serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+        valtype &vcha = stacktop (-2);
+        valtype &vchb = stacktop (-1);
+        if (vchb.size () != 8 || vcha.size () != 8)
+          return set_error (serror, SCRIPT_ERR_EXPECTED_8BYTES);
+        int64_t b = read_le8_signed (vchb.data ());
+        int64_t a = read_le8_signed (vcha.data ());
+        switch (opcode)
+          {
+          case OP_ADD64:
+            if ((a > 0 && b > std::numeric_limits<int64_t>::max () - a)
+                || (a < 0 && b < std::numeric_limits<int64_t>::min () - a))
+              stack.push_back (vchFalse);
+            else
+              {
+                popstack (stack);
+                popstack (stack);
+                push8_le (stack, a + b);
+                stack.push_back (vchTrue);
+              }
+            break;
+          case OP_SUB64:
+            if ((b > 0 && a < std::numeric_limits<int64_t>::min () + b)
+                || (b < 0 && a > std::numeric_limits<int64_t>::max () + b))
+              stack.push_back (vchFalse);
+            else
+              {
+                popstack (stack);
+                popstack (stack);
+                push8_le (stack, a - b);
+                stack.push_back (vchTrue);
+              }
+            break;
+          case OP_MUL64:
+            if ((a > 0 && b > 0 && a > std::numeric_limits<int64_t>::max () / b)
+                || (a > 0 && b < 0
+                    && b < std::numeric_limits<int64_t>::min () / a)
+                || (a < 0 && b > 0
+                    && a < std::numeric_limits<int64_t>::min () / b)
+                || (a < 0 && b < 0
+                    && b < std::numeric_limits<int64_t>::max () / a))
+              stack.push_back (vchFalse);
+            else
+              {
+                popstack (stack);
+                popstack (stack);
+                push8_le (stack, a * b);
+                stack.push_back (vchTrue);
+              }
+            break;
+          case OP_DIV64:
+            {
+              if (b == 0
+                  || (b == -1 && a == std::numeric_limits<int64_t>::min ()))
+                {
+                  stack.push_back (vchFalse);
+                  break;
+                }
+              int64_t r = a % b;
+              int64_t q = a / b;
+              if (r < 0 && b > 0)
+                {
+                  r += b;
+                  q -= 1;
+                } // ensures that 0<=r<|b|
+              else if (r < 0 && b < 0)
+                {
+                  r -= b;
+                  q += 1;
+                } // ensures that 0<=r<|b|
+              popstack (stack);
+              popstack (stack);
+              push8_le (stack, r);
+              push8_le (stack, q);
+              stack.push_back (vchTrue);
+            }
+            break;
+          case OP_LESSTHAN64:
+            popstack (stack);
+            popstack (stack);
+            stack.push_back ((a < b) ? vchTrue : vchFalse);
+            break;
+          case OP_LESSTHANOREQUAL64:
+            popstack (stack);
+            popstack (stack);
+            stack.push_back ((a <= b) ? vchTrue : vchFalse);
+            break;
+          case OP_GREATERTHAN64:
+            popstack (stack);
+            popstack (stack);
+            stack.push_back ((a > b) ? vchTrue : vchFalse);
+            break;
+          case OP_GREATERTHANOREQUAL64:
+            popstack (stack);
+            popstack (stack);
+            stack.push_back ((a >= b) ? vchTrue : vchFalse);
+            break;
+          default:
+            assert (!"invalid opcode");
+            break;
+          }
+      }
+      break;
+    case OP_NEG64:
+      {
+        // Opcodes only available post tapscript
+        if (sigversion == SigVersion::BASE
+            || sigversion == SigVersion::WITNESS_V0)
+          return set_error (serror, SCRIPT_ERR_BAD_OPCODE);
+        if (stack.size () < 1)
+          return set_error (serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+        valtype &vcha = stacktop (-1);
+        if (vcha.size () != 8)
+          return set_error (serror, SCRIPT_ERR_EXPECTED_8BYTES);
+        int64_t a = read_le8_signed (vcha.data ());
+        if (a == std::numeric_limits<int64_t>::min ())
+          {
+            stack.push_back (vchFalse);
+            break;
+          }
+        popstack (stack);
+        push8_le (stack, -a);
+        stack.push_back (vchTrue);
+      }
+      break;
+</source>
 
-	    valtype& vcha = stacktop(-2);
-	    valtype& vchb = stacktop(-1);
-	    if (vchb.size() != 8 || vcha.size() != 8)
-		return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
-
-	    int64_t b = read_le8_signed(vchb.data());
-	    int64_t a = read_le8_signed(vcha.data());
-
-	    switch(opcode)
-	    {
-		case OP_ADD64:
-		    if ((a > 0 && b > std::numeric_limits<int64_t>::max() - a) ||
-		        (a < 0 && b < std::numeric_limits<int64_t>::min() - a))
-		        stack.push_back(vchFalse);
-		    else {
-		        popstack(stack);
-		        popstack(stack);
-		        push8_le(stack, a + b);
-		        stack.push_back(vchTrue);
-		    }
-		break;
-		case OP_SUB64:
-		    if ((b > 0 && a < std::numeric_limits<int64_t>::min() + b) ||
-		        (b < 0 && a > std::numeric_limits<int64_t>::max() + b))
-		        stack.push_back(vchFalse);
-		    else {
-		        popstack(stack);
-		        popstack(stack);
-		        push8_le(stack, a - b);
-		        stack.push_back(vchTrue);
-		    }
-		break;
-		case OP_MUL64:
-		    if ((a > 0 && b > 0 && a > std::numeric_limits<int64_t>::max() / b) ||
-		        (a > 0 && b < 0 && b < std::numeric_limits<int64_t>::min() / a) ||
-		        (a < 0 && b > 0 && a < std::numeric_limits<int64_t>::min() / b) ||
-		        (a < 0 && b < 0 && b < std::numeric_limits<int64_t>::max() / a))
-		        stack.push_back(vchFalse);
-		    else {
-		        popstack(stack);
-		        popstack(stack);
-		        push8_le(stack, a * b);
-		        stack.push_back(vchTrue);
-		    }
-		break;
-		case OP_DIV64:
-		{
-		    if (b == 0 || (b == -1 && a == std::numeric_limits<int64_t>::min())) { stack.push_back(vchFalse); break; }
-		    int64_t r = a % b;
-		    int64_t q = a / b;
-		    if (r < 0 && b > 0)      { r += b; q-=1;} // ensures that 0<=r<|b|
-		    else if (r < 0 && b < 0) { r -= b; q+=1;} // ensures that 0<=r<|b|
-		    popstack(stack);
-		    popstack(stack);
-		    push8_le(stack, r);
-		    push8_le(stack, q);
-		    stack.push_back(vchTrue);
-		}
-		break;
-		break;
-		case OP_LESSTHAN64:            popstack(stack); popstack(stack); stack.push_back( (a <  b) ? vchTrue : vchFalse ); break;
-		case OP_LESSTHANOREQUAL64:     popstack(stack); popstack(stack); stack.push_back( (a <= b) ? vchTrue : vchFalse ); break;
-		case OP_GREATERTHAN64:         popstack(stack); popstack(stack); stack.push_back( (a >  b) ? vchTrue : vchFalse ); break;
-		case OP_GREATERTHANOREQUAL64:  popstack(stack); popstack(stack); stack.push_back( (a >= b) ? vchTrue : vchFalse ); break;
-		default:                       assert(!"invalid opcode"); break;
-	    }
-	}
-	break;
-	case OP_NEG64:
-	{
-	    // Opcodes only available post tapscript
-	    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-
-	    if (stack.size() < 1)
-		return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-	    valtype& vcha = stacktop(-1);
-	    if (vcha.size() != 8)
-		return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
-
-	    int64_t a = read_le8_signed(vcha.data());
-	    if (a == std::numeric_limits<int64_t>::min()) { stack.push_back(vchFalse); break; }
-
-	    popstack(stack);
-	    push8_le(stack, -a);
-	    stack.push_back(vchTrue);
-	}
-	break;
-    
 https://github.com/Christewart/bitcoin/commits/64bit-arith 
 
 ==Deployment==
