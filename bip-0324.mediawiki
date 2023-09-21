@@ -112,7 +112,8 @@ Given a newly established connection (typically TCP/IP) between two v2 P2P nodes
 #** Generates a random ephemeral secp256k1 private key and sends a corresponding 64-byte ElligatorSwift<ref name="ellswift_paper">'''What is ElligatorSwift and why use it?''' The [https://eprint.iacr.org/2022/759.pdf SwiftEC paper] describes a method called ElligatorSwift which allows encoding elliptic curve points in a way that is indistinguishable from a uniformly distributed bitstream. While a random 256-bit string has about 50% chance of being a valid X coordinate on the secp256k1 curve, every 512-bit string is a valid ElligatorSwift encoding of a curve point, making the encoded point indistinguishable from random when using an encoder that can sample uniformly.</ref><ref name="ellswift_perf">'''How fast is ElligatorSwift?''' Our benchmarks show that ElligatorSwift encoded ECDH is about 50% more expensive than unencoded ECDH. Given the fast performance of ECDH and the low frequency of new connections, we found the performance trade-off acceptable for the pseudorandom bytestream and future censorship resistance it can enable.</ref>-encoded public key to the responder.
 #** May send up to 4095<ref name="why_4095_garbage">'''How was the limit of 4095 bytes garbage chosen?''' It is a balance between having sufficient freedom to hide information, and allowing it to be large enough so that the necessary 64 bytes of public key is small compared to it on the one hand, and bandwidth waste on the other hand.</ref> bytes of arbitrary data after their public key, called '''garbage''', providing a form of shapability and avoiding a recognizable pattern of exactly 64 bytes.<ref name="why_garbage">'''Why does the affordance for garbage exist in the protocol?''' The garbage strings after the public keys are needed for shapability of the handshake. Neither peer can send decoy packets before having received at least the other peer's public key, i.e., neither peer can send more than 64 bytes before having received 64 bytes.</ref>
 #* The responder:
-#** Waits until one byte is received which does not match the 12 bytes consisting of the network magic followed by "version\x00". If the first 12 bytes do match, the connection is treated as using the v1 protocol instead.<ref name="why_no_prefix_check">'''What if a v2 initiator's public key starts accidentally with these 12 bytes?''' This is so unlikely (probability of ''2<sup>-96</sup>'') to happen randomly in the v2 protocol that the initiator does not need to specifically avoid it.</ref><ref>Bitcoin Core versions <=0.4.0 and >=22.0 ignore valid P2P messages that are received prior to a VERSION message. Bitcoin Core versions between 0.4.0 and 22.0 assign a misbehavior score to the peer upon receiving such messages. v2 clients implementing this proposal will interpret any message other than VERSION received as the first message to be the initiation of a v2 connection, and will result in disconnection for v1 initiators that send any message type other than VERSION as the first message. We are not aware of any implementations where this could pose a problem.</ref>
+#** Waits until one byte is received which does not match the 16 bytes consisting of the network magic followed by "version\x00\x00\x00\x00\x00". If the first 16 bytes do match, the connection is treated as using the v1 protocol instead.<ref name="why_no_prefix_check">'''What if a v2 initiator's public key starts accidentally with these 16 bytes?''' This is so unlikely (probability of ''2<sup>-128</sup>'') to happen randomly in the v2 protocol that the initiator does not need to specifically avoid it. The optional detection of wrong-network v1 peers has a probability of ''2<sup>-96</sup>'', which is still negligible compared to random network failures.</ref><ref>Bitcoin Core versions <=0.4.0 and >=22.0 ignore valid P2P messages that are received prior to a VERSION message. Bitcoin Core versions between 0.4.0 and 22.0 assign a misbehavior score to the peer upon receiving such messages. v2 clients implementing this proposal will interpret any message other than VERSION received as the first message to be the initiation of a v2 connection, and will result in disconnection for v1 initiators that send any message type other than VERSION as the first message. We are not aware of any implementations where this could pose a problem.</ref>
+#** If the first 4 received bytes do not match the network magic, but the 12 bytes after that do match the version message encoding above, implementations may interpret this as a v1 peer of a different network, and disconnect them.
 #** Similarly generates a random ephemeral private key and sends a corresponding 64-byte ElligatorSwift-encoded public key to the initiator.
 #** Similarly may send up to 4095 bytes of garbage data after their public key.
 #* Both parties:
@@ -136,8 +137,8 @@ Given a newly established connection (typically TCP/IP) between two v2 P2P nodes
 
 To avoid the recognizable pattern of first messages being at least 64 bytes, a future backwards-compatible upgrade to this protocol may allow both peers to send their public key + garbage + garbage terminator in multiple rounds, slicing those bytes up into messages arbitrarily, as long as progress is guaranteed.<ref name="handshake_progress">'''How can progress be guaranteed in a backwards-compatible way?''' In order to guarantee progress, it must be ensured that no deadlock occurs, i.e., no state is reached in which each party waits for the other party indefinitely. For example, any upgrade that adheres to the following conditions will guarantee progress:
 
-* The initiator must start by sending at least as many bytes as necessary to mismatch the magic/version 12 bytes prefix.
-* The responder must start sending after having received at least one byte that mismatches that 12-byte prefix.
+* The initiator must start by sending at least as many bytes as necessary to mismatch the magic/version 16 bytes prefix.
+* The responder must start sending after having received at least one byte that mismatches that 16-byte prefix.
 * As soon as either party has received the other peer's garbage terminator, or has received 4095 bytes of garbage, they must send their own garbage terminator. (When either of these conditions is met, the other party has nothing to respond with anymore that would be needed to guarantee progress otherwise.)
 * Whenever either party receives any nonzero number of bytes, while not having sent their garbage terminator completely yet, they must send at least one byte in response without waiting for more bytes.
 * After either party has sent their garbage terminator, they must also send the garbage authentication packet without waiting for more bytes, and transition to the version negotiation phase.
@@ -338,16 +339,16 @@ def initiate_v2_handshake(peer, garbage_len):
     send(peer, peer.ellswift_ours + peer.sent_garbage)
 </pre>
 
-The responder generates an ephemeral keypair for itself and derives the shared ECDH secret (using the first 64 received bytes) which enables it to instantiate the encrypted transport. It then sends 64 bytes of the unencrypted ElligatorSwift encoding of its own public key and its own <code>responder_garbage</code> also of length <code>garbage_len < 4096</code>. If the first 12 bytes received match the v1 prefix, the v1 protocol is used instead.
+The responder generates an ephemeral keypair for itself and derives the shared ECDH secret (using the first 64 received bytes) which enables it to instantiate the encrypted transport. It then sends 64 bytes of the unencrypted ElligatorSwift encoding of its own public key and its own <code>responder_garbage</code> also of length <code>garbage_len < 4096</code>. If the first 16 bytes received match the v1 prefix, the v1 protocol is used instead.
 
 <pre>
 TRANSPORT_VERSION = b''
 NETWORK_MAGIC = b'\xf9\xbe\xb4\xd9' # Mainnet network magic; differs on other networks.
-V1_PREFIX = NETWORK_MAGIC + b'version\x00'
+V1_PREFIX = NETWORK_MAGIC + b'version\x00\x00\x00\x00\x00'
 
 def respond_v2_handshake(peer, garbage_len):
     peer.received_prefix = b""
-    while len(peer.received_prefix) < 12:
+    while len(peer.received_prefix) < len(V1_PREFIX):
         peer.received_prefix += receive(peer, 1)
         if peer.received_prefix[-1] != V1_PREFIX[len(peer.received_prefix) - 1]:
             peer.privkey_ours, peer.ellswift_ours = ellswift_create()
@@ -363,6 +364,9 @@ Upon receiving the encoded responder public key, the initiator derives the share
 def complete_handshake(peer, initiating):
     received_prefix = b'' if initiating else peer.received_prefix
     ellswift_theirs = receive(peer, 64 - len(received_prefix))
+    if not initiating and ellswift_theirs[4:16] == V1_PREFIX[4:16]:
+        # Looks like a v1 peer from the wrong network.
+        disconnect(peer)
     ecdh_secret = v2_ecdh(peer.privkey_ours, ellswift_theirs, peer.ellswift_ours,
                           initiating=initiating)
     initialize_v2_transport(peer, ecdh_secret, initiating=True)
@@ -554,12 +558,9 @@ The following table lists currently defined message type IDs:
 |<code>GETCFHEADERS</code>||<code>CFHEADERS</code>||<code>GETCFCHECKPT</code>||<code>CFCHECKPT</code>
 |-
 !+28
-|<code>ADDRV2</code>||<code>REQRECON</code>||<code>SKETCH</code>||<code>REQSKETCHEXT</code>
+|<code>ADDRV2</code>
 |-
-!+32
-|<code>RECONCILDIFF</code>
-|-
-!&geq;33
+!&geq;29
 || colspan="4" | (undefined)
 |}
 
