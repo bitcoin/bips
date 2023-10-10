@@ -132,7 +132,7 @@ follows:
 # For collectible asset transfers
 ## Let the output value be exactly ''1'' (as each TLV leaf related to a collectible can only ever transfer that same collectible to another leaf).
 ## Let the output script be the first 32-bytes of an MS-SMT tree with a single element of the serialized TLV leaf of the collectible. 
-### The key for this single value is <code>sha256(asset_key_family || asset_id || asset_script_key)</code>. If a <code>asset_key_family</code> field isn't specified, then 32-bytes of zeroes should be used in place.
+### The key for this single value is <code>sha256(asset_group_key || asset_id || asset_script_key)</code>. If a <code>asset_group_key</code> field isn't specified, then 32-bytes of zeroes should be used in place.
 
 The following algorithm implements the output mapping required for full state
 transition verification:
@@ -150,7 +150,7 @@ make_virtual_txout(leaf: TaprootAssetLeaf) -> (MerkleSumRoot, TxOut):
         case Collectible:
             output_smt = new_ms_smt()
             output_smt.insert(
-                key=sha256(leaf.asset_key_family || leaf.asset_id || leaf.asset_script_key)
+                key=sha256(leaf.asset_group_key || leaf.asset_id || leaf.asset_script_key)
                 value=leaf.serialize_tlv(),
                 sum_value=1,
             )
@@ -185,7 +185,7 @@ modifications:
 ## All signatures included in the witness MUST be exactly 64-bytes in length, which triggers <code>SIGHASH_DEFAULT</code> evaluation.
 ## If the <code>prev_asset_id</code> is blank, then ALL witnesses MUST be blank as well and the <code>prev_outpoint</code> values as well. In this case, verification succeeds as this is only a creation/minting transaction.
 ## If the <code>asset_id</code> value is NOT the same for each Taproot Asset input and output, validation MUST fail.
-### Alternatively, assert that each input and output references the same <code>asset_family_key</code> field.
+### Alternatively, assert that each input and output references the same <code>asset_group_key</code> field.
 ## Perform external lock time and relative lock time validation:
 ### If a <code>relative_lock_time</code> field exists, if the input age of the referenced TLV leaf is less than <code>relative_lock_time</code> validation MUST fail.
 ### If a <code>lock_time</code> field exists, if the block height of the block that includes the transaction is less than <code>lock_time</code> validation MUST fail.
@@ -231,8 +231,8 @@ verify_taproot_asset_state_transition(leaf: TaprootAssetLeaf, leaf_split: Taproo
           case AssetID:
               if input.asset_id != leaf.asset_id:
                   return false
-          case KeyFamily:
-              if input.asset_key_family != leaf.asset_key_family:
+          case GroupKey:
+              if input.asset_group_key != leaf.asset_group_key:
                   return false
 
        virtual_tx = virtual_tx_template.clone()
