@@ -89,7 +89,7 @@ used to commit to the "canonical" history of an asset. In addition, those
 wishing to be "notified" of new asset issuance can watch this output on-chain
 to track any modifications.
 
-====Root Universes & Genesis Asset Verification====
+=====Issuance Universes & Genesis Asset Verification=====
 
 Unlike a normal Taproot Asset asset tree, a base Universe for a given asset
 only commits to the set of ''genesis outpoints'' for an asset. The value for
@@ -104,16 +104,16 @@ provenance of a purported valid asset. In addition to bootstrapping provenance
 verification, as Universe trees are themselves an MS-SMT, they can be used to
 audit the total amount of a given asset in existence.
 
-A Root Universe, is an MS-SMT with the following structure:
-* The MS-SMT root commits to the sum of the total set of issued assets for a given <code>genesisAssetID</code>
-** A <code>genesisAssetID</code> can either be a normal <code>assetID</code> or <code>sha256(asset_group_key)</code>. In the latter case, all values in the tree MUST share the same <code>asset_group_key</code>.
+A Issuance Universe, is an MS-SMT with the following structure:
+* The MS-SMT root commits to the sum of the total set of issued assets for a given <code>genesis_asset_id</code>
+** A <code>genesis_asset_id</code> can either be a normal <code>assetID</code> or <code>sha256(asset_group_key)</code>. In the latter case, all values in the tree MUST share the same <code>asset_group_key</code>.
 ** <code>key</code>: an <code>sha256(outpoint || scriptKey)</code>. Given the asset ID, this uniquely locates a new minting event in the target outpoint.
 ** <code>value</code>: <code>universe_proof_leaf</code>
 ** <code>sum_value</code>: the total amount of asset units issued by the proof leaf.
 
-The key of the Root Universe is a serialized Bitcoin outpoint. As a result, the
+The key of the Issuance Universe is a serialized Bitcoin outpoint. As a result, the
 Universe structure can be used to query for the existence of Taproot Assets
-rooted at a given outpoint. For a Root Universe, the only outpoints tracked are
+rooted at a given outpoint. For a Issuance Universe, the only outpoints tracked are
 outpoints that ''create'' a Taproot Asset asset.
 
 As the MS-SMT is keyed by the <code>sha256(outpoint || scriptKey)</code>, it
@@ -175,11 +175,12 @@ A <code>universe_proof_leaf</code>: is the state transition proof from
 *** [<code>uint16</code>:<code>num_proofs</code>][<code>...*byte</code>:<code>taproot_asset_taproot_proof</code>]
 
 This is the same state transition proof that would be used to prove asset
-creation to a third party.  The leaf value of the Root Universe allows
+creation to a third party.  The leaf value of the Issuance Universe allows
 verifiers to fully verify the creation of the asset based on the genesis
 outpoint spent.
 
-=====Canonical Root Universe State Transition Rules=====
+
+======Canonical Issuance Universe State Transition Rules======
 
 In order to provide an authoritative source of truth for the supply and
 issuance events of a given asset, an asset MAY specify a Canonical Root
@@ -188,30 +189,30 @@ present in the genesis asset, then the following restrictions MUST be applied
 to subsequent transactions that spend the minting output:
 * When the minting output is spent, the ''first'' output of the resulting transaction MUST:
 ** Use the internal key of the revealed <code>asset_group_key</code> as the internal key of the V1 Taproot witness program.
-** The tapscript tree of the newly created output MUST contain a new Root Universe commitment that includes the initial minting event.
+** The tapscript tree of the newly created output MUST contain a new Issuance Universe commitment that includes the initial minting event.
 ** We refer to this output as the <code>root_asset_commitment</code>.
-*** If multiple assets within a singular <code>asset_group</code> were issued in the prior transaction, then the Root Universe MUST contain all new assets.
+*** If multiple assets within a singular <code>asset_group</code> were issued in the prior transaction, then the Issuance Universe MUST contain all new assets.
 * For assets that were issued with an <code>asset_group_key</code>, each time a new asset is issued:
 ** The latest unspent <code>root_asset_commitment</code> output MUST be spent.
-*** This serves to link new issuance events, with the reveal of a new Canonical Root Universe hash.
+*** This serves to link new issuance events, with the reveal of a new Canonical Issuance Universe hash.
 ** The ''first'' output of this spending transaction inherits the requirements above:
-*** A new updated Root Universe commitment is included in the <code>root_asset_commitment</code>.
+*** A new updated Issuance Universe commitment is included in the <code>root_asset_commitment</code>.
 *** This new <code>root_asset_commitment</code> becomes the new updated supply anchor for the asset.
 
 The stated rules above effectively serve as an iterated commit and reveal game.
 Each time a new asset is issued (the issuance commitment spent), then the first
-output of the resulting transaction MUST commit to the new Root Universe hash.
+output of the resulting transaction MUST commit to the new Issuance Universe hash.
 All other subsequent issuance events MUST then spend that same output, updating
-the commitment to the Root Universe hash.
+the commitment to the Issuance Universe hash.
 
 As a result of the above chain commitment structure, all queries against for
-the latest Canonical Root Universe of an asset can be authenticated using a
+the latest Canonical Issuance Universe of an asset can be authenticated using a
 series of merkle proofs:
 * A merkle proof anchored in the block header that mined the transaction with the <code>root_asset_commitment</code>.
-* A tapscript merkle proof to show the Root Universe hash is included in the tapscript tree.
-* A MS-SMT merkle proof to show that the asset being verified is indeed part of the Root Universe commitment chain.
+* A tapscript merkle proof to show the Issuance Universe hash is included in the tapscript tree.
+* A MS-SMT merkle proof to show that the asset being verified is indeed part of the Issuance Universe commitment chain.
 
-In order to enforce uniqueness of the Root Universe has commitment, we leverage
+In order to enforce uniqueness of the Issuance Universe has commitment, we leverage
 the same tapscript commitment uniqueness rules in
 <code>bip-tap.mediawiki</code>. We use a modified commitment structure of:
 * <code>tagged_hash("TapLeaf", leaf_version || universe_marker || universe_version || root_universe_hash)</code>
@@ -219,16 +220,40 @@ the same tapscript commitment uniqueness rules in
 where:
 * <code>universe_marker</code>: is the `sha256` hash of the ascii string "universe".
 * <code>universe_version<code>: is the version of the Universe commitment used.
-* <code>root_universe_hash<code>: is the root hash of the Root Universe.
+* <code>issuance_universe_hash<code>: is the root hash of the Issuance Universe.
 
-As the Root Universe for a given asset can be known at the initial asset
+As the Issuance Universe for a given asset can be known at the initial asset
 creation time, based on the referenced <code>universeKey</code> those wishing
-to track any new asset issuance related to a given <code>genesisAssetID</code>
+to track any new asset issuance related to a given <code>genesis_asset_id</code>
 can watch the output on chain. Each time the output is spent indicates a new
 minting event. As a result, clients are able to watch a select set of outputs
-on-chain, one for each <code>genesisAssetID</code> they care about, effectively
+on-chain, one for each <code>genesis_asset_id</code> they care about, effectively
 using the blockchain to be notified each time the total amount of issued assets
 changes.
+
+=====Transfer Universes & Transaction Archiving=====
+
+Unlike an Issuance Universe which only stores TAP state transitions that
+_create_ new assets, a Transfer Universe (a.k.a Universe Archive) stores TAP
+state transitions that are related to sending/receiving assets. A Transfer
+Universe is useful for archiving TAP related transaction data, and also as a
+way to non-iteratively transmit transfer proofs from sender to receiver.
+
+A Transfer Universe is specific to a given <code>asset_id</code> or
+<code>asset_group_key</code>.
+
+A Transfer Universe, is an MS-SMT with the following structure:
+* The MS-SMT root commits to the total number of transfer state transition proofs for a given <code>genesis_asset_id</code>
+** A <code>genesis_asset_id</code> can either be a normal <code>assetID</code> or <code>sha256(asset_group_key)</code>. In the latter case, all values in the tree MUST share the same <code>asset_group_key</code>.
+** <code>key</code>: an <code>sha256(outpoint || scriptKey)</code>. Given the asset ID, this uniquely locates a new minting event in the target outpoint.
+** <code>value</code>: <code>universe_proof_leaf</code>
+** <code>sum_value</code>: <code>1</code>
+
+Instead of committing to the total number of issued units, the Transfer
+Universe commits to the total number of transfers within the asset Universe.
+
+The value of the Transfer Universe leaf is the same as the Issuance Universe:
+as <code>universe_proof_leaf</code>.
 
 
 ====Asset Multiverses====
@@ -242,16 +267,26 @@ happened.  Importantly, one cannot prove that a Multiverse has complete
 history, as a Multiverse can only commit to what it directly observed, or was
 shown to it.
 
+Similar normal Universes, a Multiverse can either commit to the set of Issuance
+Universes for a set of assets, or the set of Transfer Universes for the set of
+assets. One can be used to bundle the bootstrap of a bundle of assets, while
+the other can be used to store the complete transfer history of a set of
+assets.
+
 A Multiverse has the following structure:
 * Similar to normal Taproot Asset commitments, the Multiverse itself contains two nested MS-SMT trees. The upper tree commits to the set of asset groups observed, with the inner tree committing to the transaction history of each of the asset groups.
 * Upper tree structure:
 ** <code>key</code>: <code>asset_id</code> or <code>sha256(asset_key_family)</code>
 ** <code>value</code>: <code>asset_group_tree_root</code>
-** <code>sum_value</code>: <code>asset_group_sum</code>
+** <code>sum_value</code>::
+*** For ''Transfer Universes'': a value of <code>1</code>
+*** For ''Issuance Universes'': the <code>sum_value</code> of the Transfer Universe root, this sums to the total number of transactions in the Multiverse.
 * Inner tree structure: 
 ** <code>key</code>: an <code>sha256(outpoint || scriptKey)</code>, serialized in a <code>txid:vout</code> structure as we find in Bitcoin.
 ** <code>value</code>: <code>universe_proof_leaf</code>
-** <code>sum_value</code>: the total amount of asset units issued by the proof leaf.
+** <code>sum_value</code>: 
+*** For ''Transfer Universes'': the total amount of asset units issued by the proof leaf.
+*** For ''Issuance Universes'': a value of <code>1</code>
 
 A Multiverse therefore commits to the set of known genesis IDs, and at a second
 level the set of complete Universe trees for each watched asset.
