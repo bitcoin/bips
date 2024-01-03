@@ -231,8 +231,8 @@ When evaluating <code>OP_VAULT</code> (<code>OP_SUCCESS187</code>,
 
 <source>
 <leaf-update-script-body>
-<n-pushes>
-[ n leaf-update script data items ... ]
+<push-count>
+[ <push-count> leaf-update script data items ... ]
 <trigger-vout-idx> 
 <revault-vout-idx>
 <revault-amount>
@@ -243,12 +243,12 @@ where
 * <code><leaf-update-script-body></code> is a minimally-encoded data push of a serialized script. <ref>In conjunction with the leaf-update data items, it dictates the tapleaf script in the output taptree that will replace the one currently executing.</ref>
 ** Otherwise, script execution MUST fail and terminate immediately.
 
-* <code><n-pushes></code> is an up to 4-byte <code>CScriptNum</code>-encoded number indicating how many leaf-update script items should be popped off the stack. <ref>'''Why only prepending with data pushes?''' Prepending the <code>leaf-update-script-body</code> with opcodes opens up the door to prepending OP_SUCCESSX opcodes, to name a single issue only, side-stepping the validation that was meant to be run by the committed script.</ref>
+* <code><push-count></code> is an up to 4-byte <code>CScriptNum</code>-encoded number indicating how many leaf-update script items should be popped off the stack. <ref>'''Why only prepending with data pushes?''' Prepending the <code>leaf-update-script-body</code> with opcodes opens up the door to prepending OP_SUCCESSX opcodes, to name a single issue only, side-stepping the validation that was meant to be run by the committed script.</ref>
 ** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
 ** If this value is less than 0, script execution when spending this output MUST fail and terminate immediately.
-** If there are fewer than 3 items following the <code><n-pushes></code> items on the stack, script execution when spending this output MUST fail and terminate immediately. In other words, after popping <code><leaf-update-script-body></code>, there must be at least <code>3 + <n-pushes></code> items remaining on the stack.
+** If there are fewer than 3 items following the <code><push-count></code> items on the stack, script execution when spending this output MUST fail and terminate immediately. In other words, after popping <code><leaf-update-script-body></code>, there must be at least <code>3 + <push-count></code> items remaining on the stack.
 
-* The following <code><n-pushes></code> stack items are popped off the stack and prefixed as minimally-encoded push-data arguments to the <code><leaf-update-script-body></code> to construct the expected tapleaf replacement script.
+* The following <code><push-count></code> stack items are popped off the stack and prefixed as minimally-encoded push-data arguments to the <code><leaf-update-script-body></code> to construct the expected tapleaf replacement script.
 
 * <code><trigger-vout-idx></code> is an up to 4-byte CScriptNum-encoded number indicating the index of the output which, in conjunction with an optional revault output, carries forward the value of this input, and has an identical taptree aside from the currently executing leaf.
 ** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
@@ -269,7 +269,7 @@ After the stack is parsed, the following validation checks are performed:
 * Decrement the per-script sigops budget (see [https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#user-content-Resource_limits BIP-0342]) by 60<ref>'''Why is the sigops cost for OP_VAULT set to 60?''' To determine the validity of a trigger output, OP_VAULT must perform an EC multiplication and hashing proportional to the length of the control block in order to generate the output's expected TapTweak. This has been measured to have a cost in the worst case (max length control block) of roughly twice a Schnorr verification. Because the hashing cost could be mitigated by caching midstate, the cost is 60 and not 100.</ref>; if the budget is brought below zero, script execution MUST fail and terminate immediately.
 * Let the output designated by <code><trigger-vout-idx></code> be called ''triggerOut''.
 * If the scriptPubKey of ''triggerOut'' is not a version 1 witness program, script execution MUST fail and terminate immediately.
-* Let the script constructed by taking the <code><leaf-update-script-body></code> and prefixing it with minimally-encoded data pushes of the <code><n-pushes></code> leaf-update script data items be called the ''leaf-update-script''.
+* Let the script constructed by taking the <code><leaf-update-script-body></code> and prefixing it with minimally-encoded data pushes of the <code><push-count></code> leaf-update script data items be called the ''leaf-update-script''.
 ** Note: the leaf-update data items will be in the same order in the ''leaf-update-script'' as they appeared on the stack.
 * If the scriptPubKey of ''triggerOut'' does not match that of a taptree that is identical to that of the currently evaluated input, but with the leaf script substituted for ''leaf-update-script'', script execution when spending this output MUST fail and terminate immediately.
 ** Note: the parity bit of the resulting taproot output is allowed to vary, so both values for the new output must be checked.
