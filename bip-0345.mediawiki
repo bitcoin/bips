@@ -243,26 +243,27 @@ where
 * <code><leaf-update-script-body></code> is a minimally-encoded data push of a serialized script. <ref>In conjunction with the leaf-update data items, it dictates the tapleaf script in the output taptree that will replace the one currently executing.</ref>
 ** Otherwise, script execution MUST fail and terminate immediately.
 
-* <code><push-count></code> is an up to 4-byte <code>CScriptNum</code>-encoded number indicating how many leaf-update script items should be popped off the stack. <ref>'''Why only prepending with data pushes?''' Prepending the <code>leaf-update-script-body</code> with opcodes opens up the door to prepending OP_SUCCESSX opcodes, to name a single issue only, side-stepping the validation that was meant to be run by the committed script.</ref>
-** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
-** If this value is less than 0, script execution when spending this output MUST fail and terminate immediately.
-** If there are fewer than 3 items following the <code><push-count></code> items on the stack, script execution when spending this output MUST fail and terminate immediately. In other words, after popping <code><leaf-update-script-body></code>, there must be at least <code>3 + <push-count></code> items remaining on the stack.
+* <code><push-count></code> is an up to 4-byte minimally encoded <code>CScriptNum</code> indicating how many leaf-update script items should be popped off the stack. <ref>'''Why only prefix with data pushes?''' Prefixing the <code>leaf-update-script-body</code> with opcodes opens up the door to prefix OP_SUCCESSX opcodes, to name a single issue only, side-stepping the validation that was meant to be run by the committed script.</ref>
+** If this value does not decode to a valid CScriptNum, script execution MUST fail and terminate immediately.
+** If this value is less than 0, script execution MUST fail and terminate immediately.
+** If there are fewer than 3 items following the <code><push-count></code> items on the stack, script execution MUST fail and terminate immediately. In other words, after popping <code><leaf-update-script-body></code>, there must be at least <code>3 + <push-count></code> items remaining on the stack.
 
 * The following <code><push-count></code> stack items are popped off the stack and prefixed as minimally-encoded push-data arguments to the <code><leaf-update-script-body></code> to construct the expected tapleaf replacement script.
 
-* <code><trigger-vout-idx></code> is an up to 4-byte CScriptNum-encoded number indicating the index of the output which, in conjunction with an optional revault output, carries forward the value of this input, and has an identical taptree aside from the currently executing leaf.
-** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
-** If this value is less than 0 or is greater than or equal to the number of outputs, script execution when spending this output MUST fail and terminate immediately.
+* <code><trigger-vout-idx></code> is an up to 4-byte minimally encoded <code>CScriptNum</code> indicating the index of the output which, in conjunction with an optional revault output, carries forward the value of this input, and has an identical taptree aside from the currently executing leaf.
+** If this value does not decode to a valid CScriptNum, script execution MUST fail and terminate immediately.
+** If this value is less than 0 or is greater than or equal to the number of outputs, script execution MUST fail and terminate immediately.
 
-* <code><revault-vout-idx></code> is an up to 4-byte CScriptNum-encoded number optionally indicating the index of an output which, in conjunction with the trigger output, carries forward the value of this input, and has an identical scriptPubKey to the current input.
-** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
-** If this value is greater than or equal to the number of outputs, script execution when spending this output MUST fail and terminate immediately.
-** If this value is negative and not equal to -1, script execution when spending this output MUST fail and terminate immediately.<ref>'''Why is -1 the only allowable negative value for revault-vout-idx?''' A negative revault index indicates that no revault output exists; if this value were allowed to be any negative number, the witness could be malleated (and bloated) while a transaction is waiting for confirmation.</ref>
+* <code><revault-vout-idx></code> is an up to 4-byte minimally encoded <code>CScriptNum</code> optionally indicating the index of an output which, in conjunction with the trigger output, carries forward the value of this input, and has an identical scriptPubKey to the current input.
+** If this value does not decode to a valid CScriptNum, script execution MUST fail and terminate immediately.
+** If this value is greater than or equal to the number of outputs, script execution MUST fail and terminate immediately.
+** If this value is negative and not equal to -1, script execution MUST fail and terminate immediately.<ref>'''Why is -1 the only allowable negative value for revault-vout-idx?''' A negative revault index indicates that no revault output exists; if this value were allowed to be any negative number, the witness could be malleated (and bloated) while a transaction is waiting for confirmation.</ref>
 
-* <code><revault-amount></code> is an up to 7-byte CScriptNum-encoded number indicating the number of satoshis being revaulted.
-** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
-** If this value is not greater than or equal to 0, script execution when spending this output MUST fail and terminate immediately.
-** If this value is non-zero but <code><revault-vout-idx></code> is negative, script execution when spending this output MUST fail and terminate immediately.
+* <code><revault-amount></code> is an up to 7-byte minimally encoded CScriptNum indicating the number of satoshis being revaulted.
+** If this value does not decode to a valid CScriptNum, script execution MUST fail and terminate immediately.
+** If this value is not greater than or equal to 0, script execution MUST fail and terminate immediately.
+** If this value is non-zero but <code><revault-vout-idx></code> is negative, script execution MUST fail and terminate immediately.
+** If this value is zero but <code><revault-vout-idx></code> is not -1, script execution MUST fail and terminate immediately.
 
 After the stack is parsed, the following validation checks are performed:
 
@@ -270,12 +271,11 @@ After the stack is parsed, the following validation checks are performed:
 * Let the output designated by <code><trigger-vout-idx></code> be called ''triggerOut''.
 * If the scriptPubKey of ''triggerOut'' is not a version 1 witness program, script execution MUST fail and terminate immediately.
 * Let the script constructed by taking the <code><leaf-update-script-body></code> and prefixing it with minimally-encoded data pushes of the <code><push-count></code> leaf-update script data items be called the ''leaf-update-script''.
-** Note: the leaf-update data items will be in the same order in the ''leaf-update-script'' as they appeared on the stack.
-* If the scriptPubKey of ''triggerOut'' does not match that of a taptree that is identical to that of the currently evaluated input, but with the leaf script substituted for ''leaf-update-script'', script execution when spending this output MUST fail and terminate immediately.
+* If the scriptPubKey of ''triggerOut'' does not match that of a taptree that is identical to that of the currently evaluated input, but with the leaf script substituted for ''leaf-update-script'', script execution MUST fail and terminate immediately.
 ** Note: the parity bit of the resulting taproot output is allowed to vary, so both values for the new output must be checked.
 * Let the output designated by <code><revault-vout-idx></code> (if the index value is non-negative) be called ''revaultOut''.
-* If the scriptPubKey of ''revaultOut'' is not equal to the scriptPubKey of the input being spent, script execution when spending this output MUST fail and terminate immediately.
-* Implemetation recommendation: if the sum of the amounts of ''triggerOut'' and ''revaultOut'' (if any) are not greater than or equal to the value of this input, script execution when spending this output SHOULD fail and terminate immediately.
+* If the scriptPubKey of ''revaultOut'' is not equal to the scriptPubKey of the input being spent, script execution MUST fail and terminate immediately.
+* Implementation recommendation: if the sum of the amounts of ''triggerOut'' and ''revaultOut'' (if any) are not greater than or equal to the value of this input, script execution SHOULD fail and terminate immediately. This ensures that (at a minimum) the vaulted value for this input is carried through.
 ** Amount checks are ultimately done with deferred checks, but this check can help short-circuit obviously invalid spends.
 * Queue a deferred check<ref>'''What is a deferred check and why does this proposal require them for correct script evaluation?''' A deferred check is a validation check that is executed only after all input scripts have been validated, and is based on aggregate information collected during each input's EvalScript run.<br /><br />Currently, the validity of each input is (usually) checked concurrently across all inputs in a transaction. Because this proposal allows batching the spend of multiple vault inputs into a single recovery or withdrawal output, we need a mechanism to ensure that all expected values per output can be summed and then checked. This necessitates the introduction of an "aggregating" set of checks which can only be executed after each input's script is evaluated. Note that similar functionality would be required for batch input validation or cross-input signature aggregation.</ref> that ensures the satoshis for this input's <code>nValue</code> minus <code><revault-amount></code> are included within the output <code>nValue</code> found at <code><trigger-vout-idx></code>.
 * Queue a deferred check that ensures <code><revault-amount></code> satoshis, if non-zero, are included within the output's <code>nValue</code> found at <code><revault-vout-idx></code>.
@@ -296,15 +296,15 @@ When evaluating <code>OP_VAULT_RECOVER</code> (<code>OP_SUCCESS188</code>,
 where
 
 * <code><recovery-sPK-hash></code> is a 32-byte data push.
-** If this is not 32 bytes in length, script execution when spending this output MUST fail and terminate immediately.
-* <code><recovery-vout-idx></code> is an up to 4-byte CScriptNum-encoded number indicating the index of the recovery output.
-** If this value does not decode to a valid CScriptNum, script execution when spending this output MUST fail and terminate immediately.
-** If this value is less than 0 or is greater than or equal to the number of outputs, script execution when spending this output MUST fail and terminate immediately.
+** If this is not 32 bytes in length, script execution MUST fail and terminate immediately.
+* <code><recovery-vout-idx></code> is an up to 4-byte minimally encoded <code>CScriptNum</code> indicating the index of the recovery output.
+** If this value does not decode to a valid CScriptNum, script execution MUST fail and terminate immediately.
+** If this value is less than 0 or is greater than or equal to the number of outputs, script execution MUST fail and terminate immediately.
 
 After the stack is parsed, the following validation checks are performed:
 
 * Let the output at index <code><recovery-vout-idx></code> be called ''recoveryOut''.
-* If the scriptPubKey of ''recoveryOut'' does not have a tagged hash equal to <code><recovery-sPK-hash></code> (<code>tagged_hash("VaultRecoverySPK", recoveryOut.scriptPubKey) == recovery-sPK-hash</code>, where <code>tagged_hash()</code> is from the [https://github.com/bitcoin/bips/blob/master/bip-0340/reference.py BIP-0340 reference code]), script execution when spending this output MUST fail and terminate immediately.
+* If the scriptPubKey of ''recoveryOut'' does not have a tagged hash equal to <code><recovery-sPK-hash></code> (<code>tagged_hash("VaultRecoverySPK", recoveryOut.scriptPubKey) == recovery-sPK-hash</code>, where <code>tagged_hash()</code> is from the [https://github.com/bitcoin/bips/blob/master/bip-0340/reference.py BIP-0340 reference code]), script execution MUST fail and terminate immediately.
 ** Implementation recommendation: if ''recoveryOut'' does not have an <code>nValue</code> greater than or equal to this input's amount, the script SHOULD fail and terminate immediately.
 * Queue a deferred check that ensures the <code>nValue</code> of ''recoveryOut'' contains the entire <code>nValue</code> of this input.<ref>'''How do recovery transactions pay for fees?''' If the recovery is unauthorized, fees are attached either via CPFP with an ephemeral anchor or as inputs which are solely spent to fees (i.e. no change output). If the recovery is authorized, fees can be attached in any manner, e.g. unrelated inputs and outputs or CPFP via anchor.</ref>
 ** This deferred check could be characterized in terms of the pseudocode below as <code>RecoveryCheck(<recovery-vout-idx>, input_amount)</code>.
