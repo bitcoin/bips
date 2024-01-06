@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Swahili](swahili.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,19 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+### Swahili
+
+Credits: @extheoisah @vladimirfomene @brandonodiwuor ([faith](faithmakena32@gmail.com)) ([Paul Warambo](https://www.proz.com/profile/1695794))
+
+The Swahili words were selected with the following rules:
+
+1. Words can be uniquely determined typing the first 4 characters.
+2. No accents or special characters.
+3. No words with double spelling.
+4. No offensive words.
+5. No words already used in other language mnemonic sets.
+6. Words are 4-8 letters long.
+7. No plural words.
+
+All words have been carefully cross-checked by swahili language experts.
