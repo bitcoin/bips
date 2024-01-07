@@ -14,6 +14,7 @@
 ==Abstract==
 
 This BIP reintroduces OP_CAT in the form of a new tapscript opcode which allows the concatenation of two values on the stack. This opcode would be activated via a soft fork by redefining the opcode OP_SUCCESS126 (the opcode 0x7e).
+Note that the currently disabled opcode also uses `0x7e` in a non-tapscript context and will continue to be disabled.
 
 When evaluated the OP_CAT instruction:
 # Pops the top two values off the stack,
@@ -25,21 +26,21 @@ OP_CAT fails if there are less than two values on the stack or if a concatenated
 ==Motivation==
 Bitcoin tapscript lacks a general purpose way of combining objects on the stack restricting the expressiveness and power of tapscript. This prevents among many other things the ability to construct and evaluate merkle trees and other hashed data structures in tapscript. OP_CAT by adding a general purpose way to concatenate stack values would overcome this limitation and greatly increase the functionality of tapscript.
 
-OP_CAT aims to expands the toolbox of the tapscript developer with a simple, modular and useful opcode in the spirit of Unix <ref>R. Pike and B. Kernighan, "Program design in the UNIX environment", 1983, https://harmful.cat-v.org/cat-v/unix_prog_design.pdf</ref>. To demonstrate the usefulness of OP_CAT below we provide a non-exhaustive list of some usecases that OP_CAT would enable:
+OP_CAT aims to expand the toolbox of the tapscript developer with a simple, modular, and useful opcode in the spirit of Unix <ref>R. Pike and B. Kernighan, "Program design in the UNIX environment", 1983, https://harmful.cat-v.org/cat-v/unix_prog_design.pdf</ref>. To demonstrate the usefulness of OP_CAT below we provide a non-exhaustive list of some usecases that OP_CAT would enable:
 
 * Bitstream, a protocol for the atomic swap (fair exchange) of bitcoins for decryption keys, that enables decentralized file hosting systems paid in Bitcoin. While such swaps are currently possible on Bitcoin without OP_CAT they require the use of complex and computationally expensive Verifiable Computation cryptographic techniques. OP_CAT would remove this requirement on Verifiable Computation, making such protocols far more practical to build in Bitcoin. <ref>R. Linus, "BitStream: Decentralized File Hosting Incentivised via Bitcoin Payments", 2023, https://robinlinus.com/bitstream.pdf</ref>
 * Tree signatures provide a multisignature script whose size can be logarithmic in the number of public keys and can encode spend conditions beyond n-of-m. For instance a transaction less than 1KB in size could support tree signatures with a thousand public keys. This also enables generalized logical spend conditions. <ref> P. Wuille, "Multisig on steroids using tree signatures", 2015, https://blog.blockstream.com/en-treesignatures/</ref>
 * Post-Quantum Lamport signatures in Bitcoin transactions. Lamport signatures merely require the ability to hash and concatenate values on the stack. <ref>J. Rubin, "[bitcoin-dev] OP_CAT Makes Bitcoin Quantum Secure [was CheckSigFromStack for Arithmetic Values]", 2021, https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-July/019233.html</ref> It is an open question if the quantum resistance of Lamport signatures can be preserved when used in a taproot output.
 * Non-equivocation contracts <ref>T. Ruffing, A. Kate, D. Schröder, "Liar, Liar, Coins on Fire: Penalizing Equivocation by Loss of Bitcoins", 2015, https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.727.6262&rep=rep1&type=pdf</ref> in tapscript provide a mechanism to punish equivocation/double spending in Bitcoin payment channels. OP_CAT enables this by enforcing rules on the spending transaction's nonce. The capability is a useful building block for payment channels and other Bitcoin protocols.
-* Vaults <ref>M. Moser, I. Eyal, and E. G. Sirer, Bitcoin Covenants, http://fc16.ifca.ai/bitcoin/papers/MES16.pdf</ref> which are a specialized covenant that allows a user to block a malicious party who has compromised the user's secret key from stealing the funds in that output. As shown in <ref>A. Poelstra, "CAT and Schnorr Tricks II", 2021, https://www.wpsoftware.net/andrew/blog/cat-and-schnorr-tricks-ii.html</ref> OP_CAT is sufficent to build vaults in Bitcoin.
+* Vaults <ref>M. Moser, I. Eyal, and E. G. Sirer, Bitcoin Covenants, http://fc16.ifca.ai/bitcoin/papers/MES16.pdf</ref> which are a specialized covenant that allows a user to block a malicious party who has compromised the user's secret key from stealing the funds in that output. As shown in <ref>A. Poelstra, "CAT and Schnorr Tricks II", 2021, https://www.wpsoftware.net/andrew/blog/cat-and-schnorr-tricks-ii.html</ref> OP_CAT is sufficient to build vaults in Bitcoin.
 * Replicating CheckSigFromStack <ref>A. Poelstra, "CAT and Schnorr Tricks I", 2021, https://medium.com/blockstream/cat-and-schnorr-tricks-i-faf1b59bd298</ref> which would allow the creation of simple covenants and other advanced contracts without having to presign spending transactions, possibly reducing complexity and the amount of data that needs to be stored. Originally shown to work with Schnorr signatures, this result has been extended to ECDSA signatures <ref>R. Linus, "Covenants with CAT and ECDSA", 2023, https://gist.github.com/RobinLinus/9a69f5552be94d13170ec79bf34d5e85#file-covenants_cat_ecdsa-md</ref>.
 
-The opcode OP_CAT was available in early versions of Bitcoin. However OP_CAT was removed because it enabled the construction of a script whose evaluation could have memory usage exponential in the size of the script.
+The opcode OP_CAT was available in early versions of Bitcoin. However, OP_CAT was removed because it enabled the construction of a script whose evaluation could have memory usage exponential in the size of the script.
 For example, a script that pushed a 1-byte value on the stack and then repeated the opcodes OP_DUP, OP_CAT 40 times would result in a stack value whose size was greater than 1 terabyte. This is no longer an issue because tapscript enforces a maximum stack element size of 520 bytes.
 
 ==Specification==
 
-OP_CAT pops two elements off the stack, concatenates them together in stack order and pushes the resulting element onto the stack. Given the stack ''<nowiki>[x1, x2]</nowiki>'', where ''x2'' is at the top of the stack, OP_CAT will push ''x1 || x2'' onto the stack. By ''||'' we denote concatenation.
+OP_CAT pops two elements off the stack, concatenates them together in stack order, and pushes the resulting element onto the stack. Given the stack ''<nowiki>[x1, x2]</nowiki>'', where ''x2'' is at the top of the stack, OP_CAT will push ''x1 || x2'' onto the stack. By ''||'' we denote concatenation.
 
 ===Implementation===
 <pre>
