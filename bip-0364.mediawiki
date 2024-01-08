@@ -13,9 +13,12 @@
 
 ==Abstract==
 
-This BIP describes a new set of opcodes (OP_ADD64, OP_SUB64, OP_MUL64, OP_DIV64, OP_NEG64, 
+This BIP describes a new set of arithmetic opcodes (OP_ADD64, OP_SUB64, OP_MUL64, OP_DIV64, OP_NEG64,
 OP_LESSTHAN64, OP_LESSTHANOREQUAL64, OP_GREATERTHAN64, OP_GREATERTHANOREQUAL64)
 that allows 64 bit signed integer math in the bitcoin protocol.
+
+This BIP also describes a set of conversion opcodes (OP_SCRIPTNUMTOLE64, OP_LE64TOSCRIPTNUM, OP_LE32TOLE64)
+to convert existing bitcoin protocol numbers (CScriptNum) into 4 and 7 byte little endian representations.
 
 ==Summary==
 
@@ -37,6 +40,25 @@ OP_NEG64
 * Fail if the stacks top is not exactly 8 bytes 
 * If the operation results in an overflow, push false onto the stack 
 * Push the result of negating the stack top onto the stack and push true onto the stack
+
+OP_SCRIPTNUMTOLE64
+* Fail if less than 1 element on the stack
+* Interpret the stack top as a CScriptNum
+* Push the 8 byte little endian representation of the number onto the stack
+
+OP_LE64TOSCRIPTNUM
+* Fail if less than 1 element on the stack
+* Fail if the stack top is not exactly 8 bytes
+* Interpret the stack top as a 8 byte little endian number
+* Fail if the 8 byte little endian number would overflow CScriptNum
+* Push the byte representation of CScriptNum onto the stack
+
+OP_LE32TOLE64
+* Fail if less than 1 element on the stack
+* Fail if the stack top is not exactly 4 bytes in size
+* Interpret the stack top as a 32 bit little endian number
+* Push the 8 byte little endian number onto the stack
+
 
 ==Motivation==
 
@@ -198,6 +220,56 @@ case OP_NEG64:
     popstack(stack);
     push8_le(stack, -a);
     stack.push_back(vchTrue);
+}
+break;
+
+case OP_SCRIPTNUMTOLE64:
+{
+    // Opcodes only available post tapscript
+    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+    if (stack.size() < 1)
+        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    int64_t num = CScriptNum(stacktop(-1), fRequireMinimal).getint();
+    popstack(stack);
+    push8_le(stack, num);
+}
+break;
+case OP_LE64TOSCRIPTNUM:
+{
+    // Opcodes only available post tapscript
+    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+    if (stack.size() < 1)
+        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    valtype& vchnum = stacktop(-1);
+    if (vchnum.size() != 8)
+        return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
+    valtype vchscript_num = CScriptNum(read_le8_signed(vchnum.data())).getvch();
+    if (vchscript_num.size() > CScriptNum::nDefaultMaxNumSize) {
+        return set_error(serror, SCRIPT_ERR_ARITHMETIC64);
+    } else {
+        popstack(stack);
+        stack.push_back(std::move(vchscript_num));
+    }
+}
+break;
+case OP_LE32TOLE64:
+{
+    // Opcodes only available post tapscript
+    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+    if (stack.size() < 1)
+        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+    valtype& vchnum = stacktop(-1);
+    if (vchnum.size() != 4)
+        return set_error(serror, SCRIPT_ERR_ARITHMETIC64);
+    uint32_t num = ReadLE32(vchnum.data());
+    popstack(stack);
+    push8_le(stack, static_cast<int64_t>(num));
 }
 break;
 </source>
