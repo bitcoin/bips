@@ -1,3 +1,7 @@
+# Important Note
+
+For now, [the author(s) of BIP 39 have decided not to accept any further word lists into BIP 39 itself, and encourage adding new ones to the WLIPs repo](https://github.com/bitcoin/bips/pull/1129#issuecomment-873258377) here: https://github.com/p2w34/wlips
+
 # Wordlists
 
 * [English](english.txt)
