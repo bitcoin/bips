@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Turkish](turkish.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,18 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind negative/sad/bad things.
 11. No very similar words with 1 letter of difference.
+
+### Turkish
+
+Credits: @paribu (Paribu bilgi@paribu.com)
+
+Words chosen using the following rules:
+
+1. Words are 3-8 letters long.
+2. No very similar words with 2 letter of difference.
+3. Only nouns, adjective and adverbs, no other word types.
+4. No words with double vocals (like: saat).
+5. No complex verb forms.
+6. No plural words.
+7. No words that remind negative/sad/bad things.
+8. No words with double spelling.
