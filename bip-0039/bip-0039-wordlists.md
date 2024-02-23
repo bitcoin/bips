@@ -53,7 +53,7 @@ Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
 7.  No words in the plural (except invariable words like "univers", or same spelling than singular like "heureux").
 8.  No female adjectives (except words with same spelling for male and female adjectives like "magique").
 9.  No words with several senses AND different spelling in speaking like "verre-vert", unless a word has a meaning much more popular than another like "perle" and "pairle".
-10. No very similar words with 1 letter of difference.
+10. No very similar words with only 1 letter of difference.
 11. No essentially reflexive verbs (unless a verb is also a noun like "souvenir").
 12. No words with "ô;â;ç;ê;œ;æ;î;ï;û;ù;à;ë;ÿ".
 13. No words ending by "é;ée;è;et;ai;ait".
@@ -93,12 +93,12 @@ Words chosen using the following rules:
 
 1.  Words are 4-8 letters long.
 2.  Words can be uniquely determined typing the first 4 letters.
-3.  Only words containing all letters without diacritical marks. (It was the hardest task, because in one third of all Czech letters has diacritical marks.)
+3.  Only words containing all letters without diacritical marks. (It was the hardest task, because one third of all Czech letters has diacritical marks.)
 4.  Only nouns, verbs and adverbs, no other word types. All words are in basic form.
 5.  No personal names or geographical names.
 6.  No very similar words with 1 letter of difference.
-7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
-8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+7.  Words are sorted according to English alphabet (Czech sorting has difference in "ch").
+8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous letters without diacritical marks.
 
 ### Portuguese
 
@@ -109,9 +109,9 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 3. No complex verb forms.
 4. No plural words, unless there's no singular form.
 5. No words with double spelling.
-6. No words with the exact sound of another word with different spelling.
+6. No words with the exact sound as another word with different spelling.
 7. No offensive words.
 8. No words already used in other language mnemonic sets.
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
-10. No words that remind negative/sad/bad things.
-11. No very similar words with 1 letter of difference.
+10. No words that remind one of negative/sad/bad things.
+11. No very similar words with only 1 letter of difference.
