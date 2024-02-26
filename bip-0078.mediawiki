@@ -103,6 +103,9 @@ The original PSBT MUST:
 * Not include fields unneeded for the receiver such as global xpubs or keypath information.
 * Be broadcastable.
 
+The original PSBT SHOULD NOT:
+* Include mixed input types until May 2022. Mixed inputs were previously completely disallowed so this gives some grace period for recivers to update.
+
 The original PSBT MAY:
 * Have outputs unrelated to the payment for batching purpose.
 
@@ -113,17 +116,22 @@ The payjoin proposal MUST:
 * Only fill the <code>witnessUTXO</code> or <code>nonWitnessUTXO</code> for the additional inputs.
 
 The payjoin proposal MAY:
-* Add, remove or modify the outputs belonging to the receiver.
+* Add, or replace the outputs belonging to the receiver unless output substitution is disabled.
 
 The payjoin proposal MUST NOT:
 * Shuffle the order of inputs or outputs, the additional outputs or additional inputs must be inserted at a random index.
 * Decrease the absolute fee of the original transaction.
+
+The payjoin proposal SHOULD NOT:
+* Include mixed input types until May 2022. Mixed inputs were previously completely disallowed so this gives some grace period for senders to update.
 
 ===BIP21 payjoin parameters===
 
 This proposal is defining the following new [[bip-0021.mediawiki|BIP 21 URI]] parameters:
 * <code>pj=</code>: Represents an http(s) endpoint which the sender can POST the original PSBT.
 * <code>pjos=0</code>: Signal to the sender that they MUST disallow [[#output-substitution|payment output substitution]]. (See [[#unsecured-payjoin|Unsecured payjoin server]])
+
+Note: the `amount` parameter is *not* required.
 
 ===<span id="optional-params"></span>Optional parameters===
 
@@ -242,7 +250,6 @@ The receiver needs to do some check on the original PSBT before proceeding:
 
 * Non-interactive receivers (like a payment processor) need to check that the original PSBT is broadcastable. <code>*</code>
 * If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>original-psbt-rejected</code> or make sure they do not sign those inputs in the payjoin proposal.
-* If the sender's inputs are all from the same scriptPubKey type, the receiver must match the same type. If the receiver can't match the type, they must return error <code>unavailable</code>.
 * Make sure that the inputs included in the original transaction have never been seen before.
 ** This prevent [[#probing-attack|probing attacks]].
 ** This prevent reentrant payjoin, where a sender attempts to use payjoin transaction as a new original transaction for a new payjoin.
@@ -268,7 +275,6 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 *** Verify the PSBT input is finalized
 *** Verify that <code>non_witness_utxo</code> or <code>witness_utxo</code> are filled in.
 ** Verify that the payjoin proposal did not introduced mixed input's sequence.
-** Verify that the payjoin proposal did not introduced mixed input's type.
 ** Verify that all of sender's inputs from the original PSBT are in the proposal.
 * For each outputs in the proposal:
 ** Verify that no keypaths is in the PSBT output
@@ -289,6 +295,7 @@ Note:
 * The sender must allow the receiver to add/remove or modify the receiver's own outputs. (if payment output substitution is disabled, the receiver's outputs must not be removed or decreased in value)
 * The sender should allow the receiver to not add any inputs. This is useful for the receiver to change the paymout output scriptPubKey type.
 * If no input have been added, the sender's wallet implementation should accept the payjoin proposal, but not mark the transaction as an actual payjoin in the user interface.
+* If no input have been added, the sender's wallet MUST NOT perform changes that would change transaction ID. Such changes would be accepted by the Bitcoin network in this special case but may invalidate smart contracts the receiver participates in. (E.g. Lightning Network channel opening)
 
 Our method of checking the fee allows the receiver and the sender to batch payments in the payjoin transaction.
 It also allows the receiver to pay the fee for batching adding his own outputs.
@@ -344,7 +351,7 @@ On top of this the receiver can poison analysis by randomly faking a round amoun
 
 ===<span id="output-substitution"></span>Payment output substitution===
 
-Unless disallowed by sender explicitely via `disableoutputsubstitution=true` or by the BIP21 url via query parameter the `pjos=0`, the receiver is free to decrease the amount, remove, or change the scriptPubKey output paying to himself.
+Unless disallowed by sender explicitely via `disableoutputsubstitution=true` or by the BIP21 url via query parameter the `pjos=0`, the receiver is free to decrease the amount, or change the scriptPubKey output paying to himself.
 Note that if payment output substitution is disallowed, the reveiver can still increase the amount of the output. (See [[#reference-impl|the reference implementation]])
 
 For example, if the sender's scriptPubKey type is P2WPKH while the receiver's payment output in the original PSBT is P2SH, then the receiver can substitute the payment output to be P2WPKH to match the sender's scriptPubKey type.
@@ -475,6 +482,7 @@ public async Task<PSBT> RequestPayjoin(
     if (proposalGlobalTx.LockTime != originalGlobalTx.LockTime)
         throw new PayjoinSenderException($"The proposal PSBT changed the nLocktime");
 
+    var additionalSize = 0;
     HashSet<Sequence> sequences = new HashSet<Sequence>();
     // For each inputs in the proposal:
     foreach (PSBTInput proposedPSBTInput in proposal.Inputs)
@@ -520,9 +528,7 @@ public async Task<PSBT> RequestPayjoin(
             if (proposedPSBTInput.NonWitnessUtxo == null && proposedPSBTInput.WitnessUtxo == null)
                 throw new PayjoinSenderException("The receiver did not specify non_witness_utxo or witness_utxo for one of their inputs");
             sequences.Add(proposedTxIn.Sequence);
-            // Verify that the payjoin proposal did not introduced mixed inputs' type.
-            if (inputScriptType != proposedPSBTInput.GetInputScriptPubKeyType())
-                throw new PayjoinSenderException("Mixed input type detected in the proposal");
+            additionalSize = GetVirtualSize(proposedPSBTInput.GetInputScriptPubKeyType())
         }
     }
 
@@ -564,8 +570,7 @@ public async Task<PSBT> RequestPayjoin(
                 if (actualContribution > additionalFee)
                     throw new PayjoinSenderException("The actual contribution is not only paying fee");
                 // Make sure the actual contribution is only paying for fee incurred by additional inputs
-                int additionalInputsCount = proposalGlobalTx.Inputs.Count - originalGlobalTx.Inputs.Count;
-                if (actualContribution > originalFeeRate * GetVirtualSize(inputScriptType) * additionalInputsCount)
+                if (actualContribution > originalFeeRate * additionalSize)
                     throw new PayjoinSenderException("The actual contribution is not only paying for additional inputs");
             }
             else if (allowOutputSubstitution && output.OriginalTxOut.ScriptPubKey == paymentScriptPubKey)
