@@ -39,7 +39,7 @@ Elements of the query component may contain characters outside the valid range. 
 
 (See also [[#Simpler syntax|a simpler representation of syntax]])
 
- bitcoinurn     = "bitcoin:" bitcoinaddress [ "?" bitcoinparams ]
+ bitcoinurn     = "bitcoin:" [ bitcoinaddress ] [ "?" bitcoinparams ]
  bitcoinaddress = *base58
  bitcoinparams  = bitcoinparam [ "&" bitcoinparams ]
  bitcoinparam   = [ amountparam / labelparam / messageparam / otherparam / reqparam ]
@@ -51,14 +51,27 @@ Elements of the query component may contain characters outside the valid range. 
 
 Here, "qchar" corresponds to valid characters of an RFC 3986 URI query component, excluding the "=" and "&" characters, which this BIP takes as separators.
 
-The scheme component ("bitcoin:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The rest of the URI is case-sensitive, including the query parameter keys.
+The scheme component ("bitcoin:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The query parameter keys are also case-insensitive. Query parameter values and bitcoin address fields may be case-sensitive depending on their content.
+
+=== Bitcoin Address ===
+
+The bitcoinaddress body MUST be either a base64 P2SH or P2PKH address, bech32 Segwit version 0 address, bech32m Segwit address, or empty. Future address formats SHOULD instead be placed in query keys as optional payment instructions to provide backwards compatibility during upgrade cycles. After new addres types are near-universally supported, or for recipients wishing to avoid a standard on-chain fallback, the bitcoinaddress part of the URI MAY be left empty.
 
 === Query Keys ===
+
+The following keys are defined generally and apply to any URI regardless of payment instructions:
 
 *label: Label for that address (e.g. name of receiver)
 *address: bitcoin address
 *message: message that describes the transaction to the user ([[#Examples|see examples below]])
-*(others): optional, for future extensions
+
+The following keys are currently defined for payment instructions of various forms:
+
+*lightning: Lightning BOLT 11 invoices
+*lno: Lightning BOLT12 offers
+*sp: Silent Payment addresses
+
+New payment instructions using bech32 encodings SHOULD reuse their address format's Human Readable Part as the parameter key.
 
 ==== Transfer amount ====
 
@@ -72,8 +85,8 @@ For example, so long as the majority of users work in BTC units, values should a
 == Rationale ==
 
 ===Payment identifiers, not person identifiers===
-Current best practices are that a unique address should be used for every transaction.
-Therefore, a URI scheme should not represent an exchange of personal information, but a one-time payment.
+Current best practices are that a unique address should be used for every transaction on-chain.
+Therefore, a URI which contains on-chain payment data MUST NOT represent an exchange of personal information, but a one-time payment. URIs which represent only reusable non-address-reusing payment instructions (like Lightning BOLT12 offers or Silent Payments) MAY be reused as a wallet sees fit.
 
 ===Accessibility (URI scheme name)===
 Should someone from the outside happen to see such a URI, the URI scheme name already gives a description.
@@ -84,8 +97,7 @@ Also, very likely, what he will find are mostly technical specifications - not t
 ==Forward compatibility==
 Variables which are prefixed with a req- are considered required.  If a client does not implement any variables which are prefixed with req-, it MUST consider the entire URI invalid.  Any other variables which are not implemented, but which are not prefixed with a req-, can be safely ignored.
 
-==Backward compatibility==
-As this BIP is written, several clients already implement a bitcoin: URI scheme similar to this one, however usually without the additional "req-" prefix requirement.  Thus, it is recommended that additional variables prefixed with req- not be used in a mission-critical way until a grace period of 6 months from the finalization of this BIP has passed in order to allow client developers to release new versions, and users of old clients to upgrade.
+As future new address types should be added using query parameters rather than the `bitcoinaddress` field, URIs can seamlessly support many payment instructions while senders only support legacy instructions. This allows for senders to be able to pay newer recipients while still allowing the use of more modern payment instruction formats.
 
 == Appendix ==
 
