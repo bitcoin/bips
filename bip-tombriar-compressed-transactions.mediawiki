@@ -1,0 +1,268 @@
+<pre>
+  BIP: ?
+  Layer: API/RPC
+  Title: Compressed Transactions RPC
+  Author: Tom Briar <tombriar11@protonmail.com>
+  Comments-URI: https://github.com/bitcoin/bitcoin/pull/29134
+                https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2023-August/021924.html
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-02-01
+  License: BSD-3-Clause
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+This document proposes a new primitive CCompressedTransaction and its required sub-classes. The CCompressedTransaction can reach a serialized size of less than 50% of the original serialized transaction. Compression of the transaction outpoints can be lossy and is therefore optional. When the outpoints are left uncompressed, the serialized size is still less than 70% of the original size.
+
+=== Specification ===
+
+==== Primitives ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| CompactSize || 1-5 bytes || For 0-253, encode the value directly in one byte. For 254-65535, encode 254 followed by 2 little-endian bytes. For 65536-(2^32-1), encode 255 followed by 4 little-endian bytes
+|-
+| CompactSize Flag || 2 Bits || 1, 2 or 3 indicate literal values. 0 indicates that the value will be encoded in a later CompactInt
+|-
+| VarInt || 1+ Bytes || 7-bit little-endian encoding, with each 7-bit word encoded in a byte. The highest bit of each byte is 1 if more bytes follow, and 0 for the last byte
+|-
+| VLP-Bytestream || 2+ Bytes || A VarInt Length Prefixed Bytestream. Has a VarInt prefixed to determine the length.
+|}
+
+==== General Schema ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Transaction metadata || 1 bytes || Information on the structure of the transaction. See [[#transaction-metadata|Transaction Metadata]]
+|-
+| Version || 0-5 Bytes || An optional CompactSize containing the transactions version.
+|-
+| Input Count || 0-5 Bytes || An optional CompactSize containing he transactions input count.
+|-
+| Output Count || 0-5 Bytes || An optional CompactSize containing he transactions output count.
+|-
+| LockTime || 0-5 Bytes || An optional CompactSize containing he transactions LockTime if its non zero.
+|-
+| Minimum Blockheight || 1-5 Bytes || A VarInt containg the Minimum Blockheight of the transaction locktime and input blockheights are given as offsets.
+|-
+| Input Metadata+Output Metadata || 1+ Bytes || A Encoding containing metadata on all the inputs and then all the outputs of the transaction. For each input see [[#input-metadata|Input Metadata]], for each output see [[#output-metadata|Output Metadata]].
+|-
+| Input Data || 66+ Bytes || See [[#input-data|Input Data]].
+|-
+| Output Data || 3+ Bytes || See [[#output-data|Output Data]].
+|}
+
+<span id="transaction-metadata"></span>
+==== Transaction Metadata ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Version || 2 Bits || A CompactSize flag for the transaction version.
+|-
+| Input Count || 2 Bits || A CompactSize flag for the transaction input count.
+|-
+| Output Count || 2 Bits || A CompactSize flag for the transaction output count.
+|-
+| LockTime || 2 bit || A Boolean to indicate if the transaction has a LockTime.
+|}
+
+<span id="input-metadata"></span>
+==== Input Metadata ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Compressed Signature || 1 Bit || Signature compression flag. For P2TR: 1 for keyspend, 0 for scriptspend; For P2SH: 0 for p2sh, 1 for p2sh-wpkh.
+|-
+| Standard Hash || 1 Bit || A flag to determine if this Input's Signature Hash Type is standard (0x00 for Taproot, 0x01 for Legacy/Segwit).
+|-
+| Standard Squence || 2 Bits || A CompactSize flag for the inputs sequence. Encode literal values as follows: 1 = 0x00000000, 2 = 0xFFFFFFFE, 3 = 0xFFFFFFFF.
+|}
+
+<span id="output-metadata"></span>
+==== Output Metadata ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Encoded Script Type || 3 Bits || [[#script-type-encoding|Encoded Script Type]].
+|}
+
+<span id="script-type-encoding"></span>
+==== Script Type Encoding ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Script Type !! Value
+|-
+| Uncompressed P2PK || 0b000
+|-
+| Compressed P2PK || 0b001
+|-
+| P2PKH || 0b010
+|-
+| P2SH || 0b011
+|-
+| P2WSH || 0b100
+|-
+| P2WPKH || 0b101
+|-
+| P2TR || 0b110
+|-
+| Uncompressed Custom Script || 0b111
+|}
+
+<span id="input-data"></span>
+==== Input Data ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Sequence || 0-5 Bytes || An Optional VarInt containing the sequence if it was non-standard.
+|-
+| Txid Blockheight || 1-5 Bytes || A VarInt Either containing 0 if this an uncompressed input, or it contains the offset from Minimum Blockheight for this Txid.
+|-
+| Txid/Signature Data || 65+ Bytes || Txid/Signatures are determined to be uncompressed either by the output script of the previous transaction, or if the Txid Blockheight is zero. For each Compressed Txid/Signature see [[#compressed-data|here]]. For each Uncompressed Txid/Signature see [[#uncompressed-data|here]].
+|}
+
+<span id="compressed-data"></span>
+==== Compressed Txid/Signature Data ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Txid Block Index || 1-5 Bytes || A VarInt containing the flattened index from the Txid Blockheight for the Vout.
+|-
+| Signature || 64 Bytes || Contains the 64 byte signature.
+|-
+| Hash Type || 0-1 Bytes || An Optional Byte containing the Hash Type if it was non-standard.
+|}
+
+<span id="uncompressed-data"></span>
+==== Uncompressed Txid/Signature Data ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Txid || 32 Bytes || Contains the 32 byte Txid.
+|-
+| Vout || 1-5 Bytes || A CompactSize Containing the Vout of the Txid.
+|-
+| Signature || 2+ Bytes || A VLP-Bytestream containing the signature.
+|}
+
+<span id="output-data"></span>
+==== Output Data ====
+
+{| class="wikitable" style="margin:auto"
+|-
+! Name !! Width !! Description
+|-
+| Output Script || 2+ Bytes || A VLP-Bytestream containing the output script.
+|-
+| Amount || 1-9 Bytes || A VarInt containing the output amount.
+|}
+
+==== Ideal Transaction ====
+
+The target transaction for the most optimal compression was chosen
+based off the most common transactions that are likely to be used
+for purposes that requires the best compression.
+
+{| class="wikitable" style="margin:auto"
+|-
+! Field !! Requirements !! Savings Up To
+|-
+| Version || Less than four || 30 Bits
+|-
+| Input Count || Less than four || 30 Bits
+|-
+| Output Count || Less than four || 30 Bits
+|-
+| LockTime || 0 || 30 Bits
+|-
+| Input Sequence || 0x00, 0xFFFFFFFE, or 0xFFFFFFFF || 62 Bits For Each Input
+|-
+| Input Txid || Compressed Outpoint || 23 - 31 Bytes For Each Input
+|-
+| Input Vout || Compressed Outpoint || (-1) - 3 Bytes For Each Input
+|-
+| Input Signature  || Non-custom Script Signing || 40 - 72 Bytes For Each Legacy Input
+|-
+| Input Hash Type || 0x00 for Taproot, 0x01 for Legacy || 7 Bits For Each Input
+|-
+| Output Script || Non-custom Scripts || 2 - 5 Bytes For Each Output
+|-
+| Output Amount || No Restrictions || (-1) - 7 Bytes For Each Output
+|}
+
+=== Motivation ===
+Bitcoin transactions currently contain a large amount of white space and padding. Specific fields are often one of a minimal number of possibilities. Leveraging these facts, we can create an encoding for 90% of Bitcoin transactions that are roughly 25-50% smaller.
+
+=== Rational ===
+
+The four main methods to achieve a lower transactions size are:
+
+1. Packing transaction metadata before it and each of its inputs and outputs to determine the structure of the data that follows.
+
+2. Replacing 32-bit numeric values with either variable-length integers (VarInts) or compact-integers (CompactSizes).
+
+3. Using compressed signatures and public key recovery upon decompression.
+
+4. Replacing the 36-byte txid/vout pair with a block height and index.
+
+=== Reference Implementation ===
+
+This reference implementation adds two new RPC endpoints, compressrawtransaction and decompressrawtransaction. The first accepts a raw hex-encoded transaction and returns a compact hex-encoded transaction; also included in the output is a list of warnings to help ensure there are no unexpected uncompressed values. The second accepts a compact hex transaction and returns the uncompressed raw hex-encoded transaction.
+
+https://github.com/bitcoin/bitcoin/pull/29134
+
+=== Test Vectors ===
+
+==== Taproot ====
+
+===== Uncompressed =====
+<code>020000000001017ad1d0cc314504ec06f1b5c786c50cf3cda30bd5be88cf08ead571b0ce7481fb0000000000fdffffff0188130000000000001600142da377ed4978fefa043a58489912f8e28e16226201408ce65b3170d3fbc68e3b6980650514dc53565f915d14351f83050ff50c8609495b7aa96271c3c99cdac1a92b1b45e77a4a870251fc1673596793adf2494565e500000000</code>
+
+===== Compressed =====
+<code>16b1ec7f2db1ed00b0218ce65b3170d3fbc68e3b6980650514dc53565f915d14351f83050ff50c8609495b7aa96271c3c99cdac1a92b1b45e77a4a870251fc1673596793adf2494565e58efefefe7d2da377ed4978fefa043a58489912f8e28e162262a608</code>
+
+==== P2WPKH ====
+
+===== Uncompressed =====
+<code>0200000000010144bcf05ab48b8789268a7ca07133241ad654c0739ac7165015b2d669eadb10ea0000000000fdffffff0188130000000000001600142da377ed4978fefa043a58489912f8e28e16226202473044022043ab639a98dfbc704f16a35bf25b8b72acb4cb928fd772285f1fcf63725caa85022001c9ff354504e7024708bce61f30370c8db13da8170cef4e8e4c4cdad0f71bfe0121030072484c24705512bfb1f7f866d95f808d81d343e552bc418113e1b9a1da0eb400000000</code>
+
+===== Compressed =====
+<code>16b1ec712db1ec72932643ab639a98dfbc704f16a35bf25b8b72acb4cb928fd772285f1fcf63725caa8501c9ff354504e7024708bce61f30370c8db13da8170cef4e8e4c4cdad0f71bfe8efefefe7d2da377ed4978fefa043a58489912f8e28e162262a608</code>
+
+==== P2SH-P2WPKH ====
+
+===== Uncompressed =====
+<code>0200000000010192fb2e4332b43dc9a73febba67f3b7d97ba890673cb08efde2911330f77bbdfc00000000171600147a1979232206857167b401fdac1ffbf33f8204fffdffffff0188130000000000001600142da377ed4978fefa043a58489912f8e28e16226202473044022041eb682e63c25b85a5a400b11d41cf4b9c25f309090a5f3e0b69dc15426da90402205644ddc3d5179bab49cce4bf69ebfaeab1afa34331c1a0a70be2927d2836b0e8012103c483f1b1bd24dd23b3255a68d87ef9281f9d080fd707032ccb81c1cc56c5b00200000000</code>
+
+===== Compressed =====
+<code>16b1ec7c3db1ec7d981641eb682e63c25b85a5a400b11d41cf4b9c25f309090a5f3e0b69dc15426da9045644ddc3d5179bab49cce4bf69ebfaeab1afa34331c1a0a70be2927d2836b0e87a1979232206857167b401fdac1ffbf33f8204ff8efefefe7d2da377ed4978fefa043a58489912f8e28e162262a608</code>
+
+==== P2PKH ====
+
+===== Uncompressed =====
+<code>02000000015f5be26862482fe2fcc900f06ef26ee256fb205bc4773e5a402d0c1b88b82043000000006a473044022031a20f5d9212023b510599c9d53d082f8e07faaa2d51482e078f8e398cb50d770220635abd99220ad713a081c4f20b83cb3f491ed8bd032cb151a3521ed144164d9c0121027977f1b6357cead2df0a0a19570088a1eb9115468b2dfa01439493807d8f1294fdffffff0188130000000000001600142da377ed4978fefa043a58489912f8e28e16226200000000</code>
+
+===== Compressed =====
+<code>16b1ec7c2db1ec7d981431a20f5d9212023b510599c9d53d082f8e07faaa2d51482e078f8e398cb50d77635abd99220ad713a081c4f20b83cb3f491ed8bd032cb151a3521ed144164d9c8efefefe7d2da377ed4978fefa043a58489912f8e28e162262a608</code>
+
+== Acknowledgements ==
+Thank you to Andrew Poelstra who helped invent and develop the ideas in the proposal and the code in the reference implementation!
