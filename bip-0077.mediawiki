@@ -63,7 +63,7 @@ Payjoin v2 messages use [[https://github.com/bitcoin/bips/blob/master/bip-0370.m
 The payjoin version 2 protocol takes the following steps:
 
 - The recipient sends their payjoin pubkey and optional authentication credential according to [[#directory-enrollment|receiver directory enrollment]] protocol to receive a subdirectory allocation. It may go offline and replay enrollment to come back online.
-- Out of band, the receiver of the payment, shares a bitcoin URI with the sender including a <code>pj=</code> query parameter including the subdirectory as a base64-uri encoded pubkey. To support version 1 senders the directory acts as an unsecured payjoin server so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless. An <code>ohttp=</code> parameter containing the directory's base64-url Key Config should also be provided.
+- Out of band, the receiver of the payment, shares a bitcoin URI with the sender including a <code>pj=</code> query parameter including the subdirectory as a base64URL encoded pubkey. To support version 1 senders the directory acts as an unsecured payjoin server so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless. An <code>ohttp=</code> parameter containing the directory's base64URL Key Config should also be provided.
 - The sender creates a valid version 2 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078#receivers-original-psbt-checklist|the receiver checklist]]. We call this the <code>Original PSBT</code>. This <code>Original PSBT</code>, optional sender parameters, and HPKE keys are encrypted and authenticated, and encapsulated in OHTTP. This [[#original-psbt-request|Original PSBT Request]] is sent to the directory's OHTTP Gateway.
 - The sender continues to replay this request in order to await a response from the directory containing a <code>Payjoin PSBT</code>. It stops after expiry.
 - The request is stored in the subdirectory.
@@ -106,7 +106,7 @@ Receivers must enroll with a directory to a subdirectory allocated.
 
 A receiver must first discover the directory's OHTTP gateway key configuration via an authenticated bootstrap mechanism before it can enroll to receive payjoin requests. This mechanism may vary by implementation but must follow [[https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-key-consistency-01|OHTTP Consistency Requirements]] and should not reveal a receiver IP address to the directory. Some examples of suitable mechanisms include fetching over a VPN, using keys included with an application binary, https-in-http CONNECT method, https-in-WebSocket, or a Tor hidden service.
 
-Payjoin sessions begin by having a receiver send the static pubkey to the directory via OHTTP, receiving their subdirectory in a base64-uri encoded directory url as response. Enrollment may be replayed in case the receiver goes offline and should result in the same response.
+Payjoin sessions begin by having a receiver send the static pubkey to the directory via OHTTP, receiving their subdirectory in a base64URL encoded directory url as response. Enrollment may be replayed in case the receiver goes offline and should result in the same response.
 
 Optionally, before returning the uri the receiver may request an authentication token by presenting a message containing only the word <code>Authenticate: <description></code> after which the receiver is required to submit an <code>Authenticate: <token></code> including the token from the directory out of band. If authentication fails an error is returned.
 
@@ -114,7 +114,7 @@ In the case a directory is operated by an exchange, it may give out authenticati
 
 ====Send Messaging====
 
-The version 2 Original PSBT is placed in an HTTP POST request body, base64 serialized, with text/plain in the Content-Type HTTP header and Content-Length set correctly, as in version 1, before being encoded into BHTTP and encrypted according to the HPKE protocol. This Original PSBT BHTTP Request is then encrypted according to the HPKE, generating an ephemeral keypair `e` from which it derives a shared secret `es` with the receiver's key `s`. It generates a nonce from sufficient randomness, and constructs a ciphertext containing the Original PSBT BHTTP Request and serialized ephemeral key `e`'s pubkey as associated data using ChaCha20Poly1305. A payload is constructed by concatenating the ephemeral pubkey, the nonce, and the ciphertext. This payload is then sent to the directory in an OHTTP request encapsulating the binary payload.
+The version 2 Original PSBT is placed in an HTTP POST request body as binary before being encoded into BHTTP and encrypted according to the HPKE protocol. This Original PSBT BHTTP Request is then encrypted according to the HPKE, generating an ephemeral keypair `e` from which it derives a shared secret `es` with the receiver's key `s`. It generates a nonce from sufficient randomness, and constructs a ciphertext containing the Original PSBT BHTTP Request and serialized ephemeral key `e`'s pubkey as associated data using ChaCha20Poly1305. A payload is constructed by concatenating the ephemeral pubkey, the nonce, and the ciphertext. This payload is then sent to the directory in an OHTTP request encapsulating the binary payload.
 
 The directory's OHTTP Gateway decapsulates the OHTTP request, decrypts the payload, and forwards the BHTTP POST request to the receiver's internal subdirectory endpoint which stores the HPKE encrypted payload to be forwarded to the receiver. The directory's OHTTP Gateway then awaits a response from the receiver's subdirectory endpoint, encapsulates it, and responds according to OHTTP.
 
@@ -146,7 +146,7 @@ A major benefit of BIP 78 payjoin over other coordination mechanisms is its comp
 
 This proposal defines the following new [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki|BIP 21 URI]] parameters:
 
-- <code>ohttp</code> represents the OHTTP Key Configuration of the directory server. This is a base64url encoded public key of the directory server's OHTTP Gateway. This parameter is required for version 2 payjoin URIs.
+- <code>ohttp</code> represents the OHTTP Key Configuration of the directory server. This is a base64URL encoded public key of the directory server's OHTTP Gateway. This parameter is required for version 2 payjoin URIs.
 - <code>exp</code>: represents a request expiration after which the receiver reserves the right to broadcast the transaction extracted from the Original PSBT and ignore requests. This is only necessary for receivers who only support synchonous execution of the protocol, like automated payment processors.
 
 ===Optional sender parameters===
@@ -183,7 +183,7 @@ All cyphertexts should be padded to the same length of 7168 bytes to prevent tra
 
 Hybrid Public Key Encryption is a modern web standard for secure message exchange without TLS. Since client and server agree on a configuration out of band, we can pre-define the payjoin v2 appication specific configuration to use DHKEM(Secp256k1, HKDF-SHA256) and ChaCha20Poly1305 AEAD.
 
-The cryptographic handshake is conducted in parallel to the payjoin messaging inspired by the [[http://www.noiseprotocol.org/noise.html#zero-rtt-and-noise-protocols|zero-RTT]] version of the [[http://www.noiseprotocol.org/noise.html|Noise Framework]] [[https://noiseexplorer.com/patterns/NKpsk0/|IK]] pattern. A receiver shares its public key out of band in the BIP21 URI. Static keys shared in URIs must only for a single session. The key is encoded in [[https://datatracker.ietf.org/doc/html/rfc4648#section-5|base64url]] encoding as a subdirectory of the directory server in the <code>pj=</code> parameter.
+The cryptographic handshake is conducted in parallel to the payjoin messaging inspired by the [[http://www.noiseprotocol.org/noise.html#zero-rtt-and-noise-protocols|zero-RTT]] version of the [[http://www.noiseprotocol.org/noise.html|Noise Framework]] [[https://noiseexplorer.com/patterns/NKpsk0/|IK]] pattern. A receiver shares its public key out of band in the BIP21 URI. Static keys shared in URIs must only for a single session. The key is encoded in [[https://datatracker.ietf.org/doc/html/rfc4648#section-5|base64URL]] encoding as a subdirectory of the directory server in the <code>pj=</code> parameter.
 
 ====Secp256k1====
 
