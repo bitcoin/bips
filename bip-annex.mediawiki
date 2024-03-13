@@ -1,0 +1,173 @@
+<pre>
+  BIP: XXX
+  Layer: Consensus (soft fork)
+  Title: Taproot Annex Format
+  Author:
+  Comments-Summary: No comments yet.
+  Comments-URI:
+  Status: Draft
+  Type: Standards Track
+  Created: 757967
+  License: BSD-3-Clause
+  Requires: 340, 341, 342
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This BIP describes a validation format for the taproot annex ([https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341]).
+It allows to extend the usual transaction fields with new data records allowing witness signatures to commit to them.
+The data records can be subject to new validation rules.
+
+=== Copyright ===
+
+This document is licensed under the 3-clause BSD license.
+
+=== Motivation ===
+
+From the limited set of Bitcoin transaction fields (i.e nVersion, inputs, outputs, nLocktime, etc)
+released in the early days of the network, few soft-forks occurred extending the validation semantic
+of some transaction fields (e.g [https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki BIP68])
+or adding whole new field to solve the malleability issue (e.g [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki BIP141]). 
+While a generic mechanism consensus to extend the block commmitments have been provisioned with BIP141, 
+there is lacking an equivalent generic mechanism to extend the transaction data fields.
+
+This proposal introduces a format to add new data fields in the Taproot annex. BIP341 mandates
+that if a witness includes at least two elements and the first byte of the last element is 0x50,
+this element is qualified as the annex. The remaining bytes semantics are defined by new validation
+rules following a highly byte efficient Type-Length-Value format.
+
+Specific semantics for the new data fields can be introduced with future soft-forks to enable a range
+of use-cases. For now there is only one nLocktime field in a transaction and all inputs must share
+the same value. It could be possible to define per-input lock-time enabling aggregation of off-chain
+protocols transactions (e.g [https://github.com/lightning/bolts/blob/master/03-transactions.md#htlc-timeout-and-htlc-success-transactions Lightning HTLC-timeout]).
+A commitment to historical block hash could be also a new annex data field to enable replay protection
+in case of persisting forks. Another use-case, a group of input-outputs could be bundled and signed
+together to enable fee-bumping batching of off-chain protocols transactions. <ref> '''What if the
+use-cases require access to the annex fields by Script operations ?''' A new PUSH_ANNEX_RECORD could be
+defined to make accessible annex fields to Script operations. </ref> Beyond, the annex format aims to
+be reusable across spends of SegWit versions.
+
+== Specification ==
+
+=== CompressedInt Integer Encoding ===
+
+Variable-length integers: bytes are a MSB base-128 encoding of the number.
+The high bit in each byte signifies whether another digit follows. To make
+sure the encoding is one-to-one, one is subtracted from all but the last digit.
+Thus, the byte sequence a[] with length len, where all but the last byte
+has bit 128 set, encodes the number:
+
+  (a[len-1] & 0x7F) + sum(i=1..len-1, 128^i*((a[len-i-1] & 0x7F)+1))
+
+Properties:
+ * Very small (0-127: 1 byte, 128-16511: 2 bytes, 16512-2113663: 3 bytes)
+ * Every integer has exactly one encoding
+ * Encoding does not depend on size of original integer type
+ * No redundancy: every (infinite) byte sequence corresponds to a list
+   of encoded integers.
+
+Examples:
+ * 0:         [0x00]  256:        [0x81 0x00]
+ * 1:         [0x01]  16383:      [0xFE 0x7F]
+ * 127:       [0x7F]  16384:      [0xFF 0x00]
+ * 128:  [0x80 0x00]  16511:      [0xFF 0x7F]
+ * 255:  [0x80 0x7F]  65535: [0x82 0xFE 0x7F]
+ * 2^32:           [0x8E 0xFE 0xFE 0xFF 0x00]
+
+ read_CompressedInt():
+     result = 0
+     while not eof():
+         b = read_bytes(1)
+         if b < 128: return result + b
+         result += b - 127
+         result *= 128
+     fail()
+
+ write_CompressedInt(n):
+     out = []
+     while True:
+         out.append( n % 128 )
+         if n <= 127: break
+         n = (n // 128) - 1
+     while len(out) > 1:
+         write(out.pop() | 0x80)
+     write(out.pop())
+
+=== Type-Length-Value Format ===
+
+The annex is defined as containing an ordered set of "type, value" pairs, where the type is a non-negative integer, and the value is a byte stream, and the pairs are listed in non-decreasing order by type.
+
+The annex is encoded as follows:
+
+ write(0x50)
+ last_type = 0
+ for type, value in annex:
+    delta = type - last_type
+    assert delta >= 0, "annex must be ordered by type"
+    if length(value) < 127:
+        write_CompressedInt(delta * 128 + length(value))
+    else:
+        write_CompressedInt(delta * 128 + 127)
+        write_CompressedInt(length(value) - 127)
+    write(value)
+    last_type = type
+
+And conversely the annex may be decoded as follows:
+
+ assert read_bytes(1) == 0x50, "annex must begin with annex marker"
+ last_type = 0
+ annex = []
+ while not eof():
+    deltalen = read_CompressedInt()
+    type = last_type + (deltalen >> 7)
+    length = deltalen & 0x7F
+    if length == 0x7F:
+        length += read_CompressedInt()
+    value = read_bytes(length)
+    annex.append( (type, value) )
+    last_type = type
+
+Rather than encoding the type directly, we encode the difference between
+the previous type (initially 0), both minimising the encoding and ensuring
+a canonical ordering for annex entries.
+
+If length(value) is between 0 and 126 bytes, then:
+* entries with delta=0 are encoded in 1+length(value) bytes
+* entries with delta=1..128 are encoded in 2+length(value) bytes
+* entries with delta=129..16512 are encoded in 3+length(value) bytes
+
+The meaning of the value byte stream depends entirely on the `type` and may require further encoding/deconding as appropriate.
+
+=== Annex validation rules ===
+
+* If the annex does not decode successfully (that is, if read_CompressedInt() or read_bytes(length) fail due to reaching eof early); fail.
+* If the annex type is invalid following the type validation semantics defined in future softforks, fail the validation.
+
+Additionally, care should be taken to not fail on potential overflow either in read_CompressedInt() or when cacluating `last_type + (deltalen >> 7)`.
+
+== Security ==
+
+== Rationale ==
+
+The annex should always be simple and fast to parse and verify (e.g only using information from the transaction, its utxos, and block headers;
+only requiring a single pass to parse) and that any expensive computation (such as signature validation) should be left for script evaluation.
+
+<references />
+
+== Reference Implementation ==
+
+https://github.com/ariard/bitcoin/commits/2022-10-inquis-annex
+
+== Deployment ==
+
+
+== Backwards compatibility ==
+
+
+== Revisions ==
+
+== Acknowledgements ==
+
+Thanks to AJ Towns for originating many of the ideas in this BIP.
