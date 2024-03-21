@@ -44,7 +44,7 @@ Additionally, it is a convention to give all Stratum methods in the <code>method
 
 It is possible to send JSON-RPC messages over different transport protocols, like TCP and HTTP. It is also possible to protect these protocols with SSL/TLS.
 
-''Note: Because HTTP and WebSockets support virtual hosting (<code>Host</code> header or <code>:authority</code> pseudo-header), it is possible to create a server on a single IP address that supports multiple coins by checking the domain name. The same is the case for the transport protocols with SSL/TLS when SNI is used. On plain TCP, virtual hosting is not possible. A similar experience can be reached by using multiple IP addresses. For IPv6, a network of /96 would be enough to support all coins ever listed in SLIP-44. For IPv4, you need all IPv4 addresses that exist, even the invalid ones, so a suggestion is to only use the server only for coins you really need.''
+''Note: Because HTTP and WebSockets support virtual hosting (<code>Host</code> header or <code>:authority</code> pseudo-header), it is possible to create a server on a single IP address that supports multiple coins by checking the domain name. The same is the case for the transport protocols with SSL/TLS when SNI is used. On plain TCP, virtual hosting is not possible. A similar experience can be reached by using multiple IP addresses. For IPv6, a network of /96 would be enough to hypothetically support all coins ever listed in SLIP-44. For IPv4, you would need all IPv4 addresses that exist to do the same, even the invalid ones, so a suggestion is to only use the server only for coins you really need. Also, other ports could possibly be used and in that case, a /16 IP block with all 65536 TCP ports in use will be enough to support all coins. However, because using non-standard ports is not user-friendly, this is also not recommended.''
 
 ===TCP===
 
@@ -71,7 +71,9 @@ It could be possible that a request or response also has a <code>Content-MD5</co
 
 ====Session====
 
-Because it is not sure if an HTTP connection will stay open, it is highly possible that messages will be sent over multiple connections. To keep track of the same "session", cookies are used. If a client sends a request with a cookie, the servers knows exactly which session is used and which notifications to send.
+Because it is not sure if an HTTP connection will stay open, it is highly possible that messages will be sent over multiple connections. To keep track of the same "session", a cookie with the name <code>STRATUM_SESSION</code> is used. If a client sends a request with a cookie, the servers knows exactly which session is used and which notifications to send.
+
+Servers could send the <code>Stratum-Session-Timeout</code> header to tell the client when a session with the same session id will be seen as a new session by the server.<ref name="extended"/> The header contains a number that indicates how many seconds are left. This is different from <code>Expires</code> or <code>Max-Age</code> parameters of the <code>Set-Cookie</code> header, that indicate when a cookie (not necessarily a session) should have been expired by the client. For backwards compatibility, a <code>X-Session-Timeout</code> header with the same value should be sent in those requests too.
 
 ====HTTP Poll====
 
@@ -81,7 +83,9 @@ If no error occurred, the server will respond with a 200 status code and with <c
 
 ====HTTP Push====
 
-TODO
+HTTP Poll is the default mode when connecting with a server over HTTP. To get the session in HTTP Push mode, a client should send a regular HTTP Poll request with an additional <code>Stratum-Callback-URL</code> header. This will let the server send notifications using the callback URL without the client needing to send HTTP poll requests in with a very small interval. To disable HTTP Push mode, a regular HTTP poll request should be sent with an additional empty <code>Stratum-Callback-URL</code> header. For backwards compatibility, a <code>X-Callback-URL</code> header with the same value should be sent in those requests too.
+
+The callback URL will be called when there are notifications. This request is an HTTP POST request with a <code>Content-Type</code> header and a <code>Stratum-Session-ID</code> header. The <code>Stratum-Session-ID</code> contains the same id as the <code>STRATUM_SESSION</code> cookie. This makes it possible to use the callback URL for multiple sessions. The response is of the callback URL is expected to be empty, so any response body will likely be ignored. For backwards compatibility, a <code>X-Session-ID</code> header with the same value should be sent in those requests too.
 
 ===HTTP over SSL/TLS===
 
