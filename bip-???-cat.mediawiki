@@ -1,26 +1,33 @@
 <pre>
-  BIP: ???
+  BIP: ?
   Layer: Consensus (soft fork)
   Title: OP_CAT
   Author: Ethan Heilman <ethan.r.heilman@gmail.com>
           Armin Sabouri <arminsdev@gmail.com>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-op-cat
   Status: Draft
   Type: Standards Track
   Created: 2023-10-21
-  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-op-cat
   License: BSD-3-Clause
 </pre>
 
 ==Abstract==
 
-This BIP reintroduces OP_CAT in the form of a new tapscript opcode which allows the concatenation of two values on the stack. This opcode would be activated via a soft fork by redefining the opcode OP_SUCCESS126 (126 in decimal and 0x7e in hexidecimal). This is same opcode value used by the original OP_CAT.
+This BIP introduces OP_CAT as a tapscript opcode which allows the concatenation of two values on the stack. OP_CAT would be activated via a soft fork by redefining the opcode OP_SUCCESS126 (126 in decimal and 0x7e in hexadecimal). This is the same opcode value used by the original OP_CAT.
+
+== Copyright ==
+This document is licensed under the 3-clause BSD license.
+
+==Specification==
 
 When evaluated the OP_CAT instruction:
 # Pops the top two values off the stack,
-# concatenates the popped values together,
+# concatenates the popped values together in stack order,
 # and then pushes the concatenated value on the top of the stack.
 
-OP_CAT fails if there are less than two values on the stack or if a concatenated value would have a combined size greater than the maximum script element size of 520 bytes.
+Given the stack ''<nowiki>[x1, x2]</nowiki>'', where ''x2'' is at the top of the stack, OP_CAT will push ''x1 || x2'' onto the stack. By ''||'' we denote concatenation. OP_CAT fails if there are fewer than two values on the stack or if a concatenated value would have a combined size greater than the maximum script element size of 520 bytes.
+
+This opcode would be activated via a soft fork by redefining the tapscript opcode OP_SUCCESS126 (126 in decimal and 0x7e in hexadecimal) to OP_CAT.
 
 ==Motivation==
 Bitcoin tapscript lacks a general purpose way of combining objects on the stack restricting the expressiveness and power of tapscript. This prevents among many other things the ability to construct and evaluate merkle trees and other hashed data structures in tapscript. OP_CAT by adding a general purpose way to concatenate stack values would overcome this limitation and greatly increase the functionality of tapscript.
@@ -37,13 +44,23 @@ OP_CAT aims to expand the toolbox of the tapscript developer with a simple, modu
 The opcode OP_CAT was available in early versions of Bitcoin. However, OP_CAT was removed because it enabled the construction of a script whose evaluation could have memory usage exponential in the size of the script.
 For example, a script that pushed a 1-byte value on the stack and then repeated the opcodes OP_DUP, OP_CAT 40 times would result in a stack value whose size was greater than 1 terabyte. This is no longer an issue because tapscript enforces a maximum stack element size of 520 bytes.
 
-==Specification==
+==Rationale==
 
-OP_CAT pops two elements off the stack, concatenates them together in stack order, and pushes the resulting element onto the stack. Given the stack ''<nowiki>[x1, x2]</nowiki>'', where ''x2'' is at the top of the stack, OP_CAT will push ''x1 || x2'' onto the stack. By ''||'' we denote concatenation.
+Our decision to reenable OP_CAT by redefining a tapscript OP_SUCCESSx opcode to OP_CAT was motivated to leverage the tapscript softfork opcode upgrade path introduced in [[bip-0342.mediawiki|BIP342]].
 
-===Implementation===
+We specifically choose to use OP_SUCCESS126 rather than another OP_SUCCESSx as OP_SUCCESS126 uses the same opcode value (126 in decimal and 0x7e in hexadecimal) that was used for OP_CAT prior to it being disabled in Bitcoin. This removes a potential source of confusion that would exist if we had a opcode value different from the one used in the original OP_CAT opcode.
+
+While the OP_SUCCESSx opcode upgrade path could enable us to increase the stack element size while reenabling OP_CAT, we wanted to separate the decision to change the stack element size limit from the decision to reenable OP_CAT. This BIP takes no position in favor or against increasing the stack element size limit.
+
+==Backwards Compatibility==
+
+OP_CAT usage in an non-tapscript script will continue to trigger the SCRIPT_ERR_DISABLED_OPCODE. The only change would be to OP_CAT usage in tapscript. This change to tapscript would be activated a soft fork that redefines an OP_SUCCESSx opcode (OP_SUCCESS126) to OP_CAT.
+
+==Reference implementation==
+
 <pre>
-case OP_CAT: {
+case OP_CAT:
+{
   if (stack.size() < 2)
     return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
   valtype& vch1 = stacktop(-2);
@@ -55,29 +72,29 @@ case OP_CAT: {
 }
 break;
 </pre>
-This implementation is inspired by the original implementation of OP_CAT as shown below. An alternative implementation of OP_CAT can be found in Elements <ref>Roose S., Elements Project, "Re-enable several disabled opcodes", 2019, https://github.com/ElementsProject/elements/commit/13e1103abe3e328c5a4e2039b51a546f8be6c60a#diff-a0337ffd7259e8c7c9a7786d6dbd420c80abfa1afdb34ebae3261109d9ae3c19R740-R759</ref>.
+
 
 The value of <code>MAX_SCRIPT_ELEMENT_SIZE</code> is 520.
 
-==Notes==
-
-[https://github.com/bitcoin/bitcoin/blob/01cd2fdaf3ac6071304ceb80fb7436ac02b1059e/script.cpp#L381-L393 OP_CAT as it existed in the Bitcoin codebase] prior to the commit "misc changes" 4bd188c<ref>S. Nakamoto, "misc changes", Aug 25 2010, https://github.com/bitcoin/bitcoin/commit/4bd188c4383d6e614e18f79dc337fbabe8464c82#diff-27496895958ca30c47bbb873299a2ad7a7ea1003a9faa96b317250e3b7aa1fefR94</ref> which disabled it:
+This implementation is inspired by the original implementation of [https://github.com/bitcoin/bitcoin/blob/01cd2fdaf3ac6071304ceb80fb7436ac02b1059e/script.cpp#L381-L393 OP_CAT as it existed in the Bitcoin codebase] prior to the commit "misc changes" 4bd188c<ref>S. Nakamoto, "misc changes", Aug 25 2010, https://github.com/bitcoin/bitcoin/commit/4bd188c4383d6e614e18f79dc337fbabe8464c82#diff-27496895958ca30c47bbb873299a2ad7a7ea1003a9faa96b317250e3b7aa1fefR94</ref> which disabled it:
 
 <pre>
-  // (x1 x2 -- out)
-  if (stack.size() < 2)
-    return false;
-  valtype& vch1 = stacktop(-2);
-  valtype& vch2 = stacktop(-1);
-  vch1.insert(vch1.end(), vch2.begin(), vch2.end());
-  stack.pop_back();
-  if (stacktop(-1).size() > 5000)
-    return false;
-  }
+case OP_CAT:
+{
+    // (x1 x2 -- out)
+    if (stack.size() < 2)
+        return false;
+    valtype& vch1 = stacktop(-2);
+    valtype& vch2 = stacktop(-1);
+    vch1.insert(vch1.end(), vch2.begin(), vch2.end());
+    stack.pop_back();
+    if (stacktop(-1).size() > 5000)
+        return false;
+}
+break;
 </pre>
 
-==Backwards Compatibility==
-OP_CAT usage in any Non-SegWitV1 script will continue to trigger the SCRIPT_ERR_DISABLED_OPCODE.
+An alternative implementation of OP_CAT can be found in Elements <ref>Roose S., Elements Project, "Re-enable several disabled opcodes", 2019, https://github.com/ElementsProject/elements/commit/13e1103abe3e328c5a4e2039b51a546f8be6c60a#diff-a0337ffd7259e8c7c9a7786d6dbd420c80abfa1afdb34ebae3261109d9ae3c19R740-R759</ref>.
 
 ==References==
 
@@ -85,7 +102,4 @@ OP_CAT usage in any Non-SegWitV1 script will continue to trigger the SCRIPT_ERR_
 
 ==Acknowledgements==
 
-We wish to acknowledge Dan Gould for encouraging and helping review this effort. We also want to thank Madars Virza, Jeremy Rubin, Andrew Poelstra, Bob Summerwill for their feedback and helpful comments.
-
-== Copyright ==
-This document is licensed under the 3-clause BSD license.
+We wish to acknowledge Dan Gould for encouraging and helping review this effort. We also want to thank Madars Virza, Jeremy Rubin, Andrew Poelstra, Bob Summerwill for their feedback, review and helpful comments.
