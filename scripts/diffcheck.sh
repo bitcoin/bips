@@ -1,5 +1,6 @@
 #!/bin/bash
 
+scripts/buildtable.pl >/tmp/table.mediawiki 2> /dev/null
 diff README.mediawiki /tmp/table.mediawiki | grep '^[<>] |' >/tmp/after.diff || true
 if git checkout HEAD^ && scripts/buildtable.pl >/tmp/table.mediawiki 2>/dev/null; then
     diff README.mediawiki /tmp/table.mediawiki | grep '^[<>] |' >/tmp/before.diff || true
