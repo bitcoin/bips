@@ -15,9 +15,9 @@
 ===Abstract===
 
 This document proposes an efficient encoding format for output descriptors as
-defined by [[bip-0380.mediawiki|BIP 380]] and its extensions. The format is
-based on key-value maps as defined by [[bip-0174.mediawiki|BIP 174]] with a
-distinct header to avoid confusing PSBT decoders.
+defined by [[bip-0380.mediawiki|BIP 380]] and its extensions. Based on
+key-value maps as defined by [[bip-0174.mediawiki|BIP 174]], the encoding
+supports descriptor and key metadata.
 
 ===Copyright===
 
@@ -28,12 +28,34 @@ This BIP is licensed under the BSD 2-clause license.
 A BIP 380 output descriptor is a textual representation of a set of output
 scripts, such that Bitcoin wallets may agree on the scripts and addresses
 to provide the user. However, a descriptor string by itself is not ideal for
-transferring between wallets: it lacks a machine recognizable header and cannot
-represent metadata such as name and birth block.
+transferring between wallets: it lacks a machine recognizable header, cannot
+represent metadata such as name and birth block, and its use of base58 for
+extended keys is inefficient.
 
 BIP 174 gives us a self-describing file format, metadata as well as a compact,
 binary representation of keys. Assuming most wallets already implements the PSBT
-format, the implementation overhead of this BIP is expected to be low.
+format, the implementation overhead of this BIP is expected to be low
+<ref> '''Why not extend BIP 174?'''
+The PSBT format is not a general purpose container format, and descriptors
+are useful outside of signing flows (backup, initializing wallet
+software).</ref>
+<ref> '''Why not use the older Blockchain Commons BCR-2020-010 format?'''
+The format was [[https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-010-output-desc.md#deprecated-superseded-by-version-3-output-descriptors|recently deprecated]],
+because its use of reserved CBOR tags.</ref>
+<ref>'''Why not use the new Blockchain Commons BCR-2023-010 format?'''
+The [[https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2023-010-output-descriptor.md|BCR-2023-010 format]]
+is roughly equivalent to this proposal, but was designed and released outside of
+the usual BIP proposal process.
+
+In particular, we believe BCR-2023-010 would have faced opposition
+in the BIP process because it is based on the [[https://cbor.io/spec.html|CBOR encoding]].
+CBOR is designed for generality and compactness and is therefore significantly
+more complex than the PSBT encoding. In contrast, the PSBT key-value maps are
+supported by all wallet software that interact with PSBT files, are easier to
+review and fit in embedded devices.
+
+Release in late 2023, BCR-2023-010 doesn't event have the advantage of widespread
+support.</ref>.
 
 ==Specification==
 
@@ -63,7 +85,14 @@ The defined global types are as follows:
 | <tt><compact size uint birth block><bytes></tt>
 | The earliest block height that may contain transactions for the descriptor, optionally followed by the UTF-8 encoded name of the descriptor.
 | <tt><bytes descriptor></tt>
-| The output descriptor in BIP 380 format without inline keys.
+| The output descriptor in BIP 380 format without inline keys<ref>''Why not encode the descriptor in binary?'''
+The BIP 380 descriptor language is complicated and expanding and we believe
+the efforts of designing a parallel binary encoding does not outweigh the
+space savings.
+
+The major source of bloat, base58 encoded keys, are binary encoded for compactness and
+can be re-used multiple times in a single descriptor.
+.</ref>
 |}
 
 It is an error to omit the BOD_GLOBAL_OUTPUT_DESCRIPTOR entry.
