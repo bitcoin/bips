@@ -61,20 +61,20 @@ The <code>to_spend</code> transaction is:
     vout[0].nValue = 0
     vout[0].scriptPubKey = message_challenge
 
-where <code>message_hash</code> is a BIP340-tagged hash of the message, i.e. sha256_tag(m), where tag = <code>BIP0322-signed-message</code>, and <code>message_challenge</code> is the to be proven (public) key script.
+where <code>message_hash</code> is a BIP340-tagged hash of the message, i.e. sha256_tag(m), where tag = <code>BIP0322-signed-message</code> and <code>m</code> is the message as is without length prefix or null terminator, and <code>message_challenge</code> is the to be proven (public) key script.
 
 The <code>to_sign</code> transaction is:
 
-    nVersion = 0 or as appropriate (e.g. 2, for time locks)
-    nLockTime = 0 or as appropriate (for time locks)
+    nVersion = 0 or (FULL format only) as appropriate (e.g. 2, for time locks)
+    nLockTime = 0 or (FULL format only) as appropriate (for time locks)
     vin[0].prevout.hash = to_spend.txid
     vin[0].prevout.n = 0
-    vin[0].nSequence = 0 or as appropriate (for time locks)
+    vin[0].nSequence = 0 or (FULL format only) as appropriate (for time locks)
     vin[0].scriptWitness = message_signature
     vout[0].nValue = 0
     vout[0].scriptPubKey = OP_RETURN
 
-A full signature consists of the base64-encoding of the <code>to_sign</code> transaction in standard network serialisation.
+A full signature consists of the base64-encoding of the <code>to_sign</code> transaction in standard network serialisation once it has been signed.
 
 === Full (Proof of Funds) ===
 
@@ -120,7 +120,7 @@ Validation consists of the following steps:
 # Check the **upgradeable rules**
 ## The version of <code>to_sign</code> must be 0 or 2.
 ## The use of NOPs reserved for upgrades is forbidden.
-## The use of segwit versions greater than 0 are forbidden.
+## The use of segwit versions greater than 1 are forbidden.
 ## If any of the above steps failed, the validator should stop and output the ''inconclusive'' state.
 # Let ''T'' by the nLockTime of <code>to_sign</code> and ''S'' be the nSequence of the first input of <code>to_sign</code>. Output the state ''valid at time T and age S''.
 
@@ -144,7 +144,7 @@ This specification is backwards compatible with the legacy signmessage/verifymes
 
 == Reference implementation ==
 
-TODO
+* Bitcoin Core pull request (basic support) at: https://github.com/bitcoin/bitcoin/pull/24058
 
 == Acknowledgements ==
 
@@ -160,4 +160,33 @@ This document is licensed under the Creative Commons CC0 1.0 Universal license.
 
 == Test vectors ==
 
-TODO
+=== Message hashing ===
+
+Message hashes are BIP340-tagged hashes of a message, i.e. sha256_tag(m), where tag = <code>BIP0322-signed-message</code>, and m is the message as is without length prefix or null terminator:
+
+* Message = "" (empty string): <code>c90c269c4f8fcbe6880f72a721ddfbf1914268a794cbb21cfafee13770ae19f1</code>
+* Message = "Hello World": <code>f0eb03b1a75ac6d9847f55c624a99169b5dccba2a31f5b23bea77ba270de0a7a</code>
+
+=== Message signing ===
+
+Given below parameters:
+
+* private key <code>L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k</code>
+* corresponding address <code>bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l</code>
+
+Produce signatures:
+
+* Message = "" (empty string): <code>AkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyxFSeEA2ba9YOixpX8z46TSDtS40ASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=</code>
+* Message = "Hello World": <code>AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=</code>
+
+=== Transaction Hashes ===
+
+to_spend:
+
+* Message = "" (empty string): <code>c5680aa69bb8d860bf82d4e9cd3504b55dde018de765a91bb566283c545a99a7</code>
+* Message = "Hello World": <code>b79d196740ad5217771c1098fc4a4b51e0535c32236c71f1ea4d61a2d603352b</code>
+
+to_sign:
+
+* Message = "" (empty string): <code>1e9654e951a5ba44c8604c4de6c67fd78a27e81dcadcfe1edf638ba3aaebaed6</code>
+* Message = "Hello World": <code>88737ae86f2077145f93cc4b153ae9a1cb8d56afa511988c149c5c8c9d93bddf</code>
