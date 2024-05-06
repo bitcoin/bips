@@ -96,6 +96,9 @@ my %emails;
 my $bipnum = 0;
 while (++$bipnum <= $topbip) {
 	my $fn = sprintf "bip-%04d.mediawiki", $bipnum;
+	if (!-e $fn) {
+		$fn = sprintf "bip-%04d.md", $bipnum;
+	}
 	-e $fn || next;
 	open my $F, "<$fn";
 	while (<$F> !~ m[^(?:\xef\xbb\xbf)?<pre>$]) {
