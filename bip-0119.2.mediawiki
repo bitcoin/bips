@@ -1,0 +1,184 @@
+<pre>
+  BIP: 119.2 (Pending Assignment)
+  Layer: Consensus (soft fork)
+  Title: CHECKTEMPLATEVERIFY V2
+  Author: Jeremy Rubin <j@rubin.io>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0119
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-05-06
+  License: BSD-3-Clause
+</pre>
+
+==Abstract==
+
+This BIP proposes extensions to OP_CHECKTEMPLATEVERIFY BIP-119 as enhancements
+for LN Symmetry based constructions which use CTV and CSFS.
+
+
+==Summary==
+
+Adds a 20-byte CTV hash using HASH160 digest to save 12 bytes per script.  Adds
+a 1-byte flag (with no bits set) that allows for arbitrary data to be committed
+to inside the CTV hash.
+
+==Motivation==
+
+LN Symmetry prefers scripts as small as possible. Allowing the use of HASH160
+can allow users to reduce fees in exchange for minor loss of security.
+
+LN Symmetry also sometimes requires additional committed data for data
+availability purposes. When using BIP-118 APO, this extra data can be
+(although, according to BIP-341/342 should not be) placed in the Annex. As CTV
+does not commit to the annex, additional data can be committed to in an
+OP_RETURN.  However, OP_RETURNs are inefficient as they require 8 bytes of
+value plus a few VarInts to encode sizes, and use non discounted blockspace.
+Instead, committing to with CTV extra values on the stack can avoid these
+overheads.
+
+
+==Detailed Specification==
+
+The below code is the main logic for verifying CHECKTEMPLATEVERIFY, described
+in pythonic pseudocode, with these modifications. The canonical specification
+for the semantics of OP_CHECKTEMPLATEVERIFY as implemented in C++ in the
+context of Bitcoin Core can be seen in the reference implementation (TODO).
+
+The execution of the opcode is as follows:
+<source lang="python">
+def execute_bip_119_v2(self):
+    # Before soft-fork activation / failed activation
+    # continue to treat as NOP4
+    if not self.flags.script_verify_default_check_template_verify_hash:
+        # Potentially set for node-local policy to discourage premature use
+        if self.flags.script_verify_discourage_upgradable_nops:
+            return self.errors_with(errors.script_err_discourage_upgradable_nops)
+        return self.return_as_nop()
+
+    # CTV always requires at least one stack argument
+    if len(self.stack) < 1:
+        return self.errors_with(errors.script_err_invalid_stack_operation)
+
+    # CTV only verifies the hash against a 32 byte argument
+    if len(self.stack[-1]) == 32:
+        # Ensure the precomputed data required for anti-DoS is available,
+        # or cache it on first use
+        if self.context.precomputed_ctv_data == None:
+            self.context.precomputed_ctv_data = self.context.tx.get_default_check_template_precomputed_data()
+
+        # If the hashes do not match, return error
+        if stack[-1] != self.context.tx.get_default_check_template_hash(self.context.nIn, self.context.precomputed_ctv_data):
+            return self.errors_with(errors.script_err_template_mismatch)
+
+        return self.return_as_nop()
+
+    # verifies the hash against a 20 byte argument
+    if len(self.stack[-1]) == 20:
+
+        # Before soft-fork activation / failed activation
+        # continue to treat as NOP4
+        if not self.flags.script_verify_default_check_template_verify_hash_v2:
+            # Potentially set for node-local policy to discourage premature use
+            if self.flags.script_verify_discourage_upgradable_nops:
+                return self.errors_with(errors.script_err_discourage_upgradable_nops)
+            return self.return_as_nop()
+
+
+        # Ensure the precomputed data required for anti-DoS is available,
+        # or cache it on first use
+        if self.context.precomputed_ctv_data == None:
+            self.context.precomputed_ctv_data = self.context.tx.get_default_check_template_precomputed_data()
+
+        # If the hashes do not match, return error
+        if stack[-1] != ripemd(self.context.tx.get_default_check_template_hash(self.context.nIn, self.context.precomputed_ctv_data)):
+            return self.errors_with(errors.script_err_template_mismatch)
+
+        return self.return_as_nop()
+
+    # verifies the hash against a 21 byte argument and extra data
+    if len(self.stack[-1]) == 21:
+        # CTV+data always requires at least two stack argument
+        if len(self.stack) < 2:
+            return self.errors_with(errors.script_err_invalid_stack_operation)
+
+        # Before soft-fork activation / failed activation
+        # continue to treat as NOP4
+        if not self.flags.script_verify_default_check_template_verify_hash_v2 or self.stack[-1][-1] != 0:
+            # Potentially set for node-local policy to discourage premature use
+            if self.flags.script_verify_discourage_upgradable_nops:
+                return self.errors_with(errors.script_err_discourage_upgradable_nops)
+            return self.return_as_nop()
+
+
+        # Ensure the precomputed data required for anti-DoS is available,
+        # or cache it on first use
+        if self.context.precomputed_ctv_data == None:
+            self.context.precomputed_ctv_data = self.context.tx.get_default_check_template_precomputed_data()
+
+        # If the hashes do not match, return error
+        if stack[-1] != ripemd(sha256(self.context.tx.get_default_check_template_hash(self.context.nIn, self.context.precomputed_ctv_data) + sha256(stack[-2]))):
+            return self.errors_with(errors.script_err_template_mismatch)
+
+        return self.return_as_nop()
+
+    # verifies the hash against a 33 byte argument and extra data
+    if len(self.stack[-1]) == 33:
+        # CTV+data always requires at least two stack argument
+        if len(self.stack) < 2:
+            return self.errors_with(errors.script_err_invalid_stack_operation)
+
+        # Before soft-fork activation / failed activation
+        # continue to treat as NOP4
+        if not self.flags.script_verify_default_check_template_verify_hash_v2 or self.stack[-1][-1] != 0:
+            # Potentially set for node-local policy to discourage premature use
+            if self.flags.script_verify_discourage_upgradable_nops:
+                return self.errors_with(errors.script_err_discourage_upgradable_nops)
+            return self.return_as_nop()
+
+
+        # Ensure the precomputed data required for anti-DoS is available,
+        # or cache it on first use
+        if self.context.precomputed_ctv_data == None:
+            self.context.precomputed_ctv_data = self.context.tx.get_default_check_template_precomputed_data()
+
+        # If the hashes do not match, return error
+        if stack[-1] != sha256(self.context.tx.get_default_check_template_hash(self.context.nIn, self.context.precomputed_ctv_data) + sha256(stack[-2])):
+            return self.errors_with(errors.script_err_template_mismatch)
+
+        return self.return_as_nop()
+
+    # future upgrade can add semantics for this opcode with different length args
+    # so discourage use when applicable
+    if self.flags.script_verify_discourage_upgradable_nops:
+        return self.errors_with(errors.script_err_discourage_upgradable_nops)
+    else:
+        return self.return_as_nop()
+</source>
+
+
+No additional DoS protection or caching is required, as the hashing overhead of
+the new opcode is similar to that of a regular OP_SHA256 or OP_HASH160.
+
+==Deployment==
+
+N/A
+==Reference Implementation==
+
+A reference implementation and tests are pending after conceptual agreement.
+
+
+===Alternatives===
+
+Should `OP_CAT` be added to Bitcoin, one would be able to use script fragments
+that sign the CTV hash concatenated with the extra data, which would be
+equivalent to this.
+
+Should `CSFS` sign an arbitrary number of stack elements as a vector
+commitment, this would also be equivalent.
+
+This BIP could be pared down to just provide the 20-byte version for
+efficiency.
+
+==Copyright==
+
+This document is licensed under the 3-clause BSD license.
