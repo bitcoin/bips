@@ -93,54 +93,13 @@ Once the previously registered policy is correctly identified and approved by th
 
 While reusing a pubkey in different branches of a miniscript is explicitly forbidden by miniscript (as it has certain negative security implications), it is still reasonable to reuse the same xpub in multiple places, albeit with different final steps of derivation (so that the actual pubkeys that are used in the script are indeed different).
 
-For example, using Taproot, a 3-of-5 multisignature wallet could use:
+In fact, there are many reasonable spending policies with a quadratic size in the number of participants. For example, using Taproot, a 3-of-5 multisignature wallet could use:
 * a key path with a 5-of-5 MuSig2 aggregated key
 * a script tree with 11 leaves:
-** 10 different script using a 3-of-3 MuSig2 aggregated key, plus
-** a final leaf with a fallback 3-of-5 multisignature using <tt>OP_CHECKSIGADD</tt> (in case interactive signing is not available).
+** 10 different scripts using a 3-of-3 MuSig2 aggregated key, plus
+** a final leaf with a fallback 3-of-5 multisignature using <tt>multi_a</tt> (in case interactive signing is not available).
 
-This could look similar to:
-
-<pre>
-tr(musig(xpubA,xpubB,xpubC,xpubD,xpubE)/<0;1>/*), {
-  {
-    {
-      pk(musig(xpubA,xpubB,xpubC)/<2;3>/*),
-      {
-        pk(musig(xpubA,xpubB,xpubD)/<4;5>/*)
-        pk(musig(xpubA,xpubB,xpubE)/<6;7>/*),
-      }
-    },
-    {
-      pk(musig(xpubA,xpubC,xpubD)/<8;9>/*),
-      {
-        pk(musig(xpubA,xpubC,xpubE)/<10;11>/*),
-        pk(musig(xpubA,xpubD,xpubE)/<12;13>/*)
-      }
-    }
-  },
-  {
-    {
-      pk(musig(xpubB,xpubC,xpubD)/<14;15>/*),
-      pk(musig(xpubB,xpubC,xpubE)/<16;17>/*)
-    },
-    {
-      pk(musig(xpubB,xpubD,xpubE)/<18;19>/*),
-      {
-        pk(musig(xpubC,xpubD,xpubE)/<20;21>/*),
-        sortedmulti_a(3,
-          xpubA/<22;23>/*,
-          xpubB/<22;23>/*,
-          xpubC/<22;23>/*,
-          xpubD/<22;23>/*,
-          xpubE/<22;23>/*)
-      }
-    }
-  }
-})
-</pre>
-
-Notice how each root xpub appears 8 times. With xpubs being up to 118 bytes long, the length of the full descriptor can get extremely long (the problem rapidly gets worse with larger multisignature schemes).
+With each xpub being 118 bytes long, the repetition of xpubs makes the descriptor become extremely large.
 
 Replacing the common part of the key with a short key placeholder and moving the key expression separately helps to keep the size of the wallet policy small, which is crucial to allow human inspection during the registration flow.
 
@@ -299,8 +258,11 @@ Miniscript: A singlesig wallet with automatic inheritance to a timelocked 2-of-3
  Keys info: ["[6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa", "[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js", "[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2", "[bb641298/44'/0'/0'/100']xpub6Dz8PHFmXkYkykQ83ySkruky567XtJb9N69uXScJZqweYiQn6FyieajdiyjCvWzRZ2GoLHMRE1cwDfuJZ6461YvNRGVBJNnLA35cZrQKSRJ"]
  Descriptor:wsh(or_d(pk([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa),and_v(v:multi(2,[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js,[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2,[bb641298/44'/0'/0'/100']xpub6Dz8PHFmXkYkykQ83ySkruky567XtJb9N69uXScJZqweYiQn6FyieajdiyjCvWzRZ2GoLHMRE1cwDfuJZ6461YvNRGVBJNnLA35cZrQKSRJ),older(65535))))
 <br>
-
-TBD: add examples with taproot scripts and miniscript.
+Taproot wallet policy with sortedmulti_a and a miniscript leaf
+ Descriptor template: tr(@0/**,{sortedmulti_a(1,@0/<2;3>/*,@1/**),or_b(pk(@2/**),s:pk(@3/**))})
+ Keys info: ["[6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa", "xpub6Fc2TRaCWNgfT49nRGG2G78d1dPnjhW66gEXi7oYZML7qEFN8e21b2DLDipTZZnfV6V7ivrMkvh4VbnHY2ChHTS9qM3XVLJiAgcfagYQk6K", "xpub6GxHB9kRdFfTqYka8tgtX9Gh3Td3A9XS8uakUGVcJ9NGZ1uLrGZrRVr67DjpMNCHprZmVmceFTY4X4wWfksy8nVwPiNvzJ5pjLxzPtpnfEM", "xpub6GjFUVVYewLj5no5uoNKCWuyWhQ1rKGvV8DgXBG9Uc6DvAKxt2dhrj1EZFrTNB5qxAoBkVW3wF8uCS3q1ri9fueAa6y7heFTcf27Q4gyeh6"]
+ Descriptor:tr([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<0;1>/*,{sortedmulti_a(1,xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<2;3>/*,xpub6Fc2TRaCWNgfT49nRGG2G78d1dPnjhW66gEXi7oYZML7qEFN8e21b2DLDipTZZnfV6V7ivrMkvh4VbnHY2ChHTS9qM3XVLJiAgcfagYQk6K/<0;1>/*),or_b(pk(xpub6GxHB9kRdFfTqYka8tgtX9Gh3Td3A9XS8uakUGVcJ9NGZ1uLrGZrRVr67DjpMNCHprZmVmceFTY4X4wWfksy8nVwPiNvzJ5pjLxzPtpnfEM/<0;1>/*),s:pk(xpub6GjFUVVYewLj5no5uoNKCWuyWhQ1rKGvV8DgXBG9Uc6DvAKxt2dhrj1EZFrTNB5qxAoBkVW3wF8uCS3q1ri9fueAa6y7heFTcf27Q4gyeh6/<0;1>/*))})
+<br>
 
 === Invalid policies ===
 
