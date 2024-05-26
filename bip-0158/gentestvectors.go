@@ -207,7 +207,7 @@ func main() {
 
 		prevOutputScripts, err := fetchPrevOutputScripts(client, block)
 		if err != nil {
-			fmt.Println("Couldn't fetch prev output scipts: ", err)
+			fmt.Println("Couldn't fetch prev output scripts: ", err)
 			return
 		}
 
