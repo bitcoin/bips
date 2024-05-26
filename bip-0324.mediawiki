@@ -112,17 +112,19 @@ Given a newly established connection (typically TCP/IP) between two v2 P2P nodes
 #** Generates a random ephemeral secp256k1 private key and sends a corresponding 64-byte ElligatorSwift<ref name="ellswift_paper">'''What is ElligatorSwift and why use it?''' The [https://eprint.iacr.org/2022/759.pdf SwiftEC paper] describes a method called ElligatorSwift which allows encoding elliptic curve points in a way that is indistinguishable from a uniformly distributed bitstream. While a random 256-bit string has about 50% chance of being a valid X coordinate on the secp256k1 curve, every 512-bit string is a valid ElligatorSwift encoding of a curve point, making the encoded point indistinguishable from random when using an encoder that can sample uniformly.</ref><ref name="ellswift_perf">'''How fast is ElligatorSwift?''' Our benchmarks show that ElligatorSwift encoded ECDH is about 50% more expensive than unencoded ECDH. Given the fast performance of ECDH and the low frequency of new connections, we found the performance trade-off acceptable for the pseudorandom bytestream and future censorship resistance it can enable.</ref>-encoded public key to the responder.
 #** May send up to 4095<ref name="why_4095_garbage">'''How was the limit of 4095 bytes garbage chosen?''' It is a balance between having sufficient freedom to hide information, and allowing it to be large enough so that the necessary 64 bytes of public key is small compared to it on the one hand, and bandwidth waste on the other hand.</ref> bytes of arbitrary data after their public key, called '''garbage''', providing a form of shapability and avoiding a recognizable pattern of exactly 64 bytes.<ref name="why_garbage">'''Why does the affordance for garbage exist in the protocol?''' The garbage strings after the public keys are needed for shapability of the handshake. Neither peer can send decoy packets before having received at least the other peer's public key, i.e., neither peer can send more than 64 bytes before having received 64 bytes.</ref>
 #* The responder:
-#** Waits until one byte is received which does not match the 12 bytes consisting of the network magic followed by "version\x00". If the first 12 bytes do match, the connection is treated as using the v1 protocol instead.<ref name="why_no_prefix_check">'''What if a v2 initiator's public key starts accidentally with these 12 bytes?''' This is so unlikely (probability of ''2<sup>-96</sup>'') to happen randomly in the v2 protocol that the initiator does not need to specifically avoid it.</ref><ref>Bitcoin Core versions <=0.4.0 and >=22.0 ignore valid P2P messages that are received prior to a VERSION message. Bitcoin Core versions between 0.4.0 and 22.0 assign a misbehavior score to the peer upon receiving such messages. v2 clients implementing this proposal will interpret any message other than VERSION received as the first message to be the initiation of a v2 connection, and will result in disconnection for v1 initiators that send any message type other than VERSION as the first message. We are not aware of any implementations where this could pose a problem.</ref>
+#** Waits until one byte is received which does not match the 16 bytes consisting of the network magic followed by "version\x00\x00\x00\x00\x00". If the first 16 bytes do match, the connection is treated as using the v1 protocol instead.<ref name="why_no_prefix_check">'''What if a v2 initiator's public key starts accidentally with these 16 bytes?''' This is so unlikely (probability of ''2<sup>-128</sup>'') to happen randomly in the v2 protocol that the initiator does not need to specifically avoid it. The optional detection of wrong-network v1 peers has a probability of ''2<sup>-96</sup>'', which is still negligible compared to random network failures.</ref><ref>Bitcoin Core versions <=0.4.0 and >=22.0 ignore valid P2P messages that are received prior to a VERSION message. Bitcoin Core versions between 0.4.0 and 22.0 assign a misbehavior score to the peer upon receiving such messages. v2 clients implementing this proposal will interpret any message other than VERSION received as the first message to be the initiation of a v2 connection, and will result in disconnection for v1 initiators that send any message type other than VERSION as the first message. We are not aware of any implementations where this could pose a problem.</ref>
+#** If the first 4 received bytes do not match the network magic, but the 12 bytes after that do match the version message encoding above, implementations may interpret this as a v1 peer of a different network, and disconnect them.
 #** Similarly generates a random ephemeral private key and sends a corresponding 64-byte ElligatorSwift-encoded public key to the initiator.
 #** Similarly may send up to 4095 bytes of garbage data after their public key.
 #* Both parties:
 #** Receive (the remainder of) the full 64-byte public key from the other side.
 #** Use X-only<ref name="xonly_ecdh">'''Why use X-only ECDH?''' Using only the X coordinate provides the same security as using a full encoding of the secret curve point but allows for more efficient implementation by avoiding the need for square roots to compute Y coordinates.</ref> ECDH to compute a shared secret from their private key and the exchanged public keys<ref name="why_ecdh_pubkeys">'''Why is the shared secret computation a function of the exact 64-byte public encodings sent?''' This makes sure that an attacker cannot modify the public key encoding used without modifying the rest of the stream. If a third party wants the ability to modify stream bytes, they need to perform a full MitM attack on the connection.</ref>, and deterministically derive from the secret 4 '''encryption keys''' (two in each direction: one for packet lengths, one for content encryption), a '''session id''', and two 16-byte '''garbage terminators'''<ref>'''What length is sufficient for garbage terminators?''' The length of the garbage terminators determines the probability of accidental termination of a legitimate v2 connection due to garbage bytes (sent prior to ECDH) inadvertently including the terminator. 16 byte terminators with 4095 bytes of garbage yield a negligible probability of such collision which is likely orders of magnitude lower than random connection failure on the Internet.</ref><ref>'''What does a garbage terminator in the wild look like?''' <div>[[File:bip-0324/garbage_terminator.png|none|256px|A garbage terminator model TX-v2 in the wild... sent by the responder]]</div>
 </ref> (one in each direction) using HKDF-SHA256.
-#** Send their 16-byte garbage terminator<ref name="why_garbage_term">'''Why does the protocol need a garbage terminator?''' While it is in principle possible to use the garbage authentication packet directly as a terminator (scan until a valid authentication packet follows), this would be significantly slower than just scanning for a fixed byte sequence, as it would require recomputing a Poly1305 tag after every received byte.</ref> followed by a '''garbage authentication packet'''<ref name="why_garbage_auth">'''Why does the protocol require a garbage authentication packet?''' Without the garbage authentication packet, the garbage would be modifiable by a third party without consequences. We want to force any active attacker to have to maintain a full protocol state. In addition, such malleability without the consequence of connection termination could enable protocol fingerprinting.</ref>, an '''encrypted packet''' (see further) with arbitrary '''contents''', and '''associated data''' equal to the garbage.
+#** Send their 16-byte garbage terminator.<ref name="why_garbage_term">'''Why does the protocol need a garbage terminator?''' While it is in principle possible to use the first packet after the garbage directly as a terminator (scan until a valid packet follows), this would be significantly slower than just scanning for a fixed byte sequence, as it would require recomputing a Poly1305 tag after every received byte.</ref>
 #** Receive up to 4111 bytes, stopping when encountering the garbage terminator.
-#** Receive an encrypted packet, verify that it decrypts correctly with associated data set to the garbage received, and then ignore its contents.
-#* At this point, both parties have the same keys, and all further communication proceeds in the form of encrypted packets. Packets have an '''ignore bit''', which makes them '''decoy packets''' if set. Decoy packets are to be ignored by the receiver apart from verifying they decrypt correctly. Either peer may send such decoy packets at any point after this. These form the primary shapability mechanism in the protocol. How and when to use them is out of scope for this document.
+#* At this point, both parties have the same keys, and all further communication proceeds in the form of '''encrypted packets'''.
+#** Encrypted packets have an '''ignore bit''', which makes them '''decoy packets''' if set. Decoy packets are to be ignored by the receiver apart from verifying they decrypt correctly. Either peer may send such decoy packets at any point from here on. These form the primary shapability mechanism in the protocol. How and when to use them is out of scope for this document.
+#** For each of the two directions, the first encrypted packet that will be sent in that direction (regardless of it being a decoy packet or not) will make use of the associated authenticated data (AAD) feature of the AEAD to authenticate the garbage that has been sent in that direction.<ref name="why_garbage_auth">'''Why does the protocol authenticate the garbage?''' Without garbage authentication, the garbage would be modifiable by a third party without consequences. We want to force any active attacker to have to maintain a full protocol state. In addition, such malleability without the consequence of connection termination could enable protocol fingerprinting.</ref>
 # The '''Version negotiation phase''', where parties negotiate what transport version they will use, as well as data defined by that version.<ref name="example_versions">'''What features could be added in future protocol versions?''' Examples of features that could be added in future versions include post-quantum cryptography upgrades to the handshake, and optional authentication.</ref>
 #* The responder:
 #** Sends a '''version packet''' with empty content, to indicate support for the v2 P2P protocol proposed by this document. Any other value for content is reserved for future versions.
@@ -136,19 +138,19 @@ Given a newly established connection (typically TCP/IP) between two v2 P2P nodes
 
 To avoid the recognizable pattern of first messages being at least 64 bytes, a future backwards-compatible upgrade to this protocol may allow both peers to send their public key + garbage + garbage terminator in multiple rounds, slicing those bytes up into messages arbitrarily, as long as progress is guaranteed.<ref name="handshake_progress">'''How can progress be guaranteed in a backwards-compatible way?''' In order to guarantee progress, it must be ensured that no deadlock occurs, i.e., no state is reached in which each party waits for the other party indefinitely. For example, any upgrade that adheres to the following conditions will guarantee progress:
 
-* The initiator must start by sending at least as many bytes as necessary to mismatch the magic/version 12 bytes prefix.
-* The responder must start sending after having received at least one byte that mismatches that 12-byte prefix.
+* The initiator must start by sending at least as many bytes as necessary to mismatch the magic/version 16 bytes prefix.
+* The responder must start sending after having received at least one byte that mismatches that 16-byte prefix.
 * As soon as either party has received the other peer's garbage terminator, or has received 4095 bytes of garbage, they must send their own garbage terminator. (When either of these conditions is met, the other party has nothing to respond with anymore that would be needed to guarantee progress otherwise.)
 * Whenever either party receives any nonzero number of bytes, while not having sent their garbage terminator completely yet, they must send at least one byte in response without waiting for more bytes.
-* After either party has sent their garbage terminator, they must also send the garbage authentication packet without waiting for more bytes, and transition to the version negotiation phase.
+* After either party has sent their garbage terminator, they must transition to the version negotiation phase without waiting for more bytes.
 
 Since the protocol as specified here adheres to these conditions, any upgrade which also adheres to these conditions will be backwards-compatible.</ref>
 
-Note that the version negotiation phase does not need to wait for the key exchange phase to complete; version packets can be sent immediately after sending the garbage authentication packet. So the first two phases together, jointly called '''the handshake''', comprise just 1.5 roundtrips:
+Note that the version negotiation phase does not need to wait for the key exchange phase to complete; version packets can be sent immediately after sending the garbage terminator. So the first two phases together, jointly called '''the handshake''', comprise just 1.5 roundtrips:
 
 * the initiator sends public key + garbage
-* the responder sends public key + garbage + garbage terminator + garbage authentication packet + version packet
-* the initiator sends garbage terminator + garbage authentication packet + version packet
+* the responder sends public key + garbage + garbage terminator + decoy packets (optional) + version packet
+* the initiator sends garbage terminator + decoy packets (optional) + version packet
 
 '''Packet encryption overview'''
 
@@ -183,24 +185,22 @@ As explained before, these messages are sent to set up the connection:
  |                                                                                                  |
  | x, ellswift_X = ellswift_create()                                                                |
  |                                                                                                  |
- |           --- ellswift_X + initiator_garbage (initiator_garbage_len bytes; max 4095) --->        |
+ |    ---- ellswift_X + initiator_garbage (initiator_garbage_len bytes; max 4095) --->              |
  |                                                                                                  |
  |                                   y, ellswift_Y = ellswift_create()                              |
  |                                   ecdh_secret = v2_ecdh(                                         |
  |                                                     y, ellswift_X, ellswift_Y, initiating=False) |
  |                                   v2_initialize(initiator, ecdh_secret, initiating=False)        |
  |                                                                                                  |
- |           <-- ellswift_Y + responder_garbage (responder_garbage_len bytes; max 4095) +           |
- |                    responder_garbage_terminator (16 bytes) +                                     |
- |                    v2_enc_packet(initiator, b'', aad=responder_garbage) +                        |
- |                    v2_enc_packet(initiator, RESPONDER_TRANSPORT_VERSION) ---                     |
+ |    <--- ellswift_Y + responder_garbage (responder_garbage_len bytes; max 4095) +                 |
+ |             responder_garbage_terminator (16 bytes) +                                            |
+ |             v2_enc_packet(initiator, RESPONDER_TRANSPORT_VERSION, aad=responder_garbage) ----    |
  |                                                                                                  |
  | ecdh_secret = v2_ecdh(x, ellswift_Y, ellswift_X, initiating=True)                                |
  | v2_initialize(responder, ecdh_secret, initiating=True)                                           |
  |                                                                                                  |
- |            --- initiator_garbage_terminator (16 bytes) +                                         |
- |                    v2_enc_packet(responder, b'', aad=initiator_garbage) +                        |
- |                    v2_enc_packet(responder, INITIATOR_TRANSPORT_VERSION) --->                    |
+ |     ---- initiator_garbage_terminator (16 bytes) +                                               |
+ |              v2_enc_packet(responder, INITIATOR_TRANSPORT_VERSION, aad=initiator_garbage) --->   |
  |                                                                                                  |
  ----------------------------------------------------------------------------------------------------
 </pre>
@@ -338,16 +338,16 @@ def initiate_v2_handshake(peer, garbage_len):
     send(peer, peer.ellswift_ours + peer.sent_garbage)
 </pre>
 
-The responder generates an ephemeral keypair for itself and derives the shared ECDH secret (using the first 64 received bytes) which enables it to instantiate the encrypted transport. It then sends 64 bytes of the unencrypted ElligatorSwift encoding of its own public key and its own <code>responder_garbage</code> also of length <code>garbage_len < 4096</code>. If the first 12 bytes received match the v1 prefix, the v1 protocol is used instead.
+The responder generates an ephemeral keypair for itself and derives the shared ECDH secret (using the first 64 received bytes) which enables it to instantiate the encrypted transport. It then sends 64 bytes of the unencrypted ElligatorSwift encoding of its own public key and its own <code>responder_garbage</code> also of length <code>garbage_len < 4096</code>. If the first 16 bytes received match the v1 prefix, the v1 protocol is used instead.
 
 <pre>
 TRANSPORT_VERSION = b''
 NETWORK_MAGIC = b'\xf9\xbe\xb4\xd9' # Mainnet network magic; differs on other networks.
-V1_PREFIX = NETWORK_MAGIC + b'version\x00'
+V1_PREFIX = NETWORK_MAGIC + b'version\x00\x00\x00\x00\x00'
 
 def respond_v2_handshake(peer, garbage_len):
     peer.received_prefix = b""
-    while len(peer.received_prefix) < 12:
+    while len(peer.received_prefix) < len(V1_PREFIX):
         peer.received_prefix += receive(peer, 1)
         if peer.received_prefix[-1] != V1_PREFIX[len(peer.received_prefix) - 1]:
             peer.privkey_ours, peer.ellswift_ours = ellswift_create()
@@ -357,27 +357,34 @@ def respond_v2_handshake(peer, garbage_len):
     use_v1_protocol()
 </pre>
 
-Upon receiving the encoded responder public key, the initiator derives the shared ECDH secret and instantiates the encrypted transport. It then sends the derived 16-byte <code>initiator_garbage_terminator</code> followed by an authenticated, encrypted packet with empty contents<ref name="send_empty_garbauth">'''Does the content of the garbage authentication packet need to be empty?''' The receiver ignores the content of the garbage authentication packet, so its content can be anything, and it can in principle be used as a shaping mechanism too. There is however no need for that, as immediately afterward the initiator can start using decoy packets as (a much more flexible) shaping mechanism instead.</ref> to authenticate the garbage, and its own version packet. It then receives the responder's garbage and garbage authentication packet (delimited by the garbage terminator), and checks if the garbage is authenticated correctly. The responder performs very similar steps but includes the earlier received prefix bytes in the public key. As mentioned before, the encrypted packets for the '''version negotiation phase''' can be piggybacked with the garbage authentication packet to minimize roundtrips.
+Upon receiving the encoded responder public key, the initiator derives the shared ECDH secret and instantiates the encrypted transport. It then sends the derived 16-byte <code>initiator_garbage_terminator</code>, optionally followed by an arbitrary number of decoy packets. Afterwards, it receives the responder's garbage (delimited by the garbage terminator). The responder performs very similar steps but includes the earlier received prefix bytes in the public key. Both the initiator and the responder set the AAD of the first encrypted packet they send after the garbage terminator (i.e., either an optional decoy packet or the version packet) to the garbage they have just sent, not including the garbage terminator.
 
 <pre>
-def complete_handshake(peer, initiating):
+def complete_handshake(peer, initiating, decoy_content_lengths=[]):
     received_prefix = b'' if initiating else peer.received_prefix
     ellswift_theirs = receive(peer, 64 - len(received_prefix))
+    if not initiating and ellswift_theirs[4:16] == V1_PREFIX[4:16]:
+        # Looks like a v1 peer from the wrong network.
+        disconnect(peer)
     ecdh_secret = v2_ecdh(peer.privkey_ours, ellswift_theirs, peer.ellswift_ours,
                           initiating=initiating)
     initialize_v2_transport(peer, ecdh_secret, initiating=True)
-    # Send garbage terminator + garbage authentication packet + version packet.
-    send(peer, peer.send_garbage_terminator +
-               v2_enc_packet(peer, b'', aad=peer.sent_garbage) +
-               v2_enc_packet(peer, TRANSPORT_VERSION))
+    # Send garbage terminator
+    send(peer, peer.send_garbage_terminator)
+    # Optionally send decoy packets after garbage terminator.
+    aad = peer.sent_garbage
+    for decoy_content_len in decoy_content_lengths:
+        send(v2_enc_packet(peer, decoy_content_len * b'\x00', aad=aad))
+        aad = b''
+    # Send version packet.
+    send(v2_enc_packet(peer, TRANSPORT_VERSION, aad=aad))
     # Skip garbage, until encountering garbage terminator.
     received_garbage = recv(peer, 16)
     for i in range(4096):
         if received_garbage[-16:] == peer.recv_garbage_terminator:
-            # Receive, decode, and ignore garbage authentication packet (decoy or not)
-            v2_receive_packet(peer, aad=received_garbage, skip_decoy=False)
-            # Receive, decode, and ignore version packet, skipping decoys
-            v2_receive_packet(peer)
+            # Receive, decode, and ignore version packet.
+            # This includes skipping decoys and authenticating the received garbage.
+            v2_receive_packet(peer, aad=received_garbage)
             return
         else:
             received_garbage += recv(peer, 1)
@@ -490,17 +497,19 @@ def v2_enc_packet(peer, contents, aad=b'', ignore=False):
 <pre>
 CHACHA20POLY1305_EXPANSION = 16
 
-def v2_receive_packet(peer, aad=b'', skip_decoy=True):
+def v2_receive_packet(peer, aad=b''):
     while True:
         enc_contents_len = receive(peer, LENGTH_FIELD_LEN)
         contents_len = int.from_bytes(peer.recv_L.crypt(enc_contents_len), 'little')
         aead_ciphertext = receive(peer, HEADER_LEN + contents_len + CHACHA20POLY1305_EXPANSION)
-        plaintext = peer.recv_P.decrypt(aead_ciphertext)
+        plaintext = peer.recv_P.decrypt(aad, aead_ciphertext)
         if plaintext is None:
             disconnect(peer)
             break
+        # Only the first packet is expected to have non-empty AAD.
+        aad = b''
         header = plaintext[:HEADER_LEN]
-        if not (skip_decoy and header[0] & (1 << IGNORE_BIT_POS)):
+        if not (header[0] & (1 << IGNORE_BIT_POS)):
             return plaintext[HEADER_LEN:]
 </pre>
 
@@ -554,12 +563,9 @@ The following table lists currently defined message type IDs:
 |<code>GETCFHEADERS</code>||<code>CFHEADERS</code>||<code>GETCFCHECKPT</code>||<code>CFCHECKPT</code>
 |-
 !+28
-|<code>ADDRV2</code>||<code>REQRECON</code>||<code>SKETCH</code>||<code>REQSKETCHEXT</code>
+|<code>ADDRV2</code>
 |-
-!+32
-|<code>RECONCILDIFF</code>
-|-
-!&geq;33
+!&geq;29
 || colspan="4" | (undefined)
 |}
 
