@@ -99,7 +99,7 @@ def insecure_schnorr_sign_fixed_nonce(msg, seckey0, k):
     e = int_from_bytes(tagged_hash("BIP0340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
     return bytes_from_point(R) + bytes_from_int((k + e * seckey) % n)
 
-# Creates a singature with a small x(R) by using k = -1/2
+# Creates a signature with a small x(R) by using k = -1/2
 def vector4():
     one_half = n - 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0
     seckey = bytes_from_int(0x763758E5CBEEDEE4F7D3FC86F531C36578933228998226672F13C4F0EBE855EB)
