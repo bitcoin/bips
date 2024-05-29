@@ -221,7 +221,7 @@ if __name__ == "__main__":
                 )
                 for input in given["vin"]
             ]
-            # Conver the tuples to lists so they can be easily compared to the json list of lists from the given test vectors
+            # Convert the tuples to lists so they can be easily compared to the json list of lists from the given test vectors
             input_priv_keys = []
             input_pub_keys = []
             for vin in vins:
