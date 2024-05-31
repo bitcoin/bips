@@ -106,6 +106,9 @@ The original PSBT MUST:
 The original PSBT MAY:
 * Have outputs unrelated to the payment for batching purpose.
 
+The original PSBT SHOULD NOT:
+* Include mixed input types until September 2024. Mixed inputs were previously completely disallowed so this gives some grace period for receivers to update.
+
 The payjoin proposal MUST:
 * Use all the inputs from the original PSBT.
 * Use all the outputs which do not belongs to the receiver from the original PSBT.
@@ -114,6 +117,9 @@ The payjoin proposal MUST:
 
 The payjoin proposal MAY:
 * Add, remove or modify the outputs belonging to the receiver.
+
+The payjoin proposal SHOULD NOT:
+* Include mixed input types until September 2024. Mixed inputs were previously completely disallowed so this gives some grace period for senders to update.
 
 The payjoin proposal MUST NOT:
 * Shuffle the order of inputs or outputs, the additional outputs or additional inputs must be inserted at a random index.
@@ -215,26 +221,7 @@ To prevent this, the sender can agree to pay more fee so the receiver make sure 
 
 When a sender pick a specific fee rate, the sender expects the transaction to be confirmed after a specific amount of time. But if the receiver adds an input without bumping the fee of the transaction, the payjoin transaction fee rate will be lower, and thus, longer to confirm.
 
-Our recommendation for <code>maxadditionalfeecontribution=</code> is <code>originalPSBTFeeRate * vsize(sender_input_type)</code>.
-
-{| class="wikitable"
-!sender_input_type
-!vsize(sender_input_type)
-|-
-|P2WPKH
-|68
-|-
-|P2PKH
-|148
-|-
-|P2SH-P2WPKH
-|91
-|-
-|P2TR
-|58
-|}
-
-
+Our recommendation for <code>maxadditionalfeecontribution=</code> is <code>originalPSBTFeeRate * 110</code>.
 
 ===Receiver's original PSBT checklist===
 
@@ -242,7 +229,6 @@ The receiver needs to do some check on the original PSBT before proceeding:
 
 * Non-interactive receivers (like a payment processor) need to check that the original PSBT is broadcastable. <code>*</code>
 * If the sender included inputs in the original PSBT owned by the receiver, the receiver must either return error <code>original-psbt-rejected</code> or make sure they do not sign those inputs in the payjoin proposal.
-* If the sender's inputs are all from the same scriptPubKey type, the receiver must match the same type. If the receiver can't match the type, they must return error <code>unavailable</code>.
 * Make sure that the inputs included in the original transaction have never been seen before.
 ** This prevent [[#probing-attack|probing attacks]].
 ** This prevent reentrant payjoin, where a sender attempts to use payjoin transaction as a new original transaction for a new payjoin.
@@ -268,7 +254,6 @@ The sender should check the payjoin proposal before signing it to prevent a mali
 *** Verify the PSBT input is finalized
 *** Verify that <code>non_witness_utxo</code> or <code>witness_utxo</code> are filled in.
 ** Verify that the payjoin proposal did not introduced mixed input's sequence.
-** Verify that the payjoin proposal did not introduced mixed input's type.
 ** Verify that all of sender's inputs from the original PSBT are in the proposal.
 * For each outputs in the proposal:
 ** Verify that no keypaths is in the PSBT output
@@ -429,7 +414,6 @@ public async Task<PSBT> RequestPayjoin(
     var endpoint = bip21.ExtractPayjointEndpoint();
     if (signedPSBT.IsAllFinalized())
         throw new InvalidOperationException("The original PSBT should not be finalized.");
-    ScriptPubKeyType inputScriptType = wallet.ScriptPubKeyType();
     PSBTOutput feePSBTOutput = null;
 
     bool allowOutputSubstitution = !optionalParameters.DisableOutputSubstitution;
@@ -520,9 +504,6 @@ public async Task<PSBT> RequestPayjoin(
             if (proposedPSBTInput.NonWitnessUtxo == null && proposedPSBTInput.WitnessUtxo == null)
                 throw new PayjoinSenderException("The receiver did not specify non_witness_utxo or witness_utxo for one of their inputs");
             sequences.Add(proposedTxIn.Sequence);
-            // Verify that the payjoin proposal did not introduced mixed inputs' type.
-            if (inputScriptType != proposedPSBTInput.GetInputScriptPubKeyType())
-                throw new PayjoinSenderException("Mixed input type detected in the proposal");
         }
     }
 
@@ -554,7 +535,7 @@ public async Task<PSBT> RequestPayjoin(
         if (isOriginalOutput || substitutedOutput)
         {
             originalOutputs.Dequeue();
-            if (output.OriginalTxOut == feeOutput)
+            if (originalOutput.OriginalTxOut == feeOutput)
             {
                 var actualContribution = feeOutput.Value - proposedPSBTOutput.Value;
                 // The amount that was subtracted from the output's value is less than or equal to maxadditionalfeecontribution
@@ -564,8 +545,9 @@ public async Task<PSBT> RequestPayjoin(
                 if (actualContribution > additionalFee)
                     throw new PayjoinSenderException("The actual contribution is not only paying fee");
                 // Make sure the actual contribution is only paying for fee incurred by additional inputs
+                // This assumes an additional input can be up to 110 bytes.
                 int additionalInputsCount = proposalGlobalTx.Inputs.Count - originalGlobalTx.Inputs.Count;
-                if (actualContribution > originalFeeRate * GetVirtualSize(inputScriptType) * additionalInputsCount)
+                if (actualContribution > originalFeeRate * 110 * additionalInputsCount)
                     throw new PayjoinSenderException("The actual contribution is not only paying for additional inputs");
             }
             else if (allowOutputSubstitution && output.OriginalTxOut.ScriptPubKey == paymentScriptPubKey)
@@ -598,21 +580,6 @@ public async Task<PSBT> RequestPayjoin(
     // After signing this proposal, we should check if minfeerate is respected.
     Log("payjoin proposal filled with sender's information" + proposal);
     return proposal;
-}
-
-int GetVirtualSize(ScriptPubKeyType? scriptPubKeyType)
-{
-    switch (scriptPubKeyType)
-    {
-        case ScriptPubKeyType.Legacy:
-            return 148;
-        case ScriptPubKeyType.Segwit:
-            return 68;
-        case ScriptPubKeyType.SegwitP2SH:
-            return 91;
-        default:
-            return 110;
-    }
 }
 
 // Finalize the signedPSBT and remove confidential information
