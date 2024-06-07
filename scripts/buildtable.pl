@@ -89,13 +89,16 @@ my %DefinedLicenses = (
 );
 my %GrandfatheredPD = map { $_ => undef } qw(9 36 37 38 42 49 50 60 65 67 69 74 80 81 83 90 99 105 107 109 111 112 113 114 122 124 125 126 130 131 132 133 140 141 142 143 144 146 147 150 151 152);
 my %TolerateMissingLicense = map { $_ => undef } qw(1 10 11 12 13 14 15 16 21 31 33 34 35 39 43 44 45 47 61 64 68 70 71 72 73 101 102 106 120 121);
-my %TolerateTitleTooLong = map { $_ => undef } qw(39 44 45 47 49 60 67 68 69 73 74 75 80 81 99 105 106 109 113 122 126 131 143 145 147 173);
+my %TolerateTitleTooLong = map { $_ => undef } qw(39 44 45 47 49 60 67 68 69 73 74 75 80 81 99 105 106 109 113 122 126 131 143 145 147 173 327);
 
 my %emails;
 
 my $bipnum = 0;
 while (++$bipnum <= $topbip) {
 	my $fn = sprintf "bip-%04d.mediawiki", $bipnum;
+	if (!-e $fn) {
+		$fn = sprintf "bip-%04d.md", $bipnum;
+	}
 	-e $fn || next;
 	open my $F, "<$fn";
 	while (<$F> !~ m[^(?:\xef\xbb\xbf)?<pre>$]) {
@@ -125,9 +128,9 @@ while (++$bipnum <= $topbip) {
 		} elsif ($field eq 'Title') {
 			$title = $val;
 			my $title_len = length($title);
-			die "$fn has too-long TItle ($title_len > 44 char max)" if $title_len > 44 and not exists $TolerateTitleTooLong{$bipnum};
+			die "$fn has too-long Title ($title_len > 44 char max)" if $title_len > 44 and not exists $TolerateTitleTooLong{$bipnum};
 		} elsif ($field eq 'Author') {
-			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.]+\.\w+)\>$/ or die "Malformed Author line in $fn";
+			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Author line in $fn";
 			my ($authorname, $authoremail) = ($1, $2);
 			$authoremail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
 			$emails{$authorname}->{$authoremail} = undef;

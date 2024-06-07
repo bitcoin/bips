@@ -96,18 +96,6 @@ OUTPUT
 * Python library implementation: [https://github.com/ethankosakovsky/bip85]
 * JavaScript library implementation: [https://github.com/hoganri/bip85-js]
 
-===Other Implementations===
-
-* JavaScript library implementation: [https://github.com/hoganri/bip85-js]
-
-* Coldcard Firmware: [https://github.com/Coldcard/firmware/pull/39]
-
-* Ian Coleman's Mnemonic Code Converter: [https://github.com/iancoleman/bip39] and [https://iancoleman.io/bip39/]
-
-* AirGap Vault: [https://github.com/airgap-it/airgap-vault/commit/d64332fc2f332be622a1229acb27f621e23774d6]
-
-btc_hd_wallet: [https://github.com/scgbckbone/btc-hd-wallet]
-
 ==Applications==
 
 The Application number defines how entropy will be used post processing. Some basic examples follow:
@@ -244,7 +232,7 @@ INPUT:
 
 OUTPUT
 * DERIVED ENTROPY=ead0b33988a616cf6a497f1c169d9e92562604e38305ccd3fc96f2252c177682
-* DERIVED WIF=xprv9s21ZrQH143K2srSbCSg4m4kLvPMzcWydgmKEnMmoZUurYuBuYG46c6P71UGXMzmriLzCCBvKQWBUv3vPB3m1SATMhp3uEjXHJ42jFg7myX
+* DERIVED XPRV=xprv9s21ZrQH143K2srSbCSg4m4kLvPMzcWydgmKEnMmoZUurYuBuYG46c6P71UGXMzmriLzCCBvKQWBUv3vPB3m1SATMhp3uEjXHJ42jFg7myX
 
 ===HEX===
 Application number: 128169'
@@ -261,6 +249,82 @@ INPUT:
 
 OUTPUT
 * DERIVED ENTROPY=492db4698cf3b73a5a24998aa3e9d7fa96275d85724a91e71aa2d645442f878555d078fd1f1f67e368976f04137b1f7a0d19232136ca50c44614af72b5582a5c
+
+===PWD BASE64===
+Application number: 707764'
+
+The derivation path format is: <code>m/83696968'/707764'/{pwd_len}'/{index}'</code>
+
+`20 <= pwd_len <= 86`
+
+[https://datatracker.ietf.org/doc/html/rfc4648 Base64] encode the all 64 bytes of entropy.
+Remove any spaces or new lines inserted by Base64 encoding process. Slice base64 result string
+on index 0 to `pwd_len`. This slice is the password. As `pwd_len` is limited to 86, passwords will not contain padding.
+
+Entropy calculation:<br>
+R = 64  (base64 - do not count padding)<br>
+L = pwd_len<br>
+Entropy = log2(R ** L)<br>
+
+{| class="wikitable" style="margin:auto"
+! pwd_length !! (cca) entropy
+|-
+| 20 || 120.0
+|-
+| 24 || 144.0
+|-
+| 32 || 192.0
+|-
+| 64 || 384.0
+|-
+| 86 || 516.0
+|}
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/707764'/21'/0'
+
+OUTPUT
+* DERIVED ENTROPY=d7ad61d4a76575c5bad773feeb40299490b224e8e5df6c8ad8fe3d0a6eed7b85ead9fef7bcca8160f0ee48dc6e92b311fc71f2146623cc6952c03ce82c7b63fe
+* DERIVED PWD=dKLoepugzdVJvdL56ogNV
+
+===PWD BASE85===
+Application number: 707785'
+
+The derivation path format is: <code>m/83696968'/707785'/{pwd_len}'/{index}'</code>
+
+`10 <= pwd_len <= 80`
+
+Base85 encode the all 64 bytes of entropy.
+Remove any spaces or new lines inserted by Base64 encoding process. Slice base85 result string
+on index 0 to `pwd_len`. This slice is the password. `pwd_len` is limited to 80 characters.
+
+Entropy calculation:<br>
+R = 85<br>
+L = pwd_len<br>
+Entropy = log2(R ** L)<br>
+
+{| class="wikitable" style="margin:auto"
+! pwd_length !! (cca) entropy
+|-
+| 10 || 64.0
+|-
+| 15 || 96.0
+|-
+| 20 || 128.0
+|-
+| 30 || 192.0
+|-
+| 80 || 512.0
+|}
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/707785'/12'/0'
+
+OUTPUT
+* DERIVED ENTROPY=f7cfe56f63dca2490f65fcbf9ee63dcd85d18f751b6b5e1c1b8733af6459c904a75e82b4a22efff9b9e69de2144b293aa8714319a054b6cb55826a8e51425209
+* DERIVED PWD=_s`{TW89)i4`
 
 ===RSA===
 
@@ -288,7 +352,7 @@ The resulting RSA key can be used to create a GPG key where the creation date MU
 
 Note on GPG key capabilities on smartcard/hardware devices:
 
-GPG capable smart-cards SHOULD be be loaded as follows: The encryption slot SHOULD be loaded with the ENCRYPTION capable key; the authentication slot SHOULD be loaded with the AUTHENTICATION capable key. The signature capable slot SHOULD be loaded with the SIGNATURE capable key.
+GPG capable smart-cards SHOULD be loaded as follows: The encryption slot SHOULD be loaded with the ENCRYPTION capable key; the authentication slot SHOULD be loaded with the AUTHENTICATION capable key. The signature capable slot SHOULD be loaded with the SIGNATURE capable key.
 
 However, depending on available slots on the smart-card, and preferred policy, the CERTIFY capable key MAY be flagged with CERTIFY and SIGNATURE capabilities and loaded into the SIGNATURE capable slot (for example where the smart-card has only three slots and the CERTIFY capability is required on the same card). In this case, the SIGNATURE capable sub-key would be disregarded because the CERTIFY capable key serves a dual purpose.
 
@@ -300,7 +364,7 @@ This specification relies on BIP32 but is agnostic to how the BIP32 root key is 
 
 ==Discussion==
 
-The reason for running the derived key through HMAC-SHA512 and truncating the result as necessary is to prevent leakage of the parent tree should the derived key (''k'') be compromized. While the specification requires the use of hardended key derivation which would prevent this, we cannot enforce hardened derivation, so this method ensures the derived entropy is hardened. Also, from a semantic point of view, since the purpose is to derive entropy and not a private key, we are required to transform the child key. This is done out of an abundance of caution, in order to ward off unwanted side effects should ''k'' be used for a dual purpose, including as a nonce ''hash(k)'', where undesirable and unforeseen interactions could occur.
+The reason for running the derived key through HMAC-SHA512 and truncating the result as necessary is to prevent leakage of the parent tree should the derived key (''k'') be compromised. While the specification requires the use of hardended key derivation which would prevent this, we cannot enforce hardened derivation, so this method ensures the derived entropy is hardened. Also, from a semantic point of view, since the purpose is to derive entropy and not a private key, we are required to transform the child key. This is done out of an abundance of caution, in order to ward off unwanted side effects should ''k'' be used for a dual purpose, including as a nonce ''hash(k)'', where undesirable and unforeseen interactions could occur.
 
 ==Acknowledgements==
 

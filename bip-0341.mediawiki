@@ -7,7 +7,7 @@
           Anthony Towns <aj@erisian.com.au>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0341
-  Status: Draft
+  Status: Final
   Type: Standards Track
   Created: 2020-01-19
   License: BSD-3-Clause
@@ -105,7 +105,7 @@ If the parameters take acceptable values, the message is the concatenation of th
 ** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
 ** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
 *** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
-*** ''sha_amounts'' (32): the SHA256 of the serialization of all spent output amounts.
+*** ''sha_amounts'' (32): the SHA256 of the serialization of all input amounts.
 *** ''sha_scriptpubkeys'' (32): the SHA256 of all spent outputs' ''scriptPubKeys'', serialized as script inside <code>CTxOut</code>.
 *** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
 ** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
@@ -152,7 +152,7 @@ Satisfying any of these conditions is sufficient to spend the output.
 '''Initial steps''' The first step is determining what the internal key and the organization of the rest of the scripts should be. The specifics are likely application dependent, but here are some general guidelines:
 * When deciding between scripts with conditionals (<code>OP_IF</code> etc.) and splitting them up into multiple scripts (each corresponding to one execution path through the original script), it is generally preferable to pick the latter.
 * When a single condition requires signatures with multiple keys, key aggregation techniques like MuSig can be used to combine them into a single key. The details are out of scope for this document, but note that this may complicate the signing procedure.
-* If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a point with unknown discrete logarithm. One example of such a point is ''H = lift_x(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of the [https://www.secg.org/sec2-v2.pdf secp256k1] base point ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
+* If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a "Nothing Up My Sleeve" (NUMS) point, i.e., a point with unknown discrete logarithm. One example of such a point is ''H = lift_x(0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of the [https://www.secg.org/sec2-v2.pdf secp256k1] base point ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
 * If the spending conditions do not require a script path, the output key should commit to an unspendable script path instead of having no script path. This can be achieved by computing the output key point as ''Q = P + int(hash<sub>TapTweak</sub>(bytes(P)))G''. <ref>'''Why should the output key always have a taproot commitment, even if there is no script path?'''
 If the taproot output key is an aggregate of keys, there is the possibility for a malicious party to add a script path without being noticed by the other parties.
 This allows to bypass the multiparty policy and to steal the coin.
@@ -182,16 +182,20 @@ def taproot_tweak_pubkey(pubkey, h):
     t = int_from_bytes(tagged_hash("TapTweak", pubkey + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
-    Q = point_add(lift_x(pubkey), point_mul(G, t))
+    P = lift_x(int_from_bytes(pubkey))
+    if P is None:
+        raise ValueError
+    Q = point_add(P, point_mul(G, t))
     return 0 if has_even_y(Q) else 1, bytes_from_int(x(Q))
 
 def taproot_tweak_seckey(seckey0, h):
-    P = point_mul(G, int_from_bytes(seckey0))
+    seckey0 = int_from_bytes(seckey0)
+    P = point_mul(G, seckey0)
     seckey = seckey0 if has_even_y(P) else SECP256K1_ORDER - seckey0
     t = int_from_bytes(tagged_hash("TapTweak", bytes_from_int(x(P)) + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
-    return (seckey + t) % SECP256K1_ORDER
+    return bytes_from_int((seckey + t) % SECP256K1_ORDER)
 </source>
 
 The following function, <code>taproot_output_script</code>, returns a byte array with the scriptPubKey (see [[bip-0141.mediawiki|BIP141]]).
@@ -244,10 +248,13 @@ TapTweak = tagged_hash("TapTweak", p + ABCDE)
 '''Spending using the key path''' A Taproot output can be spent with the secret key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consists of a single element: a [[bip-0340.mediawiki|BIP340]] signature on the signature hash as defined above, with the secret key tweaked by the same <code>h</code> as in the above snippet. See the code below:
 
 <source lang="python">
-def taproot_sign_key(script_tree, internal_seckey, hash_type):
-    _, h = taproot_tree_helper(script_tree)
+def taproot_sign_key(script_tree, internal_seckey, hash_type, bip340_aux_rand):
+    if script_tree is None:
+        h = bytes()
+    else:
+        _, h = taproot_tree_helper(script_tree)
     output_seckey = taproot_tweak_seckey(internal_seckey, h)
-    sig = schnorr_sign(sighash(hash_type), output_seckey)
+    sig = schnorr_sign(sighash(hash_type), output_seckey, bip340_aux_rand)
     if hash_type != 0:
         sig += bytes([hash_type])
     return [sig]
@@ -350,6 +357,6 @@ Depending on the implementation non-upgraded wallets may be able to send to Segw
 
 == Acknowledgements ==
 
-This document is the result of discussions around script and signature improvements with many people, and had direct contributions from Greg Maxwell and others. It further builds on top of earlier published proposals such as Taproot by Greg Maxwell, and Merkle branch constructions by Russell O'Connor, Johnson Lau, and Mark Friedenbach. 
+This document is the result of discussions around script and signature improvements with many people, and had direct contributions from Greg Maxwell and others. It further builds on top of earlier published proposals such as Taproot by Greg Maxwell, and Merkle branch constructions by Russell O'Connor, Johnson Lau, and Mark Friedenbach.
 
 The authors wish the thank Arik Sosman for suggesting to sort Merkle node children before hashes, removing the need to transfer the position in the tree, as well as all those who provided valuable feedback and reviews, including the participants of the [https://github.com/ajtowns/taproot-review structured reviews].
