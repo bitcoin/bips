@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Turkish](turkish.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,19 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind one of negative/sad/bad things.
 11. No very similar words with only 1 letter of difference.
+
+### Turkish
+
+Credits: @efecini @untreu2 @kaanaskin93
+
+1. Words are 3-8 letters long.
+2. Words can be uniquely determined typing the first 4 characters (sometimes less).
+3. No words with special or Turkish-only characters like 'â', 'ö', 'ğ', etc...
+4. No complex verb forms.
+5. No plural words.
+6. No personal names or geographical names.
+7. Words are sorted according to English alphabet.
+8. No words that remind negative/sad/bad things.
+9. No words already used in other language mnemonic sets.
+10. All the words have been manually selected and both manually and automatically checked against the rules numerous times.
+
