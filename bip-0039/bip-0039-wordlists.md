@@ -128,7 +128,6 @@ Credits: @efecini @untreu2 @kaanaskin93
 5. No plural words.
 6. No personal names or geographical names.
 7. Words are sorted according to English alphabet.
-8. No words that remind negative/sad/bad things.
-9. No words already used in other language mnemonic sets.
-10. All the words have been manually selected and both manually and automatically checked against the rules numerous times.
+8. No words already used in other language mnemonic sets.
+9. All the words have been manually selected and both manually and automatically checked against the rules numerous times.
 
