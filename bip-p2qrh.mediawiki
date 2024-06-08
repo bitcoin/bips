@@ -14,7 +14,7 @@
 
 === Abstract ===
 
-This document proposes a new SegWit output type, with spending rules based on SQIsign signatures. (For more on why SQIsign is chosen, see the Security section) A constraint is that no hard fork or modifications leading to an increase in block size are required to maintain no more than a significant decrease in block transaction density. This document is inspired by [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341], which introduced the design of the P2TR address format using Schnorr signatures.
+This document proposes a new SegWit output type, with spending rules based on SQIsign signatures. A constraint is that no hard fork or modifications leading to an increase in block size are required to maintain no more than a significant decrease in block transaction density. This document is inspired by [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341], which introduced the design of the P2TR address format using Schnorr signatures.
 
 === Copyright ===
 
@@ -22,16 +22,14 @@ This document is licensed under the 3-clause BSD license.
 
 === Motivation ===
 
-This proposal aims to improve the quantum resistance of Bitcoin's signature security should the Discrete Logarithm Problem which secures Elliptic Curve Cryptography (EC DLP) should no longer prove to be computationally hard, likely through quantum advantage. [https://arxiv.org/pdf/quant-ph/0301141 A variant of Shor's algorithm] is believed to be capable of deriving the private key from a public key exponentially faster, which here will be referred to as quantum key recovery. This means that doubling the key length, such as using a hypothetical secp512k1 curve, would only make finding the key twice as hard. Shor's algorithm in particular will likely require only 2^21 steps to recover the private key. The computational complexity of this is investigated further in the paper, [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching The impact of hardware specifications on reaching quantum advantage in the fault tolerant regime].
+This proposal aims to improve the quantum resistance of Bitcoin's signature security should the Discrete Logarithm Problem which secures Elliptic Curve Cryptography (EC DLP) no longer prove to be computationally hard, likely through quantum advantage. [https://arxiv.org/pdf/quant-ph/0301141 A variant of Shor's algorithm] is believed to be capable of deriving the private key from a public key exponentially faster, which here will be referred to as quantum key decryption. This means that doubling the key length, such as using a hypothetical secp512k1 curve, would only make finding the key twice as hard. Shor's algorithm in particular will likely require only 2^21 steps to recover the private key. The computational complexity of this is investigated further in the paper, [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching The impact of hardware specifications on reaching quantum advantage in the fault tolerant regime].
 
-This is not a proposal to upgrade from SHA-2. A different algorithm is needed to discover a candidate preimage to a hash, called Grover's. This results in only a quadratic speedup, which theoretically would mean 2^128 operations would still be needed to recover a fixed-length preimage of the hash, depending upon the implementation. It is believed for this reason that mining with Grover's algorithm is reasonably resistant to quantum advantage in comparison to problems that can be solved with Shor's algorithm, 2^21 being much smaller than 2^128.
-
-The vulnerability of existing bitcoin addresses was investigated in [https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. It was estimated in 2020 that approximately 80% of the bitcoin supply is held within addresses that are not vulnerable to quantum advantage.
+The vulnerability of existing bitcoin addresses is investigated in [https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. The report estimates that in 2020 approximately 25% of the bitcoin supply is held within addresses vulnerable to quantum attack.
 
 The following table is non-exhaustive, but meant to be informative to the average Bitcoin user.
 
 {|
-|+ Vulnerable address types
+|+ Vulnerable address types matrix
 |-
 ! Address type !! Vulnerable !! Prefix !! Example
 |-
@@ -44,11 +42,9 @@ The following table is non-exhaustive, but meant to be informative to the averag
 | P2TR || Yes || bc1p || bc1p92aslsnseq786wxfk3ekra90ds9ku47qttupfjsqmmj4z82xdq4q3rr58u
 |}
 
-It should be noted that Taproot addresses are vulnerable in that they encode a 32-byte x-only public key. It's possible Taproot keys are harder for a Shor's implementation to recover.
+It should be noted that Taproot addresses are vulnerable in that they encode a 32-byte x-only public key. It's possible Taproot keys are harder for a Shor's implementation to decrypt.
 
-Should quantum advantage become manifest, a convention is proposed in spending the full 65-byte P2PK key used by the coinbase output in Block 1 back to itself. It is proposed to call this the [https://mempool.space/address/0496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858ee Canary address]. The reasoning behind this is that this can only be done by Satoshi, and given his absence, this can only be spent by others if there is a significant vulnerability in secp256k1. This is relevant in that should the Canary coins move, that will signal that Bitcoin is presently vulnerable, which would hasten the development and activation of a soft fork.
-
-It's also worth mentioning, coinbase outputs to P2PK keys go as far as block 200,000, so it's possible there's between 1-2 million coins that are vulnerable from the first epoch. This can be considered "Satoshi's Shield." Any addresses with a balance of less than the original block subsidy of 50 coins can be considered incentive incompatible to recover until all of these are mined. It depends how long it takes modern quantum hardware to recover a key, but this should allow sufficient time to coordinate a soft fork.
+As an interesting aside, coinbase outputs to P2PK keys go as far as block 200,000, so it's possible there are between 1-2 million coins that are vulnerable from the first epoch. These coins can be considered "Satoshi's Shield." Any addresses with a balance of less than the original block subsidy of 50 coins can be considered incentive incompatible to capture until all of these are mined. 
 
 == Description ==
 
@@ -56,15 +52,13 @@ We first build up a definition of the signature scheme by going through the desi
 
 === Design ===
 
-This is the first in a series of BIPs under a QuBit soft fork. The capital B differentiates between the fundamental unit of quantum computing. The name QuBit is chosen since it "rhymes" with the names SegWit and Taproot.
+This is the first in a series of BIPs under a QuBit soft fork. A qubit is a fundamental unit of quantum computing, and the capital B represents its connection to Bitcoin. The name QuBit also rhymes to some extent with SegWit.
 
-It is proposed to use SegWit version 3. This is because this results in addresses that start with bc1r, which could be a useful way to remember that these are \[r\]esistant addresses, similar to how bc1q corresponds to Se\[q\]Wit and bc1p corresponds to Ta\[p\]root. This is referencing the lookup table under [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
+It is proposed to use SegWit version 3. This results in addresses that start with bc1r, which could be a useful way to remember that these are \[r\]esistant addresses, similar to how bc1q corresponds to Se\[q\]Wit and bc1p corresponds to Ta\[p\]root. This is referencing the lookup table under [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
 
-This also leaves a gap in case it makes sense to use version 2, or bc1z, for implementation of other address formats such as those that employ Cross Input Signature Aggregation (CISA).
+The proposal above also leaves a gap in case it makes sense to use version 2, or bc1z, for implementation of other address formats such as those that employ Cross Input Signature Aggregation (CISA).
 
-The name P2QRH means Pay to Quantum Resistant Hash. This is similar to how P2PKH, as defined in [https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki#specification BIP-16].
-
-P2QR addresses will be needed to maintain TapScript compatibility, and will encode the SQIsign public key. P2QRH addresses will use SHA-256 / MD160, similar to BIP-16, to reduce the size of new outputs.
+The name P2QRH means Pay to Quantum Resistant Hash. This is similar to how P2PKH, as defined in [BIP-16](https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki#specification).
 
 For descriptors, `qrh()` should be used.
 
@@ -129,7 +123,6 @@ In comparison:
 
 Ideally FastSQIsignHD proves to be flexible enough to support [https://www.pierrickdartois.fr/homepage/wp-content/uploads/2022/04/Report_OSIDH_DARTOIS.pdf Isogeny Diffie-Hellman] and the key tweaking necessary to support TapScript.
 
-
 == Test Vectors and Reference Code ==
 
 TBD
@@ -140,13 +133,10 @@ To help implementors understand updates to this BIP, we keep a list of substanti
 
 * 2024-06: High level rough draft
 
-
 == Footnotes ==
 
 <references />
 
-
 == Acknowledgements ==
-
 
 TBD
