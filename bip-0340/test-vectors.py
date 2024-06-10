@@ -24,14 +24,14 @@ def vector0():
     assert(y(P) % 2 == 0)
 
     # For historical reasons (pubkey tiebreaker was squareness and not evenness)
-    # we should have at least one test vector where the the point reconstructed
+    # we should have at least one test vector where the point reconstructed
     # from the public key has a square and one where it has a non-square Y
     # coordinate. In this one Y is non-square.
     pubkey_point = lift_x(pubkey)
     assert(not has_square_y(pubkey_point))
 
     # For historical reasons (R tiebreaker was squareness and not evenness)
-    # we should have at least one test vector where the the point reconstructed
+    # we should have at least one test vector where the point reconstructed
     # from the R.x coordinate has a square and one where it has a non-square Y
     # coordinate. In this one Y is non-square.
     R = lift_x(sig[0:32])
