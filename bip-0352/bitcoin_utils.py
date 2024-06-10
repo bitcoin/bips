@@ -1,6 +1,7 @@
 import hashlib
 import struct
 from io import BytesIO
+from ripemd160 import ripemd160
 from secp256k1 import ECKey
 from typing import Union
 
@@ -127,7 +128,7 @@ class CTxInWitness:
 
 
 def hash160(s: Union[bytes, bytearray]) -> bytes:
-    return hashlib.new("ripemd160", hashlib.sha256(s).digest()).digest()
+    return ripemd160(hashlib.sha256(s).digest())
 
 
 def is_p2tr(spk: bytes) -> bool:
