@@ -300,6 +300,10 @@ if __name__ == "__main__":
             add_to_wallet = []
             if (len(input_pub_keys) > 0):
                 A_sum = reduce(lambda x, y: x + y, input_pub_keys)
+                if A_sum.get_bytes() is None:
+                    # Input pubkeys sum is point at infinity -> skip tx
+                    assert expected["outputs"] == []
+                    continue
                 input_hash = get_input_hash([vin.outpoint for vin in vins], A_sum)
                 pre_computed_labels = {
                     (generate_label(b_scan, label) * G).get_bytes(False).hex(): generate_label(b_scan, label).hex()
