@@ -127,6 +127,9 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
         negated_keys.append(k)
 
     a_sum = sum(negated_keys)
+    if not a_sum.valid:
+        # Input privkeys sum is zero -> fail
+        return []
     input_hash = get_input_hash(outpoints, a_sum * G)
     silent_payment_groups: Dict[ECPubKey, List[ECPubKey]] = {}
     for recipient in recipients:
