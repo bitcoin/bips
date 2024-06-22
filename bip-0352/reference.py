@@ -127,6 +127,9 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
         negated_keys.append(k)
 
     a_sum = sum(negated_keys)
+    if not a_sum.valid:
+        # Input privkeys sum is zero -> fail
+        return []
     input_hash = get_input_hash(outpoints, a_sum * G)
     silent_payment_groups: Dict[ECPubKey, List[ECPubKey]] = {}
     for recipient in recipients:
@@ -297,6 +300,10 @@ if __name__ == "__main__":
             add_to_wallet = []
             if (len(input_pub_keys) > 0):
                 A_sum = reduce(lambda x, y: x + y, input_pub_keys)
+                if A_sum.get_bytes() is None:
+                    # Input pubkeys sum is point at infinity -> skip tx
+                    assert expected["outputs"] == []
+                    continue
                 input_hash = get_input_hash([vin.outpoint for vin in vins], A_sum)
                 pre_computed_labels = {
                     (generate_label(b_scan, label) * G).get_bytes(False).hex(): generate_label(b_scan, label).hex()
