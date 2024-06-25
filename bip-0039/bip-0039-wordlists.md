@@ -28,7 +28,7 @@ for two smaller words (This would be a problem with any of the 3 character sets 
 
 ### Spanish
 
-1. Words can be uniquely determined typing the first 4 characters (sometimes less).
+1. Words can be uniquely determined by typing the first 4 characters (sometimes less).
 
 2. Special Spanish characters like 'ñ', 'ü', 'á', etc... are considered equal to 'n', 'u', 'a', etc... in terms of identifying a word. Therefore, there is no need to use a Spanish keyboard to introduce the passphrase, an application with the Spanish wordlist will be able to identify the words after the first 4 chars have been typed even if the chars with accents have been replaced with the equivalent without accents.
 
