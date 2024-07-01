@@ -1,0 +1,109 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Testnet 4
+  Author: Fabian Jahr <fjahr@protonmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-testnet4
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-05-27
+  License: CC0-1.0
+  Post-History: https://groups.google.com/g/bitcoindev/c/9bL00vRj7OU/m/9yCPo3uUBwAJ
+                https://groups.google.com/g/bitcoindev/c/0BYW_diKiVw/m/9ZqIaxb1AQAJ
+</pre>
+
+== Abstract ==
+
+A new test network with the goal to replace Testnet 3. This network comes with small but important improvements of the consensus rules, that should make it impractical to attack the network using only CPU mining.
+
+== Motivation ==
+
+Quoting the original mailing list post from Jameson Lopp:
+
+"Testnet3 has been running for 13 years. It's on block 2.5 million something and the block reward is down to ~0.014 TBTC, so mining is not doing a great job at distributing testnet coins anymore.
+
+The reason the block height is insanely high is due to a rather amusing edge case bug that causes the difficulty to regularly get reset to 1, which causes a bit of havoc. If you want a deep dive into the quirk: https://blog.lopp.net/the-block-storms-of-bitcoins-testnet/
+
+Testnet3 is being actively used for scammy airdrops; those of us who tend to be generous with our testnet coins are getting hounded by non-developers chasing cheap gains.
+
+As a result, TBTC is being actively bought and sold; one could argue that the fundamental principle of testnet coins having no value has been broken."
+
+Since then the issue with block storms has been further demonstrated on Testnet 3 when three years' worth of blocks were mined in a few weeks while rendering the network practically unusable at the same time.
+
+== Specification ==
+
+Consensus of Testnet 4 follows the same rules as mainnet with the exception of the three rules detailed below.
+
+=== 20-min Exception ===
+
+A block with a timestamp that is more than 20 minutes past the timestamp of the previous block is allowed to have a minimum difficulty of 1 (the network's minimum difficulty) instead of whatever the actual difficulty level currently is. This applies to all blocks in a difficulty period except for the first block. The blocks that take advantage of this rule must also change their `nBits` field from the actual difficulty level to the minimum difficulty value `0x1d00ffff`.
+
+Please note: This rule was already previously implemented and active in Testnet 3 but there is no BIP specifying its behavior. This rule also led to the block storms which the following rule seeks to fix.
+
+=== Block Storm Fix ===
+
+When the next work required is calculated for the first block in a new difficulty period, the difficulty of the last block of the previous difficulty period is only used as the base for this calculation if its difficulty is not 1. If its difficulty is 1, all blocks in the previous difficulty period are checked in reverse order if any of them have a different difficulty than 1. When a different difficulty is encountered, it is assumed to be the actual difficulty of the network and used as the base for the calculation of the new difficulty level. Note that the first block in new difficulty period does not allow usage of the 20-min rule (this is prior behavior). This means that in each difficulty period the first block should always have the actual difficulty even if all other blocks were mined with the 20-min rule.
+
+For the avoidance of doubt, no matter which block in the previous difficulty period provides the actual difficulty used as the basis for the calculation, the timestamp of the last block is always the one that is used as the end time of the difficulty period.
+
+=== Time Warp Fix ===
+
+To protect against the time warp attack, the following rule proposed as part of The Great Consensus Cleanup is enforced: "The nTime field of each block whose height, mod 2016, is 0 must be greater than or equal to the nTime field of the immediately prior block minus 600. For the avoidance of doubt, such blocks must still comply with existing Median-Time-Past nTime restrictions."
+
+== Rationale ==
+
+The applied changes were the result of discussions on the mailing list and the PR. The selected changes try to strike a balance between minimal changes to the network (keeping it as close to mainnet as possible) while making it more robust against attackers that try to disrupt the network. Several alternative designs were considered:
+
+* For the block storm fix an alternative fix could have been to prevent the last block in a difficulty period from applying the existing difficulty exception. Both solutions were deemed acceptable and there was no clear preference among reviewers.
+* Removal of the 20-min difficulty exception was discussed but dismissed since several reviewers insisted that it was a useful feature allowing non-standard transactions to be mined with just a CPU.
+* Increase of minimum difficulty was discussed but dismissed as it would categorically prevent participation in the network using a CPU miner.
+* Increase of the delay in the 20 min difficulty exception was suggested but did not receive significant support.
+* Re-enabling <code>acceptnonstdtxn</code> in bitcoin core by default was dismissed as it had led to confusion among layer-2s that had used testnet for transaction propagation tests and expected it to behave similar to mainnet.
+* Motivating miners to re-org min difficulty blocks was suggested but this may still be done after Testnet 4 is deployed, so it can be considered out of scope for this BIP.
+* Persisting the real difficulty in the version field was suggested to prevent exploits of the 20-min rule in an even more robust way, but did not receive a critical level of support since it would be a more invasive change.
+
+== Network Parameters ==
+
+=== Consensus Rules ===
+
+All consensus rules active on mainnet at the time of this proposal are enforced from block 1, the newest of these rules being the Taproot softfork.
+
+=== Genesis Block ===
+
+* Message: <code>03/May/2024 000000000000000000001ebd58c244970b3aa9d783bb001011fbe8ea8e98e00e</code>
+* Pubkey: <code>000000000000000000000000000000000000000000000000000000000000000000</code>
+* Time stamp: 1714777860
+* Nonce: 393743547
+* Difficulty: <code>0x1d00ffff</code>
+* Version: 1
+
+The resulting genesis block hash is <code>00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043</code>, and the block hex is <code>01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff5504ffff001d01044c4c30332f4d61792f323032342030303030303030303030303030303030303030303165626435386332343439373062336161396437383362623030313031316662653865613865393865303065ffffffff0100f2052a010000002321000000000000000000000000000000000000000000000000000000000000000000ac00000000</code>.
+
+=== Message Start ===
+
+The message start is defined as <code>0x1c163f28</code>. These four bytes were randomly generated and have no special meaning.
+
+== Compatibility ==
+
+This specification is backward compatible in the sense that existing software can use Testnet 4 out of the box, assuming support for Testnet 3 already exists.
+
+Simply by adding the network parameters for Testnet 4 (magic number, etc.), a client can connect to and use Testnet 4 without further modifications. The block headers have valid proof of work, so clients can trivially check that blocks are "probably" valid.
+
+However, without the implementation of the changes detailed in Specifications, a client could follow a chain that does not follow the rules. Any fully validating node should check these rules and reject blocks that fail to follow them. Clients should either validate these rules or connect to trusted peers that do full validation.
+
+== Reference implementation ==
+
+Pull request at https://github.com/bitcoin/bitcoin/pull/29775
+
+== References ==
+
+# Original mailing list thread: https://groups.google.com/g/bitcoindev/c/9bL00vRj7OU/m/kFPaQCzmBwAJ
+# Blog post on block storm bug: https://blog.lopp.net/the-block-storms-of-bitcoins-testnet/
+# Consensus Cleanup BIP draft: https://github.com/TheBlueMatt/bips/blob/cleanup-softfork/bip-XXXX.mediawiki
+# Consensus Cleanup PR draft: https://github.com/bitcoin/bitcoin/pull/15482
+# Bitcoin Core PR adding 20-min rule: https://github.com/bitcoin/bitcoin/pull/686
+
+== Copyright ==
+
+This document is licensed under the Creative Commons CC0 1.0 Universal license.
