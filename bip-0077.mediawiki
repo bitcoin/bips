@@ -46,13 +46,13 @@ The protocols in this document reuse BIP 78's BIP 21 URI parameters. An "Origina
 
 ===Overview===
 
-Payjoin requests are made using familiar BIP 21 URIs. Instead of a public HTTP endpoint, this scheme allows an HTTP client to enroll with a store-and-forward directory server to send and receive Payjoin messages. Directories may optionally require an authorization credential before allocating resources in order to prevent DoS attacks. Sender and receiver payloads are buffered at the directory to support asynchronous interaction. Authenticated encryption prevents the directory from snooping on message contents or forging messages by way of HPKE. Oblivious HTTP is required for version 2 interactions in order to separate client IP addresses from the directory to prevent metadata attacks. Aside from application layer authenticated encryption and relayed asynchronous networking, version 2 messaging takes much the same form as the existing BIP 78 specification.
+Payjoin requests are made using familiar BIP 21 URIs. Instead of a public HTTP endpoint, this scheme allows an HTTP client to initiate a Payjoin Session at a store-and-forward directory server to send and receive Payjoin messages. Directories may optionally require an authorization credential before allocating resources in order to prevent DoS attacks. Sender and receiver payloads are buffered at the directory to support asynchronous interaction. Authenticated encryption prevents the directory from snooping on message contents or forging messages by way of HPKE. Oblivious HTTP is required for version 2 interactions in order to separate client IP addresses from the directory to prevent metadata attacks. Aside from application layer authenticated encryption and relayed asynchronous networking, version 2 messaging takes much the same form as the existing BIP 78 specification.
 
 ===Basic scheme===
 
 The receiver first generates a 256-bit keypair. This key will be the basis of end-to-end authenticated encryption and identification of a particular payjoin over the directory.
 
-Rather than hosting a public server itself, the receiver initializes a Payjoin Session by requesting a subdirectory allocation at a related to a public key. This key is used to identify a store-and-forward subdirectory on the Payjoin Directory server and establish end-to-end encryption. A POST request  to the Payjoin Directory including the receiver's public key enrolls it as a subdirectory identifier. The response message from the directory to the receiver includes the new session subdirectory payjoin endpoint using the public key as a subdirectory identifier. Once a session is active, the receiver uses long polling to await a payjoin request to a Payjoin Session from the sender. Out of band, the receiver shares a [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] Payjoin URI including the directory endpoint in the <code>pj=</code> query parameter and a new Oblivious HTTP <code>ohttp=</code> parameter including the Payjoin Directory's [[https://www.ietf.org/rfc/rfc9458.html#name-key-configuration| OHTTP Key Configuration]].
+Rather than hosting a public server itself, the receiver initializes a Payjoin Session by requesting a subdirectory allocation related to a public key. This key is used to identify a store-and-forward Session subdirectory on the Payjoin Directory server and establishes end-to-end encryption. A POST request to the Payjoin Directory including the receiver's public key initiates an associated Payjoin Session. The response message from the directory to the receiver includes the new Session subdirectory payjoin endpoint using the public key as a subdirectory identifier. Once a Session is active, the receiver uses long polling to await a payjoin request to a Payjoin Session from the sender. Out of band, the receiver shares a [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] Payjoin URI including the directory endpoint in the <code>pj=</code> query parameter and a new Oblivious HTTP <code>ohttp=</code> fragment parameter including the Payjoin Directory's [[https://www.ietf.org/rfc/rfc9458.html#name-key-configuration| OHTTP Key Configuration]].
 
 The sender constructs an encrypted and authenticated payload containing a PSBT and optional parameters similar to BIP 78. The resulting ciphertext ensures message secrecy and integrity when passed to the receiver by the subdirectory <code>pj=</code> endpoint.
 
@@ -106,7 +106,7 @@ Payjoin version 2 messages use [[https://github.com/bitcoin/bips/blob/master/bip
 
 The Payjoin version 2 protocol takes the following steps:
 
-* The receiver sends their Payjoin Session public key and optional authentication credential according to the [[#enroll-messaging|enroll messaging]] protocol to receive a subdirectory allocation. The receiver may go offline and replay enrollment to come back online.
+* The receiver sends their Payjoin Session public key and optional authentication credential according to the [[#session-initiation|Session initiation]] protocol to receive a Payjoin Session subdirectory. The receiver may go offline and replay Session initiation to come back online.
 * Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter where the subdirectory is the Payjoin Session public key. The key is encoded in [[https://datatracker.ietf.org/doc/html/rfc4648#section-5| base64url]] encoding. To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless. An <code>ohttp=</code> parameter containing the directory's base64url encoded [[https://www.ietf.org/rfc/rfc9458.html#name-key-configuration| Oblivious HTTP Key Configuration]] must also be provided.
 * The sender creates a valid version 2 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the <code>Original PSBT</code>. This <code>Original PSBT</code>, optional sender parameters, and HPKE keys are encrypted and authenticated, and encapsulated in OHTTP. This [[#send-messaging|Original PSBT Request send message]] is sent to the directory's OHTTP Gateway.
 * The sender continues to replay this request in order to await a response from the directory containing a <code>Payjoin PSBT</code>. It stops after expiry.
@@ -144,13 +144,13 @@ The Payjoin PSBT MUST NOT:
 * Shuffle the order of inputs or outputs; the additional outputs or additional inputs must be inserted at a random index.
 * Decrease the absolute fee of the Original PSBT.
 
-====Enroll Messaging====
+====Session Initiation====
 
-Receivers must enroll with a directory to have a subdirectory allocated to them, as follows:
+Receivers must initialize a Payjoin Session on a directory to have a Session subdirectory allocated to them, as follows:
 
-A receiver must first discover the directory's OHTTP gateway Key Configuration via an authenticated bootstrap mechanism before it can enroll to receive payjoin requests. This mechanism may vary by implementation but must follow [[https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-key-consistency-01| OHTTP Consistency Requirements]] and should not reveal a receiver IP address to the directory. Some examples of suitable mechanisms include fetching over a VPN, using keys included with an application binary, https-in-http CONNECT method, https-in-WebSocket, or a Tor hidden service.
+A receiver must first discover the directory's OHTTP Gateway Key Configuration via an authenticated bootstrap mechanism before it can initialilze a Session to receive payjoin requests. This mechanism may vary by implementation but must follow [[https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-key-consistency-01| OHTTP Consistency Requirements]] and should not reveal a receiver IP address to the directory. Some examples of suitable mechanisms include fetching over a VPN, using keys included with an application binary, https-in-http CONNECT method, https-in-WebSocket, or a Tor hidden service.
 
-Payjoin Sessions begin by having a receiver send the static public key to the directory via OHTTP, receiving their subdirectory in a base64url encoded directory URL as response. Enrollment may be replayed in case the receiver goes offline and should result in the same response, i.e. it Is idempotent.
+Payjoin Sessions begin by having a receiver send the static public key to the directory via OHTTP, receiving their subdirectory in a base64url encoded directory URL as response. Initiation may be replayed in case the receiver goes offline and should result in the same response, i.e. it Is idempotent.
 
 Optionally, before returning the URI, the receiver may request an authentication token by presenting a message containing only the word <code>Authenticate: <description></code>, after which the receiver is required to submit an <code>Authenticate: <token></code> including the token from the directory out of band. If authentication fails, an error is returned.
 
@@ -179,11 +179,11 @@ The version 2 sender's checklist is largely the same as the [[https://github.com
 
 ===Directory interactions===
 
-The Payjoin Directory provides a rendezvous point for sender and receiver to meet. The directory stores Payjoin payloads to support asynchronous communication. The directory must only accept OHTTP requests with an OHTTP Gateway for Payjoin version 2, accepting encrypted payloads. The directory may optionally accept HTTP/1.1 POST requests without HTTP to enrolled subdirectories to support backwards compatible Payjoin version 1 requests.
+The Payjoin Directory provides a rendezvous point for sender and receiver to meet. The directory stores Payjoin payloads to support asynchronous communication. The directory must only accept OHTTP requests with an OHTTP Gateway for Payjoin version 2, accepting encrypted payloads. The directory may optionally accept HTTP/1.1 POST requests without OHTTP to Payjoin Session subdirectories to support backwards compatible Payjoin version 1 requests.
 
 ===Subdirectories===
 
-Each receiver subdirectory allocated on the directory has one buffer for requests and one for responses. Each buffer updates listeners through awaitable events so that updates are immediately apparent upon client request.
+Each Payjoin Session subdirectory allocated on the directory has one buffer for requests and one for responses. Each buffer updates listeners through awaitable events so that updates are immediately apparent upon client request.
 
 ===Receiver fragment parameters===
 
@@ -259,7 +259,7 @@ The PSBT version 1 protocol was replaced because it was not designed to have inp
 
 ===Attack vectors===
 
-Since directories store arbitrary encrypted payloads they are vulnerable to the tragedy of the commons and denial of service attacks. To mitigate such attacks, directory operators may impose an authentication requirement before they allocate a subdirectory to receivers.
+Since directories store arbitrary encrypted payloads they are vulnerable to the tragedy of the commons and denial of service attacks. To mitigate such attacks, directory operators may impose an authentication requirement before they allocate a Payjoin Session subdirectory to receivers.
 
 Since we make use of 0-RTT HPKE, the first message containing the sender's Original PSBT has minimal forward secrecy. If the receiver's key is compromised, this message containing the Original PSBT could be read by the compromiser.
 
