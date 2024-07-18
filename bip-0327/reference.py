@@ -440,8 +440,6 @@ def partial_sig_verify_internal(psig: bytes, pubnonce: bytes, pk: PlainPk, sessi
     Re_s_ = point_add(R_s1, point_mul(R_s2, b))
     Re_s = Re_s_ if has_even_y(R) else point_negate(Re_s_)
     P = cpoint(pk)
-    if P is None:
-        return False
     a = get_session_key_agg_coeff(session_ctx, P)
     g = 1 if has_even_y(Q) else n - 1
     g_ = g * gacc % n
