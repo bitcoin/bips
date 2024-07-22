@@ -367,7 +367,7 @@ def sign(secnonce: bytearray, sk: bytes, session_ctx: SessionContext) -> bytes:
         raise ValueError('secret key value is out of range.')
     P = point_mul(G, d_)
     assert P is not None
-    pk = PlainPk(cbytes(P))
+    pk = cbytes(P)
     if not pk == secnonce[64:97]:
         raise ValueError('Public key does not match nonce_gen argument')
     a = get_session_key_agg_coeff(session_ctx, P)
@@ -430,7 +430,7 @@ def partial_sig_verify(psig: bytes, pubnonces: List[bytes], pubkeys: List[PlainP
     session_ctx = SessionContext(aggnonce, pubkeys, tweaks, is_xonly, msg)
     return partial_sig_verify_internal(psig, pubnonces[i], pubkeys[i], session_ctx)
 
-def partial_sig_verify_internal(psig: bytes, pubnonce: bytes, pk: PlainPk, session_ctx: SessionContext) -> bool:
+def partial_sig_verify_internal(psig: bytes, pubnonce: bytes, pk: bytes, session_ctx: SessionContext) -> bool:
     (Q, gacc, _, b, R, e) = get_session_values(session_ctx)
     s = int_from_bytes(psig)
     if s >= n:
