@@ -153,7 +153,8 @@ def sig_agg_vectors():
         "psig_indices": [7, 8],
         "error": {
             "type": "invalid_contribution",
-            "signer": 1
+            "signer": 1,
+            "contrib": "psig",
         },
         "comment": "Partial signature is invalid because it exceeds group size"
     }
