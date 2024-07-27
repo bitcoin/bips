@@ -142,7 +142,7 @@ class WalletPolicy(object):
                     continue
 
                 if op in operators_key_all_but_first:
-                    # skip the first argument (we now it's not a KEY expression, so it does not have a comma)
+                    # skip the first argument (we know it's not a KEY expression, so it does not have a comma)
                     first_comma_pos = descriptor.find(",", op_pos_start)
                     if first_comma_pos == -1:
                         raise Exception(

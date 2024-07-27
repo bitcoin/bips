@@ -28,7 +28,7 @@ for two smaller words (This would be a problem with any of the 3 character sets 
 
 ### Spanish
 
-1. Words can be uniquely determined typing the first 4 characters (sometimes less).
+1. Words can be uniquely determined by typing the first 4 characters (sometimes less).
 
 2. Special Spanish characters like 'ñ', 'ü', 'á', etc... are considered equal to 'n', 'u', 'a', etc... in terms of identifying a word. Therefore, there is no need to use a Spanish keyboard to introduce the passphrase, an application with the Spanish wordlist will be able to identify the words after the first 4 chars have been typed even if the chars with accents have been replaced with the equivalent without accents.
 
@@ -92,7 +92,7 @@ Credits: @zizelevak (Jan Lansky zizelevak@gmail.com)
 Words chosen using the following rules:
 
 1.  Words are 4-8 letters long.
-2.  Words can be uniquely determined typing the first 4 letters.
+2.  Words can be uniquely determined by typing the first 4 letters.
 3.  Only words containing all letters without diacritical marks. (It was the hardest task, because one third of all Czech letters has diacritical marks.)
 4.  Only nouns, verbs and adverbs, no other word types. All words are in basic form.
 5.  No personal names or geographical names.
@@ -104,7 +104,7 @@ Words chosen using the following rules:
 
 Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @Trimegistus
 
-1. Words can be uniquely determined typing the first 4 characters.
+1. Words can be uniquely determined by typing the first 4 characters.
 2. No accents or special characters.
 3. No complex verb forms.
 4. No plural words, unless there's no singular form.
