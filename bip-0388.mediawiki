@@ -14,7 +14,10 @@
 
 == Abstract ==
 
-Wallet policies build on top of output script descriptors to represent the types of descriptors that are typically used to represent "accounts" in a software wallet, or a hardware signing device, in a compact, reviewable way. A wallet policy always represents exactly two descriptors, which produce the receive and change addresses that are logically part of the same account.
+Software wallets and hardware signing devices typically partition funds into separate "accounts". When signing or visualizing a transaction, aggregate flows of funds of all accounts affected by the transaction may (and should) be displayed to the user.
+
+Wallet policies build on top of output script descriptors to represent such accounts in a compact, reviewable way.
+An account encompasses a logical group of receive and change addresses, and each wallet policy represents all descriptors necessary to describe an account in its entirety.
 
 We simplify the language to suit devices with limited memory, where even keeping the entire descriptor in memory could be a major hurdle, by reducing the generality of descriptors to just the essential features and by separating the extended pubkeys and other key information from the descriptor.
 
@@ -40,9 +43,9 @@ Moreover, other limitations like the limited size of the screen might affect wha
 
 A more native, compact representation of the wallet receive and change addresses might also benefit the UX of software wallets when they use descriptors (possibly with miniscript) for representing complex locking conditions.
 
-We remark that wallet policies are not related to the ''policy'' language, a higher level language that can be compiled to miniscript.
+We remark that wallet policies are not related to the ''policy'' language, a higher level language that can be compiled to [[bip-0379.md|miniscript]].
 
-=== Security and UX concerns for hardware signing devices ===
+=== Security, privacy and UX concerns for hardware signing devices ===
 
 The usage of complex scripts presents challenges in terms of both security and user experience for a hardware signing device.
 
@@ -56,6 +59,18 @@ Therefore, it is not at all trivial to allow complex scripts, especially if they
 The hardware signing device must guarantee that the user knows precisely what "policy" is being used to spend the funds, and that any "unspent" funds (if any) that is sent to a change address will be protected by the same policy.
 
 This makes it impossible for an attacker to surreptitiously modify the policy, therefore stealing or burning the user's funds.
+
+==== Avoiding key reuse ====
+
+Reusing public keys within a script is a source of malleability when using miniscript policies, which has potential security implications.
+
+Reusing keys across different UTXOs harms user privacy by allowing external parties to link these UTXOs to the same entity once they are spent.
+
+By constraining the derivation path patterns to have a uniform structure, wallet policies prevent key reuse among the same or different UTXOs of the same account.
+
+It is strongly recommended to avoid key reuse across accounts. Distinct public keys per account can be guaranteed by using distinct hardened derivation paths. This specification does not mandate hardened derivation in order to maintain compatibility with existing deployments that do not adhere to this recommendation.
+
+It is out of scope for this document to guarantee that users do not reuse extended public keys among different wallet accounts. This is still very important, but the responsibility is left to the users and their software wallet.
 
 ==== UX issues ====
 
@@ -125,6 +140,8 @@ A ''wallet descriptor template'' is a <tt>SCRIPT</tt> expression.
 * <tt>tr(KP)</tt> or <tt>tr(KP,TREE)</tt> (top level only): P2TR output with the specified key as internal key, and optionally a tree of script paths.
 * any valid miniscript template (inside <tt>wsh</tt> or <tt>tr</tt> only).
 
+See [[bip-0379.md|BIP-379]] for a precise specification of all the valid miniscript <tt>SCRIPT</tt> expressions.
+
 <tt>TREE</tt> expressions:
 * any <tt>SCRIPT</tt> expression
 * An open brace <tt>{</tt>, a <tt>TREE</tt> expression, a comma <tt>,</tt>, a <tt>TREE</tt> expression, and a closing brace <tt>}</tt>
@@ -188,8 +205,6 @@ It is acceptable to implement only a subset of the possible wallet policies defi
 Implementations can add additional metadata that is stored together with the wallet policy for the purpose of wallet policy registration and later usage. Metadata can be vendor-specific and is out of the scope of this document.
 
 Any implementation in a software wallet that allows wallet policies not matching any of the specifications in [[bip-0044.mediawiki|BIP-44]], [[bip-0049.mediawiki|BIP-49]], [[bip-0084.mediawiki|BIP-84]], [[bip-0086.mediawiki|BIP-86]] (especially if involving external cosigners) should put great care into a process for backing up the wallet policy that represents the account. In fact, unlike standard single-signature scenarios, the seed alone is no longer enough to discover wallet policies with existing funds, and the loss of the backup is likely to lead to permanent loss of funds. Unlike the seed, leaking such backups only affects the privacy of the user, but it does not allow the attacker to steal funds.
-
-Avoiding key reuse among different wallet accounts is also extremely important, but out of scope for this document.
 
 === Optional derivation paths ===
 
