@@ -1,0 +1,120 @@
+<pre>
+  BIP: 94
+  Layer: Applications
+  Title: Testnet 4
+  Author: Fabian Jahr <fjahr@protonmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0094
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-05-27
+  License: CC0-1.0
+  Post-History: https://gnusha.org/pi/bitcoindev/CADL_X_eXjbRFROuJU0b336vPVy5Q2RJvhcx64NSNPH-3fDCUfw@mail.gmail.com/
+                https://gnusha.org/pi/bitcoindev/a6e3VPsXJf9p3gt_FmNF_Up-wrFuNMKTN30-xCSDHBKXzXnSpVflIZIj2NQ8Wos4PhQCzI2mWEMvIms_FAEs7rQdL15MpC_Phmu_fnR9iTg=@protonmail.com/
+                https://github.com/bitcoin/bitcoin/pull/29775
+</pre>
+
+== Abstract ==
+
+A new test network with the goal to replace Testnet 3. This network comes with small but important improvements of the consensus rules, that should make it impractical to attack the network using only CPU mining.
+
+== Motivation ==
+
+Quoting the original mailing list post from Jameson Lopp<ref>https://gnusha.org/pi/bitcoindev/CADL_X_eXjbRFROuJU0b336vPVy5Q2RJvhcx64NSNPH-3fDCUfw@mail.gmail.com/</ref>:
+
+<blockquote><poem>
+Testnet3 has been running for 13 years. It's on block 2.5 million something and the block reward is down to ~0.014 TBTC, so mining is not doing a great job at distributing testnet coins anymore.
+
+The reason the block height is insanely high is due to a rather amusing edge case bug that causes the difficulty to regularly get reset to 1, which causes a bit of havoc. If you want a deep dive into the quirk: https://blog.lopp.net/the-block-storms-of-bitcoins-testnet/
+
+Testnet3 is being actively used for scammy airdrops; those of us who tend to be generous with our testnet coins are getting hounded by non-developers chasing cheap gains.
+
+As a result, TBTC is being actively bought and sold; one could argue that the fundamental principle of testnet coins having no value has been broken.
+</poem></blockquote>
+
+Since then the issue with block storms has been further demonstrated on Testnet 3 when three years' worth of blocks were mined in a few weeks while rendering the network practically unusable at the same time.
+
+== Specification ==
+
+Consensus of Testnet 4 follows the same rules as mainnet with the exception of the three rules detailed below. Additionally all soft forks that are active on mainnet as of May 2024 are enforced from genesis.
+
+=== 20-minute Exception ===
+
+This rule was already previously implemented and active in Testnet 3<ref>https://github.com/bitcoin/bitcoin/pull/686</ref>.
+
+A block with a timestamp that is more than 20 minutes past the timestamp of the previous block must have a minimum difficulty of 1 (the network's minimum difficulty) instead of whatever the actual difficulty level currently is. This applies to all blocks in a difficulty period except for the first block. This means the blocks must change their <code>nBits</code> field from the actual difficulty level to the minimum difficulty value <code>0x1d00ffff</code>.
+
+This rule also led to the block storms<ref>https://blog.lopp.net/the-block-storms-of-bitcoins-testnet/</ref> which the following rule seeks to fix.
+
+=== Block Storm Fix ===
+
+The work required for a new difficulty period is calculated as multiplication factor to the difficulty of the previous period (but no less than 1/4th and no more than 4x), depending on the duration of the previous difficulty period. On Mainnet and Testnet 3, this factor is applied to the difficulty value of the last block.
+
+Block storms happen organically whenever the 20-minute exception is applied to a difficulty period’s last block, causing the block to be mined at a difficulty of 1. The difficulty adjustment rules then limit the subsequent period’s difficulty to a value between 1 (the minimum) and 4. Blocks will be generated rapidly in the subsequent low-difficulty periods while the difficulty climbs back to an adequate range. An arbitrarily large number of blocks can be generated quickly by repeatedly using the 20-minute exception on every last block of difficulty periods. The block storm is then bounded only by miner hash rate, the need for last blocks to have a timestamp 20 minutes after the second to last block, the Median-Time-Past nTime rule, and the requirement that blocks can't be more than 2 hours in the future. Overall a sustained attack would eventually be limited to a maximum cadence of six blocks per second.
+
+A block storm does not require a time warp attack, but one can be used to amplify<ref>A perpetual block storm attack with entire difficulty periods being authored in less than 3.5 days that resets the difficulty to the minimum in the last block of every difficulty period would adjust to a new actual difficulty of 4 every period. An attacker that additionally leverages a time warp attack would start their attack by holding back timestamps until the latest block’s timestamp is at least two weeks in the past, and then limiting their block rate to six blocks per second, incrementing the timestamp on every sixth block. Only on the last block they would use the current time, which both resets the difficulty to one per the 20-minute exception and would result in a difficulty adjustment keeping the difficulty at the minimum due to the elapsed time exceeding the target. This would allow lower the difficulty for all blocks to difficulty 1 instead of difficulty 4</ref> it.
+
+The mitigation consists of no longer applying the adjustment factor to the last block of the previous difficulty period. Instead, the first block of the difficulty period is used as the base.
+
+The first block must contain the actual difficulty of the network and can therefore be used as the base for the calculation of the new difficulty level. Note that the first block in new difficulty period does not allow usage of the 20-minute exception (this is prior behavior). This means that in each difficulty period the first block should always have the actual difficulty even if all other blocks were mined with the 20-minute exception.
+
+=== Time Warp Fix ===
+
+In addition to a time warp attack potentially exacerbating the perpetual block storm attack, a time warp attack provides an alternative way to increase the block production rate even if the unintended reset of the actual difficulty due to the 20-minute exception was mitigated.
+
+To protect against the time warp attack, the following rule proposed as part of The Great Consensus Cleanup<ref>https://github.com/TheBlueMatt/bips/blob/cleanup-softfork/bip-XXXX.mediawiki</ref> is enforced: "The nTime field of each block whose height, mod 2016, is 0 must be greater than or equal to the nTime field of the immediately prior block minus 600. For the avoidance of doubt, such blocks must still comply with existing Median-Time-Past nTime restrictions."
+
+== Rationale ==
+
+The applied changes were the result of discussions on the mailing list and the PR. The selected changes try to strike a balance between minimal changes to the network (keeping it as close to mainnet as possible) while making it more robust against attackers that try to disrupt the network. Several alternative designs were considered:
+
+* For the block storm fix an alternative fix could have been to prevent the last block in a difficulty period from applying the existing difficulty exception. Both solutions were deemed acceptable and there was no clear preference among reviewers.
+* Removal of the 20-minute exception was discussed but dismissed since several reviewers insisted that it was a useful feature allowing non-standard transactions to be mined with just a CPU. The 20-minute exception also allows CPU users to move the chain forward (except on the first block that needs to be mined at actual difficulty) in case a large amount of hash power suddenly leaves the network. This would allow the chain to recover to a normal difficulty level faster if left stranded at high difficulty.
+* Increase of minimum difficulty was discussed but dismissed as it would categorically prevent participation in the network using a CPU miner (utilizing the 20-minute exception).
+* Increase of the delay in the 20-minute exception was suggested but did not receive significant support.
+* Re-enabling <code>acceptnonstdtxn</code> in bitcoin core by default was dismissed as it had led to confusion among layer-2s that had used testnet for transaction propagation tests and expected it to behave similar to mainnet.
+* Motivating miners to re-org min difficulty blocks was suggested, but was considered out of scope for this BIP, since adoption of such a mining policy remains available after Testnet 4 is deployed. As 20-minute exception blocks only contribute work corresponding to difficulty one to the chaintip, and actual difficulty blocks should have a difficulty magnitudes higher, a block mined at actual difficulty could easily replace even multiple 20-minute exception blocks.
+* Persisting the real difficulty in the version field was suggested to robustly prevent exploits of the 20-minute exception while allowing it to be used on any block, but did not receive a sufficient level of support to justify the more invasive change.
+
+One known downside of the chosen approach is that if the difficulty is gradually raised by a miner with significant hash rate, and this miner disappears, then each difficulty adjustment period requires one block at the actual difficulty.
+
+This would cause the network to stall once per difficulty adjustment period until the real difficulty is adjusted downwards enough for the remaining hash rate to find this block in reasonable time.
+
+== Network Parameters ==
+
+=== Consensus Rules ===
+
+All consensus rules active on mainnet at the time of this proposal are enforced from block 1, the newest of these rules being the Taproot softfork.
+
+=== Genesis Block ===
+
+* Message: <code>03/May/2024 000000000000000000001ebd58c244970b3aa9d783bb001011fbe8ea8e98e00e</code>
+* Pubkey: <code>000000000000000000000000000000000000000000000000000000000000000000</code>
+* Time stamp: 1714777860
+* Nonce: 393743547
+* Difficulty: <code>0x1d00ffff</code>
+* Version: 1
+
+The resulting genesis block hash is <code>00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043</code>, and the block hex is <code>0100000000000000000000000000000000000000000000000000000000000000000000004e7b2b9128fe0291db0693af2ae418b767e657cd407e80cb1434221eaea7a07a046f3566ffff001dbb0c78170101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff5504ffff001d01044c4c30332f4d61792f323032342030303030303030303030303030303030303030303165626435386332343439373062336161396437383362623030313031316662653865613865393865303065ffffffff0100f2052a010000002321000000000000000000000000000000000000000000000000000000000000000000ac00000000</code>.
+
+=== Message Start ===
+
+The message start is defined as <code>0x1c163f28</code>. These four bytes were randomly generated and have no special meaning.
+
+== Backwards Compatibility ==
+
+The rules used by Testnet 4 are backwards compatible to the rules of Testnet 3. Existing software that implements support for Testnet 3 would only require addition of the network parameters  (magic number, genesis block, etc.) to be able to follow Testnet 4. 
+
+However, implementations that only implement Testnet 3’s rules would accept a chain that violates Testnet 4’s rules and are therefore susceptible to being forked off. It is recommended that any implementations check blocks in regard to all the new rules of Testnet 4 and reject blocks that fail to comply.
+
+== Reference implementation ==
+
+Pull request at https://github.com/bitcoin/bitcoin/pull/29775
+
+== References ==
+
+<references/>
+
+== Copyright ==
+
+This document is licensed under the  Creative Commons CC0 1.0 Universal license.
