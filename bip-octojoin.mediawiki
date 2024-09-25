@@ -1,0 +1,111 @@
+  BIP: XXX
+  Layer: Applications
+  Title: Octojoin v1
+  Author: /dev/fd0 <alicexbt@protonmail.com>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0xxx
+  Status: Draft
+  Type: Informational
+  Created: 2024-09-25
+  License: BSD-2-Clause
+
+
+==Abstract==
+
+This document describes the process to use swapped UTXOs for inputs, [[bip-0352.mediawiki|BIP 352]] silent payment addresses for outputs, and hide the transacted amount with multiple interpretations.
+
+==Motivation==
+
+Payjoin requires coordination and sharing of UTXOs between sender and recipient. This affects privacy and UX in some cases. Octojoin avoids sharing of UTXOs and uses swapped UTXOs.
+
+====Relation to Monero====
+
+Most Monero transactions use 16 ring size for the input, making it impossible to determine which input is signed by the user out of 16. The amounts are hidden, and stealth addresses are used for outputs.
+
+Octojoin achieves partial obfuscation similar to Monero's ring signatures ([https://www.getmonero.org/2024/04/27/fcmps.html FCMP++] will replace ring signatures in the future) and stealth addresses. Swaps can be done off-chain to obscure the transaction's input ownership and history.
+
+==Specification==
+
+====Sequence Diagram====
+
+<source lang="mermaid">
+sequenceDiagram
+    participant Alice
+    participant Wallet
+    participant Bob
+
+    Alice->>Wallet: Label swapped UTXOs as 'octojoin'
+    Bob->>Alice: Share silent payment address
+    Alice->>Wallet: Create transaction using 'octojoin' UTXOs + 1 normal input
+    Note right of Alice: Minimum 2 outputs and avoid change for multiple interpretations
+    Wallet->>Bob: Pay Bob
+</source>
+
+Users should label some UTXOs as “octojoin” so that they can be used in octojoin transactions. Ideally, these UTXOs should be ones that have been swapped with others and are linked to someone else’s transaction history.
+
+'''Input Obfuscation with Off-Chain Swaps'''
+
+Do off-chain swaps (e.g. statechain, submarine swaps, or coinswap) to obtain UTXOs with different histories. Ensure that all inputs come from other users except one belonging to the sender, making it difficult for on-chain analysts to determine ownership.
+
+'''Silent Payment Address for Outputs'''
+
+Use silent payment addresses to generate new addresses for the recipient.
+
+'''Multiple Outputs and Different Interpretations'''
+
+The transaction includes multiple outputs, which may include change to the sender, hiding the payment amount.
+
+An algorithm requiring some values from the user to create the transaction or notify the user about missing inputs will be implemented by different wallets:
+
+* Payment amount
+* Number of inputs (default: 3)
+* Number of outputs (default: 2)
+* Equal amounts in inputs (default: false)
+
+Analysis of different decoy selection algorithms used in Monero: https://github.com/monero-project/research-lab/issues/99
+
+Input selection is important in Octojoin, although not the same as decoy selection used in different Monero wallets. Recommendations for Octojoin algorithms:
+
+Transaction MUST have at least 3 inputs, all swapped except one. It SHOULD avoid mixed input types and use random wallet fingerprints, including BIP 69. It SHOULD use inputs of similar age. Some inputs SHOULD be recent UTXOs. All outputs MUST use the same script type.
+
+==Rationale==
+
+====Default Values====
+
+We need at least 1 normal input in the transaction, so 2 swapped inputs will provide minimum privacy in a transaction. 1 output will reveal the payment amount, at least 2 outputs are required for multiple interpretations.
+
+Total transactions with 3 inputs (~43,000,000): https://blockchair.com/bitcoin/transactions?s=time(desc)&q=input_count(3)#f=hash,input_count,time
+
+Total transaction with 3 inputs and 2 outputs (~27,000,000): https://blockchair.com/bitcoin/transactions?s=time(desc)&q=input_count(3),output_count(2)#f=hash,input_count,time,output_count
+
+<source lang="mermaid">
+xychart-beta
+    title "Transactions with 3 inputs and 2 outputs"
+    x-axis [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep]
+    y-axis "Transactions (in thousands)" 0 --> 160 
+    bar [125, 143, 157, 130, 117, 106, 121, 123, 127]
+</source>
+
+Transactions that already use 3 inputs and 2 outputs will serve as the anonymity set for octojoin transactions with default values. It is possible to change defaults and use more number of inputs and outputs.
+
+====Swapped UTXOs====
+
+Swapping UTXOs off-chain will obscure the transaction's input ownership and history. It also adds more noise on-chain to make chain analysis difficult
+
+====Silent Payment Addresses====
+
+Sender pay require more than 1 output so silent payment addresses will be the best approach to generate new addresses with no interaction and maximum privacy.
+
+==Implementation==
+
+Pseudocode: https://uncensoredtech.substack.com/p/octojoin
+
+Proof of Concept: TBD
+
+==Backwards Compatibility==
+
+This is a new protocol and has no compatibility issues and requires [[bip-0352.mediawiki|BIP 352]] silent payments. It is not a replacement for payjoin (BIP 77 and BIP 78) either and benefits from multiple interpretations on-chain.
+
+==Attack Vectors==
+
+* Metadata leak in swaps
+* User not careful while spending outputs created in Octojoin transaction
