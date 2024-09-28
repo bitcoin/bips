@@ -26,11 +26,13 @@ This document is licensed under the 3-clause BSD license.
 
 This proposal aims to improve the quantum resistance of bitcoin's signature security should the Discrete Logarithm Problem (DLP) which secures Elliptic Curve Cryptography (ECC) no longer prove to be computationally hard, likely through quantum advantage by Cryptographically-Relevant Quantum Computers (CRQCs). [https://arxiv.org/pdf/quant-ph/0301141 A variant of Shor's algorithm] is believed to be capable of deriving the private key from a public key exponentially faster than classical means. The application of this variant of Shor's algorithm is herein referred to as quantum key decryption. Note that doubling the public key length, such as with a hypothetical secp512k1 curve, would only make deriving the private key twice as hard. The computational complexity of this is investigated further in the paper, [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching ''The impact of hardware specifications on reaching quantum advantage in the fault tolerant regime''].
 
-Mining may one day be vulnerable to disruption by very advanced quantum computers making use of Grover's algorithm. However, Grover's [https://arxiv.org/pdf/1902.02332 scales very poorly] compared to Shor's, requiring 10^40 quantum operations in comparison to 10^8 for running Shor's over ECC. It's for this reason that the primary threat to Bitcoin by quantum computers is to its signature algorithm and not Proof of Work, hence the focus on a new address format.
+The primary threat to Bitcoin by CRQCs is [https://en.bitcoin.it/wiki/Quantum_computing_and_Bitcoin#QC_attacks generally considered to be to its uses of ECC used in signatures and Taproot commitments], hence the focus on a new address format. This is because Shor's algorithm enables a CRQC to break the cryptographic assumptions of ECC in roughly 10^8 quantum operations. While a CRQC could use [https://en.wikipedia.org/wiki/Grover's_algorithm Grover's algorithm] to gain a quadratic speed up on brute force attacks on the hash functions used in Bitcoin, a significantly more powerful CRQC is needed for these attacks to meaningfully impact Bitcoin. For instance, a preimage attack on HASH160<ref>used by P2PKH, P2SH, and P2WPKH addresses, though not P2WSH because it uses 256-bit hashes</ref> using Grover's algorithm would require at least 10^24 quantum operations. As for Grover's application to mining, see [https://quantumcomputing.stackexchange.com/a/12847 Sam Jaques post on this].
 
-The vulnerability of existing bitcoin addresses is investigated in [https://web.archive.org/web/20240715101040/https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. The report estimates that in 2020 approximately 25% of the bitcoin supply is held within addresses vulnerable to quantum attack.
+The vulnerability of existing bitcoin addresses is investigated in [https://web.archive.org/web/20240715101040/https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. The report estimates that in 2020 approximately 25% of the bitcoin supply is held within addresses vulnerable to quantum attack. As of the time of writing, that number is now closer to 20%. Additionally, Peter Wuille estimates even more might be vulnerable, for the reasons provided [https://x.com/pwuille/status/1108085284862713856 here].
 
-Ordinarily, when a transaction is signed, the public key can be recovered from the signature. This makes a transaction submitted to the mempool vulnerable to quantum attack until it's mined. One way to mitigate this is to submit the transaction directly to a mining pool, which bypasses the mempool. This process is known as an out-of-band transaction. The mining pool must be trusted not to reveal the key to attackers.
+Ordinarily, when a transaction is signed, the public key can be recovered from the signature. This makes a transaction submitted to the mempool vulnerable to quantum attack until it's mined. One way to mitigate this is to submit the transaction directly to a mining pool, which bypasses the mempool. This process is known as an out-of-band transaction. The mining pool must be trusted not to reveal the transaction public key to attackers.
+
+Not having public keys exposed on-chain is an important step for quantum security. Otherwise funds would need to be spent to new addresses on a regular basis in order to prevent the possibility of a "long-range CRQC attack" recovering the key behind high value addresses. A long-range quantum attack can be considered one performed with chain data, such as that from a used address or one encoded in a spend script. A "short-range quantum attack" would be one done on keys in the mempool, which is seen as impractical given transaction throughput and block time. As the value being sent increases, so too should the fee in order to commit the transaction to the chain as soon as possible.  This makes useless the public key revealed by spending a UTXO, so long as it is never reused.
 
 It is proposed to implement a Pay to Quantum Resistant Hash (P2QRH) address type that relies on a post-quantum cryptographic (PQC) signature algorithm. This new address type protects transactions submitted to the mempool and helps preserve the free market by reducing the need for private, out-of-band mempool transactions.
 
@@ -51,6 +53,28 @@ The following table is non-exhaustive, but meant to inform the average bitcoin u
 |}
 
 It should be noted that Taproot addresses are vulnerable in that they encode a 32-byte x-only public key, from which a full public key can be reconstructed.
+
+If a key is recovered by a CRQC, it can also be trivially checked to see if any child keys were produced using an unhardened [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-32] derivation path.
+
+The following table summarizes the scenarios in which public keys are revealed when using Bitcoin, and what type of attack they're vulnerable to:
+
+{|
+|+ Scenarios for revealed public keys on Bitcoin
+|-
+! Scenario !! Type of attack
+|-
+| Early addresses (Satoshi's coins, CPU miners, starts with 04) || Long-range
+|-
+| Reused addresses (any type, except bc1r) || Long-range
+|-
+| Taproot addresses (starts with bc1p) || Long-range
+|-
+| Any transaction in the mempool (except for bc1r) || Short-range
+|-
+| Unhardened BIP-32 HD wallet keys || Both Long-range or Short-range
+|}
+
+The only time a short-range attack can occur is when the transaction is in the mempool, whereas long-range attacks are when the public key is known well in advance. Short-range attacks require much larger, more expensive CRQCs.
 
 Should quantum advantage manifest, a convention is proposed in spending the full 65-byte P2PK key used by the coinbase output in Block 1 back to itself. It is proposed to call this the [https://mempool.space/address/0496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858ee Canary address]. The reasoning behind this is that this can only be done by Satoshi, and given his absence, this can only be spent by others if there is a significant vulnerability in secp256k1. Should the Canary coins move, that will signal that bitcoin is presently vulnerable. Without the Canary, or an address like it, there may be some doubt as to whether the coins were moved with keys belonging to the original owner.
 
@@ -75,21 +99,21 @@ P2QRH is meant to be implemented on top of P2TR, combining the security of class
 
 P2QRH uses a 32-byte HASH256 (specifically SHA-256 twice-over, which is similar to that used in [https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki#specification BIP-16]) of the public key to reduce the size of new outputs and also to increase security by not having the public key available on-chain. This hash serves as a minimal cryptographic commitment to a public key. It goes into the output spend script, which does not receive the witness discount.
 
-Not having public keys exposed on-chain is an important step for quantum security. Otherwise funds would need to be spent to new addresses on a regular basis in order to prevent the possibility of a "long-range CRQC attack" recovering the key behind high value addresses. A long-range quantum attack can be considered one performed with chain data, such as that from a used address or one encoded in a spend script. A "short-range quantum attack" would be one done on keys in the mempool, which is seen as impractical given transaction throughput and block time. As the value being sent increases, so too should the fee in order to commit the transaction to the chain as soon as possible.  This makes useless the public key revealed by spending a UTXO, so long as it is never reused.
-
 Post-quantum public keys are generally larger than those used by ECC, depending on the security level. To promote user adoption and general user-friendliness, the most secure variant (NIST V, 256 bit) is proposed, despite the increase in key length and verification time.
 
 Support for FALCON signatures will be introduced first, with the intention of adding SQIsign and other post-quantum algorithms as they are approved. By way of comparison, FALCON signatures are roughly 4x larger than SQIsign signatures and 20x larger than Schnorr signatures. FALCON is a more conservative approach to applied lattice cryptography than SQIsign, and its use has recently been approved by NIST. NIST approval streamlines implementations through establishing consensus in the scientific and developer community. However, even SQIsign signatures are roughly 5x larger than Schnorr signatures. This means, to maintain present transaction throughput, an increase in the witness discount will likely be desired in a QuBit soft fork. That will be specified in a future QuBit BIP.
 
-An increase in the witness discount must not be taken lightly.  It must be resistant to applications that might take advantage of this discount (e.g. storage of arbitrary data as seen with "inscriptions") without a corresponding increase in economic activity. Such an increase would not only impact node runners but those with inscriptions would also have the scarcity of their non-monetary assets affected. The only way to prevent this while also increasing the discount is to have a completely separate witness, a quantum witness, or "quitness," that is solely responsible for providing post-quantum signatures.
+An increase in the witness discount must not be taken lightly.  It must be resistant to applications that might take advantage of this discount (e.g. storage of arbitrary data as seen with "inscriptions") without a corresponding increase in economic activity. Such an increase would not only impact node runners but those with inscriptions would also have the scarcity of their non-monetary assets affected. The only way to prevent this while also increasing the discount is to have a completely separate witness, a "quantum witness". Because it is meant only for public keys and signatures, we call this section of the transaction the attestation.
 
-To address the risk of arbitrary data being stored using P2QRH (QuBit) addresses, very specific rules will be applied to spending from the witness stack in SegWit v3 outputs. A fixed signature size will be necessary for spending the output, and the output must be spendable to be considered valid within node consensus. A fixed signature size will also be helpful to disambiguate between signature types without an additional version byte, as SQIsign signatures are substantially smaller than FALCON signatures. Consequently, the correct signature algorithm can be inferred through byte length. The public key and signature will be pushed separately to the quitness stack. Multiple signatures can be included in order to support multisig applications, and also for spending multiple inputs.
+To address the risk of arbitrary data being stored using P2QRH (QuBit) addresses, very specific rules will be applied to spending from the witness stack in SegWit v3 outputs. A fixed signature size will be necessary for spending the output, and the output must be spendable to be considered valid within node consensus. A fixed signature size will also be helpful to disambiguate between signature types without an additional version byte, as SQIsign signatures are substantially smaller than FALCON signatures. Consequently, the correct signature algorithm can be inferred through byte length. The public key and signature will be pushed separately to the attestation stack. Multiple signatures can be included in order to support multisig applications, and also for spending multiple inputs.
 
-Since only valid signatures can be committed to in a SegWit v3 quitness, arbitrary data cannot be added by miners, as that would affect the consensus of their block. A CRQC operator is economically disincentivized from computing a spendable public key that matched arbitrary signature data due to the cost of that computation. That is because the cost of such a computation could prove quite substantial, rather than simply putting the arbitrary data within a Taproot witness. Doing the work to meet the requirement for it to be consensus-valid data would prove cost-prohibitive.
+Since only valid signatures can be committed to in a SegWit v3 attestation, arbitrary data cannot be added by miners, as that would affect the consensus of their block. A CRQC operator is economically disincentivized from computing a spendable public key that matched arbitrary signature data due to the cost of that computation. That is because the cost of such a computation could prove quite substantial, rather than simply putting the arbitrary data within a Taproot witness. Doing the work to meet the requirement for it to be consensus-valid data would prove cost-prohibitive.
 
 Additionally, it should be noted, whether an output with a P2QRH spend script corresponds to a FALCON or SQIsign signature is not known until the output is spent.
 
-While it might be seen as a maintenance burden for bitcoin ecosystem devs to go from a single cryptosystem implementation to two distinct cryptosystems-- and it most certainly is-- the ramifications of a chain broken through extrinsic factors should provide sufficient motivation. An increase in software maintenance everywhere signatures are used should be seen as an acceptable compromise for maintained integrity of bitcoin transfers during a regime of quantum advantage.
+While it might be seen as a maintenance burden for bitcoin ecosystem devs to go from a single cryptosystem implementation to four additional distinct PQC cryptosystems-- and it most certainly is-- the ramifications of a chain broken through extrinsic factors should provide sufficient motivation. An increase in software maintenance everywhere signatures are used should be seen as an acceptable compromise for maintained integrity of bitcoin transfers during a regime of quantum advantage.
+
+The inclusion of these four cryptosystems: SPHINCS, XMSS, FALCON, and SQIsign have various advocates within the community due to their varying security assumptions. Hash-based cryptosystems are more conservative, time-tested, and well-reviewed. Lattice cryptography is relatively new and introduces novel security assumptions to Bitcoin, but their signatures are smaller and might be considered by some to be an adequate alternative to Hash-based signatures. SQIsign is much smaller, however, it is based on a very novel form of cryptography known as supersingular elliptic curve quaternion isogeny, and at the time of writing, is not yet approved by NIST or the broader PQC community.
 
 In the distant future, following the implementation of the P2QRH address format in a QuBit soft fork, there will likely be a need for Pay to Quantum Secure (P2QS) addresses. These will require specialized quantum hardware for signing, while still [https://quantum-journal.org/papers/q-2023-01-19-901/ using public keys that are verifiable via classical means]. Additional follow-on BIPs will be needed to implement P2QS. However, until specialized quantum cryptography hardware is widespread, quantum resistant addresses should be an adequate intermediate solution.
 
@@ -109,50 +133,34 @@ For P2QRH descriptors, <code>qrh()</code> should be used.
 == Security ==
 
 {|
-|+ Proposed quantum resistant signature algorithms ordered by largest to smallest signature size, NIST I
+|+ Proposed quantum resistant signature algorithms ordered by largest to smallest NIST V signature size
 |-
-! Signature algorithm !! Year first introduced !! Signature size, NIST I !! Public key size, NIST I
+! Signature Algorithm !! Year First Introduced !! Signature Size !! Public Key Size || Cryptographic Assumptions
 |-
-| [https://sphincs.org/data/sphincs+-r3.1-specification.pdf SPHINCS+ Rd. 3.1 (FIPS 205 - SLH-DSA)] || 2015 || 7856 bytes || 32 bytes
+| [https://en.wikipedia.org/wiki/Lamport_signature Lamport signature] || 1977 || 8192 bytes || 16384 bytes || Hash-based cryptography
 |-
-| [https://pq-crystals.org/dilithium/ CRYSTALS-Dilithium (FIPS 204 - ML-DSA)] || 2017 || 2420 bytes || 1312 bytes
+| [https://eprint.iacr.org/2011/191.pdf Winternitz signature] || 1982 || 2368 bytes* || 2368 bytes<ref>Footnote: Winternitz signatures are much smaller than Lamport signatures due to efficient chunking, but computation is much higher, especially with high values for w. Winternitz values are for w of 4.</ref> || Hash-based cryptography
 |-
-| [https://eprint.iacr.org/2014/457.pdf pqNTRUsign] || 2016 || 702 bytes || 752 bytes
+| [https://sphincs.org/data/sphincs+-r3.1-specification.pdf SPHINCS+ Rd. 3.1 (FIPS 205 - SLH-DSA)] || 2015 || 29792 bytes || 64 bytes || Hash-based cryptography
 |-
-| [https://falcon-sign.info FALCON (FIPS 206 - FN-DSA)] || 2017 || 666 bytes || 897 bytes
+| [https://eprint.iacr.org/2011/484.pdf XMSS]<ref>XMSS, which is based on Winternitz, uses a value of 108 for its most compact signature size, with only a 4.6x (2.34/0.51) increase in verification time. Signing and key generation are not considered a significant factor because they are not distributed throughout the entire Bitcoin network, which take place only inside of wallets one time.</ref> || 2011 || 15384 bytes || 13568 bytes || Hash-based cryptography (Winternitz OTS)
 |-
-| [https://eprint.iacr.org/2022/1155.pdf HAWK] || 2022 || 652 bytes || 1006 bytes
+| [https://pq-crystals.org/dilithium/ CRYSTALS-Dilithium (FIPS 204 - ML-DSA)] || 2017 || 4595 bytes || 2592 bytes || Lattice cryptography
 |-
-| [https://sqisign.org SQIsign] || 2023 || 177 bytes || 64 bytes
+| [https://eprint.iacr.org/2014/457.pdf pqNTRUsign] || 2016 || 1814 bytes || 1927 bytes || Lattice cryptography (NTRU)
 |-
-| [https://eprint.iacr.org/2024/760.pdf SQIsign2D-West] || 2024 || 148 bytes || 66 bytes
+| [https://falcon-sign.info FALCON (FIPS 206 - FN-DSA)] || 2017 || 1280 bytes || 1793 bytes || Lattice cryptography (NTRU)
 |-
-| [https://link.springer.com/content/pdf/10.1007/978-3-031-58716-0_1.pdf SQIsignHD] || 2024 || 109 bytes || not provided
+| [https://eprint.iacr.org/2022/1155.pdf HAWK] || 2022 || 1261 bytes || 2329 bytes || Lattice cryptography
+|-
+| [https://sqisign.org SQIsign] || 2023 || 335 bytes || 128 bytes || Supersingular Elliptic Curve Isogeny
+|-
+| [https://eprint.iacr.org/2024/760.pdf SQIsign2D-West] || 2024 || 294 bytes || 130 bytes || Supersingular Elliptic Curve Isogeny
+|-
+| [https://eprint.iacr.org/2023/436.pdf SQIsignHD] || 2023 || 109 butes (NIST I) || not provided || Supersingular Elliptic Curve Isogeny
 |}
 
-{|
-|+ Proposed quantum resistant signature algorithms ordered by largest to smallest signature size, NIST V
-|-
-! Signature algorithm !! Year first introduced !! Signature size, NIST V !! Public key size, NIST V
-|-
-| Lamport signature || 1977 || 8192 bytes || 16384 bytes
-|-
-| SPHINCS+ Rd. 3.1 (FIPS 205 - SLH-DSA) || 2015 || 29792 bytes || 64 bytes
-|-
-| CRYSTALS-Dilithium (FIPS 204 - ML-DSA) || 2017 || 4595 bytes || 2592 bytes
-|-
-| pqNTRUsign || 2016 || 1814 bytes || 1927 bytes
-|-
-| FALCON (FIPS 206 - FN-DSA) || 2017 || 1280 bytes || 1793 bytes
-|-
-| HAWK || 2022 || 1261 bytes || 2329 bytes
-|-
-| SQIsign || 2023 || 335 bytes || 128 bytes
-|-
-| SQIsign2D-West || 2024 || 294 bytes || 130 bytes
-|-
-| SQIsignHD || 2023 || not provided || not provided
-|}
+
 
 As shown, supersingular elliptic curve quaternion isogeny signature algorithms represent the state of the art in post-quantum cryptography, beyond lattice cryptography alone, especially when key and signature length are major constraints. This makes inclusion of SQIsign attractive, and support is planned, but it will be some time until it is approved for production use. Meanwhile, FALCON signatures are already approved and have achieved broader community consensus.
 
@@ -167,20 +175,40 @@ One consideration for choosing an algorithm is its maturity. secp256k1 was alrea
 
 Ideally SQIsign also proves to be flexible enough to support [https://www.pierrickdartois.fr/homepage/wp-content/uploads/2022/04/Report_OSIDH_DARTOIS.pdf Isogeny Diffie-Hellman] to replace ECDH applications, and also provide methods for the key tweaking necessary to support TapScript for P2QR addresses. Additionally, isogeny-based post-quantum cryptography is based on higher-order elliptic curves, and so it might be possible to implement Isogeny Schnorr signatures.
 
-Signature verification speed as it compares to Schnorr or ECDSA isn't seen as high a consideration as signature size due to block space being the primary fee constraint. As a P2QRH implementation materializes, a benchmark will be added for performance comparison. Fortunately, SQIsign signatures are substantially faster to verify than it is to generate keys or to sign, which is a major consideration when a transaction need only be signed once, or a handful of times with PSBT, compared to being verified simultaneously on tens of thousands of nodes. Key generation may need to cached in [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-32 HD wallets].
+Signature verification speed as it compares to Schnorr or ECDSA isn't seen as high a consideration as signature size due to block space being the primary fee constraint. As a P2QRH implementation materializes, a benchmark will be added for performance comparison. Fortunately, SQIsign signatures are substantially faster to verify than it is to generate keys or to sign, which is a major consideration when a transaction need only be signed once, or a handful of times with PSBT, compared to being verified simultaneously on tens of thousands of nodes. Key generation may need to cached in BIP-32 Hierarchical Deterministic wallets.
 
 An additional consideration is security levels. Longer signature sizes provide more security. NIST has standardized five security levels for post-quantum cryptography. NIST security level I provides security equivalent to 128-bit keys, and security level V provides 256-bit security.
 
 
 == Specification ==
 
-How the quitness is differentiated from the witness can be accomplished similar to how [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-Transaction_ID BIP-141] introduced the marker and flag, with the QuBit flag being set to 0x02. This means all QuBit transactions are also SegWit transactions. The additional data would be included as a second array of byte arrays following the witness stack.
+How the attestation is differentiated from the witness can be accomplished similar to how [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-Transaction_ID BIP-141] introduced the marker and flag, with the QuBit flag being set to 0x02. This means all QuBit transactions are also SegWit transactions. The additional data would be included as a second array of byte arrays following the witness stack.
 
-The new transaction serialization format would be as follows:
+The new transaction serialization format is as follows:
 
-  [nVersion][marker][flag][txins][txouts][witness][quitness][nLockTime]
+  [nVersion][marker][flag][txins][txouts][witness][attestation][nLockTime]
 
-WIP
+QuBit spend scripts are as follows:
+
+* OP_PUSHNUM_3 to indicate SegWit version 3
+* OP_PUSHBYTES_32
+* HASH256 of the following bytes concatenated:
+  * HASH256 of the public key at attestation index 0
+  * If there are more public keys:
+    * All public keys are hashed via HASH256 and concatenated
+
+In short, the new spend script serialization format is as follows:
+
+  OP_PUSHNUM_3 HASH256([HASH256(Public Key Bytes at Attestation Index 0)][HASH256(PK Q1)][..])
+
+Addresses then encode this script using bech32m.
+
+32-byte attestation fields are assumed to be Schnorr public keys for Taproot fields, because they are ordinarily included in the spend script, but cannot be included in P2QRH for security reasons. Public key / signature pairs for Taproot fields come before QuBit public key / signature pairs.
+
+Which key type is inferred by its size, as provided by the attestation varint pair, determining whether it's processed as secp256k1 Schnorr, SPHINCS, XMSS, FALCON, and SQIsign.
+
+If the transaction fails to include the public keys needed to match the spend script hash, it is an invalid transaction, because the cryptographic commitment for the keys has not been met. Because of this, only valid public keys and signatures can be included within the attestation, and no other data.
+
 
 === Public Key Generation ===
 
@@ -222,6 +250,9 @@ TBD
 * [https://bitcoinops.org/en/newsletters/2024/06/14/ Bitcoin OpTech newsletter]
 * [https://bitcoinops.org/en/podcast/2024/06/18/#draft-bip-for-quantum-safe-address-format Bitcoin OpTech discussion transcript]
 
+
+== Footnotes ==
+
 <references />
 
 
@@ -229,12 +260,12 @@ TBD
 
 To help implementors understand updates to this BIP, we keep a list of substantial changes.
 
-* 2024-06: High level rough draft
-* 2024-07: Additional algorithms in PQC table
-* 2024-08: Add FALCON signatures, update to use NIST standard terminology, add public key sizes.
-* 2024-09: Additional detail on P2QS. Deprecate P2QR. Postpone SQIsign. Add details on quitness.
+* 2024-09-30 - Refactor the ECC vs PoW section. Swap quitness for attestation.
+* 2024-09-29 - Update section on PoW to include partial-preimage.
+* 2024-09-28 - Add Winternitz, XMSS signatures, and security assumption types to PQC table. Omit NIST I table. Add spend script specification. Add revealed public key scenario table.
+* 2024-09-27 - Initial draft proposal
 
 
 == Acknowledgements ==
 
-Much gratitude to my co-founder, Kyle Crews for proofreading and editing, and to David Croisant. who suggested the name "QuBit." Thank you as well to those who took the time to review and contribute, including Adam Borcany, Antoine Riard, and Pierre-Luc Dallaire-Demers.
+Much gratitude to my co-founder, Kyle Crews for proofreading and editing, to David Croisant, who suggested the name "QuBit", and Guy Swann for pointing out the earlier name for the attestation, "quitness", was imperfect. Thank you as well to those who took the time to review and contribute, including Adam Borcany, Antoine Riard, Pierre-Luc Dallaire-Demers, Ethan Heilman, and Jon Atack.
