@@ -1,0 +1,449 @@
+<pre>
+  BIP: ???
+  Layer: Consensus (soft / hard fork)
+  Title: Logarithm of transaction fee limits block size. Game theoretic scaling on chain.
+  Author: Simon Cavegn <random@gmx.ch>
+  Comments-Summary: None
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-XXXX
+  Status: Draft
+  Type: Standards Track
+  Created: 2019-03-28
+</pre>
+
+==Abstract==
+
+Logarithm of transaction fee limits block size.
+
+If a sender is willing to pay a large fee, then a transaction may be allowed in a block even if blocksize for lower fee-transactions is full. Yet the blocksize is limited harshly by a formula.
+
+==Motivation==
+
+# Keep block space small.
+# Waste less with spam transactions.
+# Auto balance Fees: Increase very low fees, Descrease very high fees.
+# Allow larger size when sender pays a lot.
+# Allow wallets to calculate/display how much average free block space there is for each fee price bucket.
+# Allow senders to have more control about how the fee/priority of their transaction will behave, especially in the case of increased adoption in the future.
+
+==Specification==
+
+Every transaction has to fit into the following block space:
+    Input variable 'transactionFee':
+      type: integer
+      unit: Satoshi
+    Input variable 'transactionSize':
+      type: integer
+      unit: bytes
+    Output:
+      type: integer
+      unit: bytes
+    Code:
+      int Formula(int transactionFee, int transactionSize)
+      {
+        int feePerByte = transactionFee / transactionSize;
+        if (feePerByte == 1) return 131008;
+        return Math.Min(43403 + 315653 * Log2(feePerByte), 8*1024*1024);
+        // Note: 315653 = 1024*1024*Log10(2) (Arises from conversion: log2() to log10() and byte to megabyte)
+        // Note: 131008 = 1024*1024*Log10(1 + 1/3)
+        // Note: 43403 = 1024*1024*Log10(1 + 1/10)
+      }
+      int Log2(int value)
+      {
+        int i;
+        for (i = 0; value > 1; i++)
+        {
+          value >>= 1;
+        }
+        return i;
+      }
+
+==Implementation==
+
+# Sort transactions by (TransactionFee / TransactionSize) (integer division, lowest first)
+# For each transaction starting from lowest FeeInSatoshiPerByte: Sum up the bytes of space used so far. Check if summed up bytes of space used so far is smaller or equal than the formula result.
+# If this is valid for each transaction then the blocksize is valid.
+
+==How the formula behaves==
+The first part of the table shows how spam is reduced. The part where total sum of fees in a block is between 1btc and 50btc is probably the most realistic real limit of the block size. Block sizes 4-8MB will be rare first, but in far future as more miners offer fee discounts (may be through CoinJoin) and pay themself giant fees, 8MB might become the new standard block size limitation. Note: This table is not specification, its just simplified example (only basic 250byte sized transactions) to visualize the formula's effects.
+{| class="wikitable sortable" style="width: auto; text-align: center; font-size: smaller; table-layout: fixed;"
+!Transaction fee in satoshi
+!BasicTransaction (250bytes) fee in satoshi/byte
+!Basic transaction fee in $ if btc would be 20000$
+!Resulting block size limit for the transaction
+!Estimated total sum of fees in the block
+|-
+|from 0 sat
+|0 sat/byte
+|0.00 $
+|43403 byte
+|0.000 btc
+|-
+|to 249 sat
+|0 sat/byte
+|0.05 $
+|43403 byte
+|0.000 btc
+|-
+|from 250 sat
+|1 sat/byte
+|0.05 $
+|131008 byte
+|0.001 btc
+|-
+|to 499 sat
+|1 sat/byte
+|0.10 $
+|131008 byte
+|0.003 btc
+|-
+|from 500 sat
+|2 sat/byte
+|0.10 $
+|359056 byte
+|0.007 btc
+|-
+|to 999 sat
+|3 sat/byte
+|0.20 $
+|359056 byte
+|0.014 btc
+|-
+|from 1000 sat
+|4 sat/byte
+|0.20 $
+|674709 byte
+|0.027 btc
+|-
+|to 1999 sat
+|7 sat/byte
+|0.40 $
+|674709 byte
+|0.054 btc
+|-
+|from 2000 sat
+|8 sat/byte
+|0.40 $
+|990362 byte
+|0.079 btc
+|-
+|to 3999 sat
+|15 sat/byte
+|0.80 $
+|990362 byte
+|0.158 btc
+|-
+|from 4000 sat
+|16 sat/byte
+|0.80 $
+|1306015 byte
+|0.209 btc
+|-
+|to 7999 sat
+|31 sat/byte
+|1.60 $
+|1306015 byte
+|0.418 btc
+|-
+|from 8000 sat
+|32 sat/byte
+|1.60 $
+|1621668 byte
+|0.519 btc
+|-
+|to 15999 sat
+|63 sat/byte
+|3.20 $
+|1621668 byte
+|1.038 btc
+|-
+|from 16000 sat
+|64 sat/byte
+|3.20 $
+|1937321 byte
+|1.240 btc
+|-
+|to 31999 sat
+|127 sat/byte
+|6.40 $
+|1937321 byte
+|2.480 btc
+|-
+|from 32000 sat
+|128 sat/byte
+|6.40 $
+|2252974 byte
+|2.884 btc
+|-
+|to 63999 sat
+|255 sat/byte
+|12.80 $
+|2252974 byte
+|5.768 btc
+|-
+|from 64000 sat
+|256 sat/byte
+|12.80 $
+|2568627 byte
+|6.576 btc
+|-
+|to 127999 sat
+|511 sat/byte
+|25.60 $
+|2568627 byte
+|13.151 btc
+|-
+|from 128000 sat
+|512 sat/byte
+|25.60 $
+|2884280 byte
+|14.768 btc
+|-
+|to 255999 sat
+|1023 sat/byte
+|51.20 $
+|2884280 byte
+|29.535 btc
+|-
+|from 256000 sat
+|1024 sat/byte
+|51.20 $
+|3199933 byte
+|32.767 btc
+|-
+|to 511999 sat
+|2047 sat/byte
+|102.40 $
+|3199933 byte
+|65.534 btc
+|-
+|from 512000 sat
+|2048 sat/byte
+|102.40 $
+|3515586 byte
+|71.999 btc
+|-
+|to 1023999 sat
+|4095 sat/byte
+|204.80 $
+|3515586 byte
+|143.998 btc
+|-
+|from 1024000 sat
+|4096 sat/byte
+|204.80 $
+|3831239 byte
+|156.928 btc
+|-
+|to 2047999 sat
+|8191 sat/byte
+|409.60 $
+|3831239 byte
+|313.855 btc
+|-
+|from 2048000 sat
+|8192 sat/byte
+|409.60 $
+|4146892 byte
+|339.713 btc
+|-
+|to 4095999 sat
+|16383 sat/byte
+|819.20 $
+|4146892 byte
+|679.427 btc
+|-
+|from 4096000 sat
+|16384 sat/byte
+|819.20 $
+|4462545 byte
+|731.143 btc
+|-
+|to 8191999 sat
+|32767 sat/byte
+|1638.40 $
+|4462545 byte
+|1462.287 btc
+|-
+|from 8192000 sat
+|32768 sat/byte
+|1638.40 $
+|4778198 byte
+|1565.720 btc
+|-
+|to 16383999 sat
+|65535 sat/byte
+|3276.80 $
+|4778198 byte
+|3131.440 btc
+|-
+|from 16384000 sat
+|65536 sat/byte
+|3276.80 $
+|5093851 byte
+|3338.306 btc
+|-
+|to 32767999 sat
+|131071 sat/byte
+|6553.60 $
+|5093851 byte
+|6676.612 btc
+|-
+|from 32768000 sat
+|131072 sat/byte
+|6553.60 $
+|5409504 byte
+|7090.345 btc
+|-
+|to 65535999 sat
+|262143 sat/byte
+|13107.20 $
+|5409504 byte
+|14180.690 btc
+|-
+|from 65536000 sat
+|262144 sat/byte
+|13107.20 $
+|5725157 byte
+|15008.156 btc
+|-
+|to 131071999 sat
+|524287 sat/byte
+|26214.40 $
+|5725157 byte
+|30016.311 btc
+|-
+|from 131072000 sat
+|524288 sat/byte
+|26214.40 $
+|6040810 byte
+|31671.242 btc
+|-
+|to 262143999 sat
+|1048575 sat/byte
+|52428.80 $
+|6040810 byte
+|63342.484 btc
+|-
+|from 262144000 sat
+|1048576 sat/byte
+|52428.80 $
+|6356463 byte
+|66652.345 btc
+|-
+|to 524287999 sat
+|2097151 sat/byte
+|104857.60 $
+|6356463 byte
+|133304.691 btc
+|-
+|from 524288000 sat
+|2097152 sat/byte
+|104857.60 $
+|6672116 byte
+|139924.414 btc
+|-
+|to 1048575999 sat
+|4194303 sat/byte
+|209715.20 $
+|6672116 byte
+|279848.828 btc
+|-
+|from 1048576000 sat
+|4194304 sat/byte
+|209715.20 $
+|6987769 byte
+|293088.275 btc
+|-
+|to 2097151999 sat
+|8388607 sat/byte
+|419430.40 $
+|6987769 byte
+|586176.549 btc
+|-
+|from 2097152000 sat
+|8388608 sat/byte
+|419430.40 $
+|7303422 byte
+|612655.442 btc
+|-
+|to 4194303999 sat
+|16777215 sat/byte
+|838860.80 $
+|7303422 byte
+|1225310.884 btc
+|-
+|from 4194304000 sat
+|16777216 sat/byte
+|838860.80 $
+|7619075 byte
+|1278268.670 btc
+|-
+|to 8388607999 sat
+|33554431 sat/byte
+|1677721.60 $
+|7619075 byte
+|2556537.340 btc
+|-
+|from 8388608000 sat
+|33554432 sat/byte
+|1677721.60 $
+|7934728 byte
+|2662452.911 btc
+|-
+|to 16777215999 sat
+|67108863 sat/byte
+|3355443.20 $
+|7934728 byte
+|5324905.822 btc
+|-
+|from 16777216000 sat
+|67108864 sat/byte
+|3355443.20 $
+|8250381 byte
+|5536736.965 btc
+|-
+|to 33554431999 sat
+|134217727 sat/byte
+|6710886.40 $
+|8250381 byte
+|11073473.929 btc
+|-
+|from 33554432000 sat
+|134217728 sat/byte
+|6710886.40 $
+|8388608 byte
+|11258999.068 btc
+|}
+
+==Incentive==
+Miners could pay a giant fee to themselfs. This incentivises the use of CoinJoin as the miner of the block can give fee discount to fit larger CoinJoins into his block. (A miner paying large fee to himself.)
+
+==Backward compatibility==
+
+Soft fork: If applied AND old hardcoded block size limit is kept. (Note: This BIP will most probably not establish itself as softfork among miners, because their money driven incentive is to create a max sized block instead a smaller one.)
+
+Hard fork: If applied AND old hardcoded block size limit is removed. (We still need a hard block limit of 8MB. The formula would never allow an 8MB block because it would need about 5 million btc fees in one block to reach that size, which will not happen. Yet the 8MB hard limit is required because of consensus and to prevent 1TB block attacks.)
+
+==Copyright==
+This BIP is licensed under the BSD-3-clause license.
+
+==Discussion==
+===Comment===
+Doesn't this break CPFP? I think to avoid that you'll need to rework
+your proposed algorithm to treat chains of transactions as a group.
+(And note that you could have multiple transactions in one block that
+depend on the same "parent" transaction, also in the same block.)
+====Answer====
+Under the assumption that 43kb space for transactions with zero fee should be enough, it does not break CPFP: The miner can throw out other transactions to make space for all parent transactions he needs. Please note: The incentive for miners is not to have 43kb filled with zero fees. The incentive is to fill all space with highest possible fee per byte transactions. (if necessary we could change a constant in the formula to modify the space for zero fee transactions.)
+
+===Comment===
+Related ideas:
+https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2017-March/013885.html
+
+===Comment===
+It seems the algorithm would greatly increase validation time. In particular, if the current limit is removed (as in hardforked proposal) then a 1Tb block can be used to attack the network, since sorting would require looking through the entire block. Thus, validation time would still limit the practical block sizes that can be deployed with this.
+====Answer====
+True in case of hardfork to remove the current limit we still need a limit of lets say 8 Mbyte. To achive a valid 8MB block with this formula, the block would need to contain about 8 million btc fees. This will never happen. So probably a hard limit of 8MB would be good for this formula. Also sorting could be implemented very fast because there are only 28 sorting-buckets before 8MB limit is reached.
+
+==History==
+Consensus might be at risk by rounding differences in the double type in varous environments. Therefore changed spec from double to integer division and integer logarithm.
