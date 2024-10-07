@@ -3,6 +3,7 @@
   Layer: Applications
   Title: Deterministic Entropy From BIP32 Keychains
   Author: Ethan Kosakovsky <ethankosakovsky@protonmail.com>
+          Aneesh Karve <dowsing.seaport0d@icloud.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0085
   Status: Draft
@@ -51,6 +52,9 @@ For each application that requires its own wallet, a unique private key is deriv
 
 The HMAC-SHA512 function is specified in [http://tools.ietf.org/html/rfc4231 RFC 4231].
 
+Application codes may be arbitrary but are preferably semantic in some way, such as a BIP number or
+ASCII character code sequence.
+
 ===Test vectors===
 
 ====Test case 1====
@@ -78,7 +82,7 @@ BIP85-DRNG-SHAKE256 is a deterministic random number generator for cryptographic
 RSA key generation is an example of a function that requires orders of magnitude more than 64 bytes of random input. Further, it is not possible to precalculate the amount of random input required until the function has completed.
 
     drng_reader = BIP85DRNG.new(bip85_entropy)
-    rsa_key = RSA.generate_key(4096, drng_reader.read())
+    rsa_key = RSA.generate_key(4096, drng_reader.read)
 
 ===Test Vectors===
 INPUT:
@@ -93,7 +97,8 @@ OUTPUT
 
 ==Reference Implementation==
 
-* Python library implementation: [https://github.com/ethankosakovsky/bip85]
+* Python 3.x library implementation: [https://github.com/akarve/bipsea]
+* Python 2.x library implementation: [https://github.com/ethankosakovsky/bip85]
 * JavaScript library implementation: [https://github.com/hoganri/bip85-js]
 
 ==Applications==
@@ -143,6 +148,10 @@ Language Table
 |-
 | Czech
 | 8'
+|-
+| Portuguese
+| 9'
+|-
 |}
 
 Words Table
@@ -224,6 +233,10 @@ Application number: 32'
 
 Taking 64 bytes of the HMAC digest, the first 32 bytes are the chain code, and second 32 bytes[1] are the private key for BIP32 XPRV value. Child number, depth, and parent fingerprint are forced to zero.
 
+WARNING: The above is inconsistent with BIP32 which uses the first 32 bytes for the private key.
+
+Applications may support Testnet by emitting TPRV keys if and only if the input root key is a Testnet key.
+
 Path format is <code>m/83696968'/32'/{index}'</code>
 
 INPUT:
@@ -257,7 +270,7 @@ The derivation path format is: <code>m/83696968'/707764'/{pwd_len}'/{index}'</co
 
 `20 <= pwd_len <= 86`
 
-[https://datatracker.ietf.org/doc/html/rfc4648 Base64] encode the all 64 bytes of entropy.
+[https://datatracker.ietf.org/doc/html/rfc4648 Base64] encode all 64 bytes of entropy.
 Remove any spaces or new lines inserted by Base64 encoding process. Slice base64 result string
 on index 0 to `pwd_len`. This slice is the password. As `pwd_len` is limited to 86, passwords will not contain padding.
 
@@ -355,6 +368,39 @@ Note on GPG key capabilities on smartcard/hardware devices:
 GPG capable smart-cards SHOULD be loaded as follows: The encryption slot SHOULD be loaded with the ENCRYPTION capable key; the authentication slot SHOULD be loaded with the AUTHENTICATION capable key. The signature capable slot SHOULD be loaded with the SIGNATURE capable key.
 
 However, depending on available slots on the smart-card, and preferred policy, the CERTIFY capable key MAY be flagged with CERTIFY and SIGNATURE capabilities and loaded into the SIGNATURE capable slot (for example where the smart-card has only three slots and the CERTIFY capability is required on the same card). In this case, the SIGNATURE capable sub-key would be disregarded because the CERTIFY capable key serves a dual purpose.
+
+===DICE===
+
+Application number: 89101'
+
+The derivation path format is: <code>m/83696968'/89101'/{sides}'/{rolls}'/{index}'</code>
+
+    2 <= sides <= 2^32 - 1
+    1 <= rolls <= 2^32 - 1
+
+Use this application to generate PIN numbers or any other numeric secret.
+Roll values are zero-indexed, such that an N-sided die produces values in the range
+<code>[0, N-1]</code>, inclusive. Applications should separate printed rolls by a comma or similar.
+
+Create a BIP85 DRNG whose seed is the derived entropy.
+
+Calculate the following integers:
+
+    bits_per_roll = ceil(log_2(sides))
+    bytes_per_roll = ceil(bits_per_roll / 8)
+
+Read <code>bytes_per_roll</code> bytes from the DRNG.
+Trim any bits in excess of <code>bits_per_roll</code> (retain the most
+significant bits). The resulting integer represents a single roll or trial.
+If the trial is greater than or equal to the number of sides, skip it and
+move on to the next one. Repeat as needed until all rolls are complete.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/89101'/6'/10'/0'
+OUTPUT
+* DERIVED ENTROPY=5e41f8f5d5d9ac09a20b8a5797a3172b28c806aead00d27e36609e2dd116a59176a738804236586f668da8a51b90c708a4226d7f92259c69f64c51124b6f6cd2
+* DERIVED ROLLS=1,0,0,2,0,1,5,5,2,4
 
 ==Backwards Compatibility==
 
