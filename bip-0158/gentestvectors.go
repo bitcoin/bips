@@ -223,7 +223,7 @@ func main() {
 		}
 
 		// We'll now ensure that we've constructed the same filter as
-		// the chain server we're fetching blocks form.
+		// the chain server we're fetching blocks from.
 		filter, err := client.GetCFilter(
 			blockHash, wire.GCSFilterRegular,
 		)
