@@ -32,7 +32,7 @@ The primary goal of this proposal is to provide a practical coordination mechani
 
 The message payloads in this version parallel those used in BIP 78, while being encapsulated in authenticated encryption. TLS and Tor security, which depend on third-party authorities, are replaced with Hybrid Public Key Encryption ([[https://www.rfc-editor.org/rfc/rfc9180| HPKE]]). The synchronous HTTP client-server model is replaced with an asynchronous store-and-forward mechanism.
 
-The BIP 78 standard allows for an [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#unsecured-payjoin-server| unsecured Payjoin server|]] to operate separately from the so-called "payment server" responsible for generating [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] request URIs. Because BIP 78 messages relayed over an unsecured server are neither end-to-end authenticated nor encrypted between sender and receiver, a malicious unsecured Payjoin server is able to modify the Payjoin PSBT in flight, thus requiring payment output substitution to be disabled. Output substitution is useful for a number of block space optimizations, including payment batching and transaction cut-through. This proposal introduces authentication and encryption to secure output substitution by using a directory server without compromising sender or receiver privacy.
+The BIP 78 standard allows for an [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#unsecured-payjoin-server| unsecured Payjoin server|]] to operate separately from the so-called "payment server" responsible for generating [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] request URIs. Because BIP 78 messages relayed over an unsecured server are neither end-to-end authenticated nor encrypted between sender and receiver, a malicious unsecured Payjoin server is able to modify the Proposal PSBT in flight, thus requiring payment output substitution to be disabled. Output substitution is useful for a number of block space optimizations, including payment batching and transaction cut-through. This proposal introduces authentication and encryption to secure output substitution by using a directory server without compromising sender or receiver privacy.
 
 Although unsecured Payjoin server separation is mentioned in BIP 78, no known specification or implementation exists. This document specifies a way to use the Payjoin directory as an unsecured backwards compatible server for version 1 senders. Receivers responding to version 1 senders must disable output substitution, since their payloads are saved in plaintext, so that they may payjoin without the risk of the directory, acting as a version 1 unsecured Payjoin server, stealing funds.
 
@@ -79,14 +79,14 @@ Key:
 |                                  |  Original PSBT   |                |
 |    GET Response Original PSBT    |<-----------------|                |
 |<---------------------------------|   GET Request    |                |
-|                                  |   Payjoin PSBT   |                |
+|                                  |  Proposal PSBT   |                |
 |                                  |<- - - - - - - - -|                |
 |                                  |                  |                |
 |                                  |                  |                |
 |                                  |                  |                |
-|      POST Payjoin PSBT           |                  |                |
+|      POST Proposal PSBT          |                  |                |
 +--------------------------------->|   GET Response   |                |
-|                                  |   Payjoin PSBT   |                |
+|                                  |   Proposal PSBT  |                |
 |                                  |----------------->|                |
 |                                  |                  |   Broadcast    |
 |                                  |                  |   Payjoin      |
@@ -100,14 +100,14 @@ Key:
 The Payjoin version 2 protocol takes the following steps:
 
 * The receiver generates a Payjoin Session public key.
-* Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter where the subdirectory is the compressed Payjoin Session public key. The key is encoded in [[https://datatracker.ietf.org/doc/html/rfc4648#section-5| base64url]] encoding. To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless. An <code>ohttp=</code> fragment parameter containing the directory's base64url encoded [[https://www.ietf.org/rfc/rfc9458.html#name-key-configuration| Oblivious HTTP Key Configuration]] must also be provided. It should also include an <code>exp=</code> parameter with a Unix timestamp after which the receiver will broadcast the Original PSBT and stop polling the session.
-* The sender creates a valid version 0 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the <code>Original PSBT</code>. This <code>Original PSBT</code>, and optional sender parameters, are wrapped in HPKE authenticated encryption, including a sender session public key as associated data, and encapsulats it all as OHTTP. This [[#send-messaging|Original PSBT Request send message]] is made to the directory's OHTTP Gateway.
-* The sender polls GET requests to the subdirectory defined by the sender's Payjoin Session public key in order to await a response from the directory containing a <code>Payjoin PSBT</code>. It stops polling after expiry.
-* The request is stored in the subdirectory.
-* Once the receiver is online, it sends [[#receive-messaging|<code>GET</code>]] requests to the subdirectory. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the Original PSBT to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the <code>Payjoin PSBT</code>.
-* The <code>Payjoin PSBT</code> and HPKE keys are encrypted, authenticated, encapsulated in OHTTP, and POSTed to the directory's OHTTP Gateway.
-* The directory awaits a request from the sender if it goes offline. Upon request, the directory relays the encrypted <code>Payjoin PSBT</code>.
-* The sender validates the <code>Payjoin PSBT</code> according to [[#senders-payjoin-psbt-checklist|the sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
+* Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter. The <code>pj</code> URL contains the compressed Payjoin Session public key, [[https://datatracker.ietf.org/doc/html/rfc4648#section-5| base64url-encoded]] followed by the [[#receiver-fragment-parameters| receiver fragment parameters]] .
+  * To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless.
+* The sender creates a valid version 0 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the <code>Original PSBT</code>. This <code>Original PSBT</code>, and optional sender parameters, are wrapped in HPKE authenticated encryption, including a sender session public key as associated data, and encapsulates it all as OHTTP. This [[#send-messaging| Original PSBT Request send message]] is made to the directory's OHTTP Gateway. The request is stored in the receiver subdirectory.
+* The sender polls GET requests to the subdirectory defined by the sender's Payjoin Session public key in order to await a response from the directory containing a <code>Proposal PSBT</code>. It stops polling after expiry.
+* Once the receiver is online, it sends <code>GET</code> requests [[#receive-messaging| to the receiver subdirectory]] requests to the subdirectory. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the Original PSBT to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the <code>Proposal PSBT</code>.
+* The <code>Proposal PSBT</code> and HPKE keys are encrypted, authenticated, encapsulated in OHTTP, and POSTed to the directory's OHTTP Gateway.
+* The directory awaits a GET request from the sender. Upon request, the directory relays the encrypted <code>Proposal PSBT</code>.
+* The sender validates the <code>Proposal PSBT</code> according to [[#senders-proposal-psbt-checklist|the sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
 
 The Original PSBT MUST:
 
@@ -120,17 +120,17 @@ The Original PSBT MAY:
 
 * Include outputs unrelated to the sender-receiver transfer for batching purposes.
 
-The Payjoin PSBT MUST:
+The Proposal PSBT MUST:
 
 * Include all inputs from the Original PSBT.
 * Include all outputs which do not belong to the receiver from the Original PSBT.
 * Include complete UTXO data.
 
-The Payjoin PSBT sender MAY:
+The Proposal PSBT sender MAY:
 
 * Add, remove or modify Original PSBT outputs under the control of the receiver (i.e. not sender change).
 
-The Payjoin PSBT MUST NOT:
+The Proposal PSBT MUST NOT:
 
 * Shuffle the order of inputs or outputs; the additional outputs or additional inputs must be inserted at a random index.
 * Decrease the absolute fee of the Original PSBT.
@@ -151,23 +151,23 @@ The Original PSBT is serialized in base64, followed by the query parameter strin
 
 Upon receipt, the directory's OHTTP Gateway decapsulates the OHTTP request and handles the inner POST request at the receiver's Payjoin Session subdirectory endpoint, which stores the HPKE encrypted payload to be forwarded to the receiver.
 
-The sender then polls GET requests to the receiver's Payjoin Session subdirectory endpoint in order to await a response from the directory containing a <code>Payjoin PSBT</code>. It stops polling after expiry.
+The sender then polls GET requests to the sender's Payjoin Session subdirectory endpoint in order to await a response from the directory containing a <code>Proposal PSBT</code>. It stops polling after expiry.
 
 ====Receive Messaging====
 
 After sharing the Payjoin URI with the sender, the receiver sends a GET request to the path of the receiver's Payjoin Session subdirectory. This request is encapsulated in OHTTP. It continues to poll by sending a new OHTTP request after receiving an encapsulated 202 ACCEPTED response notifying the receiver that the directory has not yet received a request from the sender.
 
-Upon receiving OHTTP response from the directory encapsulating a request from the sender with status code 200 OK, the receiver decrypts the payload and checks the <code>Payjoin PSBT</code> according to the [[#receivers-payjoin-psbt-checklist|checklist]].
+Upon receiving OHTTP response from the directory encapsulating a request from the sender with status code 200 OK, the receiver decrypts the payload and checks the <code>Proposal PSBT</code> according to the [[#receivers-proposal-psbt-checklist|checklist]].
 
-The receiver then updates the <code>Original PSBT</code> to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the <code>Payjoin PSBT</code>.
+The receiver then updates the <code>Original PSBT</code> to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the <code>Proposal PSBT</code>.
 
-The receiver encrypts the <code>Payjoin PSBT</code> according to the HPKE protocol, generating an ephemeral keypair from which it derives a shared secret with the sender's Payjoin Session public key from the payload. It generates a nonce from sufficient randomness, and constructs a ciphertext containing the Payjoin PSBT and serialized receiver ephemeral key <code>e</code>'s public key as associated data using ChaCha20Poly1305. A payload is constructed by concatenating the ephemeral public key, the nonce, and the ciphertext. This Payjoin PSBT payload is then sent as a POST message to the directory in an OHTTP request encapsulating the binary payload to the sender's Payjoin Session subdirectory.
+The receiver encrypts the <code>Proposal PSBT</code> according to the HPKE protocol, generating an ephemeral keypair from which it derives a shared secret with the sender's Payjoin Session public key from the payload. It generates a nonce from sufficient randomness, and constructs a ciphertext containing the Proposal PSBT and serialized receiver ephemeral key <code>e</code>'s public key as associated data using ChaCha20Poly1305. A payload is constructed by concatenating the ephemeral public key, the nonce, and the ciphertext. This Proposal PSBT payload is then sent as a POST message to the directory in an OHTTP request encapsulating the binary payload to the sender's Payjoin Session subdirectory.
 
-===Receiver's Payjoin PSBT checklist===
+===Receiver's Proposal PSBT checklist===
 
 The receiver checklist is the same as the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the BIP 78 receiver checklist]], except for the "Verify that the payjoin proposal did not introduce mixed input's type" step, which may be ignored.
 
-===Sender's Payjoin PSBT checklist===
+===Sender's Proposal PSBT checklist===
 
 The version 2 sender's checklist is largely the same as the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#senders-payjoin-proposal-checklist| the BIP 78 checklist]], with the exception that mixed input script types are allowed, and it expects all UTXO data to be filled in. BIP 78 required sender inputs UTXO data to be excluded from the PSBT, which has caused many issues, as it required the sender to add them back to the Payjoin proposal PSBT. Version 2 has no such requirement.
 
@@ -255,7 +255,7 @@ Since directories store arbitrary encrypted payloads they are vulnerable to the 
 
 Since we make use of 0-RTT HPKE, the first message containing the sender's Original PSBT has minimal forward secrecy. If the receiver's key is compromised, this message containing the Original PSBT could be read by the compromiser.
 
-Receivers may break spec by ignoring the <code>exp=</code> without financial consequence since the sender payload contains a valid transaction that may be broadcast at any time. There is no mechanism to enforce penalties if a receiver fails to construct a Payjoin PSBT and wait for a signature once a Payjoin PSBT is returned to a sender. However, such basic transactions that comply with the common-input assumption are the norm, so falling back to them is no worse than typical bitcoin transaction behavior.
+Receivers may break spec by ignoring the <code>exp=</code> without financial consequence since the sender payload contains a valid transaction that may be broadcast at any time. There is no mechanism to enforce penalties if a receiver fails to construct a Proposal PSBT and wait for a signature once a Proposal PSBT is returned to a sender. However, such basic transactions that comply with the common-input assumption are the norm, so falling back to them is no worse than typical bitcoin transaction behavior.
 
 ===Network privacy===
 
@@ -269,7 +269,7 @@ The receivers advertise Payjoin capabilities through [[https://github.com/bitcoi
 
 Senders not supporting Payjoin will just ignore the <code>pj=</code> parameter and proceed to typical address-based transaction flows. A <code>req-pj=</code> parameter, as specified in BIP 21, may be advertised to compel Payjoin. If a sender intending to pay such a URI containing <code>req-pj=</code> does not support Payjoin, it MUST consider the entire URI invalid per BIP 21.
 
-Receivers may choose to support version 1 payloads. Version 2 Payjoin URIs for backwards compatible receivers MUST enable <code>pjos=0</code> so that these version 1 senders disable output substitution. Since the version 1 messages are neither encrypted nor authenticated, they would otherwise be at risk for man-in-the-middle attacks. The directory protocol should carry on as normal, responding to payjoin requests instead with this version 1 request as BHTTP in an OHTTP response. The receiver should POST version 1 Payjoin PSBTs to the same subdirectory as in version 2 to respond to these version 1 senders within 30 seconds. If no response is received within 30 seconds, the directory should respond with an <code>unavailable</code> error code as [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-well-known-errors| defined in BIP 78]].
+Receivers may choose to support version 1 payloads. Version 2 Payjoin URIs for backwards compatible receivers MUST enable <code>pjos=0</code> so that these version 1 senders disable output substitution. Since the version 1 messages are neither encrypted nor authenticated, they would otherwise be at risk for man-in-the-middle attacks. The directory protocol should carry on as normal, responding to payjoin requests instead with this version 1 request as BHTTP in an OHTTP response. The receiver should POST version 1 Proposal PSBTs to the same subdirectory as in version 2 to respond to these version 1 senders within 30 seconds. If no response is received within 30 seconds, the directory should respond with an <code>unavailable</code> error code as [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-well-known-errors| defined in BIP 78]].
 
 ==Reference implementation==
 
