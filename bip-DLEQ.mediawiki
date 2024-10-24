@@ -1,0 +1,92 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Discrete Log Equality Proofs
+  Author: Andrew Toth <andrewstoth@gmail.com>
+          Ruben Somsen <rsomsen@gmail.com>
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  License: BSD-2-Clause
+  Created: 2024-06-29
+  Post-History: TBD
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This document proposes a standard for 64-byte zero-knowledge ''discrete logarithm equality proofs'' (DLEQ proofs) over an elliptic curve. For given elliptic curve points ''A'', ''B'', ''C'', and ''G'', the prover proves knowledge of a scalar ''a'' such that ''A = a⋅G'' and ''C = a⋅B'' without revealing anything about ''a''. This can, for instance, be useful in ECDH: if ''A'' and ''B'' are ECDH public keys, and ''C'' is their ECDH shared secret computed as ''C = a⋅B'', the proof establishes that the same secret key ''a'' is used for generating both ''A'' and ''C'' without revealing ''a''.
+
+=== Copyright ===
+
+This document is licensed under the 2-clause BSD license.
+
+=== Motivation ===
+
+[https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#specification BIP352] requires senders to compute output scripts using ECDH shared secrets from the same secret keys used to sign the inputs. Generating an incorrect signature will produce an invalid transaction that will be rejected by consensus. An incorrectly generated output script can still be consensus-valid, meaning funds may be lost if it gets broadcast.
+By producing a DLEQ proof for the generated ECDH shared secrets, the signing entity can prove to other entities that the output scripts have been generated correctly without revealing the private keys.
+
+== Specification ==
+
+All conventions and notations are used as defined in [https://github.com/bitcoin/bips/blob/master/bip-0327.mediawiki#user-content-Notation BIP327].
+
+=== DLEQ Proof Generation ===
+
+Input:
+* The secret key ''a'': a 256-bit unsigned integer
+* The public key ''B'': a point on the curve
+* The generator point ''G'': a point on the curve
+* Auxiliary random data ''r'': a 32-byte array
+
+The algorithm ''GenerateProof(a, B, r)'' is defined as:
+* Fail if ''a = 0'' or ''a &ge; n''.
+* Fail if ''is_infinite(B)''.
+* Let ''A = a⋅G''.
+* Let ''C = a⋅B''.
+* Let ''t'' be the byte-wise xor of ''bytes(32, a)'' and ''hash<sub>BIP0???/aux</sub>(r)''.
+* Let ''rand = hash<sub>BIP0???/nonce</sub>(t || cbytes(A) || cbytes(C))''.
+* Let ''k = int(rand) mod n''.
+* Fail if ''k = 0''.
+* Let ''R<sub>1</sub> = k⋅G''.
+* Let ''R<sub>2</sub> = k⋅B''.
+* Let ''e = int(hash<sub>BIP0???/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>)))''.
+* Let ''s = (k + e⋅a) mod n''.
+* Let ''proof = bytes(32, e) || bytes(32, s)''.
+* If ''VerifyProof(A, B, C, proof)'' (see below) returns failure, abort.
+* Return the proof ''proof''.
+
+=== DLEQ Proof Verification ===
+
+Input:
+* The public key of the secret key used in the proof generation ''A'': a point on the curve
+* The public key used in the proof generation ''B'': a point on the curve
+* The result of multiplying the secret and public keys used in the proof generation ''C'': a point on the curve
+* The generator point used in the proof generation ''G'': a point on the curve
+* A proof ''proof'': a 64-byte array
+
+The algorithm ''VerifyProof(A, B, C, G, proof)'' is defined as:
+* Let ''e = int(proof[0:32])''.
+* Let ''s = int(proof[32:64])''; fail if ''s &ge; n''.
+* Let ''R<sub>1</sub> = s⋅G - e⋅A''.
+* Fail if ''is_infinite(R<sub>1</sub>)''.
+* Let ''R<sub>2</sub> = s⋅B - e⋅C''.
+* Fail if ''is_infinite(R<sub>2</sub>)''.
+* Fail if ''e ≠ int(hash<sub>BIP0???/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>)))''.
+* Return success iff no failure occurred before reaching this point.
+
+== Test Vectors and Reference Code ==
+
+TBD
+
+== Changelog ==
+
+TBD
+
+== Footnotes ==
+
+<references />
+
+== Acknowledgements ==
+
+TBD
