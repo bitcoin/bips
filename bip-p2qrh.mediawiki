@@ -14,7 +14,7 @@
 
 === Abstract ===
 
-This document proposes a new SegWit output type, with spending rules based initially-- but not solely-- upon FALCON signatures. (For more on why, see the Rationale and Security sections.) A constraint is that no hard fork or increase in block size are necessary. This document is inspired by [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341], which introduced the design of the P2TR (Taproot) address type using Schnorr signatures.
+This document proposes a new SegWit output type, with spending rules based initially-- but not solely-- upon FALCON signatures. (For more on why, see the Rationale and Security sections.) A constraint is that no hard fork or increase in block size is necessary. This document is inspired by [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341], which introduced the design of the P2TR (Taproot) address type using Schnorr signatures.
 
 
 === Copyright ===
@@ -26,17 +26,17 @@ This document is licensed under the 3-clause BSD license.
 
 This proposal aims to improve the quantum resistance of bitcoin's signature security should the Discrete Logarithm Problem (DLP) which secures Elliptic Curve Cryptography (ECC) no longer prove to be computationally hard, likely through quantum advantage by Cryptographically-Relevant Quantum Computers (CRQCs). [https://arxiv.org/pdf/quant-ph/0301141 A variant of Shor's algorithm] is believed to be capable of deriving the private key from a public key exponentially faster than classical means. The application of this variant of Shor's algorithm is herein referred to as quantum key decryption. Note that doubling the public key length, such as with a hypothetical secp512k1 curve, would only make deriving the private key twice as hard. The computational complexity of this is investigated further in the paper, [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching ''The impact of hardware specifications on reaching quantum advantage in the fault tolerant regime''].
 
-The primary threat to Bitcoin by CRQCs is [https://en.bitcoin.it/wiki/Quantum_computing_and_Bitcoin#QC_attacks generally considered to be to its uses of ECC used in signatures and Taproot commitments], hence the focus on a new address format. This is because Shor's algorithm enables a CRQC to break the cryptographic assumptions of ECC in roughly 10^8 quantum operations. While a CRQC could use [https://en.wikipedia.org/wiki/Grover's_algorithm Grover's algorithm] to gain a quadratic speed up on brute force attacks on the hash functions used in Bitcoin, a significantly more powerful CRQC is needed for these attacks to meaningfully impact Bitcoin. For instance, a preimage attack on HASH160<ref>used by P2PKH, P2SH, and P2WPKH addresses, though not P2WSH because it uses 256-bit hashes</ref> using Grover's algorithm would require at least 10^24 quantum operations. As for Grover's application to mining, see [https://quantumcomputing.stackexchange.com/a/12847 Sam Jaques post on this].
+The primary threat to Bitcoin by CRQCs is [https://en.bitcoin.it/wiki/Quantum_computing_and_Bitcoin#QC_attacks generally considered to be to its breaking of ECC used in signatures and Taproot commitments], hence the focus on a new address format. This is because Shor's algorithm enables a CRQC to break the cryptographic assumptions of ECC in roughly 10^8 quantum operations. While a CRQC could use [https://en.wikipedia.org/wiki/Grover's_algorithm Grover's algorithm] to gain a quadratic speed up on brute force attacks on the hash functions used in Bitcoin, a significantly more powerful CRQC is needed for these attacks to meaningfully impact Bitcoin. For instance, a preimage attack on HASH160<ref>used by P2PKH, P2SH, and P2WPKH addresses, though not P2WSH because it uses 256-bit hashes</ref> using Grover's algorithm would require at least 10^24 quantum operations. As for Grover's application to mining, see [https://quantumcomputing.stackexchange.com/a/12847 Sam Jaques post on this].
 
-The vulnerability of existing bitcoin addresses is investigated in [https://web.archive.org/web/20240715101040/https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. The report estimates that in 2020 approximately 25% of the bitcoin supply is held within addresses vulnerable to quantum attack. As of the time of writing, that number is now closer to 20%. Additionally, Peter Wuille estimates even more might be vulnerable, for the reasons provided [https://x.com/pwuille/status/1108085284862713856 here].
+The vulnerability of existing bitcoin addresses is investigated in [https://web.archive.org/web/20240715101040/https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. The report estimates that in 2020 approximately 25% of the bitcoin supply is held within addresses vulnerable to quantum attack. As of the time of writing, that number is now closer to 20%. Additionally, cryptographer Peter Wuille estimates even more might be vulnerable, for the reasons provided [https://x.com/pwuille/status/1108085284862713856 here].
 
 Ordinarily, when a transaction is signed, the public key can be recovered from the signature. This makes a transaction submitted to the mempool vulnerable to quantum attack until it's mined. One way to mitigate this is to submit the transaction directly to a mining pool, which bypasses the mempool. This process is known as an out-of-band transaction. The mining pool must be trusted not to reveal the transaction public key to attackers.
 
-Not having public keys exposed on-chain is an important step for quantum security. Otherwise funds would need to be spent to new addresses on a regular basis in order to prevent the possibility of a "long-range CRQC attack" recovering the key behind high value addresses. A long-range quantum attack can be considered one performed with chain data, such as that from a used address or one encoded in a spend script. A "short-range quantum attack" would be one done on keys in the mempool, which is seen as impractical given transaction throughput and block time. As the value being sent increases, so too should the fee in order to commit the transaction to the chain as soon as possible.  This makes useless the public key revealed by spending a UTXO, so long as it is never reused.
+Not having public keys exposed on-chain is an important step for quantum security. Otherwise funds would need to be spent to new addresses on a regular basis in order to prevent the possibility of a "long-range CRQC attack" recovering the key behind high value addresses. A long-range quantum attack can be considered one performed with chain data, such as that from a used address or one encoded in a spend script. A "short-range quantum attack" would be one performed on keys in the mempool, which is seen as impractical given transaction throughput and block time. As the value being sent increases, so too should the fee in order to commit the transaction to the chain as soon as possible.  This makes useless the public key revealed by spending a UTXO, so long as it is never reused.
 
-It is proposed to implement a Pay to Quantum Resistant Hash (P2QRH) address type that relies on a post-quantum cryptographic (PQC) signature algorithm. This new address type protects transactions submitted to the mempool and helps preserve the free market by reducing the need for private, out-of-band mempool transactions.
+It is proposed to implement a Pay to Quantum Resistant Hash (P2QRH) address type that relies on a Post-Quantum Cryptographic (PQC) signature algorithm. This new address type protects transactions submitted to the mempool and helps preserve the free market by reducing the need for private, out-of-band mempool transactions.
 
-The following table is non-exhaustive, but meant to inform the average bitcoin user whether their bitcoin is vulnerable to quantum attack.
+The following table is non-exhaustive but intended to inform the average bitcoin user whether their bitcoin is vulnerable to quantum attack.
 
 {|
 |+ Vulnerable address types
@@ -54,9 +54,9 @@ The following table is non-exhaustive, but meant to inform the average bitcoin u
 
 It should be noted that Taproot addresses are vulnerable in that they encode a 32-byte x-only public key, from which a full public key can be reconstructed.
 
-If a key is recovered by a CRQC, it can also be trivially checked to see if any child keys were produced using an unhardened [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-32] derivation path.
+If a key is recovered by a CRQC it can also be trivially checked to see if any child keys were produced using an unhardened [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-32] derivation path.
 
-The following table summarizes the scenarios in which public keys are revealed when using Bitcoin, and what type of attack they're vulnerable to:
+The following table summarizes the scenarios in which public keys are revealed when using Bitcoin and what type of attack the underlying addresses are vulnerable to:
 
 {|
 |+ Scenarios for revealed public keys on Bitcoin
@@ -74,13 +74,13 @@ The following table summarizes the scenarios in which public keys are revealed w
 | Unhardened BIP-32 HD wallet keys || Both Long-range or Short-range
 |}
 
-The only time a short-range attack can occur is when the transaction is in the mempool, whereas long-range attacks are when the public key is known well in advance. Short-range attacks require much larger, more expensive CRQCs.
+The only time a short-range attack can occur is when the transaction is in the mempool, whereas a long-range attack occurs when the public key is known well in advance. Short-range attacks require much larger, more expensive CRQCs.
 
-Should quantum advantage manifest, a convention is proposed in spending the full 65-byte P2PK key used by the coinbase output in Block 1 back to itself. It is proposed to call this the [https://mempool.space/address/0496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858ee Canary address]. The reasoning behind this is that this can only be done by Satoshi, and given his absence, this can only be spent by others if there is a significant vulnerability in secp256k1. Should the Canary coins move, that will signal that bitcoin is presently vulnerable. Without the Canary, or an address like it, there may be some doubt as to whether the coins were moved with keys belonging to the original owner.
+Should quantum advantage manifest, a convention is proposed in spending the full 65-byte P2PK key used by the coinbase output in Block 1 back to itself. It is proposed to call the address in Block 1 the [https://mempool.space/address/0496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858ee Canary address] since it can only be spent from by others (assuming Satoshi's continued absence) if secp256k1 is broken. Should the Canary coins move, that will signal that reliance on secp256k1 is presently vulnerable. Without the Canary, or an address like it, there may be some doubt as to whether the coins were moved with keys belonging to the original owner.
 
 As an interesting aside, coinbase outputs to P2PK keys go as far as block 200,000, so it's possible there are between 1-2 million coins that are vulnerable from the first epoch. These coins can be considered "Satoshi's Shield." Any addresses with a balance of less than the original block subsidy of 50 coins can be considered incentive incompatible to capture until all of these are mined.
 
-It's for this reason that, for those who wish to be prepared for quantum emergency, it is recommended that no more than 50 bitcoin are kept under a single distinct, unused Native SegWit (P2WPKH, "bc1q") address at a time. This is assuming that the attacker is financially-motivated instead of, for example, a nation state looking to break confidence in Bitcoin. Additionally, this assumes that other vulnerable targets such as central banks have upgraded their cryptography already.
+It's for the above reason that, for those who wish to be prepared for quantum emergency, it is recommended that no more than 50 bitcoin are kept under a single distinct, unused Native SegWit (P2WPKH, "bc1q") address at a time. This is assuming that the attacker is financially-motivated instead of, for example, a nation state looking to break confidence in Bitcoin. Additionally, this assumes that other vulnerable targets such as central banks have upgraded their cryptography already.
 
 The Commercial National Security Algorithm Suite (CNSA) 2.0 has a timeline for software and networking equipment to be upgraded by 2030, with browsers and operating systems fully upgraded by 2033.
 
@@ -89,13 +89,13 @@ Lastly, it is worth noting by way of comparison that [https://ethresear.ch/t/how
 
 === Rationale ===
 
-This is the first in a series of BIPs under a QuBit soft fork. A qubit is a fundamental unit of quantum computing, and the capital B represents its connection to bitcoin. The name QuBit also rhymes to some extent with SegWit.
+This is the first in a series of BIPs under a QuBit soft fork. A qubit is a fundamental unit of quantum computing, and the capital B refers to bitcoin. The name QuBit also rhymes to some extent with SegWit.
 
-It is proposed to use SegWit version 3. This results in addresses that start with bc1r, which could be a useful way to remember that these are [r]esistant addresses, similar to how bc1q corresponds to Se[q]Wit and bc1p corresponds to Ta[p]root. This is referencing the lookup table under [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
+It is proposed to use SegWit version 3. This results in addresses that start with bc1r, which could be a useful way to remember that these are quantum [r]esistant addresses (similar to how bc1q corresponds to Se[q]Wit and bc1p corresponds to Ta[p]root). This is referencing the lookup table under [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
 
 The proposal above also leaves a gap in case it makes sense to use version 2, or bc1z, for implementation of other address formats such as those that employ Cross Input Signature Aggregation (CISA).
 
-P2QRH is meant to be implemented on top of P2TR, combining the security of classical Schnorr signatures along with post-quantum cryptography. This is a form of "hybrid cryptography" such that no regression in security is presented should a vulnerability exist in one of the signature algorithms used. One key distinction between P2QRH and P2TR however is that P2QRH will encode a hash of the public key. This is a significant change in how Taproot works, but is necessary to avoid exposing public keys on-chain in advance of attackers.
+P2QRH is meant to be implemented on top of P2TR, combining the security of classical Schnorr signatures along with post-quantum cryptography. This is a form of "hybrid cryptography" such that no regression in security is presented should a vulnerability exist in one of the signature algorithms used. One key distinction between P2QRH and P2TR however is that P2QRH will encode a hash of the public key. This is a significant deviation from how Taproot works by itself, but it is necessary to avoid exposing public keys on-chain where they are vulnerable to attack.
 
 P2QRH uses a 32-byte HASH256 (specifically SHA-256 twice-over, which is similar to that used in [https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki#specification BIP-16]) of the public key to reduce the size of new outputs and also to increase security by not having the public key available on-chain. This hash serves as a minimal cryptographic commitment to a public key. It goes into the output spend script, which does not receive the witness discount.
 
@@ -103,11 +103,11 @@ Post-quantum public keys are generally larger than those used by ECC, depending 
 
 Support for FALCON signatures will be introduced first, with the intention of adding SQIsign and other post-quantum algorithms as they are approved. By way of comparison, FALCON signatures are roughly 4x larger than SQIsign signatures and 20x larger than Schnorr signatures. FALCON is a more conservative approach to applied lattice cryptography than SQIsign, and its use has recently been approved by NIST. NIST approval streamlines implementations through establishing consensus in the scientific and developer community. However, even SQIsign signatures are roughly 5x larger than Schnorr signatures. This means, to maintain present transaction throughput, an increase in the witness discount will likely be desired in a QuBit soft fork. That will be specified in a future QuBit BIP.
 
-An increase in the witness discount must not be taken lightly.  It must be resistant to applications that might take advantage of this discount (e.g. storage of arbitrary data as seen with "inscriptions") without a corresponding increase in economic activity. Such an increase would not only impact node runners but those with inscriptions would also have the scarcity of their non-monetary assets affected. The only way to prevent this while also increasing the discount is to have a completely separate witness, a "quantum witness". Because it is meant only for public keys and signatures, we call this section of the transaction the attestation.
+An increase in the witness discount must not be taken lightly.  It must be resistant to applications that might take advantage of this discount (e.g. storage of arbitrary data as seen with "inscriptions") without a corresponding increase in economic activity. An increase in the witness discount would not only impact node runners but those with inscriptions would also have the scarcity of their non-monetary assets affected. The only way to prevent these affects while also increasing the discount is to have a completely separate witness-- a "quantum witness." Because it is meant only for public keys and signatures, we call this section of the transaction the attestation.
 
 To address the risk of arbitrary data being stored using P2QRH (QuBit) addresses, very specific rules will be applied to spending from the witness stack in SegWit v3 outputs. A fixed signature size will be necessary for spending the output, and the output must be spendable to be considered valid within node consensus. A fixed signature size will also be helpful to disambiguate between signature types without an additional version byte, as SQIsign signatures are substantially smaller than FALCON signatures. Consequently, the correct signature algorithm can be inferred through byte length. The public key and signature will be pushed separately to the attestation stack. Multiple signatures can be included in order to support multisig applications, and also for spending multiple inputs.
 
-Since only valid signatures can be committed to in a SegWit v3 attestation, arbitrary data cannot be added by miners, as that would affect the consensus of their block. A CRQC operator is economically disincentivized from computing a spendable public key that matched arbitrary signature data due to the cost of that computation. That is because the cost of such a computation could prove quite substantial, rather than simply putting the arbitrary data within a Taproot witness. Doing the work to meet the requirement for it to be consensus-valid data would prove cost-prohibitive.
+Since only valid signatures can be committed to in a SegWit v3 attestation, arbitrary data cannot be added by miners, as that would affect the consensus of their block. A CRQC operator is economically disincentivized from computing a spendable public key that matched arbitrary signature data due to the cost of that computation. That is because the cost of such a computation could prove quite substantial, rather than simply putting the arbitrary data within a Taproot witness.
 
 Additionally, it should be noted, whether an output with a P2QRH spend script corresponds to a FALCON or SQIsign signature is not known until the output is spent.
 
@@ -133,7 +133,7 @@ For P2QRH descriptors, <code>qrh()</code> should be used.
 == Security ==
 
 {|
-|+ Proposed quantum resistant signature algorithms ordered by largest to smallest NIST V signature size
+|+ Candidate quantum resistant signature algorithms ordered by largest to smallest NIST V signature size
 |-
 ! Signature Algorithm !! Year First Introduced !! Signature Size !! Public Key Size || Cryptographic Assumptions
 |-
@@ -169,7 +169,7 @@ In comparison, the size of currently used signature algorithms are:
 * ECDSA - 70-72 bytes
 * Schnorr - 64 bytes
 
-In comparison to year, secp256k1 [https://www.secg.org/SEC1-Ver-1.0.pdf was originally specified in 2000].
+In comparison to inception date, secp256k1 [https://www.secg.org/SEC1-Ver-1.0.pdf was originally specified in 2000].
 
 One consideration for choosing an algorithm is its maturity. secp256k1 was already 8 years old by the time it was chosen as bitcoin's curve. Isogeny cryptography when it was first introduced was broken over a weekend.
 
@@ -177,7 +177,7 @@ Ideally SQIsign also proves to be flexible enough to support [https://www.pierri
 
 Signature verification speed as it compares to Schnorr or ECDSA isn't seen as high a consideration as signature size due to block space being the primary fee constraint. As a P2QRH implementation materializes, a benchmark will be added for performance comparison. Fortunately, SQIsign signatures are substantially faster to verify than it is to generate keys or to sign, which is a major consideration when a transaction need only be signed once, or a handful of times with PSBT, compared to being verified simultaneously on tens of thousands of nodes. Key generation may need to cached in BIP-32 Hierarchical Deterministic wallets.
 
-An additional consideration is security levels. Longer signature sizes provide more security. NIST has standardized five security levels for post-quantum cryptography. NIST security level I provides security equivalent to 128-bit keys, and security level V provides 256-bit security.
+An additional consideration is security level. Longer signature sizes provide more security. NIST has standardized five security levels for post-quantum cryptography. NIST security level I provides security equivalent to 128-bit keys, and security level V provides 256-bit security.
 
 
 == Specification ==
@@ -203,11 +203,11 @@ In short, the new spend script serialization format is as follows:
 
 Addresses then encode this script using bech32m.
 
-32-byte attestation fields are assumed to be Schnorr public keys for Taproot fields, because they are ordinarily included in the spend script, but cannot be included in P2QRH for security reasons. Public key / signature pairs for Taproot fields come before QuBit public key / signature pairs.
+32-byte attestation fields are assumed to be Schnorr public keys for Taproot fields because they are ordinarily included in the spend script, but they cannot be included in P2QRH for security reasons. Public key / signature pairs for Taproot fields come before QuBit public key / signature pairs.
 
-Which key type is inferred by its size, as provided by the attestation varint pair, determining whether it's processed as secp256k1 Schnorr, SPHINCS, XMSS, FALCON, and SQIsign.
+The exact key type is inferred by its size, as provided by the attestation variant pair, which determines whether it's processed as secp256k1 Schnorr, SPHINCS, XMSS, FALCON, or SQIsign.
 
-If the transaction fails to include the public keys needed to match the spend script hash, it is an invalid transaction, because the cryptographic commitment for the keys has not been met. Because of this, only valid public keys and signatures can be included within the attestation, and no other data.
+If the transaction fails to include the public keys needed to match the spend script hash, it is an invalid transaction because the cryptographic commitment for the keys has not been met. Consequently, only valid public keys and signatures can be included within the attestation and no other data.
 
 
 === Public Key Generation ===
