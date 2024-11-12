@@ -13,13 +13,14 @@ License: BSD-3-Clause
 ## Abstract
 
 This BIP describes a new tapscript opcode (`OP_INTERNALKEY`) which
-pushes the taproot internal key to the stack.
+pushes the _taproot internal key_ to the stack.
 
 ## Specification
 
-When verifying taproot script spends having leaf version `0xc0` (as defined in
-[BIP 342]), `OP_INTERNALKEY` replaces `OP_SUCCESS203` (0xcb). `OP_INTERNALKEY`
-pushes the taproot internal key, as defined in [BIP 341], to the stack.
+When verifying taproot script path spends having leaf version `0xc0` (as
+defined in [BIP 342]), `OP_INTERNALKEY` replaces `OP_SUCCESS203` (0xcb).
+`OP_INTERNALKEY` pushes the _taproot internal key_, denoted as _P_ in
+[BIP 341], to the stack.
 
 ## Motivation
 
@@ -27,14 +28,14 @@ pushes the taproot internal key, as defined in [BIP 341], to the stack.
 
 When building taproot outputs, especially those secured by an aggregate key
 representing more than one signer, the parties may wish to collaborate on
-signing with the taproot internal key, but only with additional script
+signing with the _taproot internal key_, but only with additional script
 restrictions. In this case, `OP_INTERNALKEY` saves 8 vBytes.
 
 ### Mitigated control block overhead for scripts using hash locks
 
-In cases where script path spending is not desired, the internal key may be set
-to a NUMS point whose bytes would otherwise be required in a tapscript. This
-could be used with any hash locked transaction, for example, to save 8 vBytes.
+In cases where key path spending is not desired, the internal key may be set to
+a NUMS point whose bytes would otherwise be required in a tapscript. This could
+be used with any hash locked transaction, for example, to save 8 vBytes.
 
 Note: The internal key must be the X coordinate of a point on the SECP256K1
 curve, so any such hash must be checked and modified until it is such an X
