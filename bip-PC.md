@@ -29,7 +29,8 @@ Channel peers must be able to reconstruct the script that spends an
 intermediate state.
 
 Using in sequence `OP_CHECKTEMPLATEVERIFY`, `OP_PAIRCOMMIT`, `OP_INTERNALKEY`
-and `OP_CHECKSIGFROMSTACK` we can construct a [rebindable channel] that is also optimal.
+and `OP_CHECKSIGFROMSTACK` we can construct a [rebindable channel] that is also
+optimal.
 
 The number of SHA256 iterations is minimized in the primary use case we
 can optimize for, which is LN-Symmetry. Since the Tag can be pre-computed as
@@ -118,6 +119,14 @@ ELSE
   <settlement-n-hash> CTV
 ENDIF
 ```
+
+### Use with future updates
+
+Detailed introspection opcodes would also need vector commitments when used
+with `OP_CHECKSIGFROMSTACK`.
+
+`OP_CHECKCONTRACTVERIFY` would also need a way to carry complex data.
+
 ## Reference Implementation
 
 A reference implementation is provided here:
@@ -135,6 +144,11 @@ of potentially controversial new behaviors, such as novel 2-way peg mechanisms.
 `OP_RETURN` could also be used for ensuring the availability of the state
 recovery data as `OP_CHECKTEMPLATEVERIFY` naturally commits to all outputs.
 However the cost of that would be over 4 times higher in weight units.
+
+One way to think about the 3 opcodes (`OP_CHECKSIGFROMSTACK`, `OP_INTERNALKEY`,
+`OP_PAIRCOMMIT`) is we decompose a `OP_CHECKSIGFROMSTACK` variant that can use
+1 byte `OP_TRUE` public key (substitute for the *taproot internal key*) and can
+commit to a number of stack elements as message.
 
 ### Behaviours LNhance tries to avoid introducing
 
