@@ -23,14 +23,13 @@ When evaluated, the `OP_PAIRCOMMIT` instruction:
 
 ## Motivation
 
-To do LN-Symmetry contracts that don't require the nodes to keep old states,
+To do [LN-Symmetry] contracts that don't require the nodes to keep old states,
 we need to solve the data availability problem presented by unilateral closes.
 Channel peers must be able to reconstruct the script that spends an
 intermediate state.
 
 Using in sequence `OP_CHECKTEMPLATEVERIFY`, `OP_PAIRCOMMIT`, `OP_INTERNALKEY`
-and `OP_CHECKSIGFROMSTACK` we can construct a [rebindable channel](
-#use-in-ln-symmetry) that is also optimal.
+and `OP_CHECKSIGFROMSTACK` we can construct a [rebindable channel] that is also optimal.
 
 The number of SHA256 iterations is minimized in the primary use case we
 can optimize for, which is LN-Symmetry. Since the Tag can be pre-computed as
@@ -210,6 +209,8 @@ This document is licensed under the 3-clause BSD license.
 
 [lnhance]: https://github.com/lnhance/bitcoin
 [eltoo]: https://github.com/instagibbs/bolts/blob/eltoo_draft/XX-eltoo-transactions.md
+
+[//]: # (BIPs referenced)
 [BIP-119]: https://github.com/bitcoin/bips/tree/master/bip-0119.mediawiki
 [BIP-340]: https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki
 [BIP-347]: https://github.com/bitcoin/bips/blob/master/bip-0347.md
@@ -218,3 +219,7 @@ This document is licensed under the 3-clause BSD license.
 [BIN-2024-0001]: https://github.com/bitcoin-inquisition/binana/blob/master/2024/BIN-2024-0001.md
 [BIN-2024-0003]: https://github.com/bitcoin-inquisition/binana/blob/master/2024/BIN-2024-0003.md
 [BIN-2024-0004]: https://github.com/bitcoin-inquisition/binana/blob/master/2024/BIN-2024-0004.md
+
+[//]: # (Internal links)
+[LN-Symmetry]: #use-in-ln-symmetry
+[rebindable channel]: #use-in-ln-symmetry
