@@ -78,6 +78,11 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
             pubkey = ECPubKey().set(vin.prevout[2:])
             if (pubkey.valid) & (pubkey.compressed):
                 return pubkey
+    if is_p2a(vin.prevout): 
+        anchor_script = vin.scriptSig[1:] 
+        pubkey = ECPubKey().set(anchor_script)
+        if (pubkey.valid) & (pubkey.compressed): 
+                return pubkey
 
 
     return ECPubKey()
