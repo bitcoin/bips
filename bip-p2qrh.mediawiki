@@ -24,9 +24,9 @@ This document is licensed under the 3-clause BSD license.
 
 === Motivation ===
 
-This proposal aims to improve the quantum resistance of bitcoin's signature security should the Discrete Logarithm Problem (DLP) which secures Elliptic Curve Cryptography (ECC) no longer prove to be computationally hard, likely through quantum advantage by Cryptographically-Relevant Quantum Computers (CRQCs). [https://arxiv.org/pdf/quant-ph/0301141 A variant of Shor's algorithm] is believed to be capable of deriving the private key from a public key exponentially faster than classical means. The application of this variant of Shor's algorithm is herein referred to as quantum key decryption. Note that doubling the public key length, such as with a hypothetical secp512k1 curve, would only make deriving the private key twice as hard. The computational complexity of this is investigated further in the paper, [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching ''The impact of hardware specifications on reaching quantum advantage in the fault tolerant regime''].
+This proposal aims to improve the quantum resistance of bitcoin's signature security should the Discrete Logarithm Problem (DLP) which secures Elliptic Curve Cryptography (ECC) no longer prove to be computationally hard, likely through quantum advantage by Cryptoanalytically-Relevant Quantum Computers (CRQCs). [https://arxiv.org/pdf/quant-ph/0301141 A variant of Shor's algorithm] is believed to be capable of deriving the private key from a public key exponentially faster than classical means. The application of this variant of Shor's algorithm is herein referred to as quantum key decryption. Note that doubling the public key length, such as with a hypothetical secp512k1 curve, would only make deriving the private key twice as hard. The computational complexity of this is investigated further in the paper, [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching ''The impact of hardware specifications on reaching quantum advantage in the fault tolerant regime''].
 
-The primary threat to Bitcoin by CRQCs is [https://en.bitcoin.it/wiki/Quantum_computing_and_Bitcoin#QC_attacks generally considered to be to its breaking of ECC used in signatures and Taproot commitments], hence the focus on a new address format. This is because Shor's algorithm enables a CRQC to break the cryptographic assumptions of ECC in roughly 10^8 quantum operations. While a CRQC could use [https://en.wikipedia.org/wiki/Grover's_algorithm Grover's algorithm] to gain a quadratic speed up on brute force attacks on the hash functions used in Bitcoin, a significantly more powerful CRQC is needed for these attacks to meaningfully impact Bitcoin. For instance, a preimage attack on HASH160<ref>used by P2PKH, P2SH, and P2WPKH addresses, though not P2WSH because it uses 256-bit hashes</ref> using Grover's algorithm would require at least 10^24 quantum operations. As for Grover's application to mining, see [https://quantumcomputing.stackexchange.com/a/12847 Sam Jaques’ post on this].
+The primary threat to Bitcoin by CRQCs is [https://en.bitcoi.it/wiki/Quantum_computing_and_Bitcoin#QC_attacks generally considered to be their potential to break ECC, which is used in signatures and Taproot commitments], hence the focus on a new address format. Shor's algorithm enables a CRQC to break the cryptographic assumptions of ECC in roughly 10^8 quantum operations.
 
 The vulnerability of existing bitcoin addresses is investigated in [https://web.archive.org/web/20240715101040/https://www2.deloitte.com/nl/nl/pages/innovatie/artikelen/quantum-computers-and-the-bitcoin-blockchain.html this Deloitte report]. The report estimates that in 2020 approximately 25% of the bitcoin supply is held within addresses vulnerable to quantum attack. As of the time of writing, that number is now closer to 20%. Additionally, cryptographer Pieter Wuille [https://x.com/pwuille/status/1108085284862713856 reasons] even more might be vulnerable.
 
@@ -84,12 +84,13 @@ It's for the above reason that, for those who wish to be prepared for quantum em
 
 The Commercial National Security Algorithm Suite (CNSA) 2.0 has a timeline for software and networking equipment to be upgraded by 2030, with browsers and operating systems fully upgraded by 2033. According to NIST IR 8547, Elliptic Curve Cryptography is planned to be disallowed within the US Federal government after 2035. An exception is made for hybrid cryptography, which is the use of ECC and post-quantum algorithms together.
 
+Although CRQCs could pose a threat to the signatures used in Bitcoin, a smaller threat is to Bitcoin's hash algorithms.  In particular, while a CRQC could use [https://en.wikipedia.org/wiki/Grover's_algorithm Grover's algorithm] to gain a quadratic speed up on brute force attacks on the hash functions used in Bitcoin, a significantly more powerful CRQC is needed for these attacks to meaningfully impact Bitcoin. For instance, a preimage attack on HASH160<ref>used by P2PKH, P2SH, and P2WPKH addresses, though not P2WSH because it uses 256-bit hashes</ref> using Grover's algorithm would require at least 10^24 quantum operations. As for Grover's application to mining, see [https://quantumcomputing.stackexchange.com/a/12847 Sam Jaques’ post on this].
 
 === Rationale ===
 
 This is the first in a series of BIPs under a QuBit soft fork. A qubit is a fundamental unit of quantum computing, and the capital B refers to bitcoin. The name QuBit also rhymes to some extent with SegWit.
 
-It is proposed to use SegWit version 3. This results in addresses that start with bc1r, which could be a useful way to remember that these are quantum [r]esistant addresses (similar to how bc1q corresponds to Se[q]Wit and bc1p corresponds to Ta[p]root). This is referencing the lookup table under [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
+It is proposed to use SegWit version 3. This results in addresses that start with bc1r, which could be a useful way to remember that these are quantum (r)esistant addresses (similar to how bc1q corresponds to Se(q)Wit and bc1p corresponds to Ta(p)root). This is referencing the lookup table under [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
 
 The proposal above also leaves a gap in case it makes sense to use version 2, or bc1z, for implementation of other address formats such as those that employ Cross Input Signature Aggregation (CISA).
 
@@ -123,9 +124,105 @@ We first build up a definition of the signature scheme by going through the desi
 
 === Design ===
 
-For P2QRH descriptors, <code>qrh()</code> should be used.
+==== Descriptor Format ====
 
-> Further specific details to be completed later in the draft process as outlined in [https://github.com/bitcoin/bips/blob/master/bip-0002.mediawiki BIP-2]
+To integrate P2QRH into existing wallet software and scripts, we introduce a new output descriptor function <code>qrh()</code>. This function represents a P2QRH output, similar to how <code>wpkh()</code> and <code>tr()</code> are used for P2WPKH and P2TR outputs, respectively.
+
+The <code>qrh()</code> function takes the HASH256 of the concatenated HASH256 of the quantum-resistant public keys as its argument. For example:
+
+<code>
+qrh(HASH256(HASH256(pubkey1) || HASH256(pubkey2) || ...))
+</code>
+
+The above function allows wallets to manage P2QRH addresses and outputs while accommodating multiple public keys of varying lengths, such as in multisig schemes, while keeping the public keys hidden until the time of spending.
+
+
+==== Address Format ====
+
+P2QRH uses SegWit version 3 outputs, resulting in addresses that start with bc1r, following [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173]. Bech32 encoding maps version 3 to the prefix r.
+
+Example P2QRH address:
+
+<code>
+bc1r... (32-byte Bech32m-encoded HASH256 of the HASH256 of the public keys)
+</code>
+
+==== ScriptPubKey ====
+
+The <code>scriptPubKey</code> for a P2QRH output is:
+
+<code>
+OP_PUSHNUM_3 OP_PUSHBYTES_32 <hash>
+</code>
+
+Where:
+
+* <code>OP_PUSHNUM_3</code> (<code>0x03</code>) indicates SegWit version 3.
+* <code><hash></code> is the 32-byte HASH256 of the concatenated HASH256 of each public key.
+
+===== Hash Computation =====
+
+<code>
+hash = HASH256(HASH256(pubkey1) || HASH256(pubkey2) || ... || HASH256(pubkeyN))
+</code>
+
+This construction creates a cryptographic commitment to multiple public keys.
+
+==== Transaction Serialization ====
+
+Following BIP-141, the transaction serialization is modified to include a new attestation field after the witness field:
+
+<code>
+[nVersion][marker][flag][txins][txouts][witness][attestation][nLockTime]
+</code>
+
+* <code>marker</code>: <code>0x00</code> (same as SegWit)
+* <code>flag</code>: <code>0x02</code> (indicates the presence of both witness and attestation data)
+* <code>attestation</code>: Contains the quantum-resistant public keys and signatures.
+
+==== Attestation Structure ====
+
+The attestation field consists of:
+
+* <code>num_pubkeys</code>: The number of public keys (VarInt encoded).
+* For each public key:
+** <code>pubkey_length</code>: VarInt encoded length of the public key.
+** <code>pubkey</code>: The public key bytes.
+* <code>num_signatures</code>: The number of signatures (VarInt encoded).
+* For each signature:
+** <code>signature_length</code>: VarInt encoded length of the signature.
+** <code>signature</code>: The signature bytes.
+
+This structure repeats for each input, in order, for flexibility in supporting multisig schemes and various quantum-resistant algorithms.
+
+For each input, a separate attestation field is used. To know how many attestation fields are present, implementations must count the number of inputs present in the transaction.
+
+The specific algorithm is determined by the size of the public key and signature, as described in the next section.
+
+==== Signature Algorithm Identification ====
+
+The specific quantum-resistant signature algorithm used is inferred from the length of the public key and signature. Implementations must recognize the supported algorithms and validate accordingly.
+
+Supported algorithms and their NIST Level V parameters:
+
+* '''SPHINCS+-256f:'''
+** Public Key Length: 64 bytes
+** Signature Length: 49,856 bytes
+* '''CRYSTALS-Dilithium Level 5''':
+** Public Key Length: 2,592 bytes
+** Signature Length: 4,595 bytes
+* '''FALCON-1024''':
+** Public Key Length: 1,793 bytes
+** Signature Length: 1,280 bytes
+* '''SQIsign NIST-V''':
+** Public Key Length: 128 bytes
+** Signature Length: 335 bytes
+
+Implementations must reject public keys and signatures that do not match expected lengths for supported algorithms.
+
+==== Compatibility with BIP-141 ====
+
+By adhering to the SegWit transaction structure and versioning, P2QRH outputs are compatible with existing transaction processing rules. Nodes that do not recognize SegWit version 3 will treat these outputs as anyone-can-spend but, per BIP-141, will not relay or mine such transactions.
 
 
 == Security ==
@@ -159,8 +256,7 @@ For P2QRH descriptors, <code>qrh()</code> should be used.
 |}
 
 
-
-As shown, supersingular elliptic curve quaternion isogeny signature algorithms represent the state of the art in post-quantum cryptography, beyond lattice cryptography alone, especially when key and signature length are major constraints. This makes inclusion of SQIsign attractive, and support is planned, but it will be some time until it is approved for production use. Meanwhile, FALCON signatures are already approved and have achieved broader community consensus.
+As shown, supersingular elliptic curve quaternion isogeny signature algorithms represent the state of the art in post-quantum cryptography, beyond lattice cryptography alone, especially when key and signature length are major constraints. This makes inclusion of SQIsign attractive, and support is planned, but it will be some time until it is approved for production use. Meanwhile, SPHINCS+ and CRYSTALS-Dilithium signatures are already approved and have achieved broader community consensus.  FALCON signatures are also NIST approved.
 
 In comparison, the size of currently used signature algorithms are:
 
@@ -182,51 +278,114 @@ An additional consideration is security level. Longer signature sizes provide mo
 
 How the attestation is differentiated from the witness can be accomplished similar to how [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-Transaction_ID BIP-141] introduced the marker and flag, with the QuBit flag being set to 0x02. This means all QuBit transactions are also SegWit transactions. The additional data would be included as a second array of byte arrays following the witness stack.
 
-The new transaction serialization format is as follows:
-
-  [nVersion][marker][flag][txins][txouts][witness][attestation][nLockTime]
-
-QuBit spend scripts are as follows:
-
-* OP_PUSHNUM_3 to indicate SegWit version 3
-* OP_PUSHBYTES_32
-* HASH256 of the following bytes concatenated:
-  * HASH256 of the public key at attestation index 0
-  * If there are more public keys:
-    * All public keys are hashed via HASH256 and concatenated
-
-In short, the new spend script serialization format is as follows:
-
-  OP_PUSHNUM_3 HASH256([HASH256(Public Key Bytes at Attestation Index 0)][HASH256(PK Q1)][..])
-
-Addresses then encode this script using bech32m.
-
 32-byte attestation fields are assumed to be Schnorr public keys for Taproot fields because they are ordinarily included in the spend script, but they cannot be included in P2QRH for security reasons. Public key / signature pairs for Taproot fields come before QuBit public key / signature pairs.
 
-The exact key type is inferred by its size, as provided by the attestation variant pair, which determines whether it's processed as secp256k1 Schnorr, SPHINCS, XMSS, FALCON, or SQIsign.
+The exact key type is inferred by its size, as provided by the attestation variant pair, which determines whether it's processed as secp256k1 Schnorr, SPHINCS, CRYSTALS-Dilithium, FALCON, or SQIsign.
 
 If the transaction fails to include the public keys needed to match the spend script hash, it is an invalid transaction because the cryptographic commitment for the keys has not been met. Consequently, only valid public keys and signatures can be included within the attestation and no other data.
 
 
-=== Public Key Generation ===
+=== Script Validation ===
 
-TBD, pending test vectors
+To spend a P2QRH output, the following conditions must be met:
 
-=== Public Key Conversion ===
+1. The scriptPubKey must be of the form:
 
-TBD
+<code>
+OP_PUSHNUM_3 <32-byte hash>
+</code>
 
-=== Signing ===
+2. The attestation must include:
 
-TBD
+** The quantum-resistant public key(s) whose HASH256 concatenated and hashed again matches the <hash> in the scriptPubKey.
+** Valid signatures corresponding to the public key(s) and the transaction data.
 
-=== Verification ===
+3. For multi-signature schemes, all required public keys and signatures must be provided for that input within the attestation. This includes classical Schnorr signatures.
 
-TBD
+
+==== Public Key Hashing ====
+
+All public keys included in the attestation are hashed using HASH256 (double SHA-256). The concatenation of these hashes is then hashed again using HASH256 before being included in the <code>scriptPubKey</code>. This ensures a fixed-size commitment to potentially multiple public keys of varying lengths.
+
+'''Hash Computation:'''
+
+<code>
+hash = HASH256(HASH256(pubkey1) || HASH256(pubkey2) || ... || HASH256(pubkeyN))
+</code>
+
+
+==== Sighash Calculation ====
+
+The sighash for P2QRH outputs follows the same procedure as defined in BIP-0143 for SegWit transactions:
+
+* '''Hash Prevouts:''' Computed over the previous outputs being spent.
+* '''Hash Sequence:''' Computed over the sequence fields.
+* '''Hash Outputs:''' Computed over the outputs of the transaction.
+
+The message to be signed includes these hashes, ensuring transaction malleability is prevented.
+
+==== Signature Verification ====
+
+Signature verification is as follows:
+
+1. Extract the <code><hash></code> from the <code>scriptPubKey</code>.
+2. For each input:
+** Compute <code>hashed_pubkeys</code> by concatenating the HASH256 of each provided public key.
+<code>
+hashed_pubkeys = HASH256(pubkey1) || HASH256(pubkey2) || ... || HASH256(pubkeyN)
+</code>
+** Compute <code>computed_hash</code>
+<code>
+computed_hash = HASH256(hashed_pubkeys)
+</code>
+** Compare the resulting hash to <code><hash></code>. If they do not match, the script fails.
+3. Verify each signature against the corresponding public key and the sighash.
+4. Ensure that the signature algorithm used matches the expected lengths for NIST Level V security and is supported.
+
+==== Attestation Parsing Example ====
+
+Signing for a single input using both FALCON-1024 and secp256k1 Schnorr:
+
+* <code>[num_pubkeys]</code>: <code>0x02</code>
+** '''Pubkey 1:'''
+*** <code>[pubkey_length]</code>: <code>0x0701</code> (1793 bytes)
+*** <code>[pubkey]</code>: <code>public_key_falcon_1024</code>
+** '''Pubkey 2:'''
+*** <code>[pubkey_length]</code>: <code>0x20</code> (32 bytes)
+*** <code>[pubkey]</code>: <code>public_key_secp256k1</code>
+* <code>[num_signatures]</code>: <code>0x02</code>
+** '''Signature 1:'''
+*** <code>[signature_length]</code>: <code>0x0500</code> (1280 bytes)
+*** <code>[signature]</code>: <code>signature_falcon_1024</code>
+** '''Signature 2:'''
+*** <code>[signature_length]</code>: <code>0x40</code> (64 bytes)
+*** <code>[signature]</code>: <code>signature_secp256k1</code>
+
+Note: This contrasts with multisig inputs, where the attestation structure repeats for each public key and signature.
 
 === Usage Considerations ===
 
-TBD
+==== Transaction Size and Fees ====
+
+Quantum-resistant signatures are significantly larger than traditional signatures, increasing transaction size and the fees required. Users and wallet developers should be aware of this and plan accordingly.
+
+For example, for CRYSTALS-Dilithium Level V, a single signature is 4595 bytes, a substantial increase over current ECDSA or Schnorr signatures.
+
+
+==== Performance Impact ====
+
+Verification of quantum-resistant signatures will be computationally more intensive, and any attestation discount will also increase storage requirements. Node operators should consider the potential impact on resource usage in the long term. Developers may need to optimize signature verification implementations, especially by implementing caching for key generation.
+
+
+==== Algorithm Selection ====
+
+Introducing four quantum-resistant algorithms to the bitcoin ecosystem provides users with the option to select an appropriate algorithm for their use case, generally based on the amount of value they wish to secure. Developers can choose to implement support for multiple algorithms in wallets and on nodes to offer quantum-resistant options.
+
+
+==== Backward Compatibility ====
+
+Older wallets and nodes that have not been made compatible with SegWit version 3 and P2QRH will not recognize these outputs. Users should ensure they are using updated wallets and nodes to use P2QRH addresses and validate transactions using P2QRH outputs.
+
 
 == Test Vectors and Reference Code ==
 
@@ -255,6 +414,7 @@ It is worth noting by way of comparison that [https://ethresear.ch/t/how-to-hard
 
 To help implementors understand updates to this BIP, we keep a list of substantial changes.
 
+* 2024-12-01 - Add details on attestation structure and parsing.
 * 2024-11-20 - Clarifications based on feedback from Murch. Remove some sections that are not yet ready.
 * 2024-10-21 - Replace XMSS with CRYSTALS-Dilithium due to NIST approval and size constraints.
 * 2024-09-30 - Refactor the ECC vs PoW section. Swap quitness for attestation.
@@ -267,4 +427,4 @@ To help implementors understand updates to this BIP, we keep a list of substanti
 
 This document is inspired by [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341], which introduced the design of the P2TR (Taproot) address type using Schnorr signatures.
 
-Much gratitude to my co-founder, Kyle Crews for proofreading and editing, to David Croisant, who suggested the name "QuBit", and Guy Swann for pointing out the earlier name for the attestation, "quitness", was imperfect. Thank you as well to those who took the time to review and contribute, including Adam Borcany, Antoine Riard, Pierre-Luc Dallaire-Demers, Ethan Heilman, Jon Atack, Jameson Lopp, and Murchandamus.
+Much gratitude to my co-founder, Kyle Crews for proofreading and editing, to David Croisant, who suggested the name "QuBit", and Guy Swann for pointing out the earlier name for the attestation, "quitness", was imperfect. Thank you as well to those who took the time to review and contribute, including Jeff Bride, Adam Borcany, Antoine Riard, Pierre-Luc Dallaire-Demers, Ethan Heilman, Jon Atack, Jameson Lopp, and Murchandamus.
