@@ -68,8 +68,8 @@ case OP_PAIRCOMMIT: {
 
     uint256 hash = PairCommitHash(vch1, vch2);
 
-    popstack(stack);
-    popstack(stack);
+    stack.pop_back();
+    stack.pop_back();
     stack.emplace_back(hash.begin(), hash.end());
     break;
 }
