@@ -227,7 +227,7 @@ This document is licensed under the 3-clause BSD license.
 [//]: # (BIPs referenced)
 [BIP-119]: https://github.com/bitcoin/bips/tree/master/bip-0119.mediawiki
 [BIP-340]: https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki
-[BIP-347]: https://github.com/bitcoin/bips/blob/master/bip-0347.md
+[BIP-347]: https://github.com/bitcoin/bips/blob/master/bip-0347.mediawiki
 [BIP-348]: https://github.com/bitcoin/bips/blob/master/bip-0348.md
 [BIP-349]: https://github.com/bitcoin/bips/blob/master/bip-0349.md
 [BIN-2024-0001]: https://github.com/bitcoin-inquisition/binana/blob/master/2024/BIN-2024-0001.md
