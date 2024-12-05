@@ -30,7 +30,7 @@ intermediate state.
 
 Using in sequence `OP_CHECKTEMPLATEVERIFY`, `OP_PAIRCOMMIT`, `OP_INTERNALKEY`
 and `OP_CHECKSIGFROMSTACK` we can construct a [rebindable channel] that is also
-optimal.
+[optimal].
 
 The number of SHA256 iterations is minimized in the primary use case we
 can optimize for, which is LN-Symmetry. Since the Tag can be pre-computed as
@@ -173,6 +173,17 @@ various reasons, either for expanding the scope or for unnecessary complexity:
 * OP_CHECKSIGFROMSTACK on n elements as message
 * OP_VECTORCOMMIT: generalized form for n > 2 elements
 
+### Cost comparison of LN-Symmetry constructions
+
+| Method        | ChannelS | UpdateSc | UpdateWi | 1-Update  | 2-Update  |
+| :------------ | -------: | -------: | -------: | --------: | --------: |
+| APO-annex     |  2.25 vB | 28.25 vB |    25 vB |    305 vB |  461.5 vB |
+| APO-return    |  2.25 vB | 28.25 vB |  16.5 vB |  338.5 vB |  528.5 vB |
+| CTV+CSFS+IKEY |  2.75 vB | 12.25 vB |  24.5 vB |    331 vB |    513 vB |
+| CTV+CSFS      |    11 vB |  20.5 vB |  24.5 vB |  347.5 vB | 537.75 vB |
+| LNhance       |     3 vB |  12.5 vB | 32.75 vB | 297.75 vB | 446.25 vB |
+| rekey         |  7.25 vB | 16.75 vB | 73.75 vB | 347.25 vB |    541 vB |
+
 ### Proving general computation
 
 Merkle trees can be used to prove out computation where the root of the tree
@@ -237,3 +248,4 @@ This document is licensed under the 3-clause BSD license.
 [//]: # (Internal links)
 [LN-Symmetry]: #use-in-ln-symmetry
 [rebindable channel]: #use-in-ln-symmetry
+[optimal]: #cost-comparison-of-ln-symmetry-constructions
