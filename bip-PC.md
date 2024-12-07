@@ -13,7 +13,7 @@
 
 ## Abstract
 
-This BIP describes a new tapscript opcode `OP_PAIRCOMMIT` which
+This BIP describes a new tapscript opcode `OP_PAIRCOMMIT`, which
 provides limited vector commitment functionality in tapscript.
 
 When evaluated, the `OP_PAIRCOMMIT` instruction:
@@ -85,7 +85,7 @@ uint256 PairCommitHash(const std::vector<unsigned char>& x1, const std::vector<u
 ### Use in script
 
 `OP_PAIRCOMMIT` can be used to commit to a vector of stack elements in a way
-that is not vulnerable to various forms of witness malleability. It is however,
+that is not vulnerable to various forms of witness malleability. It is, however,
 highly optimized for just 2 stack elements.
 
 ```text
@@ -97,7 +97,7 @@ highly optimized for just 2 stack elements.
 ### Use in LN-Symmetry
 
 The following assembly-like pseudo-code shows a possible LN-Symmetry channel
-construction, that provides data availability to spend to the latest state from
+construction that provides data availability to spend to the latest state from
 an earlier state pushed on-chain with a forced close by channel partner.
 
 
@@ -106,7 +106,7 @@ an earlier state pushed on-chain with a forced close by channel partner.
 # IK -> A+B
 <sig> <state-n-recovery-data> <state-n-hash> | CTV PC IK CSFS <S+1> CLTV DROP
 ```
-before funding sign first state template:
+before funding, sign the first state:
 ```text
 # state-n-hash { nLockTime(S+n), out(contract, amount(A)+amount(B)) }
 # settlement-n-hash { nSequence(2w), out(A, amount(A)), out(B, amount(B)) }
@@ -135,28 +135,29 @@ https://github.com/lnhance/bitcoin/pull/6/files
 
 ## Rationale
 
-If `OP_CAT` was available, it could be used to combine multiple stack elements,
+If `OP_CAT` was available, it could be used to combine multiple stack elements
 that get verified with `OP_CHECKSIGFROMSTACK` as a valid state update.
 
 `OP_PAIRCOMMIT` solves this specific problem without introducing a wide range
 of potentially controversial new behaviors, such as novel 2-way peg mechanisms.
 
-`OP_RETURN` could also be used for ensuring the availability of the state
-recovery data as `OP_CHECKTEMPLATEVERIFY` naturally commits to all outputs.
-However the cost of that would be over 4 times higher in weight units.
+Alternatively `OP_RETURN` could be used to ensure the availability of the state
+recovery data, as `OP_CHECKTEMPLATEVERIFY` naturally commits to all outputs.
+However, its cost in weight units would be over 4 times higher than that of
+using `OP_PAIRCOMMIT`.
 
 One way to think about the 3 opcodes (`OP_CHECKSIGFROMSTACK`, `OP_INTERNALKEY`,
 `OP_PAIRCOMMIT`) is we decompose a `OP_CHECKSIGFROMSTACK` variant that can use
-1 byte `OP_TRUE` public key (substitute for the *taproot internal key*) and can
-commit to a number of stack elements as message.
+a 1-byte `OP_TRUE` public key (substituting for the *taproot internal key*) and can
+commit to a number of stack elements as a message.
 
-### Behaviours LNhance tries to avoid introducing
+### Behaviors LNhance tries to avoid introducing
 
 The following behaviors are out of scope for LNhance and should not be enabled
 as a side effect without explicit consensus:
 
-* Fine grained introspection
-* State carrying covenants
+* Fine-grained introspection
+* State-carrying covenants
 * Bigint operations
 * New arithmetic capabilities using lookup tables
 
@@ -188,16 +189,16 @@ various reasons, either for expanding the scope or for unnecessary complexity:
 
 Merkle trees can be used to prove out computation where the root of the tree
 represents the *function* and the leaves represent the *inputs* and *output*.
-There are practical limits to the entropy space for the *inputs* as it needs
-to be iterated over and hashed up.
+There are practical limits to the entropy space for the *inputs* as they need
+to be iterated over and hashed into a merkle root.
 
-Currently MAST trees can cover 128 bits of entropy space, which is well over
-the practical limits to iterate over and merklize. Therefore we assume this
+MAST trees can currently cover 128 bits of entropy space, which is well over
+the practical limits to iterate over and merklize. Therefore, we assume this
 capability does not materially extend what computations are possible to prove
-out in bitcoin script. While `OP_PAIRCOMMIT` is not limited to a height of 128,
+in bitcoin script. While `OP_PAIRCOMMIT` is not limited to a height of 128,
 that should not be practically feasible to utilize.
 
-There is a way to reduce the size of the witness for proving out computation,
+There is a way to reduce the size of the witness for proving computation,
 by eliminating the merkle path inclusion proofs, using `OP_CHECKSIGFROMSTACK`
 together with `OP_PAIRCOMMIT`. This method involves deleted key assumptions,
 most likely using MPC to create an enormous amount of signatures for the stack
