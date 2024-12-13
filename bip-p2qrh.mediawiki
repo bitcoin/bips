@@ -93,27 +93,25 @@ full public key can be reconstructed.
 If a key is recovered by a CRQC it can also be trivially checked to see if any child keys were produced using an
 unhardened [https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki BIP-32] derivation path.
 
-The following table summarizes the scenarios in which public keys are revealed when using Bitcoin and what type of
-attack the underlying addresses are vulnerable to:
+==== Long Range and Short Range Quantum Attacks ====
 
-{| class="wikitable"
-|+ Scenarios for revealed public keys on Bitcoin
-|-
-! Scenario !! Type of attack
-|-
-| Early addresses (Satoshi's coins, CPU miners, starts with 04) || Long-range
-|-
-| Reused addresses (any type, except P2QRH) || Long-range
-|-
-| Taproot addresses (starts with bc1p) || Long-range
-|-
-| Any transaction in the mempool (except for P2QRH) || Short-range
-|-
-| Unhardened BIP-32 HD wallet keys || Both Long-range or Short-range
-|}
+Long Range Quantum Attack is an attack in which the public key has been exposed on the blockchain for an extended
+period of time, giving an attacker ample opportunity to break the cryptography. This affects:
 
-The only time a short-range attack can occur is when the transaction is in the mempool, whereas a long-range attack
-occurs when the public key is known well in advance. Short-range attacks require much larger, more expensive CRQCs.
+* Early addresses (Satoshi's coins, CPU miners, starts with 04)
+* Reused addresses (any type, except P2QRH)
+* Taproot addresses (starts with bc1p)
+* Unhardened BIP-32 HD wallet keys
+
+Short Range Quantum Attack is an attack that must be executed quickly while a transaction is still in the mempool,
+before it gets mined into a block. This affects:
+
+* Any transaction in the mempool (except for P2QRH)
+* Unhardened BIP-32 HD wallet keys
+
+Short-range attacks require much larger, more expensive CRQCs since they must be executed within the short window
+before a transaction is mined. Long-range attacks can be executed over a longer timeframe since the public key remains
+exposed on the blockchain indefinitely.
 
 Should quantum advantage manifest, a convention is proposed in spending the full 65-byte P2PK key used by the coinbase
 output in Block 1 back to itself. It is proposed to call the address in Block 1 the
@@ -124,11 +122,13 @@ broken. Should the Canary coins move, that will signal that reliance on secp256k
 Canary, or an address like it, there may be some doubt as to whether the coins were moved with keys belonging to the
 original owner.
 
-As an interesting aside, coinbase outputs to P2PK keys go as far as block 200,000, so there are 1,723,848 coins that
-are vulnerable from the first epoch at the time of writing in P2PK outputs alone. Since the majority of these have a
-block reward of 50 coins each, there are roughly 34,000 distinct P2PK addresses that are vulnerable. These coins can be
+Coinbase outputs to P2PK keys go as far as block 200,000, so there are, at the time of writing, 1,723,848 coins that
+are vulnerable from the first epoch at the time of writing in P2PK outputs alone. The majority of these have a
+block reward of 50 coins each, and there are roughly 34,000 distinct P2PK addresses that are vulnerable. These coins
+can be
 considered "Satoshi's Shield." Any addresses with a balance of less than the original block subsidy of 50 coins can be
-considered incentive incompatible to capture until all of these are mined, and these addresses serve to provide time to
+considered cryptoeconomically incentive incompatible to capture until all of these are mined, and these addresses serve
+to provide time to
 transition Bitcoin to implement post-quantum security.
 
 It's for the above reason that, for those who wish to be prepared for quantum emergency, it is recommended that no more
@@ -271,10 +271,34 @@ Where:
 
 ==== Hash Computation ====
 
-  hash = HASH256(HASH256(pubkey1) <nowiki>||</nowiki> HASH256(pubkey2) <nowiki>||</nowiki> ... <nowiki>||</nowiki>
-  HASH256(pubkeyN))
+The hash is computed as a merkle tree of public key hashes:
 
-This construction creates a cryptographic commitment to multiple public keys.
+1. For each public key, compute its HASH256
+2. Pair the hashes and compute HASH256 of their concatenation
+3. Continue pairing and hashing until reaching a single root hash
+4. The final hash is the merkle root
+
+For example with 4 public keys:
+
+  h1 = HASH256(pubkey1)
+  h2 = HASH256(pubkey2)
+  h3 = HASH256(pubkey3)
+  h4 = HASH256(pubkey4)
+
+  h12 = HASH256(h1 <nowiki>||</nowiki> h2)
+  h34 = HASH256(h3 <nowiki>||</nowiki> h4)
+
+  root = HASH256(h12 <nowiki>||</nowiki> h34)
+
+When spending, if a public key hash is provided in the attestation with an empty signature, that hash will be used
+directly in the merkle tree computation rather than hashing the full public key. This allows excluding unused public
+keys from the transaction while still proving they were part of the original commitment.
+
+This merkle tree construction creates an efficient cryptographic commitment to multiple public keys while enabling
+selective disclosure.
+
+This allows for inclusion of a Taproot MAST merkle root in the attestation, which makes P2QRH a quantum-resistant
+version of Taproot.
 
 === Transaction Serialization ===
 
@@ -319,7 +343,7 @@ must count the number of inputs present in the transaction.
 The specific quantum-resistant signature algorithm used is inferred from the length of the public key.
 Implementations must recognize the supported algorithms and validate accordingly.
 
-Supported algorithms and their NIST Level V parameters:
+Supported PQC algorithms and their NIST Level V parameters:
 
 * '''SPHINCS+-256f:'''
   * Public Key Length: 64 bytes
@@ -352,17 +376,8 @@ the <code>scriptPubKey</code>.
 * Valid signatures corresponding to the public key(s) and the transaction data.
 
 3. For multi-signature schemes, all required public keys and signatures must be provided for that input within the
-attestation. This includes classical Schnorr signatures.
-
-==== Public Key Hashing ====
-
-All public keys included in the attestation are hashed using HASH256 (double SHA-256). The concatenation of these
-hashes is then hashed again using HASH256 before being included in the <code>scriptPubKey</code>. This ensures a
-fixed-size commitment to potentially multiple public keys of varying lengths.
-
-==== Hash Computation ====
-
-hash = HASH256(HASH256(pubkey1) || HASH256(pubkey2) || ... || HASH256(pubkeyN))
+attestation. Public keys that are not needed can be excluded by including their hash in the attestation accompanied
+with an empty signature. This includes classical Schnorr signatures.
 
 ==== Sighash Calculation ====
 
@@ -382,19 +397,14 @@ Signature verification is as follows:
 
 2. For each input:
 
-* Compute <code>hashed_pubkeys</code> by concatenating the <code>HASH256</code> of each provided public key:
-
-  hashed_pubkeys = HASH256(pubkey1) || HASH256(pubkey2) || ... || HASH256(pubkeyN)
-
-* Compute <code>computed_hash</code>:
-
-  computed_hash = HASH256(hashed_pubkeys)
+* Compute <code>hashed_pubkeys</code> as specified in the Hash Computation section.
 
 * Compare the resulting hash to <nowiki><hash></nowiki>. If they do not match, the script fails.
 
 3. Verify each signature against the corresponding public key and the sighash.
 
-4. Ensure that the signature algorithm used matches the expected lengths for NIST Level V security and is supported.
+4. Ensure that the signature algorithm used matches the expected lengths for NIST Level V security, and is supported by
+the implementation.
 
 ==== Attestation Parsing Example ====
 
@@ -565,6 +575,7 @@ transcript]
 
 To help implementors understand updates to this BIP, we keep a list of substantial changes.
 
+* 2024-12-13 - Update to use merkle tree for attestation commitment. Update LR & SR quantum attack scenarios.
 * 2024-12-06 - Update title and formatting.
 * 2024-12-03 - MediaWiki formatting fixes.
 * 2024-12-01 - Add details on attestation structure and parsing.
