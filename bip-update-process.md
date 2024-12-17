@@ -20,7 +20,7 @@ address the evolving needs of the BIP process.
 
 ## Motivation
 
-BIP 2 is over eight years old and was written when different concerns were pressing to the bitcoin[^capitalization]
+BIP 2 is over eight years old and was written when different concerns were pressing to the Bitcoin[^capitalization]
 community. The BIP process as defined by BIP 2 thus far seems to have been fashioned to facilitate the design and
 activation of protocol changes. In the past years, BIPs more often describe interoperable features beyond the base
 protocol. The community has had multiple debates about the role of BIP Editors, and some aspects of the process
@@ -32,11 +32,11 @@ BIP Types more clearly.
 
 ### What is a BIP?
 
-BIPs cover the range of interests of the bitcoin community. The main topic is technology that supports the bitcoin
+BIPs cover the range of interests of the Bitcoin community. The main topic is technology that supports the Bitcoin
 currency. Most BIPs provide a concise, self-contained, technical description of one new concept, feature, or standard.
 Some BIPs describe processes, implementation guidelines, best practices, incident reports (e.g.
-[BIP 50](bip-0050.mediawiki)), or other information relevant to the bitcoin community. However, any topics related to
-the bitcoin protocol, bitcoin’s peer-to-peer network, and bitcoin client software may be acceptable.
+[BIP 50](bip-0050.mediawiki)), or other information relevant to the Bitcoin community. However, any topics related to
+the Bitcoin protocol, Bitcoin’s peer-to-peer network, and Bitcoin client software may be acceptable.
 
 BIPs are intended to be the primary mechanism for proposing new protocol features, coordinating client standards, and
 documenting design decisions that have gone into implementations. BIPs may be submitted by anyone.
@@ -45,7 +45,7 @@ documenting design decisions that have gone into implementations. BIPs may be su
 
 Each BIP is primarily owned by its authors and represents the authors’ opinion or recommendation. The authors are
 expected to foster discussion, address feedback and dissenting opinions, and, if applicable, advance the adoption of
-their proposal within the bitcoin community.
+their proposal within the Bitcoin community.
 
 #### Authors and Shepherds
 
@@ -57,10 +57,10 @@ Shepherds share ownership of the BIP at the discretion of the Authors.
 
 ### What is the significance of BIPs?
 
-BIPs do not define what bitcoin is: individual BIPs do not represent bitcoin community consensus or a general
-recommendation for implementation. A BIP represents a personal recommendation by the BIP authors to the bitcoin
-community. Some BIPs may never be adopted. Some BIPs may be adopted by one or more bitcoin clients or other related
-software. Some may even end up changing the consensus rules that the bitcoin ecosystem jointly enforces.
+BIPs do not define what Bitcoin is: individual BIPs do not represent Bitcoin community consensus or a general
+recommendation for implementation. A BIP represents a personal recommendation by the BIP authors to the Bitcoin
+community. Some BIPs may never be adopted. Some BIPs may be adopted by one or more Bitcoin clients or other related
+software. Some may even end up changing the consensus rules that the Bitcoin ecosystem jointly enforces.
 
 ### What is the purpose of the BIP repository?
 
@@ -75,8 +75,8 @@ providing a brief overview of BIP statuses (see [Workflow](#workflow) below) to 
 ### What is the scope of the BIP repository?
 
 The BIP repository is focused on information and technologies that aim to support and expand the utility of the bitcoin
-currency. Related topics that are of interest to the bitcoin community may be acceptable. The scope of the BIP
-repository is limited to BIPs that do not oppose the fundamental principle that bitcoin constitutes a peer-to-peer
+currency. Related topics that are of interest to the Bitcoin community may be acceptable. The scope of the BIP
+repository is limited to BIPs that do not oppose the fundamental principle that Bitcoin constitutes a peer-to-peer
 electronic cash system for the bitcoin currency.
 
 ## BIP format and structure
@@ -94,7 +94,7 @@ following list and address each as appropriate. For some BIPs, some concerns may
 * Motivation -- The motivation is critical for BIPs. It should clearly explain what issue the BIP addresses, and how the
   existing situation is inadequate to address the problem that the BIP solves.
 * Specification -- The technical specification should describe the syntax and semantics of any new feature. The
-  specification should be detailed enough to enable any bitcoin project to create an interoperable implementation.
+  specification should be detailed enough to enable any Bitcoin project to create an interoperable implementation.
 * Rationale -- The rationale fleshes out the specification by describing what motivated the design and why particular
   design decisions were made. It should describe related work and alternate designs that were considered. The rationale
   should record relevant objections or important concerns that were raised and addressed as this proposal was developed.
@@ -133,7 +133,7 @@ followed by an explanation for each header.
 __BIP__: The BIP number, or "?" before a number was assigned. A proposal must not self-assign a BIP number. Numbers are
 assigned solely by BIP Editors.
 
-__Layer__: The layer of bitcoin the BIP applies to. See [BIP 123](bip-0123.mediawiki) for definitions of the various BIP
+__Layer__: The layer of Bitcoin the BIP applies to. See [BIP 123](bip-0123.mediawiki) for definitions of the various BIP
 layers.
 
 __Title__: A descriptive title of up to 50 characters.
@@ -193,16 +193,16 @@ do not need to adhere to a specific convention.
 * A **Specification BIP** defines a set of technical rules affecting the interoperability of implementations. The
   distinguishing feature of a Specification BIP is that it can be implemented, and implementations can be compliant with
   it. Specification BIPs should come with or refer to a reference implementation and preferably provide test vectors.
-* An **Informational BIP** describes a bitcoin design issue, provides general guidelines or other information to the
-  bitcoin community.
-* A **Process BIP** describes a process surrounding bitcoin, or proposes a change to (or an event in) a process. Process
-  BIPs are like Specification BIPs, but apply to topics other than the bitcoin protocol and bitcoin implementations.
+* An **Informational BIP** describes a Bitcoin design issue, provides general guidelines or other information to the
+  Bitcoin community.
+* A **Process BIP** describes a process surrounding Bitcoin, or proposes a change to (or an event in) a process. Process
+  BIPs are like Specification BIPs, but apply to topics other than the Bitcoin protocol and Bitcoin implementations.
   They often require community consensus and are typically binding for the corresponding process. Examples include
   procedures, guidelines, and changes to decision-making processes such as the BIP Process.
 
 ## Workflow
 
-The BIP process starts with a new idea for bitcoin. Each potential BIP must have authors—people who write the BIP,
+The BIP process starts with a new idea for Bitcoin. Each potential BIP must have authors—people who write the BIP,
 gather feedback, shepherd the discussion in the appropriate forums, and finally recommend a mature proposal to the
 community.
 
@@ -215,7 +215,7 @@ BIP. The idea must be of interest to the broader community or relevant to multip
 and matters concerning only a single project usually do not require standardization and should instead be brought up directly to
 the relevant project.
 
-The authors should first research whether an idea has been considered before. Ideas in bitcoin are often rediscovered,
+The authors should first research whether an idea has been considered before. Ideas in Bitcoin are often rediscovered,
 and prior related discussions may inform the authors of the issues that may arise in its progression. After some investigation,
 the novelty of an idea can be tested by posting about it to the [Bitcoin Development Mailing
 List](https://groups.google.com/g/bitcoindev). Prior correspondence can be found in the [mailing list
@@ -225,7 +225,7 @@ Vetting an idea publicly before investing the time to describe the idea formally
 the broader community time. Not only may someone point out relevant discussion topics that were missed in the authors’
 research, or that an idea is guaranteed to be rejected based on prior discussions, but describing an idea publicly also
 tests whether it is of interest to more people besides the authors. After establishing that the idea may be of interest
-to the bitcoin community, the authors should work on drafting a BIP.
+to the Bitcoin community, the authors should work on drafting a BIP.
 
 As a first sketch of the proposal is taking shape, the authors should present it to the [Bitcoin Development Mailing
 List](https://groups.google.com/g/bitcoindev). This gives the authors a chance to collect initial feedback and address
@@ -249,10 +249,10 @@ formatting requirements specified above and should be provided as a file named w
 
 BIPs that (1) adhere to the formatting requirements, (2) are on-topic, and (3) have materially progressed beyond the
 ideation phase, e.g., by generating substantial public discussion and commentary from diverse contributors, by
-independent bitcoin projects working on adopting the proposal, or by the authors working for an extended period toward
+independent Bitcoin projects working on adopting the proposal, or by the authors working for an extended period toward
 improving the proposal based on community feedback, will be assigned a number by a BIP editor. The BIP editors should
 delay number assignment when they perceive a proposal being met with lack of interest: number assignment facilitates the
-distributed discussion of ideas, but before a proposal garners some interest in the bitcoin community, there is no need
+distributed discussion of ideas, but before a proposal garners some interest in the Bitcoin community, there is no need
 to refer to it by a number.
 
 Proposals are also not ready for number assignment if they duplicate efforts, disregard formatting rules, are too
@@ -270,7 +270,7 @@ pull requests.
 
 When the authors have concluded all planned work on their proposal, are confident that their BIP represents a net
 improvement, is clear, comprehensive, has a working reference implementation and test vectors (if applicable), and is
-ready for adoption by the bitcoin community, they may update the BIP’s status to Complete to indicate that they
+ready for adoption by the Bitcoin community, they may update the BIP’s status to Complete to indicate that they
 recommend adoption, implementation, or deployment of the BIP. Where applicable, the authors must ensure that any
 proposed specification is solid, not unduly complicated, and definitive. Subsequently, the BIP’s content should only be
 adjusted in minor details, e.g., to improve language, clarify ambiguities, backfill omissions in the specification, add
@@ -357,8 +357,8 @@ Preamble must indicate the latest version in the Revision header.
 The BIP repository does not track the sentiment on proposals and does not track the adoption of BIPs beyond whether they
 are in active use or not. It is not intended for BIPs to list additional implementations beyond the reference
 implementation: the BIP repository is not a signpost where to find implementations.[^OtherImplementations] After a BIP
-is advanced to Complete, it is up to the bitcoin community to evaluate, adopt, ignore, or reject a BIP. Individual
-bitcoin projects are encouraged to publish a list of BIPs they implement. A good example of this at the time of writing
+is advanced to Complete, it is up to the Bitcoin community to evaluate, adopt, ignore, or reject a BIP. Individual
+Bitcoin projects are encouraged to publish a list of BIPs they implement. A good example of this at the time of writing
 this BIP can be observed in Bitcoin Core’s [doc/bips.md](https://github.com/bitcoin/bitcoin/blob/master/doc/bips.md)
 file.
 
@@ -464,7 +464,7 @@ to:
 * Novelty of the idea
 * Viability, utility, and relevance of the concept
 * Readiness of the proposal
-* On-topic for the bitcoin community
+* On-topic for the Bitcoin community
 
 Discussion in pull request comments can often be hard to follow as feedback gets marked as resolved when it is addressed
 by authors. Substantive discussion of ideas may be more accessible to a broader audience on the mailing list, where it
@@ -478,7 +478,7 @@ For each new BIP pull request that comes in, an editor checks the following:
 
 * The idea has been previously discussed on the Bitcoin Development Mailing List
 * Title accurately describes the content
-* Proposal is of general interest and/or pertains to more than one bitcoin project/implementation
+* Proposal is of general interest and/or pertains to more than one Bitcoin project/implementation
 * Document is properly formatted
 * Licensing terms are acceptable
 * Motivation, Rationale, and Backward Compatibility have been addressed
@@ -597,14 +597,14 @@ feedback, and helpful comments.
 ## Rationale
 
 [^capitalization]: **When is Bitcoin capitalized and when is it lowercased?**  
-    This document refers to the currency and the concept as lowercase bitcoin, and only uses capitalized Bitcoin in
-    proper nouns.
+    This document uses capitalized Bitcoin to refer to the system, network and abstract concept, and only uses lowercase
+    bitcoin to refer to units of the bitcoin currency.
 [^standard-track]: **Why was the Specification type introduced?**  
     The definitions of Informational and Standards Track BIPs caused some confusion in the past. Due to Informational
     BIPs being described as optional, Standards Track BIPs were sometimes misunderstood to be generally recommended.
     This has led to a number of BIPs that propose new features affecting interoperability of implementations being
     assigned the Informational type. The situation is remedied by introducing a new _Specification BIP_ type that is
-    inclusive of any BIPs that can be implemented and affect interoperability of bitcoin applications. Since all BIPs
+    inclusive of any BIPs that can be implemented and affect interoperability of Bitcoin applications. Since all BIPs
     are individual recommendations by the authors (even if some may eventually achieve endorsement by the majority of
     the community), the prior reminder that Informational BIPs are optional is dropped.
 [^comments]: **Why were comments, Comments-URI, and Comment-Summary removed from the process?**  
@@ -648,7 +648,7 @@ feedback, and helpful comments.
 [^living-documents]: **Why are Process BIPs living documents?**  
     In the past years, the existing BIPs process has not always provided a clear approach to all situations. For
     example, the content of BIP 2 appears to have been penned especially with fork proposals in mind. It seems clear
-    that bitcoin development will evolve in many surprising ways in the future. Instead of mandating the effort of
+    that Bitcoin development will evolve in many surprising ways in the future. Instead of mandating the effort of
     writing a new process document every time new situations arise, it seems preferable to allow the process to adapt to
     the concerns of the future in specific aspects. Therefore, Process BIPs are defined as living documents that remain
     open to amendment. If a Process BIP requires large modifications or even a complete overhaul, a new BIP should be
