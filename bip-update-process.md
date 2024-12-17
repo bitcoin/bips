@@ -341,14 +341,14 @@ Closed BIP to Draft status.
 
 ### Changelog
 
-To help implementers understand updates to a BIP, any changes after it has reached Complete are tracked with version,
+To help implementers understand updates to a BIP, any changes after it has reached Complete must be tracked with version,
 date, and description in a Changelog section. The version number is inspired by semantic versioning (MAJOR.MINOR.PATCH).
 The MAJOR version is incremented if changes to the BIP’s Specification are introduced that are incompatible with prior
 versions (which should be rare after a BIP is Complete, and only happen in well-grounded exceptional cases to a BIP that
 is Deployed). The MINOR version is incremented whenever the specification of the BIP is changed or extended in a
 backward-compatible way. The PATCH version is incremented for other changes to the BIP that are noteworthy (bug fixes,
-test vectors, important clarifications, etc.). The version should start at 1.0.0 with the date the BIP was promoted to
-Complete. An example of a Changelog section can be seen in
+test vectors, important clarifications, etc.). Version 1.0.0 is used to label the promotion to
+Complete. A Changelog section may be introduced during the Draft phase to record significant changes (using versions 0.x.y). An example of a Changelog section can be seen in
 [BIP 352](https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki). After a BIP receives a Changelog, the
 Preamble must indicate the latest version in the Revision header.
 
