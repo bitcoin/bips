@@ -491,8 +491,8 @@ Editors do NOT evaluate whether the proposal is likely to be adopted.
 A BIP editor will:
 
 * Assign a BIP number and BIP type in the pull request
+* Ensure that the BIP is listed in the [README](README.mediawiki)
 * Merge the pull request when it is ready
-* List the BIP in the [README](README.mediawiki)
 
 The BIP editors are intended to fulfill administrative and editorial responsibilities. The BIP editors monitor BIP
 changes, and update BIP headers as appropriate.
