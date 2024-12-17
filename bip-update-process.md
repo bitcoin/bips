@@ -120,7 +120,7 @@ followed by an explanation for each header.
 * Shepherds: <Shepherds’ names and email addresses>
   Status: <Draft | Complete | Deployed | Closed>
   Type: <Specification | Informational | Process>
-  Created: <Date of number assignment (yyyy-mm-dd)>
+  Created: <Date of number assignment, or "?" before assignment>
   License: <Identifier(s) of acceptable license(s)>
 * License-Code: <Identifier(s) for Code under different acceptable license(s)>
 * Discussion: <Mailing list thread(s), or other noteworthy discussion(s) in "date: URL" format>
@@ -156,7 +156,8 @@ __Status__: The Status header takes one of the four values Draft, Complete, Depl
 __Type__: The Type header specifies the type of BIP: Specification, Informational, or Process. See the [BIP
 types](#bip-types) section below.
 
-__Created__: The Created header records the date that the BIP was assigned a number using ISO 8601 (yyyy-mm-dd) format.
+__Created__: The Created header records the date that the BIP was assigned a number using ISO 8601 (yyyy-mm-dd) format,
+or "?" before a number was assigned.
 
 __License/License-Code__: The SPDX License Identifier(s) of the acceptable licenses under which this BIP is available.
 See the [BIP Licensing](#bip-licensing) section below for a description of the acceptable Licenses and their SPDX
