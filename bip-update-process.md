@@ -143,8 +143,10 @@ format of each authors header value must be
 
     Random J. User <address@dom.ain>
 
-If there are multiple authors, each should be on a separate line following [RFC
-2822](https://datatracker.ietf.org/doc/html/rfc2822.html) continuation line conventions.
+Multiple authors should be recorded on separate lines:
+
+    Authors: Random J. User <address@dom.ain>
+             Anata Sample <anata@domain.example>
 
 __Shepherds__: The Shepherds header lists additional owners of the BIP. Shepherds stand-in for the original authors of a
 BIP. The Shepherds header uses the same format as the Authors header. See the [BIP Ownership](#bip-ownership) section
