@@ -26,7 +26,7 @@ activation of protocol changes. In the past years, BIPs more often describe inte
 protocol. The community has had multiple debates about the role of BIP Editors, and some aspects of the process
 specified by BIP 2 that did not seem to achieve the intended goals. This proposal sunsets aspects of the BIP 2 process
 that did not achieve broad adoption, reduces the judgment calls assigned to the BIP Editor role, and delineates the
-BIP Types more expediently.
+BIP Types more clearly.
 
 ## Fundamentals
 
@@ -50,7 +50,7 @@ their proposal within the bitcoin community.
 #### Authors and Shepherds
 
 Authors may want additional support with the BIP process after writing an initial draft. In that case, they may assign
-one or more Shepherds to their BIP. Shepherds are stand-in owners of a BIP who were not involved in writing the
+one or more Shepherds to their BIP. Shepherds are stand in owners of a BIP who were not involved in writing the
 document. They support the authors in advancing the proposal, or act as point-of-contact for the BIP in absence of the
 authors. Shepherds may perform the role of Authors for any aspect of the BIP process unless overruled by an Author.
 Shepherds share ownership of the BIP at the discretion of the Authors.
@@ -66,8 +66,8 @@ software. Some may even end up changing the consensus rules that the bitcoin eco
 
 The [BIP repository](https://github.com/bitcoin/bips/) serves as a publication medium and archive for mature proposals.
 Through its high visibility, it facilitates the community-wide consideration of BIPs and provides a well-established
-source to retrieve the latest version of any BIP. The repository records all changes to each BIP transparently and
-allows any community member to easily retain a complete copy of the archive.
+source to retrieve the latest version of any BIP. The repository transparently records all changes to each BIP and
+allows any community member to retain a complete copy of the archive easily.
 
 The BIP repository is not a tool to track acceptance[^acceptance], adoption, or community consensus on BIPs, beyond
 providing a brief overview of BIP statuses (see [Workflow](#workflow) below) to the audience.
@@ -83,7 +83,7 @@ electronic cash system for the bitcoin currency.
 
 ### Specification
 
-BIPs should be written in mediawiki or markdown[^markdown] format.
+BIPs should be written in MediaWiki or Markdown[^markdown] format.
 
 Each BIP must have a _Preamble_, an _Abstract_, and a _Copyright_ section. Authors should consider all issues in the
 following list and address each as appropriate. For some BIPs, some concerns may not warrant a dedicated section.
@@ -98,7 +98,7 @@ following list and address each as appropriate. For some BIPs, some concerns may
 * Rationale -- The rationale fleshes out the specification by describing what motivated the design and why particular
   design decisions were made. It should describe related work and alternate designs that were considered. The rationale
   should record relevant objections or important concerns that were raised and addressed as this proposal was developed.
-* Backward compatibility -- A section describing any backwards incompatibilities, their severity, and instructions how
+* Backward compatibility -- A section describing any backward incompatibilities, their severity, and instructions on how
   implementers/users should deal with these incompatibilities.
 * Reference implementation -- Where applicable, a reference implementation, test vectors, and documentation must be
   finished before the BIP can be given the status "Complete". Any or all of these can be provided either in the BIP or
@@ -164,21 +164,21 @@ License Identifiers.
 
 If there are multiple licenses, each should be on a separate line.
 
-__Discussion__: The Discussion header is used to point the audience to relevant discussions of the BIP, e.g. the mailing
+__Discussion__: The Discussion header is used to point the audience to relevant discussions of the BIP, e.g., the mailing
 list thread in which the idea for the BIP was discussed, a thread where a new version of the BIP was presented, or
-relevant discussion threads on other platforms. Entries take the format "yyyy-mm-dd: URL", e.g.
+relevant discussion threads on other platforms. Entries take the format "yyyy-mm-dd: URL", e.g.,
 `2009-01-09: https://www.mail-archive.com/cryptography@metzdowd.com/msg10142.html`.
 
 Multiple discussions should be listed on separate lines.
 
 __Revision__: The Revision header indicates the version of this BIP after a Changelog section has been added. The value
-is provided as MAJOR.MINOR.PATCH, e.g. `Revision: 2.3.1`.
+is provided as MAJOR.MINOR.PATCH, e.g., `Revision: 2.3.1`.
 
 __Requires__: BIPs may have a Requires header to indicate existing BIPs the new proposal depends on. If multiple BIPs
-are required, they should be listed in one line separated by a comma and space (e.g. "1, 2").
+are required, they should be listed in one line separated by a comma and space (e.g., "1, 2").
 
-__Replaces/Superseded-By__: BIPs may have a Replaces header that contains the number of an older BIP it renders
-obsolete. A Superseded-By header indicates in turn that a BIP has been rendered obsolete by the later document with the
+__Replaces/Superseded-By__: BIPs may have a Replaces header that contains the number of an older BIP that it renders
+obsolete. A Superseded-By header indicates, in turn, that a BIP has been rendered obsolete by the later document with the
 provided number.
 
 #### Auxiliary files
@@ -210,17 +210,17 @@ community.
 ### Ideation
 
 After having an idea, the authors should evaluate whether it meets the criteria to become a BIP, as described in this
-BIP. The idea must be of interest to the broader community or relevant to multiple software projects. Small improvements
-and matters concerning only a single project usually do not require standardization and should instead be brought up to
-the relevant project directly.
+BIP. The idea must be of interest to the broader community or relevant to multiple software projects. Minor improvements
+and matters concerning only a single project usually do not require standardization and should instead be brought up directly to
+the relevant project.
 
 The authors should first research whether an idea has been considered before. Ideas in bitcoin are often rediscovered,
-and prior related discussions may inform the authors what issues may arise in its progression. After some investigation,
+and prior related discussions may inform the authors of the issues that may arise in its progression. After some investigation,
 the novelty of an idea can be tested by posting about it to the [Bitcoin Development Mailing
 List](https://groups.google.com/g/bitcoindev). Prior correspondence can be found in the [mailing list
 archive](https://gnusha.org/pi/bitcoindev/).
 
-Vetting an idea publicly before investing the time to formally describe the idea is meant to save both the authors and
+Vetting an idea publicly before investing the time to describe the idea formally is meant to save both the authors and
 the broader community time. Not only may someone point out relevant discussion topics that were missed in the authors’
 research, or that an idea is guaranteed to be rejected based on prior discussions, but describing an idea publicly also
 tests whether it is of interest to more people besides the authors. After establishing that the idea may be of interest
@@ -243,11 +243,11 @@ specification above.
 
 After fleshing out the proposal further and ensuring that it is of high quality and properly formatted, the authors
 should open a pull request to the [BIP repository](https://github.com/bitcoin/bips). The document must adhere to the
-formatting requirements specified below and should be provided as a file named with a working title of the form
+formatting requirements specified above and should be provided as a file named with a working title of the form
 "bip-title.[md|mediawiki]". The authors must not self-assign a number to their proposal.
 
 BIPs that (1) adhere to the formatting requirements, (2) are on-topic, and (3) have materially progressed beyond the
-ideation phase, e.g. by generating substantial public discussion and commentary from diverse contributors, by
+ideation phase, e.g., by generating substantial public discussion and commentary from diverse contributors, by
 independent bitcoin projects working on adopting the proposal, or by the authors working for an extended period toward
 improving the proposal based on community feedback, will be assigned a number by a BIP editor. The BIP editors should
 delay number assignment when they perceive a proposal being met with lack of interest: number assignment facilitates the
@@ -255,10 +255,10 @@ distributed discussion of ideas, but before a proposal garners some interest in 
 to refer to it by a number.
 
 Proposals are also not ready for number assignment if they duplicate efforts, disregard formatting rules, are too
-unfocused or too broad, fail to provide proper motivation, fail to address backwards compatibility where necessary, or
+unfocused or too broad, fail to provide proper motivation, fail to address backward compatibility where necessary, or
 fail to specify the feature clearly and comprehensively. Reviewers and BIP editors should provide guidance on how the
 proposal may be improved to progress toward readiness. Pull requests that are proposing off-topic or unserious ideas or
-have stopped to make progress may be closed.
+have stopped making progress may be closed.
 
 When the proposal is ready and has been assigned a number, a BIP editor will merge it into the BIP repository. After the
 BIP has been merged to the repository, its main focus should no longer shift significantly, even while the authors may
@@ -272,7 +272,7 @@ improvement, is clear, comprehensive, has a working reference implementation and
 ready for adoption by the bitcoin community, they may update the BIP’s status to Complete to indicate that they
 recommend adoption, implementation, or deployment of the BIP. Where applicable, the authors must ensure that any
 proposed specification is solid, not unduly complicated, and definitive. Subsequently, the BIP’s content should only be
-adjusted in minor details, e.g. to improve language, clarify ambiguities, backfill omissions in the specification, add
+adjusted in minor details, e.g., to improve language, clarify ambiguities, backfill omissions in the specification, add
 test vectors for edge cases, or address other issues discovered as the BIP is being adopted.
 
 A Complete BIP can only move to Deployed or Closed. Any necessary changes to the specification should be minimal and
@@ -315,7 +315,7 @@ to Closed unless the authors assert that they intend to continue work when conta
 
 ##### Complete ↦ Closed
 
-BIPs that had attained the Complete status, i.e. that had been recommended for adoption, may be moved to Closed per the
+BIPs that had attained the Complete status, i.e., that had been recommended for adoption, may be moved to Closed per the
 authors’ announcement to the Bitcoin Development Mailing List after not being opposed within four weeks. To successfully
 oppose the move, at least one of the opposers must volunteer to become the BIP’s author or shepherd for the BIP to
 remain Complete. A BIP can also be moved to Closed by the community if it has had Complete status for at least one year,
@@ -366,14 +366,14 @@ file.
 It occasionally becomes necessary to transfer ownership of BIPs to new owners. In general, it would be preferable to
 retain the original authors of the transferred BIP, but that is up to the original authors. A good reason to transfer
 ownership is because the original authors no longer have the time or interest in updating it or following through with
-the BIP process, or have fallen off the face of the 'net (i.e. are unreachable or not responding to email). A bad reason
+the BIP process, or have fallen off the face of the 'net (i.e., are unreachable or not responding to email). A bad reason
 to transfer ownership is because someone doesn't agree with the direction of the BIP. The community tries to build
 consensus around a BIP, but if that's not possible, rather than fighting over control, the dissenters should supply a
 competing BIP.
 
 If someone is interested in assuming ownership of a BIP, they should send an email asking to take over, addressed to the
 original authors, the BIP Editors, and the Bitcoin Development Mailing List. If the authors do not respond in a timely
-manner (e.g. two weeks), the BIP editors will make a unilateral decision whether to appoint the applicants as
+manner (e.g., two weeks), the BIP editors will make a unilateral decision whether to appoint the applicants as
 [Shepherds](#authors-and-shepherds) (which may be amended should the original authors make a delayed reappearance).
 
 ## BIP Licensing
@@ -398,7 +398,7 @@ after the License header. Again, each license must be referenced by their respec
 below.
 
 Each source code file or source directory should specify the license under which it is made available as is common in
-software (e.g. with a license header or a LICENSE/COPYING file). It is recommended to make any test vectors available
+software (e.g., with a license header or a LICENSE/COPYING file). It is recommended to make any test vectors available
 under CC0-1.0 or GNU-All-Permissive in addition to any other licenses to allow anyone to copy test vectors into their
 implementations without introducing license hindrances. Licenses listed in the License-Code header apply to all source
 directories, source code files, and test vectors provided with the BIP except those where a LICENSE file in a directory
@@ -641,7 +641,7 @@ feedback, and helpful comments.
     BIP 2 made an attempt to gather community feedback into comment summaries in BIPs directly. Given the low adoption
     and corresponding low information quality of the summaries that resulted from that feature, this BIP instead intends
     to leave the evaluation of BIPs to the audience.
-[^markdown]: **Which flavor of markdown is allowed?**  
+[^markdown]: **Which flavor of Markdown is allowed?**  
     The author of this proposal has no opinion on Markdown flavors, but recommends that proposals stick to the basic
     Markdown syntax features commonly shared across Markdown dialects.
 [^living-documents]: **Why are Process BIPs living documents?**  
@@ -653,7 +653,7 @@ feedback, and helpful comments.
     open to amendment. If a Process BIP requires large modifications or even a complete overhaul, a new BIP should be
     preferred.
 [^new-BIP]: **Why should the specification of an implemented BIP no longer be changed?**  
-    After a Complete or Deployed BIP have been deployed by one or more implementations, breaking changes to the
+    After a Complete or Deployed BIP has been deployed by one or more implementations, breaking changes to the
     specification could lead to a situation where multiple "compliant" implementations fail at being interoperable,
     because they implemented different versions of the same BIP. Therefore, even changes to the specification of
     Complete BIPs should be avoided, but Deployed BIPs should never be subject to breaking changes to their
@@ -697,7 +697,7 @@ feedback, and helpful comments.
     * Some BIPs, in particular those concerning the consensus layer, may include literal code in the BIP itself which
       may not be available under the license terms the authors wish to use for the BIP.
     * The author of this BIP has been provided with a learned opinion indicating that software licenses are perfectly
-      acceptable for licensing "human code" i.e. text as well as Markdown or Mediawiki code.
+      acceptable for licensing "human code" i.e., text as well as Markdown or MediaWiki code.
 
     Why are OPL and Public Domain no longer acceptable for new BIPs?
 
