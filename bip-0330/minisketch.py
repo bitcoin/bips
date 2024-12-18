@@ -103,7 +103,7 @@ def poly_sqr(p):
 def poly_trace(m, a):
     """Compute the coefficients of the trace polynomial of (a*x) mod m."""
     out = [0, a]
-    for i in range(FIELD_BITS - 1):
+    for  _  in range(FIELD_BITS - 1):
         out = poly_sqr(out)
         while len(out) < 2:
             out += [0]
