@@ -76,7 +76,7 @@ Words chosen using the following rules:
 6. No plural words.
 7. No words that remind negative/sad/bad things.
 8. If both female/male words are available, choose male version.
-9. No words with double vocals (like: lineetta).
+9. No words with double vowels (like: lineetta).
 10. No words already used in other language mnemonic sets.
 11. If 3 of the first 4 letters are already used in the same sequence in another mnemonic word, there must be at least other 3 different letters.
 12. If 3 of the first 4 letters are already used in the same sequence in another mnemonic word, there must not be the same sequence of 3 or more letters.
