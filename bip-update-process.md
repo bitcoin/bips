@@ -33,14 +33,18 @@ BIP Types more clearly.
 
 ### What is a BIP?
 
-BIPs cover the range of interests of the Bitcoin community. The main topic is technology that supports the Bitcoin
+BIPs cover the range of interests of the Bitcoin community. The main topic is information and technologies that support and expand the utility of the bitcoin
 currency. Most BIPs provide a concise, self-contained, technical description of one new concept, feature, or standard.
-Some BIPs describe processes, implementation guidelines, best practices, incident reports (e.g.
+Some BIPs describe processes, implementation guidelines, best practices, incident reports (e.g.,
 [BIP 50](bip-0050.mediawiki)), or other information relevant to the Bitcoin community. However, any topics related to
 the Bitcoin protocol, peer-to-peer network, and client software may be acceptable.
 
 BIPs are intended to be the primary mechanism for proposing new protocol features, coordinating client standards, and
 documenting design decisions that have gone into implementations. BIPs may be submitted by anyone.
+
+The scope of the BIP
+repository is limited to BIPs that do not oppose the fundamental principle that Bitcoin constitutes a peer-to-peer
+electronic cash system for the bitcoin currency.
 
 ### BIP Ownership
 
@@ -72,13 +76,6 @@ allows any community member to retain a complete copy of the archive easily.
 
 The BIP repository is not a tool to track acceptance[^acceptance], adoption, or community consensus on BIPs, beyond
 providing a brief overview of BIP statuses (see [Workflow](#workflow) below) to the audience.
-
-### What is the scope of the BIP repository?
-
-The BIP repository is focused on information and technologies that aim to support and expand the utility of the bitcoin
-currency. Related topics that are of interest to the Bitcoin community may be acceptable. The scope of the BIP
-repository is limited to BIPs that do not oppose the fundamental principle that Bitcoin constitutes a peer-to-peer
-electronic cash system for the bitcoin currency.
 
 ## BIP format and structure
 
