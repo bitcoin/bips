@@ -5,9 +5,10 @@ Author: Murch <murch@murch.one>
 Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-Updated-BIP-Process
 Status: Draft
 Type: Process
-Created: 2024-05-13
+Created: ?
 License: BSD-2-Clause
 Post-History: https://github.com/murchandamus/bips/pull/2
+              https://gnusha.org/pi/bitcoindev/59fa94cea6f70e02b1ce0da07ae230670730171c.camel@timruffing.de/#t
 Requires: 123
 Replaces: 2
 ```
@@ -21,10 +22,10 @@ address the evolving needs of the BIP process.
 ## Motivation
 
 BIP 2 is over eight years old and was written when different concerns were pressing to the Bitcoin[^capitalization]
-community. The BIP process as defined by BIP 2 thus far seems to have been fashioned to facilitate the design and
-activation of protocol changes. In the past years, BIPs more often describe interoperable features beyond the base
-protocol. The community has had multiple debates about the role of BIP Editors, and some aspects of the process
-specified by BIP 2 that did not seem to achieve the intended goals. This proposal sunsets aspects of the BIP 2 process
+community. The BIP process as defined by BIP 2 aimed to facilitate the design and
+activation of protocol changes. In the past years, BIPs have more often described interoperational standards beyond the base
+protocol. The community has debated repeatedly about the role of the BIP Editors, and aspects of the process
+specified by BIP 2 that did not seem to achieve the intended goals. This BIP sunsets aspects of the BIP 2 process
 that did not achieve broad adoption, reduces the judgment calls assigned to the BIP Editor role, and delineates the
 BIP Types more clearly.
 
@@ -36,7 +37,7 @@ BIPs cover the range of interests of the Bitcoin community. The main topic is te
 currency. Most BIPs provide a concise, self-contained, technical description of one new concept, feature, or standard.
 Some BIPs describe processes, implementation guidelines, best practices, incident reports (e.g.
 [BIP 50](bip-0050.mediawiki)), or other information relevant to the Bitcoin community. However, any topics related to
-the Bitcoin protocol, Bitcoin’s peer-to-peer network, and Bitcoin client software may be acceptable.
+the Bitcoin protocol, peer-to-peer network, and client software may be acceptable.
 
 BIPs are intended to be the primary mechanism for proposing new protocol features, coordinating client standards, and
 documenting design decisions that have gone into implementations. BIPs may be submitted by anyone.
@@ -50,8 +51,8 @@ their proposal within the Bitcoin community.
 #### Authors and Shepherds
 
 Authors may want additional support with the BIP process after writing an initial draft. In that case, they may assign
-one or more Shepherds to their BIP. Shepherds are stand in owners of a BIP who were not involved in writing the
-document. They support the authors in advancing the proposal, or act as point-of-contact for the BIP in absence of the
+one or more Shepherds to their BIP. Shepherds are stand-in owners of a BIP who were not involved in writing the
+document. They support the authors in advancing the proposal, or act as a point of contact for the BIP in the absence of the
 authors. Shepherds may perform the role of Authors for any aspect of the BIP process unless overruled by an Author.
 Shepherds share ownership of the BIP at the discretion of the Authors.
 
@@ -83,7 +84,7 @@ electronic cash system for the bitcoin currency.
 
 ### Specification
 
-BIPs should be written in MediaWiki or Markdown[^markdown] format.
+Authors may choose to submit BIPs in MediaWiki or Markdown[^markdown] format.
 
 Each BIP must have a _Preamble_, an _Abstract_, and a _Copyright_ section. Authors should consider all issues in the
 following list and address each as appropriate. For some BIPs, some concerns may not warrant a dedicated section.
