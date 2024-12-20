@@ -1,0 +1,137 @@
+<pre>
+  BIP: ?
+  Layer: Consensus (soft fork)
+  Title: Disallow 64 byte transactions
+  Author: Chris Stewart <stewart.chris1234@gmail.com>
+  Status: Draft
+  Type: Specification
+  License: BSD-3-Clause
+  Created: ?
+</pre>
+
+==Abstract==
+
+This BIP describes the rationale for disallowing transactions that are serialized to 64 bytes without the transaction's witness. 
+We describe the weaknesses to the merkle tree included in bitcoin block headers, various exploits for those weaknesses.
+
+==Motivation==
+
+Bitcoin block headers include a commitment to the set of transactions in a given
+block, which is implemented by constructing a Merkle tree of transaction id’s
+(double-SHA256 hash of a transaction) and including the root of the tree in the
+block header. This in turn allows for proving to a Bitcoin light client that a
+given transaction is in a given block by providing a path through the tree to the
+transaction. However, Bitcoin’s particular construction of the Merkle tree has
+several security weaknesses, including at least two forms of block malleability
+that have an impact on the consensus logic of Bitcoin Core, and an attack on
+light clients, where an invalid transaction could be ”proven” to appear in a block
+by doing substantially less work than a SHA256 hash collision would require.
+This has been enforced by relay policy since 2018<ref>[https://github.com/bitcoin/bitcoin/pull/11423/commits/7485488e907e236133a016ba7064c89bf9ab6da3 PR #11423 disallows 64 byte transactions in bitcoin core relay]</ref>
+
+
+==Specification==
+
+This BIP disallows bitcoin transactions that are serialized to 64 bytes in length without it's witness.
+==Rationale==
+
+=== Block malleability ===
+
+64 byte transactions introduce block malleability. Malicious peers can construct consensus valid and invalid 64 byte
+transactions that have the same serialization as the concatenation of 2 leaves in the merkle tree.
+
+Assume we have a valid bitcoin block with 2 transactions in it - T<sub>0</sub> and T<sub>1</sub>.
+The merkle root for this block is H(T<sub>0</sub>||T<sub>1</sub>).
+A user could find a malicious 64 byte transaction T<sub>m</sub> that serializes to T<sub>0</sub>||T<sub>1</sub>.
+Next the malicious user relays the block containing the malicious T<sub>m</sub> rather than the
+valid bitcoin transactions T<sub>0</sub> and T<sub>1</sub>.
+
+==== Block malleability with consensus INVALID transactions ====
+
+The peer receiving the malicious block marks the block as invalid as T<sub>m</sub> 
+is not a valid transaction according to network consensus rules.
+Other peers on the network receive the valid block containing T<sub>0</sub> and T<sub>1</sub>
+add the block to their blockchain. Peers that receive the invalid block before the valid block
+will never come to consensus with their peers due to the malicious user finding a collision
+within the block's merkle root. Finding this collision approximately 22 bits worth of work<ref>[https://github.com/Christewart/bips/blob/2024-12-20-64bytetxs/bip-XXXX/2-BitcoinMerkle.pdf to produce a block that has a Merkle
+root which is a hash of a 64-byte quantity that deserializes validly, it’s enough
+to just do 8 bits of work to find a workable coinbase (which will hash to the first
+32 bytes), plus another ≈22 bits of work ((1/5) ∗224, so slightly less) to find
+a workable second transaction which will hash to the second 32 bytes) – a very
+small amount of computation.]</ref>
+
+This attack vector was fixed in 0.6.2<ref>[https://bitcoin.org/en/alert/2012-05-14-dos#risks CVE-2012-2459]</ref>, re-introduced in 0.13.x<ref>[https://github.com/bitcoin/bitcoin/pull/7225 #7225]</ref> and patched again in
+0.14<ref>[https://github.com/bitcoin/bitcoin/pull/9765 #9765]</ref> of bitcoin core.
+
+==== Block malleability with consensus VALID transactions ====
+
+Producing a valid bitcoin transaction T<sub>m</sub> that adheres to network consesnsus
+rules requires 224 bits of work<ref>[https://github.com/Christewart/bips/blob/2024-12-20-64bytetxs/bip-XXXX/2-BitcoinMerkle.pdf Note that the first transaction in a block must be a coinbase, and as discussed
+above, that largely constrains the first 32 bytes of the first transaction: only
+the 4 version bytes are unconstrained. So it would take at least 28*8= 224 bits
+of work to find the first node in a given row of the tree that would match the
+first half of a coinbase, in addition to the amount of work required to grind the
+second half of the transaction to something meaningful (which is much easier –
+only 16 bytes or so are constrained, so approximately 128 bits of work to find a collision). Of course, any of the rows in the Merkle tree could be used, but it nevertheless seems clear that this should be computationally infeasible.]</ref>. This is computationally expensive and financially
+expensive but theoretically possible. This can lead to a persistent chain split on the network.
+
+=== Attack on SPV clients ===
+
+BIP37<ref>[https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki BIP37]</ref>provides a partial merkle tree format<ref>[https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki#user-content-Partial_Merkle_branch_format Partial Merkle Tree Format]</ref>
+that allows you to verify your bitcoin transaction is included in a merkle root embedded in a bitcoin block header.
+Notably this format does not commit to the height of the merkle tree.
+
+Suppose a (valid) 64-byte transaction T is included in a block with the property that the second 32 bytes (which
+are less constrained than the first 32 bytes) are constructed so that they collide
+with the hash of some other fake, invalid transaction F. The attacker can fool the SPV client into believing that F
+was included in a bitcoin block rather than T with 81 bits<ref>[https://github.com/Christewart/bips/blob/2024-12-20-64bytetxs/bip-XXXX/2-BitcoinMerkle.pdf An attacker who can do 81 bits of work (followed by another 40 bits of work, to
+construct the funding transaction whose coins will be spent by this one) is able
+to fool an SPV client in this way.]</ref> of work.
+
+
+==Backward compatibility==
+
+There have been six 64 byte transactions that have occcurred in the bitcoin blockchain as of this
+writing <ref>[https://github.com/Christewart/bips/blob/2024-12-20-64bytetxs/64byte-tx-mainnet.txt 64 byte transactions in the bitcoin blockchain]</ref>
+With the last transaction 5302e01dc4b7e34314a34c7c3347107e612b9524be684d388cd4d2ca35ff1ec9<ref>[https://mempool.space/tx/5302e01dc4b7e34314a34c7c3347107e612b9524be684d388cd4d2ca35ff1ec9 Last 64 byte transaction in the bitcoin blockchain]</ref> 
+occurring at block height 384931<ref>[https://mempool.space/block/00000000000000000a4bffdfd5ff5a60051116c07d30f9a590edb55b5ad03e1f Block 384931]</ref>.
+
+TODO
+
+==Reference implementation==
+
+<source lang="cpp">
+/**
+ * We want to enforce certain rules (specifically the 64-byte transaction check)
+ * before we call CheckBlock to check the merkle root. This allows us to enforce
+ * malleability checks which may interact with other CheckBlock checks.
+ * This is currently called both in AcceptBlock prior to writing the block to
+ * disk and in ConnectBlock.
+ * Note that as this is called before merkle-tree checks so must never return a
+ * non-malleable error condition.
+ */
+static bool ContextualBlockPreCheck(const CBlock& block, BlockValidationState& state, const ChainstateManager& chainman, const CBlockIndex* pindexPrev)
+{
+    if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_64BYTETX)) {
+      for (const auto& tx : block.vtx) {
+            if (::GetSerializeSize(TX_NO_WITNESS(tx)) == 64) {
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "64-byte-transaction", strprintf("size of tx %s without witness is 64 bytes", tx->GetHash().ToString()));
+            }
+        }
+    }
+
+    return true;
+}
+</source>
+
+https://github.com/bitcoin-inquisition/bitcoin/pull/24/files
+
+== Rationale ==
+
+<references />
+
+==Copyright==
+This BIP is licensed under the [https://opensource.org/license/BSD-3-Clause BSD-3-Clause License].
+
+==Acknowledgements==
+
+Suhas Daftuar, AJ Towns, Sergio Demian Lerner, Greg Maxwell, Matt Corallo
