@@ -75,6 +75,8 @@ def dleq_generate_proof(
 def dleq_verify_proof(
     A: GE, B: GE, C: GE, proof: bytes, G: GE = G, m: bytes | None = None
 ) -> bool:
+    if A.infinity or B.infinity or C.infinity or G.infinity:
+        return False
     assert len(proof) == 64
     e = int.from_bytes(proof[:32], "big")
     s = int.from_bytes(proof[32:], "big")
