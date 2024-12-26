@@ -7,9 +7,9 @@ import sys
 import unittest
 
 
-DLEQ_TAG_AUX = "BIP0???/aux"
-DLEQ_TAG_NONCE = "BIP0???/nonce"
-DLEQ_TAG_CHALLENGE = "BIP0???/challenge"
+DLEQ_TAG_AUX = "BIP0374/aux"
+DLEQ_TAG_NONCE = "BIP0374/nonce"
+DLEQ_TAG_CHALLENGE = "BIP0374/challenge"
 
 
 def TaggedHash(tag: str, data: bytes) -> bytes:

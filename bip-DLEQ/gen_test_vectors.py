@@ -12,7 +12,7 @@ from secp256k1 import G, GE
 
 
 NUM_SUCCESS_TEST_VECTORS = 5
-DLEQ_TAG_TESTVECTORS_RNG = "BIP0???/testvectors_rng"
+DLEQ_TAG_TESTVECTORS_RNG = "BIP0374/testvectors_rng"
 
 FILENAME_GENERATE_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_generate_proof.csv')
 FILENAME_VERIFY_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_verify_proof.csv')
