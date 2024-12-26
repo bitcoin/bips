@@ -8,7 +8,7 @@ from reference import (
     dleq_generate_proof,
     dleq_verify_proof,
 )
-from secp256k1 import G, GE
+from secp256k1 import G as GENERATOR, GE
 
 
 NUM_SUCCESS_TEST_VECTORS = 5
@@ -29,6 +29,11 @@ def random_bytes(vector_i, purpose):
 
 
 def create_test_vector_data(vector_i):
+    g = random_scalar_int(vector_i, "scalar_g")
+    assert g < GE.ORDER
+    assert g > 0
+    G = g * GENERATOR
+    assert not G.infinity
     a = random_scalar_int(vector_i, "scalar_a")
     A = a * G
     b = random_scalar_int(vector_i, "scalar_b")
@@ -37,60 +42,59 @@ def create_test_vector_data(vector_i):
     assert C.to_bytes_compressed() == (b * A).to_bytes_compressed()
     auxrand = random_bytes(vector_i, "auxrand")
     msg = random_bytes(vector_i, "message")
-    proof = dleq_generate_proof(a, B, auxrand, m=msg)
-    return (a, A, b, B, C, auxrand, msg, proof)
-
+    proof = dleq_generate_proof(a, B, auxrand, G=G, m=msg)
+    return (G, a, A, b, B, C, auxrand, msg, proof)
 
 TEST_VECTOR_DATA = [create_test_vector_data(i) for i in range(NUM_SUCCESS_TEST_VECTORS)]
 
 
 def gen_all_generate_proof_vectors(f):
     writer = csv.writer(f)
-    writer.writerow(("index", "secret_a", "point_B", "auxrand_r", "message", "result_proof", "comment"))
+    writer.writerow(("index", "point_G", "scalar_a", "point_B", "auxrand_r", "message", "result_proof", "comment"))
 
     # success cases with random values
     idx = 0
     for i in range(NUM_SUCCESS_TEST_VECTORS):
-        a, A, b, B, C, auxrand, msg, proof = TEST_VECTOR_DATA[i]
+        G, a, A, b, B, C, auxrand, msg, proof = TEST_VECTOR_DATA[i]
         assert proof is not None and len(proof) == 64
-        writer.writerow((idx, f"{a:02x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case {i+1}"))
+        writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case {i+1}"))
         idx += 1
 
     # failure cases: a is not within group order (a=0, a=N)
     a_invalid = 0
-    assert dleq_generate_proof(a_invalid, B, auxrand, m=msg) is None
-    writer.writerow((idx, f"{a_invalid:02x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=0)"))
+    assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=0)"))
     idx += 1
     a_invalid = GE.ORDER
-    assert dleq_generate_proof(a_invalid, B, auxrand, m=msg) is None
-    writer.writerow((idx, f"{a_invalid:02x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=N [group order])"))
+    assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=N [group order])"))
     idx += 1
 
     # failure case: B is point at infinity
     B_infinity = GE()
     B_infinity_str = "INFINITY"
     assert dleq_generate_proof(a, B_infinity, auxrand, m=msg) is None
-    writer.writerow((idx, f"{a:02x}", B_infinity_str, auxrand.hex(), msg.hex(), "INVALID", f"Failure case (B is point at infinity)"))
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a:064x}", B_infinity_str, auxrand.hex(), msg.hex(), "INVALID", f"Failure case (B is point at infinity)"))
     idx += 1
 
 
 def gen_all_verify_proof_vectors(f):
     writer = csv.writer(f)
-    writer.writerow(("index", "point_A", "point_B", "point_C", "proof", "message", "result_success", "comment"))
+    writer.writerow(("index", "point_G", "point_A", "point_B", "point_C", "proof", "message", "result_success", "comment"))
 
     # success cases (same as above)
     idx = 0
     for i in range(NUM_SUCCESS_TEST_VECTORS):
-        _, A, _, B, C, _, msg, proof = TEST_VECTOR_DATA[i]
-        assert dleq_verify_proof(A, B, C, proof, m=msg)
-        writer.writerow((idx, A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+        G, _, A, _, B, C, _, msg, proof = TEST_VECTOR_DATA[i]
+        assert dleq_verify_proof(A, B, C, proof, G=G, m=msg)
+        writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
                          C.to_bytes_compressed().hex(), proof.hex(), msg.hex(), "TRUE", f"Success case {i+1}"))
         idx += 1
 
     # other permutations of A, B, C should always fail
     for i, points in enumerate(([A, C, B], [B, A, C], [B, C, A], [C, A, B], [C, B, A])):
         assert not dleq_verify_proof(points[0], points[1], points[2], proof, m=msg)
-        writer.writerow((idx, points[0].to_bytes_compressed().hex(), points[1].to_bytes_compressed().hex(),
+        writer.writerow((idx, G.to_bytes_compressed().hex(), points[0].to_bytes_compressed().hex(), points[1].to_bytes_compressed().hex(),
                          points[2].to_bytes_compressed().hex(), proof.hex(), msg.hex(), "FALSE", f"Swapped points case {i+1}"))
         idx += 1
 
@@ -99,7 +103,7 @@ def gen_all_verify_proof_vectors(f):
     proof_damaged = list(proof)
     proof_damaged[proof_damage_pos // 8] ^= (1 << (proof_damage_pos % 8))
     proof_damaged = bytes(proof_damaged)
-    writer.writerow((idx, A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+    writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
                      C.to_bytes_compressed().hex(), proof_damaged.hex(), msg.hex(), "FALSE", f"Tampered proof (random bit-flip)"))
     idx += 1
 
@@ -108,7 +112,7 @@ def gen_all_verify_proof_vectors(f):
     msg_damaged = list(msg)
     msg_damaged[proof_damage_pos // 8] ^= (1 << (msg_damage_pos % 8))
     msg_damaged = bytes(msg_damaged)
-    writer.writerow((idx, A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+    writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
                      C.to_bytes_compressed().hex(), proof.hex(), msg_damaged.hex(), "FALSE", f"Tampered message (random bit-flip)"))
     idx += 1
 

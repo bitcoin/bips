@@ -22,14 +22,16 @@ with open(FILENAME_GENERATE_PROOF_TEST, newline='') as csvfile:
     reader = csv.reader(csvfile)
     reader.__next__()
     for row in reader:
-        (index, seckey_a_hex, point_B_hex, aux_rand_hex, msg_hex, result_str, comment) = row
+        (index, point_G_hex, seckey_a_hex, point_B_hex, aux_rand_hex, msg_hex, result_str, comment) = row
+        print(seckey_a_hex)
+        G = GE() if point_G_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_G_hex))
         a = int.from_bytes(bytes.fromhex(seckey_a_hex), 'big')
         B = GE() if point_B_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_B_hex))
         aux_rand = bytes.fromhex(aux_rand_hex)
         msg = bytes.fromhex(msg_hex)
         print('Test vector', ('#' + index).rjust(3, ' ') + ':' + f' ({comment})')
         expected_result = None if result_str == 'INVALID' else bytes.fromhex(result_str)
-        actual_result = dleq_generate_proof(a, B, aux_rand, m=msg)
+        actual_result = dleq_generate_proof(a, B, aux_rand, G=G, m=msg)
         if expected_result == actual_result:
             print(' * Passed proof generation test.')
         else:
@@ -47,7 +49,8 @@ with open(FILENAME_VERIFY_PROOF_TEST, newline='') as csvfile:
     reader = csv.reader(csvfile)
     reader.__next__()
     for row in reader:
-        (index, point_A_hex, point_B_hex, point_C_hex, proof_hex, msg_hex, result_success, comment) = row
+        (index, point_G_hex, point_A_hex, point_B_hex, point_C_hex, proof_hex, msg_hex, result_success, comment) = row
+        G = GE() if point_G_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_G_hex))
         A = GE() if point_A_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_A_hex))
         B = GE() if point_B_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_B_hex))
         C = GE() if point_C_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_C_hex))
@@ -55,7 +58,7 @@ with open(FILENAME_VERIFY_PROOF_TEST, newline='') as csvfile:
         msg = bytes.fromhex(msg_hex)
         print('Test vector', ('#' + index).rjust(3, ' ') + ':' + f' ({comment})')
         expected_result = result_success == 'TRUE'
-        actual_result = dleq_verify_proof(A, B, C, proof,  m=msg)
+        actual_result = dleq_verify_proof(A, B, C, proof, G=G, m=msg)
         if expected_result == actual_result:
             print(' * Passed proof verification test.')
         else:

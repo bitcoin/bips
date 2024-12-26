@@ -67,7 +67,7 @@ def dleq_generate_proof(
     e = dleq_challenge(A, B, C, R1, R2, m)
     s = (k + e * a) % GE.ORDER
     proof = e.to_bytes(32, "big") + s.to_bytes(32, "big")
-    if not dleq_verify_proof(A, B, C, proof, m=m):
+    if not dleq_verify_proof(A, B, C, proof, G=G, m=m):
         return None
     return proof
 
