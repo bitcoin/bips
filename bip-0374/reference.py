@@ -25,7 +25,7 @@ def xor_bytes(lhs: bytes, rhs: bytes) -> bytes:
 
 
 def dleq_challenge(
-    A: GE, B: GE, C: GE, R1: GE, R2: GE, m: bytes | None, G: GE = G,
+    A: GE, B: GE, C: GE, R1: GE, R2: GE, m: bytes | None, G: GE,
 ) -> int:
     if m is not None:
         assert len(m) == 32
@@ -64,7 +64,7 @@ def dleq_generate_proof(
         return None
     R1 = k * G
     R2 = k * B
-    e = dleq_challenge(A, B, C, R1, R2, m, G=G)
+    e = dleq_challenge(A, B, C, R1, R2, m, G)
     s = (k + e * a) % GE.ORDER
     proof = e.to_bytes(32, "big") + s.to_bytes(32, "big")
     if not dleq_verify_proof(A, B, C, proof, G=G, m=m):
@@ -89,7 +89,7 @@ def dleq_verify_proof(
     R2 = s * B + (-e * C)
     if R2.infinity:
         return False
-    if e != dleq_challenge(A, B, C, R1, R2, m, G=G):
+    if e != dleq_challenge(A, B, C, R1, R2, m, G):
         return False
     return True
 
