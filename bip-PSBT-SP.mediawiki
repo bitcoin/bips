@@ -12,7 +12,7 @@
   Created: 2024-05-14
   License: BSD-2-Clause
   Post-History: https://groups.google.com/g/bitcoindev/c/5G5wzqUXyk4
-  Requires: 352, 370
+  Requires: 352, 370, 374
 </pre>
 
 ==Introduction==
@@ -52,20 +52,54 @@ The new global types are defined as follows:
 |-
 | Silent Payment Global ECDH Share
 | <tt>PSBT_GLOBAL_SP_ECDH_SHARE = 0x07</tt>
-| <tt><33 byte scan key> <36 byte outpoint>*</tt>
-| The scan key and a list of outpoints corresponding to the prevouts of the inputs that this ECDH share is for. The outpoints are composed of a 32 byte txid followed by a 32-bit little endian uint.
+| <tt><33 byte scan key></tt>
+| The scan key that this ECDH share is for.
 | <tt><33 byte share></tt>
-| An ECDH share for a scan key, followed by a list of outpoints. The ECDH shared is computed with ''a * B_scan'', where ''a'' is the sum of all private keys of the inputs matching the list of outpoints, and ''B_scan'' is the scan key of a recipient.
+| An ECDH share for a scan key. The ECDH shared is computed with ''a * B_scan'', where ''a'' is the sum of all private keys of all eligible inputs, and ''B_scan'' is the scan key of a recipient.
 |
 | 0
 | 2
 |-
 | Silent Payment Global DLEQ Proof
 | <tt>PSBT_GLOBAL_SP_DLEQ = 0x08</tt>
-| <tt><33 byte scan key> <36 byte outpoint>*</tt>
-| The scan key and a list of outpoints corresponding to the prevouts of the inputs that this proof covers. The outpoints are composed of a 32 byte txid followed by a 32-bit little endian uint.
+| <tt><33 byte scan key></tt>
+| The scan key that this proof covers.
 | <tt><64-byte proof></tt>
-| A DLEQ proof computed for the matching ECDH share.
+| A BIP374 DLEQ proof computed for the matching ECDH share.
+|
+| 0
+| 2
+|}
+
+The new per-input types are defined as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| Silent Payment Input ECDH Share
+| <tt>PSBT_IN_SP_ECDH_SHARE = 0x1d</tt>
+| <tt><33 byte scan key></tt>
+| The scan key that this ECDH share is for.
+| <tt><33 byte share></tt>
+| An ECDH share for a scan key. The ECDH shared is computed with ''a * B_scan'', where ''a'' is the private key of the corresponding prevout public key, and ''B_scan'' is the scan key of a recipient.
+|
+| 0
+| 2
+|-
+| Silent Payment Input DLEQ Proof
+| <tt>PSBT_IN_SP_DLEQ = 0x1e</tt>
+| <tt><33 byte scan key></tt>
+| The scan key that this proof covers.
+| <tt><64-byte proof></tt>
+| A BIP374 DLEQ proof computed for the matching ECDH share.
 |
 | 0
 | 2
@@ -85,11 +119,21 @@ One new per-output type is defined as follows:
 ! Versions Allowing Inclusion
 |-
 | Silent Payment Data
-| <tt>PSBT_OUT_SP_V0_INFO = 0x08</tt>
+| <tt>PSBT_OUT_SP_V0_INFO = 0x09</tt>
 | None
 | No key data
 | <tt><33 byte scan key> <33 byte spend key></tt>
 | The scan and spend public keys from the silent payments address.
+|
+| 0
+| 2
+|-
+| Silent Payment Label
+| <tt>PSBT_OUT_SP_V0_LABEL = 0x10</tt>
+| None
+| No key data
+| <tt><32-bit little endian uint label></tt>
+| The label to use to compute the spend key of the silent payments address to verify change.
 |
 | 0
 | 2
@@ -122,9 +166,11 @@ Outputs with PSBT_OUT_SP_V0_INFO set may only be added if there are no inputs sp
 
 ===Updater===
 
+The updater should add a PSBT_IN_BIP32_DERIVATION for any p2wpkh, p2sh-p2wpkh, or p2pkh input so the public key is available for creating the ecdh_shared_secret when the private key is not known. If the updater does not want to reveal the fingerprint or derivation path, it can set the value of the field to zero.
+
 ====Change Detection====
 
-Updaters may add two PSBT_OUT_BIP32_DERIVATION key-value-pairs with the corresponding derivation path of both the scan and spend keys. The Signer can then use these fields to verify that the silent payment code is change.
+Updaters may add two PSBT_OUT_BIP32_DERIVATION key-value-pairs with the corresponding derivation path of both the scan and spend keys. A label can be specified in PSBT_OUT_SP_V0_LABEL. The Signer can then use these fields to verify that the silent payment code is change.
 
 ===Signer===
 
@@ -132,12 +178,12 @@ All rules must be followed from PSBTv2 for this role. If there are any outputs w
 
 If any input is spending an output with script using Segwit version > 1, the Signer must fail.
 
-For all outputs with PSBT_OUT_SP_V0_INFO set, the Signer should:
-* Compute and set an ECDH share and DLEQ proof using all inputs it has the private key for.
-* Verify the DLEQ proofs for all inputs it does not have the private keys for.
-* If all eligible inputs have an ECDH share, compute and set the PSBT_OUT_SCRIPT.
+For each output with PSBT_OUT_SP_V0_INFO set, the Signer should:
+* Compute and set an ECDH share and DLEQ proof for each input it has the private key for, or set a global ECDH share and DLEQ proof if it has private keys for all eligible inputs.
+* Verify the DLEQ proofs for all inputs it does not have the private keys for, or the global DLEQ proof if it is set.
+* If all eligible inputs have an ECDH share or the global ECDH share is set, compute and set the PSBT_OUT_SCRIPT.
 
-If the Signer sets any missing PSBT_OUT_SCRIPTs, it must set the Inputs Modifiable flag to False.
+If the Signer sets any missing PSBT_OUT_SCRIPTs, it must set the Inputs Modifiable and Outputs Modifiable flags to False.
 
 If any output does not have PSBT_OUT_SCRIPT set, the Signer must not yet add a signature.
 
@@ -146,32 +192,52 @@ The Signer should additionally compute the silent payment addresses, optionally 
 If a sighash type is provided and there are silent payment outputs present, the signer must fail if the sighash type is not SIGHASH_ALL.
 If a sighash type is not provided and there are silent payment outputs present, the signer must sign using SIGHASH_ALL.<ref name="why_use_sighash_all"> ''' Why use only SIGHASH_ALL?''' BIP352 allows signing with SIGHASH_NONE and SIGHASH_SINGLE. However, silent payment capable PSBTs compute the output scripts deterministically based on the number and position of silent payment codes with the same scan key. SIGHASH_NONE and SIGHASH_SINGLE allow changing the amount or position of silent payment codes with the same scan and spend keys, which would invalidate computed output scripts.</ref>
 
-====Computing the DLEQ Proof====
+====Computing the ECDH Shares and DLEQ Proofs====
 
 For each output with PSBT_OUT_SP_V0_INFO set, the Signer may generate a proof for other entities to generate the output scripts and verify that the output scripts were generated correctly.
 
-Generate a global ECDH share for each scan key ''B<sub>scan</sub>'' and all eligible inputs the Signer has private keys for as follows:
+If the Signer has the private keys for all eligible inputs, the Signer should generate a global ECDH share for each scan key ''B<sub>scan</sub>'' as follows:
 
 Using the notation from [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#specification BIP352]
 
-* Let ''A<sub>n</sub>'' be the sum of the public keys ''A'' of all eligible inputs
 * Let ''a<sub>n</sub>'' be the sum of the private keys ''a'' of all eligible inputs
 * Let ''C =  a<sub>n</sub>·B<sub>scan</sub>''
 
-Use a key ''B<sub>scan</sub>'' followed by a list of the outpoints of all eligible inputs.
+Set the key as ''B<sub>scan</sub>'' and the value as ''C'' for the PSBT_GLOBAL_SP_ECDH_SHARE field.
 
-Set the value for the key of PSBT_GLOBAL_SP_ECDH_SHARE to ''C''.
+Compute the DLEQ proof for ''C'' using [https://github.com/bitcoin/bips/blob/master/bip-0374.mediawiki#user-content-DLEQ_Proof_Generation BIP374 GenerateProof] and passing ''a<sub>n</sub>'' as ''a'' and ''B<sub>scan</sub>'' as ''B''.
+Set the key as ''B<sub>scan</sub>'' and the value as the proof for the PSBT_GLOBAL_SP_DLEQ field.
 
-Compute the DLEQ proof for ''C'' using ''a<sub>n</sub>'' and ''B<sub>scan</sub>''.
-Set the value for the key of PSBT_GLOBAL_SP_DLEQ to the proof.
+If the Signer has the private keys for some eligible inputs or does not want to create a global ECDH share, the Signer should generate a per-input ECDH share for each scan key ''B<sub>scan</sub>'' as follows:
+
+Using the notation from [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#specification BIP352], for each eligible input:
+
+* Let ''a'' be the private key of the input
+* Let ''C =  a·B<sub>scan</sub>''
+
+Set the key as ''B<sub>scan</sub>'' and the value as ''C'' for the PSBT_IN_SP_ECDH_SHARE field of the input.
+
+Compute the DLEQ proof for ''C'' using [https://github.com/bitcoin/bips/blob/master/bip-0374.mediawiki#user-content-DLEQ_Proof_Generation BIP374 GenerateProof] and passing ''B<sub>scan</sub>'' as ''B''.
+Set the key as ''B<sub>scan</sub>'' and the value as the proof for the PSBT_IN_SP_DLEQ field of the input.
 
 ====Verifying the DLEQ Proof====
 
 For each output with PSBT_OUT_SP_V0_INFO set, the Signer should verify the ECDH shares for all eligible inputs it does not have the private key for using the proofs provided by other Signers.
 
+If PSBT_GLOBAL_SP_ECDH_SHARE and PSBT_GLOBAL_SP_DLEQ are set, verify as follows:
+
+* Let ''A<sub>n</sub>'' be the sum of the public keys ''A'' of all eligible inputs
+
+Using [https://github.com/bitcoin/bips/blob/master/bip-0374.mediawiki#dleq-proof-verification BIP374 VerifyProof] and passing ''A'' as ''A<sub>n</sub>'', ''B'' as ''B<sub>scan</sub>'', ''C'' as the value of PSBT_GLOBAL_SP_ECDH_SHARE, and ''proof'' as the value of PSBT_GLOBAL_SP_DLEQ.
+
+If PSBT_IN_SP_ECDH_SHARE and PSBT_IN_SP_DLEQ are set for a particular input, verify as follows:
+
+Using [https://github.com/bitcoin/bips/blob/master/bip-0374.mediawiki#dleq-proof-verification BIP374 VerifyProof] and passing ''A'' as the public key of the input, ''B'' as ''B<sub>scan</sub>'', ''C'' as the value of PSBT_IN_SP_ECDH_SHARE, and ''proof'' as the value of PSBT_IN_SP_DLEQ.
+
+
 ====Computing the Output Scripts====
 
-Compute the PSBT_OUT_SCRIPT using the procedure in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#user-content-Creating_outputs BIP352] but substituting ''a·B<sub>scan</sub>'' with the sum of all PSBT_GLOBAL_SP_ECDH_SHAREs for that scan key.
+Compute the PSBT_OUT_SCRIPT using the procedure in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#user-content-Creating_outputs BIP352] but substituting ''a·B<sub>scan</sub>'' with the PSBT_GLOBAL_SP_ECDH_SHARE for that scan key if available, or the sum of all PSBT_IN_SP_ECDH_SHAREs for that scan key.
 If there are multiple silent payment codes with the same scan key, sort the codes lexicographically in ascending order to determine the ordering of the ''k'' value.
 If there are multiple silent payment codes with both the same scan and spend keys, sort the subgroup by output index in ascending order.
 
