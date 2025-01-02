@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Reference implementation of DLEQ BIP for secp256k1 with unit tests."""
 
 from hashlib import sha256
