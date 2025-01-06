@@ -52,9 +52,13 @@ Payjoin requests are made using familiar BIP 21 URIs. Instead of a public HTTP e
 
 The receiver first generates a 256-bit keypair. This key will be the basis of end-to-end authenticated encryption and identification of a particular payjoin over the directory.
 
-Rather than hosting a public server itself, the receiver initializes a Payjoin Session by requesting a subdirectory allocation related to their keypair's public key. This public key is used to identify a store-and-forward Session subdirectory on the Payjoin Directory server and establishes end-to-end encryption. A POST request to the Payjoin Directory including the receiver's public key initiates an associated Payjoin Session. A successful <code>201 CREATED</code> response message from the directory to the receiver includes the new Session subdirectory payjoin endpoint in the <code>Location</code> header using the compressed public key as a subdirectory identifier. As long as a Session is active, the receiver uses long polling to await a payjoin request to a Payjoin Session from the sender. Out of band, the receiver shares a [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] Payjoin URI including the directory endpoint in the <code>pj=</code> query parameter and a new Oblivious HTTP <code>ohttp=</code> fragment parameter including the Payjoin Directory's [[https://www.ietf.org/rfc/rfc9458.html#name-key-configuration| OHTTP Key Configuration]].
+Rather than hosting a public server itself, the receiver specifies a Payjoin Session associated with their keypair's public key. This public key, compressed, hashed, truncated to 8 bytes, and bech32 encoded without a checksum [[#short-id| short ID]], is used to identify a store-and-forward Session subdirectory on the Payjoin Directory server and establishes end-to-end encryption. As long as a Session is active, the receiver long polls GET requests to this subdirectory to await a payjoin request to a Payjoin Session from the sender. Out of band, the receiver shares a [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] Payjoin URI including the subdirectory endpoint in the <code>pj=</code> query parameter and a new Oblivious HTTP <code>ohttp=</code> fragment parameter including the Payjoin Directory's [[https://www.ietf.org/rfc/rfc9458.html#name-key-configuration| OHTTP Key Configuration]].
 
-The sender constructs an [[https://www.rfc-editor.org/rfc/rfc9180.html#name-authentication-using-an-asy| HPKE Auth mode]] payload containing a PSBT and optional parameters similar to BIP 78. The resulting ciphertext ensures message secrecy and integrity when passed to the receiver by the subdirectory <code>pj=</code> endpoint.
+The sender constructs an [[https://www.rfc-editor.org/rfc/rfc9180.html#name-authentication-using-an-asy| HPKE Auth mode]] payload containing a PSBT and optional parameters similar to BIP 78. The resulting ciphertext ensures message secrecy and integrity when passed to the receiver using the subdirectory <code>pj=</code> endpoint.
+
+The receiver augments the Sender's PSBT with new inputs and outputs, and may adjust the fee. The receiver then encrypts the resulting PSBT and sends it back to the sender by POSTing it to a new subdirectory derived from the sender's reply key shared in their payload along with their original PSBT.
+
+The sender will be long polling this second subdirectory for a response from the receiver. Upon receipt, the sender validates the receiver's Proposal PSBT, and if satisfied, signs its inputs and broadcasts the transaction to the Bitcoin network.
 
 Messages are secured by symmetric cipher rather than TLS or Onion routing session key. Sender and receiver may experience network interruption and proceed with the protocol since their request and response are buffered at the Payjoin Directory.
 
@@ -100,12 +104,12 @@ Key:
 The Payjoin version 2 protocol takes the following steps:
 
 * The receiver generates a Payjoin Session public key.
-* Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter. The <code>pj</code> URL contains the compressed Payjoin Session public key, [[https://datatracker.ietf.org/doc/html/rfc4648#section-5| base64url-encoded]] followed by the [[#receiver-fragment-parameters| receiver fragment parameters]] .
+* Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter. The <code>pj</code> URL path ends with the [[#short-id| short ID]], [[https://datatracker.ietf.org/doc/html/rfc4648#section-5| base64url-encoded]] followed by the [[#receiver-fragment-parameters| receiver fragment parameters]] .
   * To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless.
 * The sender creates a valid version 0 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the <code>Original PSBT</code>. This <code>Original PSBT</code>, and optional sender parameters, are wrapped in HPKE authenticated encryption, including a sender session public key as associated data, and encapsulates it all as OHTTP. This [[#send-messaging| Original PSBT Request send message]] is made to the directory's OHTTP Gateway. The request is stored in the receiver subdirectory.
-* The sender polls GET requests to the subdirectory defined by the sender's Payjoin Session public key in order to await a response from the directory containing a <code>Proposal PSBT</code>. It stops polling after expiry.
+* The sender polls GET requests to the subdirectory defined by the sender's Payjoin Session public key short ID in order to await a response from the directory containing a <code>Proposal PSBT</code>. It stops polling after expiry.
 * Once the receiver is online, it sends <code>GET</code> requests [[#receive-messaging| to the receiver subdirectory]] requests to the subdirectory. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the Original PSBT to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the <code>Proposal PSBT</code>.
-* The <code>Proposal PSBT</code> and HPKE keys are encrypted, authenticated, encapsulated in OHTTP, and POSTed to the directory's OHTTP Gateway.
+* The <code>Proposal PSBT</code> and HPKE keys are encrypted, authenticated, encapsulated in OHTTP, and POSTed to the sender's subdirectory via the directory's OHTTP Gateway.
 * The directory awaits a GET request from the sender. Upon request, the directory relays the encrypted <code>Proposal PSBT</code>.
 * The sender validates the <code>Proposal PSBT</code> according to [[#senders-proposal-psbt-checklist|the sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
 
@@ -140,8 +144,6 @@ The Proposal PSBT MUST NOT:
 Sessions between senders and receivers are established out of band when a receiver shares a Payjoin URI containing its Payjoin Session public key with a sender.
 
 A receiver must first discover the directory's OHTTP Gateway Key Configuration via an authenticated bootstrap mechanism before it can initialize a Session to receive payjoin requests. This mechanism may vary by implementation but must follow [[https://datatracker.ietf.org/doc/html/draft-ietf-privacypass-key-consistency-01| OHTTP Consistency Requirements]] and should not reveal a receiver IP address to the directory. Some examples of suitable mechanisms include fetching over a VPN, using keys included with an application binary, https-in-http CONNECT method, https-in-WebSocket, or a Tor hidden service.
-
-Senders and receivers POST their Payjoin Session public key to the directory via OHTTP, receiving their subdirectory in a base64url encoded directory URL in the Location header of a <code>201 CREATED</code> response.
 
 If a directory is subject to denial of service attacks, it may require [[https://datatracker.ietf.org/doc/html/rfc6750| RFC 6750]] authorization and otherwise respond with <code>401</code> unauthorized responses to requests. Authorization tokens must be unlinkable to preserve client privacy. A specific unlinkable authorization token mechanism is out of the scope of this proposal.
 
@@ -179,6 +181,14 @@ The Payjoin Directory provides a rendezvous point for sender and receiver to mee
 
 Each Payjoin Session subdirectory allocated on the directory has one buffer for a PSBT payload. The buffer updates listeners through awaitable events so that updates are immediately apparent upon client request.
 
+
+====Short ID====
+
+Short IDs are an 8-byte identifier for a Payjoin Session subdirectory. They are generated by hashing a compressed secp256k1 public key with Sha256, truncating it to 8 bytes, and encoding it in bech32 with the HRP "ID". The Short ID HRP prefix (including the '1' separator) "ID1" is stripped from the bech32 encoded uppercase string before it is used as the subdirectory identifier.
+
+64 bits are sufficient to make the probability of experiencing a random collisions negligible. As of writing, the UTXO set has ~2^28 elements. This is a very loose upper bound for the number of concurrent (non-spam) sessions, for which the probability of a random collision with will be less than 1%. The actual number of sessions will of course be (orders of magnitudes) lower given they are short lived. With ~2^21 sessions (loose bound on number of transactions that can be confirmed in 24 hours) the probability is less than 1e-6. These figures are for the existence of a collision in the set, the probability for an individual session to experience a random collision is << 1e-10 in either case.
+
+
 ===Receiver fragment parameters===
 
 A major benefit of BIP 78 Payjoin over other coordination mechanisms is its compatibility with the universal BIP 21 bitcoin URI standard.
@@ -190,7 +200,7 @@ Instead of defining new [[https://github.com/bitcoin/bips/blob/master/bip-0021.m
 
 The '=' and '&' characters parameters must be [[https://datatracker.ietf.org/doc/html/rfc3986| RFC 3986]] percent-encoded as '%3D' and '%26' respectively according to BIP 21.
 
-For example, a properly encoded endpoint URL fragment looks like this <code>bitcoin:bcrt1qq34p97ah7fwxl3mnuyvtlg2serkawma8r9ylzr?pj=https://payjo.in/AoE6sWvRXaG5VAxea61t39syjhQGELKcXiI0DiLlnKtE#ohttp%3DAQJEXdFvFV4dCy48eYt8NEDsAXQznb67o2HObVYuE50cHg%26exp%3D1727464869&pjos=0</code>
+For example, a properly encoded endpoint URL fragment looks like this <code>bitcoin:tb1q6q6de88mj8qkg0q5lupmpfexwnqjsr4d2gvx2p?amount=0.00666666&pjos=0&pj=HTTPS://PAYJO.IN/TXJCGKTKXLUUZ%23RK1Q0DJS3VVDXWQQTLQ8022QGXSX7ML9PHZ6EDSF6AKEWQG758JPS2EV+OH1QYPM59NK2LXXS4890SUAXXYT25Z2VAPHP0X7YEYCJXGWAG6UG9ZU6NQ+EX1WKV8CEC</code>
 
 Using the fragment for Payjoin URI parameters makes for more compact QR codes too, since all of the characters are contained in alphanumeric QR mode is more compact than the byte mode.
 
