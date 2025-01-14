@@ -1,0 +1,101 @@
+<pre>
+  BIP: 387
+  Layer: Applications
+  Title: Tapscript Multisig Output Script Descriptors
+  Author: Pieter Wuille <pieter@wuille.net>
+          Ava Chow <me@achow101.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0387
+  Status: Final
+  Type: Informational
+  Created: 2024-04-17
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document specifies <tt>multi_a()</tt> and <tt>sortedmulti_a()</tt> output script descriptors.
+Like BIP 383's <tt>multi()</tt> and <tt>sortedmulti()</tt>, both functions take a threshold and one
+or more public keys and produce a multisig script. The primary distinction is that <tt>multi_a()</tt>
+and <tt>sortedmulti_a()</tt> only produce tapscripts and are only allowed in a tapscript context.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Motivation==
+
+The most common complex script used in Bitcoin is a threshold multisig.
+These expressions allow specifying multisig scripts as a descriptor.
+
+==Specification==
+
+Two new script expressions are defined: <tt>multi_a()</tt> and <tt>sortedmulti_a()</tt>.
+Both expressions produce the scripts of the same template and take the same arguments.
+They are written as <tt>multi_a(k,KEY_1,KEY_2,...,KEY_n)</tt>.
+<tt>k</tt> is the threshold - the number of keys that must sign the input for the script to be valid.
+<tt>KEY_1,KEY_2,...,KEY_n</tt> are the key expressions for the multisig. <tt>k</tt> must be less than or equal to <tt>n</tt>.
+
+<tt>multi_a()</tt> and <tt>sortedmulti_a()</tt> expressions can only be used inside of a <tt>tr()</tt> descriptor.
+The maximum number of keys is 999.
+
+The output script produced also depends on the value of <tt>k</tt>. If <tt>k</tt> is less than or equal to 16:
+<pre>
+KEY_1 OP_CHECKSIG KEY_2 OP_CHECKSIGADD ... KEY_n OP_CHECKSIGADD OP_k OP_NUMEQUAL
+</pre>
+
+if <tt>k</tt> is greater than 16:
+<pre>
+KEY_1 OP_CHECKSIG KEY_2 OP_CHECKSIGADD ... KEY_n OP_CHECKSIGADD k OP_NUMEQUAL
+</pre>
+
+===<tt>sortedmulti_a()</tt>===
+
+The only change for <tt>sortedmulti_a()</tt> is that the x-only public keys are sorted lexicographically prior to the creation of the output script.
+This sorting is on the keys that are to be put into the output script, i.e. after all extended keys are derived.
+
+===Multiple Extended Keys</tt>===
+
+When one or more of the key expressions in a <tt>multi_a()</tt> or <tt>sortedmulti_a()</tt> expression are extended keys, the derived keys use the same child index.
+This changes the keys in lockstep and allows for output scripts to be indexed in the same way that the derived keys are indexed.
+
+==Test Vectors==
+
+Valid descriptors followed by the scripts they produce. Descriptors involving derived child keys will have the 0th, 1st, and 2nd scripts listed.
+
+* <tt>tr(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,multi_a(1,KzoAz5CanayRKex3fSLQ2BwJpN7U52gZvxMyk78nDMHuqrUxuSJy))</tt>
+** <tt>5120eb5bd3894327d75093891cc3a62506df7d58ec137fcd104cdd285d67816074f3</tt>
+* <tt>tr(a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd,multi_a(1,669b8afcec803a0d323e9a17f3ea8e68e8abe5a278020a929adbec52421adbd0))</tt>
+** <tt>5120eb5bd3894327d75093891cc3a62506df7d58ec137fcd104cdd285d67816074f3</tt>
+* <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(2,[00000000/111'/222]xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc,xprv9uPDJpEQgRQfDcW7BkF7eTya6RPxXeJCqCJGHuCJ4GiRVLzkTXBAJMu2qaMWPrS7AANYqdq6vcBcBUdJCVVFceUvJFjaPdGZ2y9WACViL4L/0))</tt>
+** <tt>51202eea93581594a43c0c8423b70dc112e5651df63984d108d4fc8ccd3b63b4eafa</tt>
+* <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(2,[00000000/111'/222]xprvA1RpRA33e1JQ7ifknakTFpgNXPmW2YvmhqLQYMmrj4xJXXWYpDPS3xz7iAxn8L39njGVyuoseXzU6rcxFLJ8HFsTjSyQbLYnMpCqE2VbFWc,xprv9uPDJpEQgRQfDcW7BkF7eTya6RPxXeJCqCJGHuCJ4GiRVLzkTXBAJMu2qaMWPrS7AANYqdq6vcBcBUdJCVVFceUvJFjaPdGZ2y9WACViL4L/0))</tt>
+** <tt>512016fa6a6ba7e98c54b5bf43b3144912b78a61b60b02f6a74172b8dcb35b12bc30</tt>
+* <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(2,xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/*,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/0/0/*))</tt>
+** <tt>5120abd47468515223f58a1a18edfde709a7a2aab2b696d59ecf8c34f0ba274ef772</tt>
+** <tt>5120fe62e7ed20705bd1d3678e072bc999acb014f07795fa02cb8f25a7aa787e8cbd</tt>
+** <tt>51201311093750f459039adaa2a5ed23b0f7a8ae2c2ffb07c5390ea37e2fb1050b41</tt>
+* <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(2,xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U/2147483647'/0,xprv9vHkqa6EV4sPZHYqZznhT2NPtPCjKuDKGY38FBWLvgaDx45zo9WQRUT3dKYnjwih2yJD9mkrocEZXo1ex8G81dwSM1fwqWpWkeS3v86pgKt/1/2/*,xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi/10/20/30/40/*'))</tt>
+** <tt>5120e4c8f2b0a7d3a688ac131cb03248c0d4b0a59bbd4f37211c848cfbd22a981192</tt>
+** <tt>5120827faedaa21e52fca2ac83b53afd1ab7d4d1e6ce67ff42b19f2723d48b5a19ab</tt>
+** <tt>5120647495ed09de61a3a324704f9203c130d655bf3141f9b748df8f7be7e9af55a4</tt>
+
+Invalid descriptors
+
+* Unsupported top level: <tt>multi_a(1,03669b8afcec803a0d323e9a17f3ea8e68e8abe5a278020a929adbec52421adbd0)</tt>
+* Unsupported <tt>sh()</tt> context: <tt>sh(multi_a(1,03669b8afcec803a0d323e9a17f3ea8e68e8abe5a278020a929adbec52421adbd0))</tt>
+* Unsupported <tt>wsh()</tt> context: <tt>wsh(multi_a(1,03669b8afcec803a0d323e9a17f3ea8e68e8abe5a278020a929adbec52421adbd0))</tt>
+* Invalid threshold: <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(a,03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))</tt>
+* Threshold of 0: <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(0,03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd))</tt>
+* Uncompressed pubkey: <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(1,04a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd5b8dec5235a0fa8722476c7709c02559e3aa73aa03918ba2d492eea75abea235))</tt>
+* Threshold larger than keys: <tt>tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,multi_a(3,L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss))</tt>
+
+==Backwards Compatibility==
+
+<tt>multi_a()</tt> and <tt>sortedmulti_a()</tt> descriptors use the format and general operation specified in [[bip-0380.mediawiki|380]].
+As these are wholly new descriptors, they are not compatible with any implementation.
+However, the scripts produced are standard scripts, so existing software are likely to be familiar with them.
+
+==Reference Implementation==
+
+<tt>multi_a()</tt> and <tt>sortedmulti_a()</tt> descriptors were implemented in Bitcoin Core in https://github.com/bitcoin/bitcoin/pull/24043 and have been available since version 24.0.

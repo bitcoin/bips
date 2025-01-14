@@ -171,6 +171,28 @@ The currently defined global types are as follows:
 | 2
 | [[bip-0370.mediawiki|370]]
 |-
+| Silent Payment Global ECDH Share
+| <tt>PSBT_GLOBAL_SP_ECDH_SHARE = 0x07</tt>
+| <tt><33 byte scan key></tt>
+| The scan key that this ECDH share is for.
+| <tt><33 byte share></tt>
+| An ECDH share for a scan key. The ECDH shared is computed with ''a * B_scan'', where ''a'' is the sum of all private keys of all eligible inputs, and ''B_scan'' is the scan key of a recipient.
+|
+| 0
+| 2
+| [[bip-0375.mediawiki|375]]
+|-
+| Silent Payment Global DLEQ Proof
+| <tt>PSBT_GLOBAL_SP_DLEQ = 0x08</tt>
+| <tt><33 byte scan key></tt>
+| The scan key that this proof covers.
+| <tt><64-byte proof></tt>
+| A BIP374 DLEQ proof computed for the matching ECDH share.
+|
+| 0
+| 2
+| [[bip-0375.mediawiki|375]]
+|-
 | PSBT Version Number
 | <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
 | None
@@ -483,6 +505,74 @@ The currently defined per-input types are defined as follows:
 | 0, 2
 | [[bip-0371.mediawiki|371]]
 |-
+| MuSig2 Participant Public Keys
+| <tt>PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS = 0x1a</tt>
+| <33 byte plain aggregate pubkey>
+| The MuSig2 aggregate plain public key from the <tt>KeyAgg</tt> algorithm. This key may or may not
+be in the script directly (as x-only). It may instead be a parent public key from which the public keys in the
+script were derived.
+| <tt><33 byte compressed pubkey>*</tt>
+| A list of the compressed public keys of the participants in the MuSig2 aggregate key in the order
+required for aggregation. If sorting was done, then the keys must be in the sorted order.
+|
+|
+| 0, 2
+| [[bip-0373.mediawiki|373]]
+|-
+| MuSig2 Public Nonce
+| <tt>PSBT_IN_MUSIG2_PUB_NONCE = 0x1b</tt>
+| <tt><33 byte compressed pubkey> <33 byte plain pubkey> <32 byte hash or omitted></tt>
+| The compressed public key of the participant providing this nonce, followed by the plain public
+key the participant is providing the nonce for, followed by the BIP 341 tapleaf hash of
+the Taproot leaf script that will be signed. If the aggregate key is the taproot internal key or the
+taproot output key, then the tapleaf hash must be omitted. The plain public key must be
+the key found in the script and not the aggregate public key that it was derived from, if it was
+derived from an aggregate key.
+| <tt><66 byte public nonce></tt>
+| The public nonce produced by the <tt>NonceGen</tt> algorithm.
+|
+|
+| 0, 2
+| [[bip-0373.mediawiki|373]]
+|-
+| MuSig2 Participant Partial Signature
+| <tt>PSBT_IN_MUSIG2_PARTIAL_SIG = 0x1c</tt>
+| <tt><33 byte compressed pubkey> <33 byte plain pubkey> <32 byte hash or omitted></tt>
+| The compressed public key of the participant providing this partial signature, followed by the
+plain public key the participant is providing the signature for, followed by the BIP 341 tapleaf hash
+of the Taproot leaf script that will be signed. If the aggregate key is the taproot internal key or
+the taproot output key, then the tapleaf hash must be omitted. Note that the plain public key must
+be the key found in the script and not the aggregate public key that it was derived from, if it was
+derived from an aggregate key.
+| <tt><32 byte partial signature></tt>
+| The partial signature produced by the <tt>Sign</tt> algorithm.
+|
+|
+| 0, 2
+| [[bip-0373.mediawiki|373]]
+|-
+| Silent Payment Input ECDH Share
+| <tt>PSBT_IN_SP_ECDH_SHARE = 0x1d</tt>
+| <tt><33 byte scan key></tt>
+| The scan key that this ECDH share is for.
+| <tt><33 byte share></tt>
+| An ECDH share for a scan key. The ECDH shared is computed with ''a * B_scan'', where ''a'' is the private key of the corresponding prevout public key, and ''B_scan'' is the scan key of a recipient.
+|
+| 0
+| 2
+| [[bip-0375.mediawiki|375]]
+|-
+| Silent Payment Input DLEQ Proof
+| <tt>PSBT_IN_SP_DLEQ = 0x1e</tt>
+| <tt><33 byte scan key></tt>
+| The scan key that this proof covers.
+| <tt><64-byte proof></tt>
+| A BIP374 DLEQ proof computed for the matching ECDH share.
+|
+| 0
+| 2
+| [[bip-0375.mediawiki|375]]
+|-
 | Proprietary Use Type
 | <tt>PSBT_IN_PROPRIETARY = 0xFC</tt>
 | <tt><compact size uint identifier length> <bytes identifier> <compact size uint subtype> <bytes subkeydata></tt>
@@ -560,11 +650,11 @@ determine which outputs are change outputs and verify that the change is returni
 | None
 | No key data
 | <tt><bytes script></tt>
-| The script for this output, also known as the scriptPubKey. Must be omitted in PSBTv0. Must be provided in PSBTv2.
-| 2
+| The script for this output, also known as the scriptPubKey. Must be omitted in PSBTv0. Must be provided in PSBTv2 if not sending to a BIP352 silent payment address, otherwise may be omitted.
+|
 | 0
 | 2
-| [[bip-0370.mediawiki|370]]
+| [[bip-0370.mediawiki|370]], [[bip-0375.mediawiki|375]]
 |-
 | Taproot Internal Key
 | <tt>PSBT_OUT_TAP_INTERNAL_KEY = 0x05</tt>
@@ -598,6 +688,54 @@ determine which outputs are change outputs and verify that the change is returni
 |
 | 0, 2
 | [[bip-0371.mediawiki|371]]
+|-
+| MuSig2 Participant Public Keys
+| <tt>PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS = 0x08</tt>
+| <33 byte plain aggregate pubkey>
+| The MuSig2 aggregate plain public key from the <tt>KeyAgg</tt> algorithm. This key may or may not
+be in the script directly. It may instead be a parent public key from which the public keys in the
+script were derived.
+| <tt><33 byte compressed pubkey>*</tt>
+| A list of the compressed public keys of the participants in the MuSig2 aggregate key in the order
+required for aggregation. If sorting was done, then the keys must be in the sorted order.
+|
+|
+| 0, 2
+| [[bip-0373.mediawiki|373]]
+|-
+| Silent Payment Data
+| <tt>PSBT_OUT_SP_V0_INFO = 0x09</tt>
+| None
+| No key data
+| <tt><33 byte scan key> <33 byte spend key></tt>
+| The scan and spend public keys from the silent payments address.
+|
+| 0
+| 2
+| [[bip-0375.mediawiki|375]]
+|-
+| Silent Payment Label
+| <tt>PSBT_OUT_SP_V0_LABEL = 0x10</tt>
+| None
+| No key data
+| <tt><32-bit little endian uint label></tt>
+| The label to use to compute the spend key of the silent payments address to verify change.
+|
+| 0
+| 2
+| [[bip-0375.mediawiki|375]]
+|-
+| BIP 353 DNSSEC proof
+| <tt>PSBT_OUT_DNSSEC_PROOF = 0x35</tt>
+| None
+| No key data
+| <tt><1-byte-length-prefixed BIP 353 human-readable name><RFC 9102-formatted AuthenticationChain DNSSEC Proof></tt>
+| A BIP 353 human-readable name (without the ₿ prefix), prefixed by a 1-byte length.
+Followed by an [[https://www.rfc-editor.org/rfc/rfc9102.html#name-dnssec-authentication-chain|RFC 9102 DNSSEC <tt>AuthenticationChain</tt>]] (i.e. a series of DNS Resource Records in no particular order) providing a DNSSEC proof to a BIP 353 DNS TXT record.
+|
+|
+| 0, 2
+| [[bip-0353.mediawiki|353]]
 |-
 | Proprietary Use Type
 | <tt>PSBT_OUT_PROPRIETARY = 0xFC</tt>
@@ -821,7 +959,7 @@ If a field requires significant description as to its usage, it should be accomp
 The field must be added to the field listing tables in the Specification section.
 Although some PSBT version 0 implementations encode types as uint8_t rather than compact size,
 it is still safe to add >0xFD fields to PSBT 0, because these old parsers ignore
-unknown fields, and <keytype> is prefixed by its length. 
+unknown fields, and <keytype> is prefixed by its length.
 
 ===Procedure For New Versions===
 

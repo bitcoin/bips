@@ -1,0 +1,113 @@
+<pre>
+  BIP: 347
+  Layer: Consensus (soft fork)
+  Title: OP_CAT in Tapscript
+  Author: Ethan Heilman <ethan.r.heilman@gmail.com>
+          Armin Sabouri <arminsdev@gmail.com>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0347
+  Status: Draft
+  Type: Standards Track
+  Created: 2023-12-11
+  License: BSD-3-Clause
+  Post-History: 2023-10-21: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2023-October/022049.html [bitcoin-dev] Proposed BIP for OP_CAT
+</pre>
+
+==Abstract==
+
+This BIP introduces OP_CAT as a tapscript opcode which allows the concatenation of two values on the stack. OP_CAT would be activated via a soft fork by redefining the opcode OP_SUCCESS126 (126 in decimal and 0x7e in hexadecimal). This is the same opcode value used by the original OP_CAT.
+
+== Copyright ==
+
+This document is licensed under the 3-clause BSD license.
+
+==Specification==
+
+When evaluated, the OP_CAT instruction:
+# Pops the top two values off the stack,
+# concatenates the popped values together in stack order,
+# and then pushes the concatenated value on the top of the stack.
+
+Given the stack ''<nowiki>[x1, x2]</nowiki>'', where ''x2'' is at the top of the stack, OP_CAT will push ''x1 || x2'' onto the stack. By ''||'' we denote concatenation. OP_CAT fails if there are fewer than two values on the stack or if a concatenated value would have a combined size greater than the maximum script element size of 520 bytes.
+
+This opcode would be activated via a soft fork by redefining the tapscript opcode OP_SUCCESS126 (126 in decimal and 0x7e in hexadecimal) to OP_CAT.
+
+==Motivation==
+
+Bitcoin Tapscript lacks a general purpose way of combining objects on the stack, restricting the expressiveness and power of Tapscript. This prevents, among many other things, the ability to construct and evaluate merkle trees and other hashed data structures in Tapscript. OP_CAT, by adding a general purpose way to concatenate stack values, would overcome this limitation and greatly increase the functionality of Tapscript.
+
+OP_CAT aims to expand the toolbox of the tapscript developer with a simple, modular, and useful opcode in the spirit of Unix <ref>R. Pike and B. Kernighan, "Program design in the UNIX environment", 1983, https://harmful.cat-v.org/cat-v/unix_prog_design.pdf</ref>. To demonstrate the usefulness of OP_CAT below we provide a non-exhaustive list of some usecases that OP_CAT would enable:
+
+* Bitstream, a protocol for the atomic swap (fair exchange) of bitcoins for decryption keys, that enables decentralized file hosting systems paid in Bitcoin. While such swaps are currently possible on Bitcoin without OP_CAT, they require the use of complex and computationally expensive Verifiable Computation cryptographic techniques. OP_CAT would remove this requirement on Verifiable Computation, making such protocols far more practical to build in Bitcoin. <ref>R. Linus, "BitStream: Decentralized File Hosting Incentivised via Bitcoin Payments", 2023, https://robinlinus.com/bitstream.pdf</ref>
+* Tree signatures provide a multisignature script whose size can be logarithmic in the number of public keys and can encode spend conditions beyond n-of-m. For instance a transaction less than 1KB in size could support tree signatures with up to 4,294,967,296 public keys. This also enables generalized logical spend conditions. <ref> P. Wuille, "Multisig on steroids using tree signatures", 2015, https://blog.blockstream.com/en-treesignatures/</ref>
+* Post-Quantum Lamport signatures in Bitcoin transactions. Lamport signatures merely require the ability to hash and concatenate values on the stack. <ref>J. Rubin, "[bitcoin-dev] OP_CAT Makes Bitcoin Quantum Secure [was CheckSigFromStack for Arithmetic Values]", 2021, https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2021-July/019233.html</ref> It has been proposed that if ECDSA is broken or a powerful computer was on the horizon, there might be an effort to protect ownership of bitcoins by allowing people to mark their taproot outputs as "script-path only" and then move their coins into such outputs with a leaf in the script tree requiring a Lamport signature. It is an open question if a tapscript commitment would preserve the quantum resistance of Lamport signatures. Beyond this question, the use of Lamport Signatures in taproot outputs is unlikely to be quantum resistant even if the script spend-path is made quantum resistant. This is because taproot outputs can also be spent with a key. An attacker with a sufficiently powerful quantum computer could bypass the taproot script spend-path by finding the discrete log of the taproot output and thus spending the output using the key spend-path. The use of "Nothing Up My Sleeve" (NUMS) points as described in [[bip-0341.mediawiki|BIP341]] to disable the key spend-path does not disable the key spend-path against a quantum attacker as NUMS relies on the hardness of finding discrete logs. We are not aware of any mechanism which could disable the key spend-path in a taproot output without a softfork change to taproot.
+* Non-equivocation contracts <ref>T. Ruffing, A. Kate, D. Schröder, "Liar, Liar, Coins on Fire: Penalizing Equivocation by Loss of Bitcoins", 2015, https://web.archive.org/web/20221023121048/https://publications.cispa.saarland/565/1/penalizing.pdf</ref> in tapscript provide a mechanism to punish equivocation/double spending in Bitcoin payment channels. OP_CAT enables this by enforcing rules on the spending transaction's nonce. The capability is a useful building block for payment channels and other Bitcoin protocols.
+* Vaults <ref>M. Moser, I. Eyal, and E. G. Sirer, Bitcoin Covenants, http://fc16.ifca.ai/bitcoin/papers/MES16.pdf</ref> which are a specialized covenant that allows a user to block a malicious party who has compromised the user's secret key from stealing the funds in that output. As shown in <ref>A. Poelstra, "CAT and Schnorr Tricks II", 2021, https://www.wpsoftware.net/andrew/blog/cat-and-schnorr-tricks-ii.html</ref> OP_CAT is sufficient to build vaults in Bitcoin.
+* Replicating CheckSigFromStack <ref>A. Poelstra, "CAT and Schnorr Tricks I", 2021, https://www.wpsoftware.net/andrew/blog/cat-and-schnorr-tricks-i.html</ref> which would allow the creation of simple covenants and other advanced contracts without having to presign spending transactions, possibly reducing complexity and the amount of data that needs to be stored. Originally shown to work with Schnorr signatures, this result has been extended to ECDSA signatures <ref>R. Linus, "Covenants with CAT and ECDSA", 2023, https://gist.github.com/RobinLinus/9a69f5552be94d13170ec79bf34d5e85#file-covenants_cat_ecdsa-md</ref>.
+
+OP_CAT was available in early versions of Bitcoin.
+In 2010, a single commit disabled OP_CAT, along with another 15 opcodes.
+Folklore states that OP_CAT was removed in this commit because it enabled the construction of a script whose evaluation could have memory usage exponential in the size of the script.
+For example, a script that pushed a 1-byte value on the stack and then repeated the opcodes OP_DUP, OP_CAT 40 times would result in a stack element whose size was greater than 1 terabyte assuming no maximum stack element size. As Bitcoin at that time had a maximum stack element size of 5000 bytes, the effect of this expansion was limited to 5000 bytes.
+This is no longer an issue because tapscript enforces a maximum stack element size of 520 bytes.
+
+
+==Rationale==
+
+Our decision to reenable OP_CAT by redefining a tapscript OP_SUCCESSx opcode to OP_CAT was motivated to leverage the tapscript softfork opcode upgrade path introduced in [[bip-0342.mediawiki|BIP342]].
+
+We specifically choose to use OP_SUCCESS126 rather than another OP_SUCCESSx as OP_SUCCESS126 uses the same opcode value (126 in decimal and 0x7e in hexadecimal) that was used for OP_CAT prior to it being disabled in Bitcoin. This removes a potential source of confusion that would exist if we had a opcode value different from the one used in the original OP_CAT opcode.
+
+While the OP_SUCCESSx opcode upgrade path could enable us to increase the stack element size while reenabling OP_CAT, we wanted to separate the decision to change the stack element size limit from the decision to reenable OP_CAT. This BIP takes no position in favor or against increasing the stack element size limit.
+
+==Backwards Compatibility==
+
+OP_CAT usage in a non-tapscript script will continue to trigger the SCRIPT_ERR_DISABLED_OPCODE. The only change would be to OP_CAT usage in tapscript. This change to tapscript would be activated as a soft fork that redefines an OP_SUCCESSx opcode (OP_SUCCESS126) to OP_CAT.
+
+==Reference implementation==
+
+<pre>
+case OP_CAT:
+{
+  if (stack.size() < 2)
+    return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+  valtype& vch1 = stacktop(-2);
+  valtype& vch2 = stacktop(-1);
+  if (vch1.size() + vch2.size() > MAX_SCRIPT_ELEMENT_SIZE)
+    return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+  vch1.insert(vch1.end(), vch2.begin(), vch2.end());
+  stack.pop_back();
+}
+break;
+</pre>
+
+
+The value of <code>MAX_SCRIPT_ELEMENT_SIZE</code> is 520.
+
+This implementation is inspired by the original implementation of [https://github.com/bitcoin/bitcoin/blob/01cd2fdaf3ac6071304ceb80fb7436ac02b1059e/script.cpp#L381-L393 OP_CAT as it existed in the Bitcoin codebase] prior to the commit "misc changes" 4bd188c<ref>S. Nakamoto, "misc changes", Aug 25 2010, https://github.com/bitcoin/bitcoin/commit/4bd188c4383d6e614e18f79dc337fbabe8464c82#diff-27496895958ca30c47bbb873299a2ad7a7ea1003a9faa96b317250e3b7aa1fefR94</ref> which disabled it:
+
+<pre>
+case OP_CAT:
+{
+    // (x1 x2 -- out)
+    if (stack.size() < 2)
+        return false;
+    valtype& vch1 = stacktop(-2);
+    valtype& vch2 = stacktop(-1);
+    vch1.insert(vch1.end(), vch2.begin(), vch2.end());
+    stack.pop_back();
+    if (stacktop(-1).size() > 5000)
+        return false;
+}
+break;
+</pre>
+
+An alternative implementation of OP_CAT can be found in Elements <ref>Roose S., Elements Project, "Re-enable several disabled opcodes", 2019, https://github.com/ElementsProject/elements/commit/13e1103abe3e328c5a4e2039b51a546f8be6c60a#diff-a0337ffd7259e8c7c9a7786d6dbd420c80abfa1afdb34ebae3261109d9ae3c19R740-R759</ref>.
+
+==References==
+
+<references/>
+
+==Acknowledgements==
+
+We wish to acknowledge Dan Gould for encouraging and helping review this effort. We also want to thank Madars Virza, Jeremy Rubin, Andrew Poelstra, Bob Summerwill,
+Tim Ruffing and Johan T. Halseth for their feedback, review and helpful comments.

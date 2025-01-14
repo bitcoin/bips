@@ -1,0 +1,216 @@
+<pre>
+  BIP: 373
+  Layer: Applications
+  Title: MuSig2 PSBT Fields
+  Author: Ava Chow <me@achow101.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0373
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-01-15
+  License: CC0-1.0
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes additional fields for BIP 174 PSBTv0 and BIP 370 PSBTv2 that allow for BIP
+327 MuSig2 Multi-Signature data to be included in a PSBT of any version. These will be fields for
+the participants' keys, the public nonces, and the partial signatures produced with MuSig2.
+
+===Copyright===
+
+This BIP is licensed under the Creative Commons CC0 1.0 Universal license.
+
+===Motivation===
+
+BIP 327 specifies a way to create BIP 340 compatible public keys and signatures using the MuSig2
+Multi-Signature scheme. The existing PSBT fields are unable to support MuSig2 as it introduces new
+concepts and additional rounds of communication. Therefore new fields must be defined to allow PSBTs
+to carry the information necessary to produce a valid signature with MuSig2.
+
+==Specification==
+
+The new per-input types are defined as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><valuedata></tt>
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| rowspan="2"|MuSig2 Participant Public Keys
+| rowspan="2"|<tt>PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS = 0x1a</tt>
+| <tt><33 byte aggregate pubkey (compressed)></tt>
+| <tt><33 byte participant pubkey (compressed)>*</tt>
+| rowspan="2"|
+| rowspan="2"|
+| rowspan="2"| 0, 2
+|-
+| The MuSig2 aggregate public key (compressed) <ref>'''Why the compressed aggregate public key instead of x-only?'''
+BIP 32 public keys can be derived from a BIP 327 MuSig2 aggregate public key (see: [[bip-0328.mediawiki|BIP 328]]).
+But since BIP 32 requires public keys to include their evenness byte, BIP 327 MuSig2 aggregate public keys must
+include their evenness byte as well. Furthermore, PSBT_IN_TAP_BIP32_DERIVATION fields include fingerprints to identify
+master keys, and these fingerprints require the y-coordinate of the public key, so x-only serialization can't be used.
+By including the aggregate key as a full public key, signers that are unaware of the MuSig2 outside of the PSBT will
+still be able to identify which keys are derived from the aggregate key by computing and then comparing the
+fingerprints. This is necessary for the signer to apply the correct tweaks to their partial signature.</ref> from the
+<tt>KeyAgg</tt> algorithm. This key may or may not appear (as x-only) in the Taproot output key, the internal key, or
+in a script. It may instead be a parent public key from which the Taproot output key, internal key, or keys in a script
+were derived.
+| A list of the compressed public keys of the participants in the MuSig2 aggregate key in the order
+required for aggregation. If sorting was done, then the keys must be in the sorted order.
+|-
+| rowspan="2"|MuSig2 Public Nonce
+| rowspan="2"|<tt>PSBT_IN_MUSIG2_PUB_NONCE = 0x1b</tt>
+| <tt><33 byte participant pubkey (compressed)> <33 byte aggregate pubkey (compressed)> <32 byte hash or omitted></tt>
+| <tt><66 byte public nonce></tt>
+| rowspan="2"|
+| rowspan="2"|
+| rowspan="2"| 0, 2
+|-
+| The compressed public key of the participant providing this nonce, followed by the compressed aggregate public
+key the participant is providing the nonce for, followed by the BIP 341 tapleaf hash of
+the Taproot leaf script that will be signed. If the aggregate key is the Taproot internal key or the
+Taproot output key, then the tapleaf hash must be omitted. The compressed participant public key must be
+the Taproot output key or found in a script. It is not the internal key nor the aggregate public key that
+it was derived from, if it was derived from an aggregate key.
+| The public nonce produced by the <tt>NonceGen</tt> algorithm.
+|-
+| rowspan="2"|MuSig2 Participant Partial Signature
+| rowspan="2"|<tt>PSBT_IN_MUSIG2_PARTIAL_SIG = 0x1c</tt>
+| <tt><33 byte participant pubkey (compressed)> <33 byte aggregate pubkey (compressed)> <32 byte hash or omitted></tt>
+| <tt><32 byte partial signature></tt>
+| rowspan="2"|
+| rowspan="2"|
+| rowspan="2"| 0, 2
+|-
+| The compressed public key of the participant providing this partial signature, followed by the
+compressed public key the participant is providing the signature for, followed by the BIP 341 tapleaf hash
+of the Taproot leaf script that will be signed. If the aggregate key is the Taproot internal key or
+the Taproot output key, then the tapleaf hash must be omitted. Note that the compressed participant public key must be
+the Taproot output key or found in a script. It is not the internal key nor the aggregate public key that
+it was derived from, if it was derived from an aggregate key.
+| The partial signature produced by the <tt>Sign</tt> algorithm.
+|}
+
+The new per-output types are defined as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><valuedata></tt>
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| rowspan="2"|MuSig2 Participant Public Keys
+| rowspan="2"|<tt>PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS = 0x08</tt>
+| <tt><33 byte aggregate pubkey (compressed)></tt>
+| <tt><33 byte participant pubkey (compressed)>*</tt>
+| rowspan="2"|
+| rowspan="2"|
+| rowspan="2"|0, 2
+|-
+| The MuSig2 compressed aggregate public key from the <tt>KeyAgg</tt> algorithm. This key may or may not
+appear (as x-only) in the Taproot output key, the internal key, or in a script. It may instead be a parent
+public key from which the Taproot output key, internal key, or keys in a script were derived.
+| A list of the compressed public keys of the participants in the MuSig2 aggregate key in the order
+required for aggregation. If sorting was done, then the keys must be in the sorted order.
+|}
+
+==Roles==
+
+===Updater===
+
+When an updater observes a Taproot output which involves a MuSig2 aggregate public key that it is
+aware of, it can add a <tt>PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS</tt> field containing the public keys
+of the participants. This aggregate public key may be directly in the script, the Taproot internal
+key, the Taproot output key, or a public key from which the key in the script was derived from.
+
+An aggregate public key that appears directly in the script or internal key may be from the result
+of deriving child pubkeys from participant xpubs. If the updater has this derivation information, it
+should also add <tt>PSBT_IN_TAP_BIP32_DERIVATION</tt> for each participant public key.
+
+If the public key found was derived from an aggregate public key, then all MuSig2 PSBT fields for
+that public key should contain the aggregate public key rather than the found pubkey itself. The
+updater should also add <tt>PSBT_IN_TAP_BIP32_DERIVATION</tt> that contains the derivation path used
+to derive the found pubkey from the aggregate pubkey.
+Derivation from the aggregate pubkey can be assumed to follow [[bip-0328.mediawiki|BIP 328]]
+if there is no <tt>PSBT_IN_GLOBAL_XPUB</tt> that specifies the synthetic xpub for the aggregate
+public key.
+
+Updaters should add <tt>PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS</tt> and
+<tt>PSBT_OUT_TAP_BIP32_DERIVATION</tt> similarly to inputs to aid in change detection.
+
+===Signer===
+
+To determine whether a signer is a participant in the MuSig2 aggregate key, the signer should first
+look at all <tt>PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS</tt> and see if any key which it knows the
+private key for appears as a participant in any aggregate pubkey. Signers should also check whether
+any of the keys in <tt>PSBT_IN_TAP_BIP32_DERIVATION</tt> belong to it, and if any of those keys
+appear in as a participant in <tt>PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS</tt>.
+
+For each aggregate public key that the signer is a participant of that it wants
+to produce a signature for, if the signer does not find an existing
+<tt>PSBT_IN_MUSIG2_PUB_NONCE</tt> field for its key, then it should add one using
+the <tt>NonceGen</tt> algorithm (or one of its variations) to produce a public
+nonce that is added in a <tt>PSBT_IN_MUSIG2_PUB_NONCE</tt> field. However
+signers must keep in mind that '''improper nonce usage can compromise private
+keys.''' Please see BIP 327 for best practices on nonce generation and usage.
+
+Once all signers have added their <tt>PSBT_IN_MUSIG2_PUB_NONCE</tt> fields, each signer will perform
+the <tt>NonceAgg</tt> algorithm followed by the <tt>Sign</tt> algorithm in order to produce the
+partial signature for their key. The result will be added to the PSBT in a
+<tt>PSBT_IN_MUSIG2_PARTIAL_SIG</tt> field.
+
+Signers must remember to apply any relevant tweaks such as a tweak that is the result of performing
+BIP 32 unhardened derivation with the aggregate public key as the parent key.
+
+If all other signers have provided a <tt>PSBT_IN_MUSIG2_PARTIAL_SIG</tt>, then the final signer may
+perform the <tt>PartialSigAgg</tt> algorithm and produce a BIP 340 compatible signature that can be
+placed into a <tt>PSBT_IN_TAP_KEY_SIG</tt> or a <tt>PSBT_IN_TAP_SCRIPT_SIG</tt>.
+
+===Finalizer===
+
+A finalizer may perform the same <tt>PartialSigAgg</tt> step as the final signer if it has not
+already been done.
+
+Otherwise, the resulting signature is a BIP 340 compatible signature and finalizers should treat it
+as such.
+
+==Backwards Compatibility==
+
+These are simply new fields added to the existing PSBT format. Because PSBT is designed to be
+extensible, old software will ignore the new fields.
+
+Reusing <tt>PSBT_IN_TAP_BIP32_DERIVATION</tt> to provide derivation paths for participant public
+keys may cause software unaware of MuSig2 to produce a signature for that public key. This is still
+safe. If that public key does not directly appear in the leaf script that was signed, then the
+signature produced will not be useful and so cannot be replayed. If the public key does directly
+appear in the leaf script, then the signer will have validated the script as if it did not involve a
+MuSig2 and will have found it acceptable in order for it to have produced a signature. In either
+case, producing a signature does not give rise to the possibility of losing funds.
+
+==Test Vectors==
+
+TBD
+
+==Rationale==
+
+<references/>
+
+==Reference implementation==
+
+The reference implementation of the PSBT format is available at TBD.
+
+==Acknowledgements==
+
+Thanks to Sanket Kanjalkar whose notes on this topic formed the initial basis of this BIP. Also
+thanks to Pieter Wuille, Jonas Nick, Tim Ruffing, Marko Bencun, Salvatore Ingala, and all others who
+have participated in discussions about these fields.
