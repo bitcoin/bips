@@ -1,0 +1,176 @@
+<pre>
+  BIP: 353
+  Layer: Applications
+  Title: DNS Payment Instructions
+  Author: Matt Corallo <bip353@bluematt.me>
+          Bastien Teinturier <bastien@acinq.fr>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0353
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-02-10
+  License: CC0-1.0
+  Post-History: 2024-02-13: https://groups.google.com/g/bitcoindev/c/uATaflkYglQ [bitcoin-dev] Mapping Human-Readable Names to Payment Instructions
+</pre>
+
+
+==Copyright==
+
+This BIP is licensed under the CC0-1.0 license.
+
+==Abstract==
+This BIP proposes a standard format for encoding [[bip-0021.mediawiki|BIP 21]] URI schemes in DNS TXT records.
+
+==Motivation==
+Various Bitcoin and other cryptocurrency applications have developed human-readable names for payment instructions over time, with marketplace adoption signaling strong demand for it from users.
+
+The DNS provides a standard, global, hierarchical namespace mapping human-readable labels to records of various forms. Using DNSSEC, the DNS provides cryptographic guarantees using a straightforward PKI which follows the hierarchical nature of the DNS, allowing for stateless and even offline validation of DNS records from a single trusted root.
+
+Further, because DNS queries are generally proxied through ISP-provided or other resolvers, DNS queries usually do not directly expose the queryer's IP address. Further, because of the prevalence of open resolvers, the simplicity of the protocol, and broad availability of DNS recursive resolver implementations, finding a proxy for DNS records is trivial.
+
+Thus, using TXT records to store Bitcoin payment instructions allows for human-readable Bitcoin payment destinations which can be trivially verified on hardware wallets and which can be resolved relatively privately.
+
+==Specification==
+
+=== General rules for handling ===
+Bitcoin wallets MUST NOT prefer to use DNS-based resolving when methods with explicit public keys or addresses are available. In other words, if a standard Bitcoin address or direct BIP 21 URI is available or would suffice, Bitcoin wallets MUST prefer to use that instead.
+
+=== Records ===
+Payment instructions are indexed by both a user and a domain. Instructions for a given `user` and `domain` are stored at `user`.user._bitcoin-payment.`domain` in a single TXT record.
+
+All payment instructions MUST be DNSSEC-signed.
+
+Payment instructions MAY resolve through CNAME or DNAME records as long as all such records and the ultimate records pointed to by them are DNSSEC signed.
+
+User and domain names which are not expressible using standard printable ASCII MUST be encoded using the punycode IDN encoding defined in [[https://datatracker.ietf.org/doc/html/rfc3492|RFC 3492]] and [[https://datatracker.ietf.org/doc/html/rfc5891|RFC 5891]].
+
+Note that because resolvers are not required to support resolving non-ASCII identifiers, wallets SHOULD avoid using non-ASCII identifiers.
+
+For payment instructions that have a built-in expiry time (e.g. Lightning BOLT 12 offers), care must be taken to ensure that the DNS records expire prior to the expiry of the payment instructions. Otherwise, senders may have payment instructions cached locally which have expired, preventing payment.
+
+=== Resolution ===
+
+Clients resolving Bitcoin payment instructions MUST ignore any TXT records at the same label which do not begin with (ignoring case) "bitcoin:". Resolvers encountering multiple "bitcoin:"-matching TXT records at the same label MUST treat the records as invalid and refuse to use any payment instructions therein.
+
+Clients resolving Bitcoin payment instructions MUST concatenate all strings in the TXT record before processing the complete URI.<ref>TXT records are defined as "one or more character-strings" in [[https://www.rfc-editor.org/rfc/rfc1035#section-3.3.14|RFC 1035]], and a "character-string" is a single byte (with a max value of 255) followed by that many characters.</ref>
+
+Clients resolving Bitcoin payment instructions MUST fully validate DNSSEC signatures leading to the DNS root (including any relevant CNAME or DNAME records) and MUST NOT accept DNSSEC signatures which use SHA-1 or RSA with keys shorter than 1024 bits. Resolvers MAY accept SHA-1 DS records.
+
+Clients resolving Bitcoin payment instructions MUST NOT trust a remote resolver to validate DNSSEC records on their behalf.
+
+Clients resolving Bitcoin payment instructions MUST support resolving through CNAME or DNAME records.
+
+Resolvers MAY support resolving non-ASCII user and domain identifiers. Resolvers which do support non-ASCII user and domain identifiers MUST take precautions to prevent homograph attacks and SHOULD consider denying paste functionality when entering non-ASCII identifiers. Wallets which do not take any such precautions MUST instead display non-ASCII user and domain identifiers using their raw punycode. As such, wallets SHOULD NOT create identifiers which are not entirely printable ASCII.
+
+While clients MAY cache the payment instructions they receive from the DNS, clients MUST NOT cache the payment instructions received from the DNS for longer than the TTL provided by their DNS resolver, and further MUST NOT cache the payment instructions for longer than the lowest initial TTL (which is signed as a part of DNSSEC signatures) received in the full DNSSEC chain leading from the DNS root to the resolved TXT record.
+
+=== Address Reuse ===
+
+Payment instructions with on-chain addresses which will be re-used SHOULD be rotated as regularly as possible to reduce address reuse. Such payment instructions SHOULD also use a relatively short DNS TTL to ensure regular rotation takes effect quickly. In cases where this is not practical, payment instructions SHOULD NOT contain on-chain addresses (i.e. the URI path SHOULD be empty).
+
+Payment instructions which do contain on-chain addresses which will be re-used SHOULD be rotated after any transaction to such an address is confirmed on-chain.
+
+=== Display ===
+
+When displaying a verified human-readable name, wallets SHOULD prefix it with ₿, i.e. ₿`user`@`domain`. They SHOULD parse recipient information in both `user`@`domain` and ₿`user`@`domain` forms and resolve such an entry into recipient information using the above record. For the avoidance of doubt, the ₿ is *not* included in the DNS label which is resolved.
+
+Wallets providing the ability for users to "copy" their address information SHOULD copy the underlying URI directly, rather than the human-readable name. This avoids an additional DNS lookup by the application in which it is pasted. Wallets that nevertheless provide users the ability to copy their human-readable name, MUST include the ₿ prefix (i.e. copy it in the form ₿`user`@`domain`).
+
+Wallets accepting payment information from external devices (e.g. hardware wallets) SHOULD accept RFC 9102-formatted proofs (as a series of unsorted `AuthenticationChain` records) and, if verification succeeds, SHOULD display the recipient in the form ₿`user`@`domain`.
+
+=== PSBT types ===
+
+Wallets accepting payment information from external devices (e.g. hardware wallets) MAY examine the following per-output PSBT fields to fetch RFC 9102-formatted proofs. Wallets creating PSBTs with recipient information derived from human-readable names SHOULD include the following fields.
+
+When validating the contained proof, clients MUST enforce the inception on all contained RRSigs is no later than the current time and that the expiry of all RRSigs is no earlier than an hour in the past. Clients MAY allow for an expiry up to an hour in the past to allow for delays between PSBT construction and signing only if such a delay is likely to occur in their intended usecase.
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| BIP 353 DNSSEC proof
+| <tt>PSBT_OUT_DNSSEC_PROOF = 0x35</tt>
+| None
+| <tt><1-byte-length-prefixed BIP 353 human-readable name without the ₿ prefix><RFC 9102-formatted DNSSEC Proof></tt>
+| A BIP 353 human-readable name (without the ₿ prefix), prefixed by a 1-byte length.
+Followed by an [[https://www.rfc-editor.org/rfc/rfc9102.html#name-dnssec-authentication-chain|RFC 9102 DNSSEC <tt>AuthenticationChain</tt>]] (i.e. a series of DNS Resource Records in no particular order) providing a DNSSEC proof to a BIP 353 DNS TXT record.
+|
+|
+| 0, 2
+|}
+
+== Rationale ==
+
+=== Display ===
+
+There are several ways in which human-readable payment instructions could be displayed in wallets. In order to ensure compatibility with existing human-readable names schemes, @ is used as the separator between the `user` and `domain` parts. However, simply using the @ separator can lead to confusion between email addresses on a given domain and payment instructions on a domain. In order to somewhat reduce the incidence of such confusion, a ₿ prefix is used.
+
+=== Rotation ===
+
+On-chain addresses which are re-used (i.e. not including schemes like [[bip-0352.mediawiki|Silent Payments]]) need to be rotated to avoid contributing substantially to address reuse. However, rotating them on a timer or any time a transaction enters the mempool could lead to substantial overhead from excess address generation. Instead, rotating addresses any time a transaction is confirmed on-chain ensures address rotation happens often while bounding the maximum number of addresses needed to one per block, which grows very slowly and will not generate an address set too large to handle while scanning the chain going forward.
+
+=== Alternatives ===
+There are many existing schemes to resolve human-readable names to cryptocurrency payment instructions. Sadly, these current schemes suffer from a myriad of drawbacks, including (a) lacking succinct proofs of namespace to public key mappings, (b) revealing sender IP addresses to recipients or other intermediaries as a side-effect of payment, (c) relying on the bloated TLS Certificate Authority infrastructure, or (d) lacking open access, not allowing anyone to create a namespace mapping.
+
+==== DNS Rather than blockchain-based solutions ====
+There are many blockchain-based alternatives to the DNS which feature better censorship-resistance and, in many cases, security. However, here we chose to use the standard ICANN-managed DNS namespace as many blockchain-based schemes suffer from (a), above (though in some cases this could be addressed with cryptographic SNARK schemes). Further, because they do not have simple client-side querying ability, many of these schemes use trusted intermediaries which resolve names on behalf of clients. This reintroduces drawbacks (b) and often (c) as well.
+
+Finally, it is worth noting that none of the blockchain-based alternatives to the DNS have had material adoption outside of their specific silos, and committing Bitcoin wallets to rely on a separate system which doesn't see broad adoption may not be sustainable.
+
+==== DNS Rather than HTTP-based solutions ====
+HTTP(s)-based payment instruction resolution protocols suffer from drawbacks (a), (b), and (c), above, and generally shouldn't be considered a serious alternative for payment instruction resolution.
+
+==== Private DNS Querying ====
+While public recursive DNS resolvers are very common (e.g. 1.1.1.1, 8.8.8.8, and 9.9.9.9), using such resolvers directly (even after validating DNSSEC signatures) introduces drawback (b), at least in regard to a centralized intermediary. Resolving payment instructions recursively locally using a resolver on the same local network or in the paying application would instead introduce drawback (b) directly to the recipient, which may well be worse.
+
+For payers not using VPN or other proxying technologies, they generally trust their ISP to not snoop on their DNS requests anyway, so using ISP-provided recursive DNS resolvers is likely the best option.
+
+However, for the best privacy, payers are encouraged to perform DNS resolution over Tor or another VPN technology.
+
+Lightning payers should consider utilizing DNS resolution over native onion messages, using the protocol described in [[https://github.com/lightning/blips/blob/master/blip-0032.md|BLIP 32]]
+
+=== DNS Enumeration ===
+
+In most cases where payments are accepted from any third-party, user enumeration is practical by simply attempting to send small value payments to a list of possible user names. However, storing all valid users in the DNS directly may make such enumeration marginally more practical. Thus, those wishing to avoid such enumeration should carefully ensure all DNS names return valid payment instructions. Note when doing so that wildcard records are identified as such by the DNSSEC RRSIG labels counter and are differentiable from non-wildcard records.
+
+== Backwards Compatibility ==
+
+This work is intended to extend and subsume the existing "Lightning Address" scheme, which maps similar names (without the ₿ prefix) using HTTPS servers to Lightning BOLT 11 payment instructions. Wallets implementing this scheme MAY fall back to existing "Lightning Address" logic if DNS resolution fails but SHOULD NOT do so after this scheme is sufficiently broadly deployed to avoid leaking sender IP address information.
+
+== Examples ==
+
+<code>matt@mattcorallo.com</code> resolves to
+
+<pre>matt.user._bitcoin-payment.mattcorallo.com. 1800 IN TXT  "bitcoin:?lno=lno1qsgr30k45jhvkfqxjqheaetac
+u4guyxvqttftvqu0f5sneckep3lkwdut7mmhhpcyjmlmnjn4hze8ed7pq88xqkxt2dcw5mlxhz644fms82f7k4ymfxs2ehhpjtxw
+xly0w5k8xdtlvpqyd8xzdq4tq8lgupnueshgydr330lc3j5kdcqh54gt7jdg9n68j4eqqeu7ts8uh0qxamee6ndj37tc6mzgejth
+vvjqj96p8dz2h" "rsh5z5n27qfk6svjz5pmkh0smq26k0j2j4q36xgq3r5qzet9kuhq4lydpen5mskxgjdvs5faqgv8pmj7cfd7
+ny84djksqpqk9ky6juc7fpezecxvg7sjx05dckyypnv9tmvfp6tkpehmtaqmvuupetxuzqf4t0azddjdcpasgw6hxuz9g"
+</pre>
+
+* Note that `lno` indicates a value containing a lightning BOLT12 offer.
+* Note that the complete URI is broken into two strings with maximum 255 characters each
+
+== Reference Implementations ==
+* A DNSSEC proof generation and validation implementation can be found at https://git.bitcoin.ninja/index.cgi?p=dnssec-prover;a=summary
+* A lightning-specific name to payment instruction resolver can be found at https://git.bitcoin.ninja/index.cgi?p=lightning-resolver;a=summary
+* Reference implementations for parsing the URI contents can be found in [[bip-0021.mediawiki|BIP 21]].
+
+
+== Footnotes ==
+
+<references />
+
+== Acknowledgements ==
+
+Thanks to Rusty Russell for the concrete address rotation suggestion.
+
+Thanks to the Bitcoin Design Community, and especially Christoph Ono for lots of discussion, analysis, and UX mockups in how human-readable payment instructions should be displayed.
+
+Thanks to Andrew Kaizer for the suggestion to explicitly restrict cache lifetime to the relevant DNS TTLs.

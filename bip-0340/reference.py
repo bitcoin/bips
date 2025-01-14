@@ -96,8 +96,6 @@ def pubkey_gen(seckey: bytes) -> bytes:
     return bytes_from_point(P)
 
 def schnorr_sign(msg: bytes, seckey: bytes, aux_rand: bytes) -> bytes:
-    if len(msg) != 32:
-        raise ValueError('The message must be a 32-byte array.')
     d0 = int_from_bytes(seckey)
     if not (1 <= d0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
@@ -121,8 +119,6 @@ def schnorr_sign(msg: bytes, seckey: bytes, aux_rand: bytes) -> bytes:
     return sig
 
 def schnorr_verify(msg: bytes, pubkey: bytes, sig: bytes) -> bool:
-    if len(msg) != 32:
-        raise ValueError('The message must be a 32-byte array.')
     if len(pubkey) != 32:
         raise ValueError('The public key must be a 32-byte array.')
     if len(sig) != 64:

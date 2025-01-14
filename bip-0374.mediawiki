@@ -1,0 +1,128 @@
+<pre>
+  BIP: 374
+  Layer: Applications
+  Title: Discrete Log Equality Proofs
+  Author: Andrew Toth <andrewstoth@gmail.com>
+          Ruben Somsen <rsomsen@gmail.com>
+          Sebastian Falbesoner <sebastian.falbesoner@gmail.com>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0374
+  Status: Draft
+  Type: Standards Track
+  License: BSD-2-Clause
+  Created: 2024-12-26
+  Post-History: https://gist.github.com/andrewtoth/df97c3260cc8d12f09d3855ee61322ea
+                https://groups.google.com/g/bitcoindev/c/MezoKV5md7s
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This document proposes a standard for 64-byte zero-knowledge ''discrete logarithm equality proofs'' (DLEQ proofs) over an elliptic curve. For given elliptic curve points ''A'', ''B'', ''C'', ''G'', and a scalar ''a'' known only to the prover where ''A = a⋅G'' and ''C = a⋅B'', the prover proves knowledge of ''a'' without revealing anything about ''a''. This can, for instance, be useful in ECDH: if ''A'' and ''B'' are ECDH public keys, and ''C'' is their ECDH shared secret computed as ''C = a⋅B'', the proof establishes that the same secret key ''a'' is used for generating both ''A'' and ''C'' without revealing ''a''.
+
+=== Copyright ===
+
+This document is licensed under the 2-clause BSD license.
+
+=== Motivation ===
+
+[https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#specification BIP352] requires senders to compute output scripts using ECDH shared secrets from the same secret keys used to sign the inputs. Generating an incorrect signature will produce an invalid transaction that will be rejected by consensus. An incorrectly generated output script can still be consensus-valid, meaning funds may be lost if it gets broadcast.
+By producing a DLEQ proof for the generated ECDH shared secrets, the signing entity can prove to other entities that the output scripts have been generated correctly without revealing the private keys.
+
+== Specification ==
+
+All conventions and notations are used as defined in [https://github.com/bitcoin/bips/blob/master/bip-0327.mediawiki#user-content-Notation BIP327].
+
+=== Description ===
+
+The basic proof generation uses a random scalar ''k'', the secret ''a'', and the point being proven ''C = a⋅B''.
+
+* Let ''R<sub>1</sub> = k⋅G''.
+* Let ''R<sub>2</sub> = k⋅B''.
+* Let ''e = hash(R<sub>1</sub> || R<sub>2</sub>)''.
+* Let ''s = (k + e⋅a)''.
+
+Providing only ''C'', ''e'' and ''s'' as a proof does not reveal ''a'' or ''k''.
+
+Verifying the proof involves recreating ''R<sub>1</sub>'' and ''R<sub>2</sub>'' with only ''e'' and ''s'' as follows:
+
+* Let ''R<sub>1</sub> = s⋅G - e⋅A''.
+* Let ''R<sub>2</sub> = s⋅B - e⋅C''.
+
+This can be verified by substituting ''s = (k + e⋅a)'':
+
+* ''s⋅G - e⋅A = (k + e⋅a)⋅G - e⋅A = k⋅G + e⋅(a⋅G) - e⋅A = k⋅G + e⋅A - e⋅A = k⋅G''.
+* ''s⋅B - e⋅C = (k + e⋅a)⋅B - e⋅C = k⋅B + e⋅(a⋅B) - e⋅C = k⋅B + e⋅C - e⋅C = k⋅B''.
+
+Thus verifying ''e = hash(R<sub>1</sub> || R<sub>2</sub>)'' proves the discrete logarithm equivalency of ''A'' and ''C''.
+
+=== DLEQ Proof Generation ===
+
+The following generates a proof that the result of ''a⋅B'' and the result of ''a⋅G'' are both generated from the same scalar ''a'' without having to reveal ''a''.
+
+Input:
+* The secret key ''a'': a 256-bit unsigned integer
+* The public key ''B'': a point on the curve
+* Auxiliary random data ''r'': a 32-byte array<ref name="why_include_auxiliary_random_data"> ''' Why include auxiliary random data?''' The auxiliary random data should be set to fresh randomness for each proof. The same rationale and recommendations from [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#default-signing BIP340] should be applied.</ref> 
+* The generator point ''G'': a point on the curve<ref name="why_include_G"> ''' Why include the generator point G as an input?''' While all other BIPs have used the generator point from secp256k1, passing it as an input here lets this algorithm be used for other curves.</ref>
+* An optional message ''m'': a 32-byte array<ref name="why_include_a_message"> ''' Why include a message as an input?''' This could be useful for protocols that want to authorize on a compound statement, not just knowledge of a scalar. This allows the protocol to combine knowledge of the scalar and the statement.</ref>
+
+The algorithm ''GenerateProof(a, B, r, G, m)'' is defined as:
+* Fail if ''a = 0'' or ''a &ge; n''.
+* Fail if ''is_infinite(B)''.
+* Let ''A = a⋅G''.
+* Let ''C = a⋅B''.
+* Let ''t'' be the byte-wise xor of ''bytes(32, a)'' and ''hash<sub>BIP0374/aux</sub>(r)''.
+* Let ''rand = hash<sub>BIP0374/nonce</sub>(t || cbytes(A) || cbytes(C))''.
+* Let ''k = int(rand) mod n''.
+* Fail if ''k = 0''.
+* Let ''R<sub>1</sub> = k⋅G''.
+* Let ''R<sub>2</sub> = k⋅B''.
+* Let ''m' = m if m is provided, otherwise an empty byte array''.
+* Let ''e = int(hash<sub>BIP0374/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>) || m'))''.
+* Let ''s = (k + e⋅a) mod n''.
+* Let ''proof = bytes(32, e) || bytes(32, s)''.
+* If ''VerifyProof(A, B, C, proof)'' (see below) returns failure, abort.
+* Return the proof ''proof''.
+
+=== DLEQ Proof Verification ===
+
+The following verifies the proof generated in the previous section. If the following algorithm succeeds, the points ''A'' and ''C'' were both generated from the same scalar. The former from multiplying by ''G'', and the latter from multiplying by ''B''.
+
+Input:
+* The public key of the secret key used in the proof generation ''A'': a point on the curve
+* The public key used in the proof generation ''B'': a point on the curve
+* The result of multiplying the secret and public keys used in the proof generation ''C'': a point on the curve
+* A proof ''proof'': a 64-byte array
+* The generator point used in the proof generation ''G'': a point on the curve<ref name="why_include_G"> ''' Why include the generator point G as an input?''' While all other BIPs have used the generator point from Secp256k1, passing it as an input here lets this algorithm be used for other curves.</ref>
+* An optional message ''m'': a 32-byte array<ref name="why_include_a_message"> ''' Why include a message as an input?''' This could be useful for protocols that want to authorize on a compound statement, not just knowledge of a scalar. This allows the protocol to combine knowledge of the scalar and the statement.</ref>
+
+The algorithm ''VerifyProof(A, B, C, proof, G, m)'' is defined as:
+* Fail if any of ''is_infinite(A)'', ''is_infinite(B)'', ''is_infinite(C)'', ''is_infinite(G)''
+* Let ''e = int(proof[0:32])''.
+* Let ''s = int(proof[32:64])''; fail if ''s &ge; n''.
+* Let ''R<sub>1</sub> = s⋅G - e⋅A''.
+* Fail if ''is_infinite(R<sub>1</sub>)''.
+* Let ''R<sub>2</sub> = s⋅B - e⋅C''.
+* Fail if ''is_infinite(R<sub>2</sub>)''.
+* Let ''m' = m if m is provided, otherwise an empty byte array''.
+* Fail if ''e ≠ int(hash<sub>BIP0374/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>) || m'))''.
+* Return success iff no failure occurred before reaching this point.
+
+==Backwards Compatibility==
+
+This proposal is compatible with all older clients.
+
+== Test Vectors and Reference Code ==
+
+A reference python implementation is included [https://github.com/bitcoin/bips/blob/master/bip-0374/reference.py here].
+Test vectors can be generated by running <code>./bip-0374/gen_test_vectors.py</code> which will produce a CSV file of random test vectors for both generating and verifying proofs. These can be run against the reference implementation with <code>./bip-0374/run_test_vectors.py</code>.
+
+== Footnotes ==
+
+<references />
+
+== Acknowledgements ==
+
+Thanks to josibake, Tim Ruffing, benma, stratospher, waxwing, Yuval Kogman and all others who
+participated in discussions on this topic.

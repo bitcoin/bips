@@ -7,7 +7,7 @@
           Anthony Towns <aj@erisian.com.au>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0341
-  Status: Draft
+  Status: Final
   Type: Standards Track
   Created: 2020-01-19
   License: BSD-3-Clause
@@ -41,7 +41,7 @@ As a result we choose this combination of technologies:
 * '''Taproot''' on top of that lets us merge the traditionally separate pay-to-pubkey and pay-to-scripthash policies, making all outputs spendable by either a key or (optionally) a script, and indistinguishable from each other. As long as the key-based spending path is used for spending, it is not revealed whether a script path was permitted as well, resulting in space savings and an increase in scripting privacy at spending time.
 * Taproot's advantages become apparent under the assumption that most applications involve outputs that could be spent by all parties agreeing. That's where '''Schnorr''' signatures come in, as they permit [https://eprint.iacr.org/2018/068 key aggregation]: a public key can be constructed from multiple participant public keys, and which requires cooperation between all participants to sign for. Such multi-party public keys and signatures are indistinguishable from their single-party equivalents. This means that with taproot most applications can use the key-based spending path, which is both efficient and private. This can be generalized to arbitrary M-of-N policies, as Schnorr signatures support threshold signing, at the cost of more complex setup protocols.
 * As Schnorr signatures also permit '''batch validation''', allowing multiple signatures to be validated together more efficiently than validating each one independently, we make sure all parts of the design are compatible with this.
-* Where unused bits appear as a result of the above changes, they are reserved for mechanisms for '''future extensions'''. As a result, every script in the Merkle tree has an associated version such that new script versions can be introduced with a soft fork while remaining compatible with BIP 341. Additionally, future soft forks can make use of the currently unused <code>annex</code> in the witness (see [[bip-0341.mediawiki#Rationale|BIP341]]).
+* Where unused bits appear as a result of the above changes, they are reserved for mechanisms for '''future extensions'''. As a result, every script in the Merkle tree has an associated version such that new script versions can be introduced with a soft fork while remaining compatible with BIP 341. Additionally, future soft forks can make use of the currently unused <code>annex</code> in the witness (see [[bip-0341.mediawiki#rationale|Rationale]]).
 * While the core semantics of the '''signature hashing algorithm''' are not changed, a number of improvements are included in this proposal. The new signature hashing algorithm fixes the verification capabilities of offline signing devices by including amount and scriptPubKey in the signature message, avoids unnecessary hashing, uses '''tagged hashes''' and defines a default sighash byte.
 * The '''public key is directly included in the output''' in contrast to typical earlier constructions which store a hash of the public key or script in the output. This has the same cost for senders and is more space efficient overall if the key-based spending path is taken. <ref>'''Why is the public key directly included in the output?''' While typical earlier constructions store a hash of a script or a public key in the output, this is rather wasteful when a public key is always involved. To guarantee batch verifiability, the public key must be known to every verifier, and thus only revealing its hash as an output would imply adding an additional 32 bytes to the witness. Furthermore, to maintain [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-January/012198.html 128-bit collision security] for outputs, a 256-bit hash would be required anyway, which is comparable in size (and thus in cost for senders) to revealing the public key directly. While the usage of public key hashes is often said to protect against ECDLP breaks or quantum computers, this protection is very weak at best: transactions are not protected while being confirmed, and a very [https://twitter.com/pwuille/status/1108097835365339136 large portion] of the currency's supply is not under such protection regardless. Actual resistance to such systems can be introduced by relying on different cryptographic assumptions, but this proposal focuses on improvements that do not change the security model.</ref>
 
@@ -105,7 +105,7 @@ If the parameters take acceptable values, the message is the concatenation of th
 ** ''nLockTime'' (4): the ''nLockTime'' of the transaction.
 ** If the ''hash_type & 0x80'' does not equal <code>SIGHASH_ANYONECANPAY</code>:
 *** ''sha_prevouts'' (32): the SHA256 of the serialization of all input outpoints.
-*** ''sha_amounts'' (32): the SHA256 of the serialization of all spent output amounts.
+*** ''sha_amounts'' (32): the SHA256 of the serialization of all input amounts.
 *** ''sha_scriptpubkeys'' (32): the SHA256 of all spent outputs' ''scriptPubKeys'', serialized as script inside <code>CTxOut</code>.
 *** ''sha_sequences'' (32): the SHA256 of the serialization of all input ''nSequence''.
 ** If ''hash_type & 3'' does not equal <code>SIGHASH_NONE</code> or <code>SIGHASH_SINGLE</code>:
@@ -136,6 +136,8 @@ In summary, the semantics of the [[bip-0143.mediawiki|BIP143]] sighash types rem
 
 ==== Taproot key path spending signature validation ====
 
+A Taproot signature is a 64-byte Schnorr signature, as defined in [[bip-0340.mediawiki|BIP340]], with the sighash byte appended in the usual Bitcoin fashion. This sighash byte is optional. If omitted, the resulting signatures are 64 bytes, and a SIGHASH_DEFAULT mode is implied.
+
 To validate a signature ''sig'' with public key ''q'':
 * If the ''sig'' is 64 bytes long, return ''Verify(q, hash<sub>TapSighash</sub>(0x00 || SigMsg(0x00, 0)), sig)''<ref>'''Why is the input to ''hash<sub>TapSighash</sub>'' prefixed with 0x00?''' This prefix is called the sighash epoch, and allows reusing the ''hash<sub>TapSighash</sub>'' tagged hash in future signature algorithms that make invasive changes to how hashing is performed (as opposed to the ''ext_flag'' mechanism that is used for incremental extensions). An alternative is having them use a different tag, but supporting a growing number of tags may become undesirable.</ref>, where ''Verify'' is defined in [[bip-0340.mediawiki#design|BIP340]].
 * If the ''sig'' is 65 bytes long, return ''sig[64] &ne; 0x00<ref>'''Why can the <code>hash_type</code> not be <code>0x00</code> in 65-byte signatures?''' Permitting that would enable malleating (by third parties, including miners) 64-byte signatures into 65-byte ones, resulting in a different `wtxid` and a different fee rate than the creator intended.</ref> and Verify(q, hash<sub>TapSighash</sub>(0x00 || SigMsg(sig[64], 0)), sig[0:64])''.
@@ -152,7 +154,7 @@ Satisfying any of these conditions is sufficient to spend the output.
 '''Initial steps''' The first step is determining what the internal key and the organization of the rest of the scripts should be. The specifics are likely application dependent, but here are some general guidelines:
 * When deciding between scripts with conditionals (<code>OP_IF</code> etc.) and splitting them up into multiple scripts (each corresponding to one execution path through the original script), it is generally preferable to pick the latter.
 * When a single condition requires signatures with multiple keys, key aggregation techniques like MuSig can be used to combine them into a single key. The details are out of scope for this document, but note that this may complicate the signing procedure.
-* If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a point with unknown discrete logarithm. One example of such a point is ''H = lift_x(0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of the [https://www.secg.org/sec2-v2.pdf secp256k1] base point ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
+* If one or more of the spending conditions consist of just a single key (after aggregation), the most likely one should be made the internal key. If no such condition exists, it may be worthwhile adding one that consists of an aggregation of all keys participating in all scripts combined; effectively adding an "everyone agrees" branch. If that is inacceptable, pick as internal key a "Nothing Up My Sleeve" (NUMS) point, i.e., a point with unknown discrete logarithm. One example of such a point is ''H = lift_x(0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0)'' which is [https://github.com/ElementsProject/secp256k1-zkp/blob/11af7015de624b010424273be3d91f117f172c82/src/modules/rangeproof/main_impl.h#L16 constructed] by taking the hash of the standard uncompressed encoding of the [https://www.secg.org/sec2-v2.pdf secp256k1] base point ''G'' as X coordinate. In order to avoid leaking the information that key path spending is not possible it is recommended to pick a fresh integer ''r'' in the range ''0...n-1'' uniformly at random and use ''H + rG'' as internal key. It is possible to prove that this internal key does not have a known discrete logarithm with respect to ''G'' by revealing ''r'' to a verifier who can then reconstruct how the internal key was created.
 * If the spending conditions do not require a script path, the output key should commit to an unspendable script path instead of having no script path. This can be achieved by computing the output key point as ''Q = P + int(hash<sub>TapTweak</sub>(bytes(P)))G''. <ref>'''Why should the output key always have a taproot commitment, even if there is no script path?'''
 If the taproot output key is an aggregate of keys, there is the possibility for a malicious party to add a script path without being noticed by the other parties.
 This allows to bypass the multiparty policy and to steal the coin.
@@ -182,7 +184,10 @@ def taproot_tweak_pubkey(pubkey, h):
     t = int_from_bytes(tagged_hash("TapTweak", pubkey + h))
     if t >= SECP256K1_ORDER:
         raise ValueError
-    Q = point_add(lift_x(int(pubkey)), point_mul(G, t))
+    P = lift_x(int_from_bytes(pubkey))
+    if P is None:
+        raise ValueError
+    Q = point_add(P, point_mul(G, t))
     return 0 if has_even_y(Q) else 1, bytes_from_int(x(Q))
 
 def taproot_tweak_seckey(seckey0, h):
@@ -245,10 +250,13 @@ TapTweak = tagged_hash("TapTweak", p + ABCDE)
 '''Spending using the key path''' A Taproot output can be spent with the secret key corresponding to the <code>internal_pubkey</code>. To do so, a witness stack consists of a single element: a [[bip-0340.mediawiki|BIP340]] signature on the signature hash as defined above, with the secret key tweaked by the same <code>h</code> as in the above snippet. See the code below:
 
 <source lang="python">
-def taproot_sign_key(script_tree, internal_seckey, hash_type):
-    _, h = taproot_tree_helper(script_tree)
+def taproot_sign_key(script_tree, internal_seckey, hash_type, bip340_aux_rand):
+    if script_tree is None:
+        h = bytes()
+    else:
+        _, h = taproot_tree_helper(script_tree)
     output_seckey = taproot_tweak_seckey(internal_seckey, h)
-    sig = schnorr_sign(sighash(hash_type), output_seckey)
+    sig = schnorr_sign(sighash(hash_type), output_seckey, bip340_aux_rand)
     if hash_type != 0:
         sig += bytes([hash_type])
     return [sig]

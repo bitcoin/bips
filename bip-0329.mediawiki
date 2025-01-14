@@ -1,0 +1,145 @@
+<pre>
+  BIP: 329
+  Layer: Applications
+  Title: Wallet Labels Export Format
+  Author: Craig Raw <craig@sparrowwallet.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0329
+  Status: Draft
+  Type: Informational
+  Created: 2022-08-23
+  License: BSD-2-Clause
+</pre>
+
+==Abstract==
+
+This document specifies a format for the export of labels that may be attached to various common types of records in a wallet.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Motivation==
+
+The export and import of funds across different Bitcoin wallet applications is well defined through standards such as BIP39, BIP32, BIP44 etc.
+These standards are well supported and allow users to move easily between different wallets.
+There is, however, no defined standard to transfer any labels the user may have applied to the transactions, addresses, public keys, inputs, outputs or xpubs in their wallet.
+The UTXO model that Bitcoin uses makes these labels particularly valuable as they may indicate the source of funds, whether received externally or as a result of change from a prior transaction.
+In both cases, care must be taken when spending to avoid undesirable leaks of private information.
+
+Labels provide valuable guidance in this regard, and have even become mandatory when spending in several Bitcoin wallets.
+Allowing users to import and export their labels in a standardized way ensures that they do not experience lock-in to a particular wallet application.
+In addition, many wallets allow unspent outputs to be frozen or made unspendable within the wallet. Since this wallet-related metadata is similar to labels and not captured elsewhere, it is also included in this format.
+
+==Rationale==
+
+While there is currently no widely accepted format for exporting and importing labels, there are existing formats in use.
+SLIP-0015<ref>[https://github.com/satoshilabs/slips/blob/master/slip-0015.md SLIP-0015]</ref> defines a format for exporting address and output labels, but requires encryption using a private key associated with the wallet seed, and thus cannot be used independently by coordinator wallets which cannot access private keys.
+The Electrum wallet imports and exports address and transaction labels in a JSON format which could be used with other record types, but the format used is not self describing making record type identification difficult.
+
+==Specification==
+
+In order to be lightweight, human readable and well structured, this BIP uses a JSON format.
+Further, the JSON Lines format is used (also called newline-delimited JSON)<ref>[https://jsonlines.org/ jsonlines.org]</ref>.
+This allows a document to be split, streamed, or incrementally added to, and limits the potential for formatting errors to invalidate an entire import.
+It is also a convenient format for command-line processing, which is often line-oriented.
+
+Further to the JSON Lines specification, an export of labels from a wallet must be a UTF-8 encoded text file, containing one record per line consisting of a valid JSON object.
+Lines are separated by <tt>\n</tt>. Multiline values are not permitted.
+Each JSON object must contain 3 or 4 key/value pairs, defined as follows:
+
+{| class="wikitable"
+|-
+! Key
+! Description
+|-
+| <tt>type</tt>
+| One of <tt>tx</tt>, <tt>addr</tt>, <tt>pubkey</tt>, <tt>input</tt>, <tt>output</tt> or <tt>xpub</tt>
+|-
+| <tt>ref</tt>
+| Reference to the transaction, address, public key, input, output or extended public key
+|-
+| <tt>label</tt>
+| The label applied to the reference
+|-
+| <tt>origin</tt>
+| Optional key origin information referencing the wallet associated with the label
+|-
+| <tt>spendable</tt>
+| One of <tt>true</tt> or <tt>false</tt>, denoting if an output should be spendable by the wallet
+|}
+
+The reference is defined for each <tt>type</tt> as follows:
+
+{| class="wikitable"
+|-
+! Type
+! Description
+! Example
+|-
+| <tt>tx</tt>
+| Transaction id in hexadecimal format
+| <tt>f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd</tt>
+|-
+| <tt>addr</tt>
+| Address in base58 or bech32 format
+| <tt>bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c</tt>
+|-
+| <tt>pubkey</tt>
+| 32, 33 or 65 byte public key in hexadecimal format
+| <tt>0283409659355b6d1cc3c32decd5d561abaac86c37a353b52895a5e6c196d6f448</tt>
+|-
+| <tt>input</tt>
+| Transaction id and input index separated by a colon
+| <tt>f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:0</tt>
+|-
+| <tt>output</tt>
+| Transaction id and output index separated by a colon
+| <tt>f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:1</tt>
+|-
+| <tt>xpub</tt>
+| Extended public key as defined by BIP32
+| <tt>xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8Nq...</tt>
+|}
+
+Each JSON object must contain both <tt>type</tt> and <tt>ref</tt> properties. The <tt>label</tt>, <tt>origin</tt> and <tt>spendable</tt> properties are optional. If the <tt>label</tt> or <tt>spendable</tt> properties are omitted, the importing wallet should not alter these values. The <tt>origin</tt> property should only appear where type is <tt>tx</tt>, and the <tt>spendable</tt> property only where type is <tt>output</tt>.
+
+If present, the optional <tt>origin</tt> property must contain an abbreviated output descriptor (as defined by BIP380<ref>[https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki BIP-0380]</ref>) describing a BIP32 compatible originating wallet, including all key origin information but excluding any actual keys, any child path elements, or a checksum.
+This property should be used to disambiguate transaction labels from different wallets contained in the same export, particularly when exporting multiple accounts derived from the same seed.
+
+Care should be taken when exporting due to the privacy sensitive nature of the data.
+Encryption in transit over untrusted networks is highly recommended, and encryption at rest should also be considered.
+Unencrypted exports should be deleted as soon as possible.
+For security reasons no private key types are defined.
+
+==Importing==
+
+* An importing wallet may ignore records it does not store, and truncate labels if necessary. A suggested default for maximum label length is 255 characters, and an importing wallet should consider warning the user if truncation is applied.
+* Wallets importing public key records may derive addresses from them to match against known wallet addresses.
+* Wallets importing extended public keys may match them against signers, for example in a multisig setup.
+
+==Backwards Compatibility==
+
+The nature of this format makes it naturally extensible to handle other record types.
+However, importing wallets complying to this specification may ignore types not defined here.
+
+==Test Vectors==
+
+The following fragment represents a wallet label export:
+<pre>
+{ "type": "tx", "ref": "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd", "label": "Transaction", "origin": "wpkh([d34db33f/84'/0'/0'])" }
+{ "type": "addr", "ref": "bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c", "label": "Address" }
+{ "type": "pubkey", "ref": "0283409659355b6d1cc3c32decd5d561abaac86c37a353b52895a5e6c196d6f448", "label": "Public Key" }
+{ "type": "input", "ref": "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:0", "label": "Input" }
+{ "type": "output", "ref": "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:1", "label": "Output" , "spendable" : "false" }
+{ "type": "xpub", "ref": "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8", "label": "Extended Public Key" }
+{ "type": "tx", "ref": "f546156d9044844e02b181026a1a407abfca62e7ea1159f87bbeaa77b4286c74", "label": "Account #1 Transaction", "origin": "wpkh([d34db33f/84'/0'/1'])" }
+</pre>
+
+==Reference Implementation==
+
+TBD
+
+==References==
+
+<references />

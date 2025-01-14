@@ -37,7 +37,7 @@ var (
 		{49291, "Tx pays to empty output script"},
 		{180480, "Tx spends from empty output script"},
 		{926485, "Duplicate pushdata 913bcc2be49cb534c20474c4dee1e9c4c317e7eb"},
-		{987876, "Coinbase tx has unparseable output script"},
+		{987876, "Coinbase tx has unparsable output script"},
 		{1263442, "Includes witness data"},
 		{1414221, "Empty data"},
 	}
@@ -207,7 +207,7 @@ func main() {
 
 		prevOutputScripts, err := fetchPrevOutputScripts(client, block)
 		if err != nil {
-			fmt.Println("Couldn't fetch prev output scipts: ", err)
+			fmt.Println("Couldn't fetch prev output scripts: ", err)
 			return
 		}
 
@@ -223,7 +223,7 @@ func main() {
 		}
 
 		// We'll now ensure that we've constructed the same filter as
-		// the chain server we're fetching blocks form.
+		// the chain server we're fetching blocks from.
 		filter, err := client.GetCFilter(
 			blockHash, wire.GCSFilterRegular,
 		)

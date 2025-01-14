@@ -28,7 +28,7 @@ for two smaller words (This would be a problem with any of the 3 character sets 
 
 ### Spanish
 
-1. Words can be uniquely determined typing the first 4 characters (sometimes less).
+1. Words can be uniquely determined by typing the first 4 characters (sometimes less).
 
 2. Special Spanish characters like 'ñ', 'ü', 'á', etc... are considered equal to 'n', 'u', 'a', etc... in terms of identifying a word. Therefore, there is no need to use a Spanish keyboard to introduce the passphrase, an application with the Spanish wordlist will be able to identify the words after the first 4 chars have been typed even if the chars with accents have been replaced with the equivalent without accents.
 
@@ -53,7 +53,7 @@ Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
 7.  No words in the plural (except invariable words like "univers", or same spelling than singular like "heureux").
 8.  No female adjectives (except words with same spelling for male and female adjectives like "magique").
 9.  No words with several senses AND different spelling in speaking like "verre-vert", unless a word has a meaning much more popular than another like "perle" and "pairle".
-10. No very similar words with 1 letter of difference.
+10. No very similar words with only 1 letter of difference.
 11. No essentially reflexive verbs (unless a verb is also a noun like "souvenir").
 12. No words with "ô;â;ç;ê;œ;æ;î;ï;û;ù;à;ë;ÿ".
 13. No words ending by "é;ée;è;et;ai;ait".
@@ -76,7 +76,7 @@ Words chosen using the following rules:
 6. No plural words.
 7. No words that remind negative/sad/bad things.
 8. If both female/male words are available, choose male version.
-9. No words with double vocals (like: lineetta).
+9. No words with double vowels (like: lineetta).
 10. No words already used in other language mnemonic sets.
 11. If 3 of the first 4 letters are already used in the same sequence in another mnemonic word, there must be at least other 3 different letters.
 12. If 3 of the first 4 letters are already used in the same sequence in another mnemonic word, there must not be the same sequence of 3 or more letters.
@@ -92,26 +92,26 @@ Credits: @zizelevak (Jan Lansky zizelevak@gmail.com)
 Words chosen using the following rules:
 
 1.  Words are 4-8 letters long.
-2.  Words can be uniquely determined typing the first 4 letters.
-3.  Only words containing all letters without diacritical marks. (It was the hardest task, because in one third of all Czech letters has diacritical marks.)
+2.  Words can be uniquely determined by typing the first 4 letters.
+3.  Only words containing all letters without diacritical marks. (It was the hardest task, because one third of all Czech letters has diacritical marks.)
 4.  Only nouns, verbs and adverbs, no other word types. All words are in basic form.
 5.  No personal names or geographical names.
 6.  No very similar words with 1 letter of difference.
-7. Words are sorting according English alphabet (Czech sorting has difference in "ch").
-8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous  letters without diacritical marks.
+7.  Words are sorted according to English alphabet (Czech sorting has difference in "ch").
+8.  No words already used in other language mnemonic sets (english, italian, french, spanish). Letters with diacritical marks from these sets are counted as analogous letters without diacritical marks.
 
 ### Portuguese
 
 Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @Trimegistus
 
-1. Words can be uniquely determined typing the first 4 characters.
+1. Words can be uniquely determined by typing the first 4 characters.
 2. No accents or special characters.
 3. No complex verb forms.
 4. No plural words, unless there's no singular form.
 5. No words with double spelling.
-6. No words with the exact sound of another word with different spelling.
+6. No words with the exact sound as another word with different spelling.
 7. No offensive words.
 8. No words already used in other language mnemonic sets.
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
-10. No words that remind negative/sad/bad things.
-11. No very similar words with 1 letter of difference.
+10. No words that remind one of negative/sad/bad things.
+11. No very similar words with only 1 letter of difference.

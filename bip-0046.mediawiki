@@ -1,0 +1,193 @@
+<pre>
+  BIP: 46
+  Layer: Applications
+  Title: Address Scheme for Timelocked Fidelity Bonds
+  Author: Chris Belcher <belcher@riseup.net>
+          Thebora Kompanioni <theborakompanioni+bip46@gmail.com>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0046
+  Status: Draft
+  Type: Standards Track
+  Created: 2022-04-01
+  License: CC0-1.0
+  Post-History: 2022-05-01: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-May/020389.html
+</pre>
+
+== Abstract ==
+
+This BIP defines the derivation scheme for HD wallets which create timelocked addresses used for creating fidelity bonds. It also gives advice to wallet developers on how to use fidelity bonds to sign over messages, such as certificates, which are needed when using fidelity bonds that are stored offline.
+
+== Copyright ==
+
+This document is licensed under the Creative Commons CC0 1.0 Universal license.
+
+== Motivation ==
+
+Fidelity bonds are used to resist sybil attacks in certain decentralized anonymous protocols. They are created by locking up bitcoins using the `OP_CHECKLOCKTIMEVERIFY` opcode.
+
+Having a common derivation scheme allows users of wallet software to have a backup of their fidelity bonds by storing only the HD seed and a reference to this BIP. Importantly the user does not need to backup any timelock values.
+
+We largely use the same approach used in BIPs 49, 84 and 86 for ease of implementation.
+
+This allows keeping the private keys of fidelity bonds in cold storage, which increases the sybil resistance of a system without hot wallet risk.
+
+== Backwards Compatibility ==
+
+This BIP is not backwards compatible by design as described in the Considerations section of [[bip-0049.mediawiki|BIP 49]]. An incompatible wallet will not discover fidelity bonds at all and the user will notice that something is wrong.
+
+== Background ==
+
+=== Fidelity bonds ===
+
+A fidelity bond is a mechanism where bitcoin value is deliberately sacrificed to make a cryptographic identity expensive to obtain. A way to create a fidelity bond is to lock up bitcoins by sending them to a timelocked address. The valuable thing being sacrificed is the time-value-of-money.
+
+The sacrifice must be done in a way that can be proven to a third party. This proof can be made by showing the UTXO outpoint, the address redeemscript and a signature which signs a message using the private key corresponding to the public key in the redeemscript.
+
+The sacrificed value is an objective measurement that can't be faked and which can be verified by anybody (just like, for example PoW mining). Sybil attacks can be made very expensive by forcing a hypothetical sybil attacker to lock up many bitcoins for a long time. JoinMarket implements fidelity bonds for protection from sybil attackers. At the time of writing over 600 BTC in total have been locked up with some for many years. Their UTXOs and signatures have been advertised to the world as proof. We can calculate that for a sybil attacker to succeed in unmixing all the CoinJoins, they would have to lock up over 100k BTC for several years.
+
+=== Fidelity bonds in cold storage ===
+
+To allow for holding fidelity bonds in cold storage, there is an intermediate keypair called the certificate.
+
+    UTXO key ---signs---> certificate ---signs---> endpoint
+
+Where the endpoint might be a IRC nickname or Tor onion hostname. The certificate keypair can be kept online and used to prove ownership of the fidelity bond. Even if the hot wallet private keys are stolen, the coins in the timelocked address will still be safe, although the thief will be able to impersonate the fidelity bond until the expiry.
+
+== Rationale ==
+
+It is useful for the user to avoid having to keep a record of the timelocks in the time-locked addresses. So only a limited small set of timelocks are defined by this BIP. This way the user must only store their seed phrase, and knowledge that they have coins stored using this BIP standard. The user doesn't need to remember or store any dates.
+
+This standard is already implemented and deployed in JoinMarket. As most changes would require a protocol change of a live system, there is limited scope for changing this standard in review. This BIP is more about documenting something which already exists, warts and all.
+
+== Specifications ==
+
+This BIP defines the two needed steps to derive multiple deterministic addresses based on a [[bip-0032.mediawiki|BIP 32]] master private key. It also defines the format of the certificate that can be signed by the deterministic address key.
+
+=== Public key derivation ===
+
+To derive a public key from the root account, this BIP uses a similar account-structure as defined in BIP [[bip-0084.mediawiki|44]] but with <tt>change</tt> set to <tt>2</tt>.
+
+<pre>
+m / 84' / 0' / 0' / 2 / index
+</pre>
+
+A key derived with this derivation path pattern will be referred to as <tt>derived_key</tt> further
+in this document.
+
+For <tt>index</tt>, addresses are numbered from 0 in a sequentially increasing manner with a fixed upper bound: The index only goes up to <tt>959</tt> inclusive. Only 960 addresses can be derived for a given BIP32 master key. Furthermore there is no concept of a gap limit, instead wallets must always generate all 960 addresses and check for all of them if they have a balance and history.
+
+=== Timelock derivation ===
+
+The timelock used in the time-locked address is derived from the <tt>index</tt>. The timelock is a unix time. It is always at the start of the first second at the beginning of the month (see [[#Test vectors|Test vectors]]). The <tt>index</tt> counts upwards the months from January 2020, ending in December 2099. At 12 months per year for 80 years this totals 960 timelocks. Note that care must be taken with the year 2038 problem on 32-bit systems.
+
+<pre>
+year = 2020 + index // 12
+month = 1 + index % 12
+</pre>
+
+
+=== Address derivation ===
+
+To derive the address from the above calculated public key and timelock, we create a <tt>witness script</tt> which locks the funds until the <tt>timelock</tt>, and then checks the signature of the <tt>derived_key</tt>. The <tt>witness script</tt> is hashed with SHA256 to produce a 32-byte hash value that forms the <tt>witness program</tt> in the output script of the P2WSH address.
+
+    witnessScript: <timelock> OP_CHECKLOCKTIMEVERIFY OP_DROP <derived_key> OP_CHECKSIG
+    witness:      <signature> <witnessScript>
+    scriptSig:    (empty)
+    scriptPubKey: 0 <32-byte-hash>
+                  (0x0020{32-byte-hash})
+
+=== Message signing ===
+
+In order to support signing of certificates, implementors should support signing ASCII messages.
+
+The certificate message is defined as `"fidelity-bond-cert" || "|" || cert_pubkey || "|" || cert_expiry`.
+
+The certificate expiry `cert_expiry` is the number of the 2016-block period after which the certificate is no longer valid. For example, if `cert_expiry` is 330 then the certificate will become invalid after block height 665280 (:=330x2016). The purpose of the expiry parameter is so that in case the certificate keypair is compromised, the attacker can only impersonate the fidelity bond for a limited amount of time.
+
+A certificate message can be created by another application external to this standard. It is then prepended with the string `0x18 || "Bitcoin Signed Message:\n"` and a byte denoting the length of the certificate message. The whole thing is then signed with the private key of the <tt>derived_key</tt>. This part is identical to the "Sign Message" function which many wallets already implement.
+
+Almost all wallets implementing this standard can use their already-existing "Sign Message" function to sign the certificate message. As the certificate message itself is always an ASCII string, the wallet may not need to specially implement this section at all but just rely on users copypasting their certificate message into the already-existing "Sign Message" user interface. This works as long as the wallet knows how to use the private key of the timelocked address for signing messages.
+
+It is most important for wallet implementations of this standard to support creating the certificate signature. Verifying the certificate signature is less important.
+
+
+== Test vectors ==
+
+<pre>
+mnemonic = abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+rootpriv = xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu
+rootpub  = xpub661MyMwAqRbcFkPHucMnrGNzDwb6teAX1RbKQmqtEF8kK3Z7LZ59qafCjB9eCRLiTVG3uxBxgKvRgbubRhqSKXnGGb1aoaqLrpMBDrVxga8
+
+// First timelocked address = m/84'/0'/0'/2/0
+derived private_key = L2tQBEdhC48YLeEWNg3e4msk94iKfyVa9hdfzRwUERabZ53TfH3d
+derived public_key  = 02a1b09f93073c63f205086440898141c0c3c6d24f69a18db608224bcf143fa011
+unix locktime       = 1577836800
+string locktime     = 2020-01-01 00:00:00
+redeemscript        = 0400e10b5eb1752102a1b09f93073c63f205086440898141c0c3c6d24f69a18db608224bcf143fa011ac
+scriptPubKey        = 0020bdee9515359fc9df912318523b4cd22f1c0b5410232dc943be73f9f4f07e39ad
+address             = bc1qhhhf29f4nlyalyfrrpfrknxj9uwqk4qsyvkujsa7w0ulfur78xkspsqn84
+
+// Test certificate using the first timelocked address
+// Note that as signatures contains a random nonce, it might not be exactly the same when your code generates it
+// p2pkh address is the p2pkh address corresponding to the derived public key, it can be used to verify the message
+//  signature in any wallet that supports Verify Message.
+// As mentioned before, it is more important for implementors of this standard to support signing such messages, not verifying them
+message       = fidelity-bond-cert|020000000000000000000000000000000000000000000000000000000000000001|375
+address       = bc1qhhhf29f4nlyalyfrrpfrknxj9uwqk4qsyvkujsa7w0ulfur78xkspsqn84
+p2pkh address = 16vmiGpY1rEaYnpGgtG7FZgr2uFCpeDgV6
+signature     = H2b/90XcKnIU/D1nSCPhk8OcxrHebMCr4Ok2d2yDnbKDTSThNsNKA64CT4v2kt+xA1JmGRG/dMnUUH1kKqCVSHo=
+
+// 2nd timelocked address = m/84'/0'/0'/2/1
+derived private_key = KxctaFBzetyc9KXeUr6jxESCZiCEXRuwnQMw7h7hroP6MqnWN6Pf
+derived public_key  = 02599f6db8b33265a44200fef0be79c927398ed0b46c6a82fa6ddaa5be2714002d
+unix locktime       = 1580515200
+string locktime     = 2020-02-01 00:00:00
+redeemscript        = 0480bf345eb1752102599f6db8b33265a44200fef0be79c927398ed0b46c6a82fa6ddaa5be2714002dac
+scriptPubKey        = 0020b8f898643991608524ed04e0c6779f632a57f1ffa3a3a306cd81432c5533e9ae
+address             = bc1qhrufsepej9sg2f8dqnsvvaulvv490u0l5w36xpkds9pjc4fnaxhq7pcm4h
+
+// timelocked address after the year 2038 = m/84'/0'/0'/2/240
+derived private_key = L3SYqae23ZoDDcyEA8rRBK83h1MDqxaDG57imMc9FUx1J8o9anQe
+derived public_key  = 03ec8067418537bbb52d5d3e64e2868e67635c33cfeadeb9a46199f89ebfaab226
+unix locktime       = 2208988800
+string locktime     = 2040-01-01 00:00:00
+redeemscript        = 05807eaa8300b1752103ec8067418537bbb52d5d3e64e2868e67635c33cfeadeb9a46199f89ebfaab226ac
+scriptPubKey        = 0020e7de0ad2720ae1d6cc9b6ad91af57eb74646762cf594c91c18f6d5e7a873635a
+address             = bc1qul0q45njptsadnymdtv34at7karyva3v7k2vj8qc7m2702rnvddq0z20u5
+
+// last timelocked address = m/84'/0'/0'/2/959
+derived private_key = L5Z9DDMnj5RZMyyPiQLCvN48Xt7GGmev6cjvJXD8uz5EqiY8trNJ
+derived public_key  = 0308c5751121b1ae5c973cdc7071312f6fc10ab864262f0cbd8134f056166e50f3
+unix locktime       = 4099766400
+string locktime     = 2099-12-01 00:00:00
+redeemscript        = 0580785df400b175210308c5751121b1ae5c973cdc7071312f6fc10ab864262f0cbd8134f056166e50f3ac
+scriptPubKey        = 0020803268e042008737cf439748cbb5a4449e311da9aa64ae3ac56d84d059654f85
+address             = bc1qsqex3czzqzrn0n6rjayvhddygj0rz8df4fj2uwk9dkzdqkt9f7zs5c493u
+
+// Test certificate and endpoint signing using the first timelocked address = m/84'/0'/0'/2/0 (see above)
+bond private_key          = L2tQBEdhC48YLeEWNg3e4msk94iKfyVa9hdfzRwUERabZ53TfH3d
+bond p2pkh address        = 16vmiGpY1rEaYnpGgtG7FZgr2uFCpeDgV6
+
+certificate private_key   = KyZpNDKnfs94vbrwhJneDi77V6jF64PWPF8x5cdJb8ifgg2DUc9d
+certificate public_key    = 0330d54fd0dd420a6e5f8d3624f5f3482cae350f79d5f0753bf5beef9c2d91af3c
+certificate p2pkh address = 1JaUQDVNRdhfNsVncGkXedaPSM5Gc54Hso
+
+certificate message       = fidelity-bond-cert|0330d54fd0dd420a6e5f8d3624f5f3482cae350f79d5f0753bf5beef9c2d91af3c|375
+certificate signature     = INOP3cB9UW7F1e1Aglj8rI9QhnyxmgWDEPt+nOMvl7hJJne7rH/KCNDYvLiqNuB9qWaWUojutjRsgPJrvyDQ+0Y=
+
+// example endpoint signing two IRC nicknames (used in JoinMarket)
+endpoint message          = J54LS6YyJPoseqFS|J55VZ6U6ZyFDNeuv
+endpoint signature        = H18WE4MugDNoWZIf9jU0njhQptdUyBDUf7lToG9bpMKmeJK0lOoABaDs5bKnohSuZ0e9gnSco5OL9lXdKU7gP5E=
+</pre>
+
+Code generating these test vectors can be found here: https://github.com/chris-belcher/timelocked-addresses-fidelity-bond-bip-testvectors
+
+== Reference ==
+
+* [[https://gist.github.com/chris-belcher/18ea0e6acdb885a2bfbdee43dcd6b5af/|Design for improving JoinMarket's resistance to sybil attacks using fidelity bonds]]
+* [[https://github.com/JoinMarket-Org/joinmarket-clientserver/blob/master/docs/fidelity-bonds.md|JoinMarket fidelity bonds doc page]]
+* [[bip-0065.mediawiki|BIP65 - OP_CHECKLOCKTIMEVERIFY]]
+* [[bip-0032.mediawiki|BIP32 - Hierarchical Deterministic Wallets]]
+* [[bip-0044.mediawiki|BIP44 - Multi-Account Hierarchy for Deterministic Wallets]]
+* [[bip-0049.mediawiki|BIP49 - Derivation scheme for P2WPKH-nested-in-P2SH based accounts]]
+* [[bip-0084.mediawiki|BIP84 - Derivation scheme for P2WPKH based accounts]]
+* [[bip-0086.mediawiki|BIP86 - Key Derivation for Single Key P2TR Outputs]]

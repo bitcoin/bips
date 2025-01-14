@@ -1,0 +1,117 @@
+<pre>
+  BIP: 390
+  Layer: Applications
+  Title: musig() Descriptor Key Expression
+  Author: Ava Chow <me@achow101.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0390
+  Status: Draft
+  Type: Informational
+  Created: 2024-01-15
+  License: CC0-1.0
+</pre>
+
+==Abstract==
+
+This document specifies a <tt>musig()</tt> key expression for output script descriptors.
+<tt>musig()</tt> expressions take multiple keys and produce an aggregate public key using BIP 327.
+
+==Copyright==
+
+This BIP is licensed under the Creative Commons CC0 1.0 Universal license.
+
+==Motivation==
+
+BIP 327 introduces the MuSig2 Multi-Signature scheme. It is useful to have a way for keys to be used
+in a MuSig2 aggregate key to be expressed in descriptors so that wallets can more easily use MuSig2.
+
+==Specification==
+
+A new key expression is defined: <tt>musig()</tt>.
+
+===<tt>musig(KEY, KEY, ..., KEY)</tt>===
+
+The <tt>musig(KEY, KEY, ..., KEY)</tt> expression can only be used inside of a <tt>tr()</tt>
+expression as a key expression. It additionally cannot be nested within another <tt>musig()</tt>
+expression. Repeated participant public keys are not allowed. The aggregate public key is produced
+by using the <tt>KeyAgg</tt> algorithm on all KEYs specified in the expression after performing all
+specified derivation. As with script expressions, KEY can contain child derivation specified by
+<tt>/*</tt>. A new aggregate public key will be computed for each child index. Keys must be sorted
+with the <tt>KeySort</tt> algorithm after all derivation and prior to aggregation<ref>'''Why must
+the keys be sorted prior to aggregation?''' Although the descriptor's written form sets an order
+for the keys that could be used for aggregation, the order should not matter as MuSig2 philosophically
+operates over a set of keys, with the order merely being an implementation detail in aggregation
+itself. Requiring sorting of keys prior to aggregation enforces this philosophy as keys can be
+written in the descriptor in any order with the end result still being the same. Furthermore, this
+aids with recovery where the descriptor was not backed up as users will not need to also have
+backed up, or guess, the correct order of keys.</ref>.
+
+===<tt>musig(KEY, KEY, ..., KEY)/NUM/.../*</tt>===
+
+<tt>musig(KEY, KEY, ..., KEY)/NUM/.../*</tt> expressions are also allowed, with the same usage
+restrictions as in the previous section. The aggregate public key
+is first computed as described above, with the keys also being sorted after all derivation and prior
+to aggregation. Then further BIP 32 derivation will be performed on the aggregate public key as described in
+[[bip-0328.mediawiki|BIP 328]]. As there is no aggregate private key,
+only unhardened derivation from the aggregate public key is allowed, and thus the derivation steps
+following the <tt>musig()</tt> expression cannot contain
+<tt>/NUMh</tt> or <tt>/NUM'</tt> derivation steps nor <tt>/*h</tt>, or <tt>/*'</tt> child derivation.
+For these <tt>musig()</tt> expressions, the KEY expressions contained within must be xpubs or derived from
+xpubs, and cannot contain child derivation as specified by a <tt>/*</tt>, <tt>/*'</tt>, or <tt>/*h</tt>.
+
+==Test Vectors==
+
+Valid descriptors containing followed by the scripts they produce. Descriptors involving derived child keys
+will have the 0th, 1st, and 2nd scripts listed.
+
+* <tt>rawtr(musig(KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU74sHUHy8S,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+** <tt>5120789d937bade6673538f3e28d8368dda4d0512f94da44cf477a505716d26a1575</tt>
+* <tt>tr(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+** <tt>512079e6c3e628c9bfbce91de6b7fb28e2aec7713d377cf260ab599dcbc40e542312</tt>
+* <tt>rawtr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*)</tt>
+** <tt>51209508c08832f3bb9d5e8baf8cb5cfa3669902e2f2da19acea63ff47b93faa9bfc</tt>
+** <tt>51205ca1102663025a83dd9b5dbc214762c5a6309af00d48167d2d6483808525a298</tt>
+** <tt>51207dbed1b89c338df6a1ae137f133a19cae6e03d481196ee6f1a5c7d1aeb56b166</tt>
+* <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*,pk(f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9))</tt>
+** <tt>51201d377b637b5c73f670f5c8a96a2c0bb0d1a682a1fca6aba91fe673501a189782</tt>
+** <tt>51208950c83b117a6c208d5205ffefcf75b187b32512eb7f0d8577db8d9102833036</tt>
+** <tt>5120a49a477c61df73691b77fcd563a80a15ea67bb9c75470310ce5c0f25918db60d</tt>
+* <tt>tr(f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,pk(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*))</tt>
+** <tt>512068983d461174afc90c26f3b2821d8a9ced9534586a756763b68371a404635cc8</tt>
+** <tt>5120368e2d864115181bdc8bb5dc8684be8d0760d5c33315570d71a21afce4afd43e</tt>
+** <tt>512097a1e6270b33ad85744677418bae5f59ea9136027223bc6e282c47c167b471d5</tt>
+
+Invalid descriptors
+
+* <tt>musig()</tt> is not allowed in top-level <tt>pk()</tt>: <tt>pk(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+* <tt>musig()</tt> is not allowed in top-level <tt>pkh()</tt>: <tt>pkh(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+* <tt>musig()</tt> is not allowed in <tt>wpkh()</tt>: <tt>wpkh(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+* <tt>musig()</tt> is not allowed in <tt>combo()</tt>: <tt>combo(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+* <tt>musig()</tt> is not allowed in <tt>sh(wpkh())</tt>: <tt>sh(wpkh(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66)))</tt>
+* <tt>musig()</tt> is not allowed in <tt>sh(wsh())</tt>: <tt>sh(wsh(pk(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))))</tt>
+* <tt>musig()</tt> is not allowed in <tt>wsh()</tt>: <tt>wsh(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+* <tt>musig()</tt> is not allowed in <tt>sh()</tt>: <tt>sh(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
+* Ranged <tt>musig()</tt> requires all participants to be xpubs: <tt>tr(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66)/0/0)</tt>
+* Cannot have ranged participants if <tt>musig()</tt> is also ranged: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/*,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*)</tt>
+* <tt>musig()</tt> cannot have hardened derivation steps: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0h/*)</tt>
+* <tt>musig()</tt> cannot have hardened child derivation: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*h)</tt>
+
+==Backwards Compatibility==
+
+<tt>musig()</tt> expressions use the format and general operation specified in
+[[bip-0380.mediawiki|BIP 380]]. As these are a set of wholly new expressions, they are not compatible
+with any implementation. However the keys are produced using a standard process so existing software
+are likely to be familiar with them.
+
+==Rationale==
+
+<references/>
+
+==Reference Implementation==
+
+TBD
+
+==Acknowledgements==
+
+Thanks to Pieter Wuille, Andrew Poelstra, Sanket Kanjalkar, Salvatore Ingala, and all others who
+participated in discussions on this topic.
