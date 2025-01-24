@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the BIP-DLEQ test vectors (limited to secp256k1 generator right now)."""
+"""Generate the BIP-0374 test vectors."""
 import csv
 import os
 import sys
@@ -11,7 +11,7 @@ from reference import (
 from secp256k1 import G as GENERATOR, GE
 
 
-NUM_SUCCESS_TEST_VECTORS = 5
+NUM_SUCCESS_TEST_VECTORS = 7
 DLEQ_TAG_TESTVECTORS_RNG = "BIP0374/testvectors_rng"
 
 FILENAME_GENERATE_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_generate_proof.csv')
@@ -29,9 +29,8 @@ def random_bytes(vector_i, purpose):
 
 
 def create_test_vector_data(vector_i):
-    g = random_scalar_int(vector_i, "scalar_g")
-    assert g < GE.ORDER
-    assert g > 0
+    g = random_scalar_int(vector_i, "scalar_g") if vector_i < 5 else 1
+    assert 0 < g < GE.ORDER
     G = g * GENERATOR
     assert not G.infinity
     a = random_scalar_int(vector_i, "scalar_a")
