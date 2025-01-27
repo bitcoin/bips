@@ -11,7 +11,7 @@ from reference import (
 from secp256k1 import G as GENERATOR, GE
 
 
-NUM_SUCCESS_TEST_VECTORS = 7
+NUM_SUCCESS_TEST_VECTORS = 8
 DLEQ_TAG_TESTVECTORS_RNG = "BIP0374/testvectors_rng"
 
 FILENAME_GENERATE_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_generate_proof.csv')
@@ -40,7 +40,7 @@ def create_test_vector_data(vector_i):
     C = a * B  # shared secret
     assert C.to_bytes_compressed() == (b * A).to_bytes_compressed()
     auxrand = random_bytes(vector_i, "auxrand")
-    msg = random_bytes(vector_i, "message")
+    msg = random_bytes(vector_i, "message") if vector_i != 5 else None
     proof = dleq_generate_proof(a, B, auxrand, G=G, m=msg)
     return (G, a, A, b, B, C, auxrand, msg, proof)
 
@@ -56,6 +56,7 @@ def gen_all_generate_proof_vectors(f):
     for i in range(NUM_SUCCESS_TEST_VECTORS):
         G, a, A, b, B, C, auxrand, msg, proof = TEST_VECTOR_DATA[i]
         assert proof is not None and len(proof) == 64
+        if msg is None: msg = b""
         writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case {i+1}"))
         idx += 1
 
@@ -86,6 +87,7 @@ def gen_all_verify_proof_vectors(f):
     for i in range(NUM_SUCCESS_TEST_VECTORS):
         G, _, A, _, B, C, _, msg, proof = TEST_VECTOR_DATA[i]
         assert dleq_verify_proof(A, B, C, proof, G=G, m=msg)
+        if msg is None: msg = b""
         writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
                          C.to_bytes_compressed().hex(), proof.hex(), msg.hex(), "TRUE", f"Success case {i+1}"))
         idx += 1
