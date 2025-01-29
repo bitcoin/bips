@@ -68,7 +68,7 @@ class WalletPolicy(object):
 
         # there should not be any remaining "@" expressions
         if desc.find("@") != -1:
-            return Exception("Invalid descriptor template: contains invalid key index")
+            raise Exception("Invalid descriptor template: contains invalid key index")
 
         return desc
 
