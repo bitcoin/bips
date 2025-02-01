@@ -29,6 +29,7 @@ with open(FILENAME_GENERATE_PROOF_TEST, newline='') as csvfile:
         B = GE() if point_B_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_B_hex))
         aux_rand = bytes.fromhex(aux_rand_hex)
         msg = bytes.fromhex(msg_hex)
+        if msg == b"": msg = None
         print('Test vector', ('#' + index).rjust(3, ' ') + ':' + f' ({comment})')
         expected_result = None if result_str == 'INVALID' else bytes.fromhex(result_str)
         actual_result = dleq_generate_proof(a, B, aux_rand, G=G, m=msg)
@@ -56,6 +57,7 @@ with open(FILENAME_VERIFY_PROOF_TEST, newline='') as csvfile:
         C = GE() if point_C_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_C_hex))
         proof = bytes.fromhex(proof_hex)
         msg = bytes.fromhex(msg_hex)
+        if msg == b"": msg = None
         print('Test vector', ('#' + index).rjust(3, ' ') + ':' + f' ({comment})')
         expected_result = result_success == 'TRUE'
         actual_result = dleq_verify_proof(A, B, C, proof, G=G, m=msg)
