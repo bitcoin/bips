@@ -13,67 +13,14 @@
 
 ==Abstract==
 
-This BIP describes a new set of arithmetic opcodes (OP_ADD64, OP_SUB64, OP_MUL64, OP_DIV64, OP_NEG64,
-OP_LESSTHAN64, OP_LESSTHANOREQUAL64, OP_GREATERTHAN64, OP_GREATERTHANOREQUAL64)
-that allows 64 bit signed integer math in the bitcoin protocol.
+This BIP re-enables two opcodes: OP_MUL and OP_DIV.
 
-This BIP also describes a set of conversion opcodes (OP_SCRIPTNUMTOLE64, OP_LE64TOSCRIPTNUM, OP_LE32TOLE64)
-to convert existing bitcoin protocol numbers (CScriptNum) into 4 and 7 byte little endian representations.
-
-==Summary==
-
-The arithmetic opcodes (OP_ADD64, OP_SUB64, OP_MUL64) behave as follows 
-
-* Fail if less than 2 elements on the stack 
-* Fail if the stacks top 2 elements are not exactly 8 bytes 
-* If the operation results in an overflow, push false onto the stack 
-* If the operation succeeds without overflow, push the result and true onto the stack
-
-OP_DIV64
-* Fail if less than 2 elements on the stack
-* Fail if the stacks top 2 elements are not exactly 8 bytes
-* If the stack top is zero (denominator), push false onto the stack
-* If the stack top is -1 and the numerator is -9223372036854775808, push false onto the stack
-* Calculate the remainder (`r = a % b`) and quotient (`q = a / b`)
-* If the remainder is negative, invert it to be positive
-* Push the remainder onto the stack
-* Push the quotient onto the stack
-* Push true onto the stack
-
-64 bit comparison opcodes (OP_LESSTHAN64, OP_LESSTHANOREQUAL64, OP_GREATERTHAN64, OP_GREATERTHANOREQUAL64)
-* Fail if less than 2 elements on the stack 
-* Fail if the stacks top 2 elements are not exactly 8 bytes 
-* Push the boolean result of the comparison onto the stack
-
-OP_NEG64
-* Fail if less than 1 element on the stack 
-* Fail if the stacks top is not exactly 8 bytes 
-* If the operation results in an overflow, push false onto the stack 
-* Push the result of negating the stack top onto the stack and push true onto the stack
-
-OP_SCRIPTNUMTOLE64
-* Fail if less than 1 element on the stack
-* Interpret the stack top as a CScriptNum
-* Push the 8 byte little endian representation of the number onto the stack
-
-OP_LE64TOSCRIPTNUM
-* Fail if less than 1 element on the stack
-* Fail if the stack top is not exactly 8 bytes
-* Interpret the stack top as a 8 byte little endian number
-* Fail if the 8 byte little endian number would overflow CScriptNum
-* Push the byte representation of CScriptNum onto the stack
-
-OP_LE32TOLE64
-* Fail if less than 1 element on the stack
-* Fail if the stack top is not exactly 4 bytes in size
-* Interpret the stack top as a 32 bit little endian number
-* Push the 8 byte little endian number onto the stack
-
+This BIP also expands supported precision for valid operands from `-2^31 +1` to `2^31 -1` to `-2^63 +1...2^63 -1`.
 
 ==Motivation==
 
 64 bit arithmetic operations are required to support arithmetic on satoshi values.
-Math on satoshis required precision of 51 bits. Many bitcoin protocol proposals - such as covenants -
+Math on satoshis required precision of 51 bits. Many bitcoin protocol proposals - such as covenant proposals -
 require Script access to output values. To support the full range of possible output values
 we need 64 bit precision.
 
@@ -92,9 +39,11 @@ arithmetic operations.
 
 ==Overflows==
 
-When dealing with overflows, we explicitly return the success bit as a CScriptNum at the top of the stack and the result being the second element from the top. If the operation overflows, first the operands are pushed onto the stack followed by success bit. [a_second a_top] overflows, the stack state after the operation is [a_second a_top 0] and if the operation does not overflow, the stack state is [res 1].
+This propsal retains overflow semantics from the original bitcoin implementation.
 
-This gives the user flexibility to deal if they script to have overflows using OP_IF\OP_ELSE or OP_VERIFY the success bit if they expect that operation would never fail. When defining the opcodes which can fail, we only define the success path, and assume the overflow behavior as stated above.
+Results from 64bit numeric opcodes may overflow and are valid as long as they are not used in a subsequent numeric operation.
+
+If overflowed results are used in a subsequent numeric operation, the Script terminates immediately.
 
 ==Detailed Specification==
 
@@ -102,180 +51,265 @@ Refer to the reference implementation, reproduced below, for the precise
 semantics and detailed rationale for those semantics.
 
 <source lang="cpp">
-
-
-static inline int64_t cast_signed64(uint64_t v)
+class CScriptNum
 {
-    uint64_t int64_min = static_cast<uint64_t>(std::numeric_limits<int64_t>::min());
-    if (v >= int64_min)
-        return static_cast<int64_t>(v - int64_min) + std::numeric_limits<int64_t>::min();
-    return static_cast<int64_t>(v);
-}
+/**
+ * Numeric opcodes (OP_1ADD, etc) are restricted to operating on 4-byte integers.
+ * The semantics are subtle, though: operands must be in the range [-2^31 +1...2^31 -1],
+ * but results may overflow (and are valid as long as they are not used in a subsequent
+ * numeric operation). CScriptNum enforces those semantics by storing results as
+ * an int64 and allowing out-of-range values to be returned as a vector of bytes but
+ * throwing an exception if arithmetic is done or the result is interpreted as an integer.
+ */
+public:
 
-static inline int64_t read_le8_signed(const unsigned char* ptr)
+    explicit CScriptNum(const __int128_t& n)
+    {
+        m_value = n;
+    }
+
+    static const size_t nDefaultMaxNumSize = 4;
+
+    explicit CScriptNum(const std::vector<unsigned char>& vch, bool fRequireMinimal,
+                        const size_t nMaxNumSize = nDefaultMaxNumSize)
+    {
+        if (vch.size() > nMaxNumSize) {
+            throw scriptnum_error("script number overflow");
+        }
+        if (fRequireMinimal && vch.size() > 0) {
+            // Check that the number is encoded with the minimum possible
+            // number of bytes.
+            //
+            // If the most-significant-byte - excluding the sign bit - is zero
+            // then we're not minimal. Note how this test also rejects the
+            // negative-zero encoding, 0x80.
+            if ((vch.back() & 0x7f) == 0) {
+                // One exception: if there's more than one byte and the most
+                // significant bit of the second-most-significant-byte is set
+                // it would conflict with the sign bit. An example of this case
+                // is +-255, which encode to 0xff00 and 0xff80 respectively.
+                // (big-endian).
+                if (vch.size() <= 1 || (vch[vch.size() - 2] & 0x80) == 0) {
+                    throw scriptnum_error("non-minimally encoded script number");
+                }
+            }
+        }
+        m_value = set_vch(vch);
+    }
+
+    inline bool operator==(const int64_t& rhs) const    { return m_value == rhs; }
+    inline bool operator!=(const int64_t& rhs) const    { return m_value != rhs; }
+    inline bool operator<=(const int64_t& rhs) const    { return m_value <= rhs; }
+    inline bool operator< (const int64_t& rhs) const    { return m_value <  rhs; }
+    inline bool operator>=(const int64_t& rhs) const    { return m_value >= rhs; }
+    inline bool operator> (const int64_t& rhs) const    { return m_value >  rhs; }
+
+    inline bool operator==(const CScriptNum& rhs) const { return operator==(rhs.m_value); }
+    inline bool operator!=(const CScriptNum& rhs) const { return operator!=(rhs.m_value); }
+    inline bool operator<=(const CScriptNum& rhs) const { return operator<=(rhs.m_value); }
+    inline bool operator< (const CScriptNum& rhs) const { return operator< (rhs.m_value); }
+    inline bool operator>=(const CScriptNum& rhs) const { return operator>=(rhs.m_value); }
+    inline bool operator> (const CScriptNum& rhs) const { return operator> (rhs.m_value); }
+
+    inline CScriptNum operator+(   const int64_t& rhs)    const { return CScriptNum(m_value + rhs);}
+    inline CScriptNum operator-(   const int64_t& rhs)    const { return CScriptNum(m_value - rhs);}
+    inline CScriptNum operator+(   const CScriptNum& rhs) const { return operator+(rhs.m_value);   }
+    inline CScriptNum operator-(   const CScriptNum& rhs) const { return operator-(rhs.m_value);   }
+
+    inline CScriptNum& operator+=( const CScriptNum& rhs)       { return operator+=(rhs.m_value);  }
+    inline CScriptNum& operator-=( const CScriptNum& rhs)       { return operator-=(rhs.m_value);  }
+
+    inline CScriptNum operator&(   const int64_t& rhs)    const { return CScriptNum(m_value & rhs);}
+    inline CScriptNum operator&(   const CScriptNum& rhs) const { return operator&(rhs.m_value);   }
+
+    inline CScriptNum& operator&=( const CScriptNum& rhs)       { return operator&=(rhs.m_value);  }
+
+    inline CScriptNum operator*(const __int128_t& rhs) const { return CScriptNum(m_value * rhs);}
+    inline CScriptNum operator*(const CScriptNum& rhs) const { return operator*(rhs.m_value);}
+
+    inline CScriptNum operator/(const __int128_t& rhs) const { return CScriptNum(m_value / rhs);}
+    inline CScriptNum operator/(const CScriptNum& rhs) const { return operator/(rhs.m_value);}
+
+    inline CScriptNum operator-()                         const
+    {
+        assert(m_value != std::numeric_limits<__int128_t>::min());
+        return CScriptNum(-m_value);
+    }
+
+    inline CScriptNum& operator=( const int64_t& rhs)
+    {
+        m_value = rhs;
+        return *this;
+    }
+
+    inline CScriptNum& operator+=( const int64_t& rhs)
+    {
+        assert(rhs == 0 || (rhs > 0 && m_value <= std::numeric_limits<__int128_t>::max() - rhs) ||
+                           (rhs < 0 && m_value >= std::numeric_limits<__int128_t>::min() - rhs));
+        m_value += rhs;
+        return *this;
+    }
+
+    inline CScriptNum& operator-=( const int64_t& rhs)
+    {
+        assert(rhs == 0 || (rhs > 0 && m_value >= std::numeric_limits<__int128_t>::min() + rhs) ||
+                           (rhs < 0 && m_value <= std::numeric_limits<__int128_t>::max() + rhs));
+        m_value -= rhs;
+        return *this;
+    }
+
+    inline CScriptNum& operator&=( const int64_t& rhs)
+    {
+        m_value &= rhs;
+        return *this;
+    }
+
+    int getint() const
+    {
+        if (m_value > std::numeric_limits<int>::max())
+            return std::numeric_limits<int>::max();
+        else if (m_value < std::numeric_limits<int>::min())
+            return std::numeric_limits<int>::min();
+        return m_value;
+    }
+
+    int64_t GetInt64() const { return m_value; }
+    __int128_t GetInt128() const {return m_value; }
+    std::vector<unsigned char> getvch() const
+    {
+        return serialize(m_value);
+    }
+
+    static std::vector<unsigned char> serialize(const __int128_t& value)
+    {
+        if(value == 0) {
+            return std::vector<unsigned char>();
+        }
+
+        std::vector<unsigned char> result;
+        const bool neg = value < 0;
+        __uint128_t absvalue = neg ? ~static_cast<__uint128_t>(value) + 1 : static_cast<__uint128_t>(value);
+
+        while(absvalue)
+        {
+            result.push_back(absvalue & 0xff);
+            absvalue >>= 8;
+        }
+
+//    - If the most significant byte is >= 0x80 and the value is positive, push a
+//    new zero-byte to make the significant byte < 0x80 again.
+
+//    - If the most significant byte is >= 0x80 and the value is negative, push a
+//    new 0x80 byte that will be popped off when converting to an integral.
+
+//    - If the most significant byte is < 0x80 and the value is negative, add
+//    0x80 to it, since it will be subtracted and interpreted as a negative when
+//    converting to an integral.
+
+        if (result.back() & 0x80) {
+            result.push_back(neg ? 0x80 : 0);
+        }
+        else if (neg) {
+            result.back() |= 0x80;
+        }
+
+        return result;
+    }
+
+private:
+    static __int128_t set_vch(const std::vector<unsigned char>& vch)
+    {
+      if (vch.empty())
+          return 0;
+
+      __int128_t result = 0;
+      for (size_t i = 0; i != vch.size(); ++i)
+          result |= static_cast<__int128_t>(vch[i]) << 8*i;
+
+      // If the input vector's most significant byte is 0x80, remove it from
+      // the result's msb and return a negative.
+      if (vch.back() & 0x80)
+          return -((__int128_t)(result & ~(0x80ULL << (8 * (vch.size() - 1)))));
+
+      return result;
+    }
+
+    __int128_t m_value;
+};
+</source>
+
+<source lang="cpp">
+case OP_ADD:
+case OP_SUB:
+case OP_MUL:
+case OP_DIV:
+case OP_BOOLAND:
+case OP_BOOLOR:
+case OP_NUMEQUAL:
+case OP_NUMEQUALVERIFY:
+case OP_NUMNOTEQUAL:
+case OP_LESSTHAN:
+case OP_GREATERTHAN:
+case OP_LESSTHANOREQUAL:
+case OP_GREATERTHANOREQUAL:
+case OP_MIN:
+case OP_MAX:
 {
-    return cast_signed64(ReadLE64(ptr));
-}
-
-static inline void push8_le(std::vector<valtype>& stack, uint64_t v)
-{
-    uint64_t v_le = htole64(v);
-    stack.emplace_back(reinterpret_cast<unsigned char*>(&v_le), reinterpret_cast<unsigned char*>(&v_le) + sizeof(v_le));
-}
-
-case OP_ADD64:
-case OP_SUB64:
-case OP_MUL64:
-case OP_DIV64:
-case OP_LESSTHAN64:
-case OP_LESSTHANOREQUAL64:
-case OP_GREATERTHAN64:
-case OP_GREATERTHANOREQUAL64:
-{
-    // Opcodes only available post tapscript
-    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-
+    // (x1 x2 -- out)
     if (stack.size() < 2)
         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-    valtype& vcha = stacktop(-2);
-    valtype& vchb = stacktop(-1);
-    if (vchb.size() != 8 || vcha.size() != 8)
-        return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
-
-    int64_t b = read_le8_signed(vchb.data());
-    int64_t a = read_le8_signed(vcha.data());
-
-    switch(opcode)
+    CScriptNum bn1 = GetCScriptNum(stacktop(-2), fRequireMinimal, sigversion);
+    CScriptNum bn2 = GetCScriptNum(stacktop(-1), fRequireMinimal, sigversion);
+    CScriptNum bn(0);
+    switch (opcode)
     {
-        case OP_ADD64:
-            if ((a > 0 && b > std::numeric_limits<int64_t>::max() - a) ||
-                (a < 0 && b < std::numeric_limits<int64_t>::min() - a))
-                stack.push_back(vchFalse);
-            else {
-                popstack(stack);
-                popstack(stack);
-                push8_le(stack, a + b);
-                stack.push_back(vchTrue);
-            }
+    case OP_ADD:
+        bn = bn1 + bn2;
         break;
-        case OP_SUB64:
-            if ((b > 0 && a < std::numeric_limits<int64_t>::min() + b) ||
-                (b < 0 && a > std::numeric_limits<int64_t>::max() + b))
-                stack.push_back(vchFalse);
-            else {
-                popstack(stack);
-                popstack(stack);
-                push8_le(stack, a - b);
-                stack.push_back(vchTrue);
-            }
+
+    case OP_SUB:
+        bn = bn1 - bn2;
         break;
-        case OP_MUL64:
-            if ((a > 0 && b > 0 && a > std::numeric_limits<int64_t>::max() / b) ||
-                (a > 0 && b < 0 && b < std::numeric_limits<int64_t>::min() / a) ||
-                (a < 0 && b > 0 && a < std::numeric_limits<int64_t>::min() / b) ||
-                (a < 0 && b < 0 && b < std::numeric_limits<int64_t>::max() / a))
-                stack.push_back(vchFalse);
-            else {
-                popstack(stack);
-                popstack(stack);
-                push8_le(stack, a * b);
-                stack.push_back(vchTrue);
-            }
+    case OP_MUL:
+        bn = bn1 * bn2;
         break;
-        case OP_DIV64:
-        {
-            if (b == 0 || (b == -1 && a == std::numeric_limits<int64_t>::min())) { stack.push_back(vchFalse); break; }
-            int64_t r = a % b;
-            int64_t q = a / b;
-            if (r < 0 && b > 0)      { r += b; q-=1;} // ensures that 0<=r<|b|
-            else if (r < 0 && b < 0) { r -= b; q+=1;} // ensures that 0<=r<|b|
-            popstack(stack);
-            popstack(stack);
-            push8_le(stack, r);
-            push8_le(stack, q);
-            stack.push_back(vchTrue);
-        }
-        break;
-        break;
-        case OP_LESSTHAN64:            popstack(stack); popstack(stack); stack.push_back( (a <  b) ? vchTrue : vchFalse ); break;
-        case OP_LESSTHANOREQUAL64:     popstack(stack); popstack(stack); stack.push_back( (a <= b) ? vchTrue : vchFalse ); break;
-        case OP_GREATERTHAN64:         popstack(stack); popstack(stack); stack.push_back( (a >  b) ? vchTrue : vchFalse ); break;
-        case OP_GREATERTHANOREQUAL64:  popstack(stack); popstack(stack); stack.push_back( (a >= b) ? vchTrue : vchFalse ); break;
-        default:                       assert(!"invalid opcode"); break;
-    }
-}
-break;
-case OP_NEG64:
-{
-    // Opcodes only available post tapscript
-    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+    case OP_DIV: {
+        const __int128_t a = bn1.GetInt128();
+        const __int128_t b = bn2.GetInt128();
+        if (b == 0) return set_error(serror,SCRIPT_ERR_ARITHMETIC64);
+        __int128_t r = a % b;
+        __int128_t q = a / b;
 
-    if (stack.size() < 1)
-        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-    valtype& vcha = stacktop(-1);
-    if (vcha.size() != 8)
-        return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
-
-    int64_t a = read_le8_signed(vcha.data());
-    if (a == std::numeric_limits<int64_t>::min()) { stack.push_back(vchFalse); break; }
-
-    popstack(stack);
-    push8_le(stack, -a);
-    stack.push_back(vchTrue);
-}
-break;
-
-case OP_SCRIPTNUMTOLE64:
-{
-    // Opcodes only available post tapscript
-    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-
-    if (stack.size() < 1)
-        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-    int64_t num = CScriptNum(stacktop(-1), fRequireMinimal).getint();
-    popstack(stack);
-    push8_le(stack, num);
-}
-break;
-case OP_LE64TOSCRIPTNUM:
-{
-    // Opcodes only available post tapscript
-    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-
-    if (stack.size() < 1)
-        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-    valtype& vchnum = stacktop(-1);
-    if (vchnum.size() != 8)
-        return set_error(serror, SCRIPT_ERR_EXPECTED_8BYTES);
-    valtype vchscript_num = CScriptNum(read_le8_signed(vchnum.data())).getvch();
-    if (vchscript_num.size() > CScriptNum::nDefaultMaxNumSize) {
-        return set_error(serror, SCRIPT_ERR_ARITHMETIC64);
-    } else {
+        if (r < 0 && b > 0) { r+=b; q-=1;}
+        else if (r < 0 && b > 0) { r -= b; q+=1; }
+        //have to pop the stack here for OP_DIV
+        //as we are pushing two results onto the stack
+        //quotient and remainder
         popstack(stack);
-        stack.push_back(std::move(vchscript_num));
+        popstack(stack);
+        bn = CScriptNum(q);
+        stack.push_back(CScriptNum(r).getvch());
+        break;
     }
-}
-break;
-case OP_LE32TOLE64:
-{
-    // Opcodes only available post tapscript
-    if (sigversion == SigVersion::BASE || sigversion == SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
-
-    if (stack.size() < 1)
-        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-    valtype& vchnum = stacktop(-1);
-    if (vchnum.size() != 4)
-        return set_error(serror, SCRIPT_ERR_ARITHMETIC64);
-    uint32_t num = ReadLE32(vchnum.data());
-    popstack(stack);
-    push8_le(stack, static_cast<int64_t>(num));
-}
-break;
+    case OP_BOOLAND:             bn = (bn1 != bnZero && bn2 != bnZero); break;
+    case OP_BOOLOR:              bn = (bn1 != bnZero || bn2 != bnZero); break;
+    case OP_NUMEQUAL:            bn = (bn1 == bn2); break;
+    case OP_NUMEQUALVERIFY:      bn = (bn1 == bn2); break;
+    case OP_NUMNOTEQUAL:         bn = (bn1 != bn2); break;
+    case OP_LESSTHAN:            bn = (bn1 < bn2); break;
+    case OP_GREATERTHAN:         bn = (bn1 > bn2); break;
+    case OP_LESSTHANOREQUAL:     bn = (bn1 <= bn2); break;
+    case OP_GREATERTHANOREQUAL:  bn = (bn1 >= bn2); break;
+    case OP_MIN:                 bn = (bn1 < bn2 ? bn1 : bn2); break;
+    case OP_MAX:                 bn = (bn1 > bn2 ? bn1 : bn2); break;
+    default:                     assert(!"invalid opcode"); break;
+    }
+    if (opcode != OP_DIV)
+    {
+        popstack(stack);
+        popstack(stack);
+    }
+    stack.push_back(bn.getvch());
 </source>
 
 https://github.com/Christewart/bitcoin/commits/64bit-arith 
