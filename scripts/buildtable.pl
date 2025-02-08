@@ -96,19 +96,28 @@ my %emails;
 my $bipnum = 0;
 while (++$bipnum <= $topbip) {
 	my $fn = sprintf "bip-%04d.mediawiki", $bipnum;
+	my $is_markdown = 0;
 	if (!-e $fn) {
 		$fn = sprintf "bip-%04d.md", $bipnum;
+		$is_markdown = 1;
 	}
 	-e $fn || next;
 	open my $F, "<$fn";
-	while (<$F> !~ m[^(?:\xef\xbb\xbf)?<pre>$]) {
+	if ($is_markdown) {
+		while (<$F> !~ m[^(?:\xef\xbb\xbf)?```$]) {
+			die "No ``` in $fn" if eof $F;
+		}
+	} else {
+		while (<$F> !~ m[^(?:\xef\xbb\xbf)?<pre>$]) {
 			die "No <pre> in $fn" if eof $F;
+		}
 	}
 	my %found;
 	my ($title, $author, $status, $type, $layer);
 	my ($field, $val);
 	while (<$F>) {
-		m[^</pre>$] && last;
+		last if ($is_markdown && m[^```$]);
+		last if (!$is_markdown && m[^</pre>$]);
 		if (m[^  ([\w-]+)\: (.*\S)$]) {
 			$field = $1;
 			$val = $2;
