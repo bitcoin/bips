@@ -211,11 +211,13 @@ def hash_keys(pubkeys: List[PlainPk]) -> bytes:
     return tagged_hash('KeyAgg list', b''.join(pubkeys))
 
 def get_second_key(pubkeys: List[PlainPk]) -> PlainPk:
+    if not pubkeys:
+        raise ValueError('The pubkeys list cannot be empty.')
     u = len(pubkeys)
     for j in range(1, u):
         if pubkeys[j] != pubkeys[0]:
             return pubkeys[j]
-    return PlainPk(b'\x00'*33)
+    raise InvalidContributionError(0, "pubkey")  # All keys are the same
 
 def key_agg_coeff(pubkeys: List[PlainPk], pk_: PlainPk) -> int:
     pk2 = get_second_key(pubkeys)
