@@ -55,11 +55,14 @@ def dleq_generate_proof(
         return None
     if B.infinity:
         return None
+    if m is not None:
+        assert len(m) == 32
     A = a * G
     C = a * B
     t = xor_bytes(a.to_bytes(32, "big"), TaggedHash(DLEQ_TAG_AUX, r))
+    m_prime = bytes([]) if m is None else m
     rand = TaggedHash(
-        DLEQ_TAG_NONCE, t + A.to_bytes_compressed() + C.to_bytes_compressed()
+        DLEQ_TAG_NONCE, t + A.to_bytes_compressed() + C.to_bytes_compressed() + m_prime
     )
     k = int.from_bytes(rand, "big") % GE.ORDER
     if k == 0:
