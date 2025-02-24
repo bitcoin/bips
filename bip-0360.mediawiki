@@ -31,7 +31,9 @@ is their potential to break the cryptographic assumptions of Elliptic Curve Cryp
 commitments. Specifically, [https://arxiv.org/pdf/quant-ph/0301141 Shor's algorithm] enables a CRQC to solve the
 Discrete Logarithm Problem (DLP) exponentially faster than classical methods<ref name="shor">Shor's algorithm is
 believed to need 10^8 operations to break a 256-bit elliptic curve public key.</ref>, allowing the derivation of
-private keys from public keys—a process referred to as quantum key decryption. Importantly, simply doubling the public
+private keys from public keys-- a process referred to here as quantum key decryption.
+<ref name="quantum-key-decryption">Meaning, deriving private keys from public keys via Shor's algorithm</ref>
+Importantly, simply doubling the public
 key length (e.g., using a hypothetical secp512k1 curve) would only make deriving the private key twice as hard,
 offering insufficient protection. The computational complexity of this attack is further explored in
 [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching ''The impact of hardware specifications on reaching quantum advantage in the fault-tolerant regime''].
@@ -111,8 +113,13 @@ quantum attack:
 It should be noted that Taproot outputs are vulnerable in that they encode a 32-byte x-only public key, from which a
 full public key can be reconstructed.
 
-If the parent private key of an extended public key (xpub) is recovered by a CRQC, the attacker also recovers
-the entire extended private key, whether it uses hardened or unhardened derivation.
+If a CRQC recovers an extended public key (xpub), including its chain code, it can derive all non-hardened child public
+keys by guessing or iterating through child indexes, as allowed by BIP-32's non-hardened derivation. With Shor's
+algorithm, the CRQC could then compute the corresponding non-hardened child private keys directly from those public keys,
+without needing the extended private key (xprv) or an exposed child private key. Hardened child keys remain secure since
+they cannot be derived from the xpub alone. However, if the xprv is exposed, then all child private keys--both hardened
+and non-hardened--become vulnerable. Thus, in a quantum context, the xpub alone is sufficient to expose all non-hardened
+child private keys.
 
 ==== Long Exposure and Short Exposure Quantum Attacks ====
 
@@ -176,7 +183,11 @@ however is that P2QRH will encode a hash of the public key. This is a significan
 itself, but it is necessary to avoid exposing public keys on-chain where they are vulnerable to attack.
 
 P2QRH uses a 32-byte HASH256 (specifically SHA-256 twice-over) of the public key to reduce the size of new outputs and
-also to increase security by not having the public key available on-chain. This hash serves as a minimal cryptographic
+also to increase security by not having the public key available on-chain. While HASH256 uses double SHA-256 like
+Bitcoin's Proof of Work, this does not meaningfully increase quantum resistance compared to single SHA-256, as both
+provide approximately 2^128 security against Grover's algorithm. The practical impact of quantum attacks on SHA-256
+remains theoretical since quantum circuits for SHA-256 are still theoretical, but using the same hash function as
+Proof of Work maintains consistency with Bitcoin's existing security model. This hash serves as a minimal cryptographic
 commitment to a public key in the style of a
 [https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-Witness_program BIP-141 witness program].
 Because it goes into the scriptPubKey, it does not receive a witness or attestation discount.
@@ -196,14 +207,14 @@ An increase in the witness discount must not be taken lightly. It must be resist
 advantage of this discount (e.g., storage of arbitrary data as seen with "inscriptions") without a corresponding
 increase in economic activity. An increase in the witness discount would not only impact node runners but those with
 inscriptions would also have the scarcity of their non-monetary assets affected. The only way to prevent these effects
-while also increasing the discount is to have a completely separate witness—a "quantum witness." Because it is meant
+while also increasing the discount is to have a completely separate witness--a "quantum witness." Because it is meant
 only for public keys and signatures, we call this section of the transaction the attestation.
 
 Additionally, it should be noted, whether an output with a P2QRH spend script corresponds to a PQC signature is not
 known until the output is spent.
 
 While it might be seen as a maintenance burden for Bitcoin ecosystem devs to go from a single cryptosystem
-implementation to three additional distinct PQC cryptosystems—and it most certainly is—the ramifications of a chain
+implementation to three additional distinct PQC cryptosystems--and it most certainly is--the ramifications of a chain
 broken through extrinsic factors should provide sufficient motivation. An increase in software maintenance everywhere
 signatures are used should be seen as an acceptable compromise for maintained integrity of Bitcoin transfers during a
 regime of quantum advantage.
@@ -224,8 +235,17 @@ be a need for Pay to Quantum Secure (P2QS) addresses. A distinction is made betw
 to quantum attack, and cryptography that's secured by specialized quantum hardware. P2QRH is resistant to quantum
 attack, while P2QS is quantum secure. These will require specialized quantum hardware for signing, while still
 [https://quantum-journal.org/papers/q-2023-01-19-901/ using public keys that are verifiable via classical means].
-Additional follow-on BIPs will be needed to implement P2QS. However, until specialized quantum cryptography
-hardware is widespread, quantum resistant addresses should be an adequate intermediate solution.
+
+While P2QRH lacks features like signature aggregation for smaller transactions, it offers a pragmatic first step
+toward quantum resistance. Future BIPs can add enhancements like P2QS, signature aggregation, and possibly full
+BIP-32 compatibility once tested and viable. Until quantum cryptography hardware and advanced schemes are widespread,
+P2QRH provides meaningful protection against quantum threats without delaying deployment for a perfect solution.
+
+Additional follow-on BIPs will be needed to implement P2QS, signature aggregation, and full BIP-32 compatibility
+(if possible) <ref name="bip-32">BIP-32 relies on elliptic curve operations to derive keys from xpubs to support
+watch-only wallets, which PQC schemes may not support.</ref>. However, until specialized quantum cryptography hardware
+is widespread and signature aggregation schemes are thoroughly vetted, P2QRH addresses should be an adequate
+intermediate solution that provides meaningful protection against quantum threats.
 
 == Specification ==
 
