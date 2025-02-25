@@ -80,7 +80,7 @@ class FE:
 
     def __truediv__(self, a):
         """Compute the ratio of two field elements (second may be int)."""
-        return FE(self, a)
+        return FE(self._num, self._den * a)
 
     def __pow__(self, a):
         """Raise a field element to an integer power."""
