@@ -87,11 +87,10 @@ def dleq_verify_proof(
     s = int.from_bytes(proof[32:], "big")
     if s >= GE.ORDER:
         return False
-    # TODO: implement subtraction operator (__sub__) for GE class to simplify these terms
-    R1 = s * G + (-e * A)
+    R1 = s * G - e * A
     if R1.infinity:
         return False
-    R2 = s * B + (-e * C)
+    R2 = s * B - e * C
     if R2.infinity:
         return False
     if e != dleq_challenge(A, B, C, R1, R2, m, G):
