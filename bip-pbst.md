@@ -230,9 +230,6 @@ PBTS mitigates various attack vectors through:
    * Uses CHECKLOCKTIMEVERIFY to enforce time constraints
    * Ensures time-locked funds cannot be spent prematurely
 
-## Reference Implementation
-
-A reference implementation is available at: https://github.com/gobishanthan/pbts
 
 ### Prerequisites
 
