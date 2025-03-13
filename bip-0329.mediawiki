@@ -102,7 +102,7 @@ The reference is defined for each <tt>type</tt> as follows:
 | <tt>xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8Nq...</tt>
 |}
 
-Each JSON object must contain both <tt>type</tt> and <tt>ref</tt> properties. The <tt>label</tt>, <tt>origin</tt> and <tt>spendable</tt> properties are optional. If the <tt>label</tt> or <tt>spendable</tt> properties are omitted, the importing wallet should not alter these values. The <tt>origin</tt> property should only appear where type is <tt>tx</tt>, and the <tt>spendable</tt> property only where type is <tt>output</tt>.
+Each JSON object must contain both <tt>type</tt> and <tt>ref</tt> properties. The <tt>label</tt>, <tt>origin</tt> and <tt>spendable</tt> properties are optional. If the <tt>label</tt> or <tt>spendable</tt> properties are omitted, the importing wallet should not alter these values. The <tt>spendable</tt> property should only appear where type is <tt>output</tt>.
 
 If present, the optional <tt>origin</tt> property must contain an abbreviated output descriptor (as defined by BIP380<ref>[https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki BIP-0380]</ref>) describing a BIP32 compatible originating wallet, including all key origin information but excluding any actual keys, any child path elements, or a checksum.
 This property should be used to disambiguate transaction labels from different wallets contained in the same export, particularly when exporting multiple accounts derived from the same seed.
@@ -121,7 +121,7 @@ For security reasons no private key types are defined.
 ==Backwards Compatibility==
 
 The nature of this format makes it naturally extensible to handle other record types.
-However, importing wallets complying to this specification may ignore types not defined here.
+However, importing wallets complying to this specification should ignore types not defined here.
 
 ==Test Vectors==
 
@@ -131,14 +131,63 @@ The following fragment represents a wallet label export:
 { "type": "addr", "ref": "bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c", "label": "Address" }
 { "type": "pubkey", "ref": "0283409659355b6d1cc3c32decd5d561abaac86c37a353b52895a5e6c196d6f448", "label": "Public Key" }
 { "type": "input", "ref": "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:0", "label": "Input" }
-{ "type": "output", "ref": "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:1", "label": "Output" , "spendable" : "false" }
+{ "type": "output", "ref": "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd:1", "label": "Output", "spendable": false }
 { "type": "xpub", "ref": "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8", "label": "Extended Public Key" }
 { "type": "tx", "ref": "f546156d9044844e02b181026a1a407abfca62e7ea1159f87bbeaa77b4286c74", "label": "Account #1 Transaction", "origin": "wpkh([d34db33f/84'/0'/1'])" }
 </pre>
 
+==Additional Fields==
+
+If the goal is solely to move labels between cooperating wallets,
+then the above values are the minimum needed. However, wallet data
+exports can serve other purposes. Many values associated with
+addresses, transactions and outputs are already on hand for the
+wallet generating the export, and yet would be hard or impossible
+for importing tools to reconstruct.
+
+All of the following values are optional for the exporter to provide,
+but should be given if they are readily available.
+
+=== Transactions ===
+
+* <tt>height</tt>: An integer giving the block height where this fully confirmed transaction can be found. For transactions that are confirmed by less than 6 blocks, omit this field or provide a value of zero.  (Background: Until it is fully confirmed, the "height" of a transaction is in flux and may vary due to chain reorgs. However, the consumer of the labels, may not know the current block height, so it cannot know if the height is "real" (firm, fixed) or just transitory. Therefore, it is important to omit the height unless the generating wallet considers the transaction to be confirmed.)
+
+* <tt>time</tt>: ISO-8601 formatted timestamp of the block given by the "height" field, preferably in UTC, although ISO-8601 can represent local times. Example: <tt>2025-01-23T11:40:35Z</tt>.
+
+* <tt>fee</tt>: Integer giving the number of Satoshis that went to the miner for this transaction.
+
+* <tt>value</tt>: Signed integer giving the number of Satoshis that came into the wallet by this transaction. Will be negative when sats leave the wallet. Could be zero if it is a consolidation transaction that moves from old UTXO to new. 
+
+* <tt>rate</tt>: Exchange rate at time of transaction. This is the value of a Bitcoin, expressed in another currency, at the time of the transaction, based on user preferences for data source. Multiple currencies can be given. Keys are ISO 4217 currency codes where possible. Example: <tt>"rate": { "USD":  105620.00 }</tt>
+
+=== Address, Inputs, and Outputs ===
+
+* <tt>keypath</tt>: The data needed to build full descriptor down to the specific address.  This extends <tt>origin</tt> with the final two components that are unhardened (in the typical case, assuming BIP-84).  Provide string <tt>/1/123</tt> for <tt>wpkh([d34db33f/84'/0'/0'/1/123])</tt>. If the first character is not <tt>/</tt>, then it should be interpreted as a full descriptor, independant of <tt>origin</tt> (if any).
+
+=== Inputs and Outputs ===
+
+* <tt>value</tt>: Integer with the number of Satoshis (<tt>nValue</tt>) of the input or output.
+
+* <tt>fmv</tt>: Fair market value of the input/output relative to some other currency, typically fiat. The value should be a mapping, from currency code to decimal number. Example: <tt>"fmv": { "USD":  1233.45 }</tt>. Most situations will have only a single currency value, and it represents the real price of the goods/services expressed in some fiat currency. This is not an exchange *rate*, but an absolute value. By dividing by the <tt>value</tt> (above), it is possible to calculate an effective change rate for the transaction.
+
+* <tt>height</tt> and <tt>time</tt>: Same definition as defined in Transactions.
+
+=== Address ===
+
+* <tt>heights</tt>: a list of block heights that contain any activity related to this address, include outputs that deposit to the address, and transactions that spend UTXOs of this address. Omit heights for transactions that are not fully confirmed. An empty array indicates the address is unused for confirmed transactions.
+
+== Comment on Types in JSON ==
+
+JSON can serialize a number of basic types, including string, integer
+and boolean (true/false).  Decimal values (<tt>123.45</tt>) can
+also be serialized, but some parsing libraries may interpret them as floating
+point values, which is generally not what we want in financial applications.
+When hand-crafting JSON data, be careful not to write <tt>"false"</tt> (with quotes),
+since that is a string with 5 characters and not a boolean.
+
 ==Reference Implementation==
 
-TBD
+* [https://github.com/Labelbase/python-bip329 Python-BIP329 package]
 
 ==References==
 

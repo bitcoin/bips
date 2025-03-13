@@ -80,7 +80,7 @@ We set two fundamental design goals:
 * Minimize the amount of information that is shown on screen - so that the user can actually validate it.
 * Minimize the number of times the user has to validate such information.
 
-Designing a secure protocol for the coordination of a descriptor wallet among distant parties is also a challenging problem that is out of scope in this document. See [[bip-0129.mediawiki|BIP-129 (Bitcoin Secure Multisig Setup)]] for an approach designed for multisignature wallets. Regardless of the approach, the ability for the user to carefully verify all the details of the spending policies using the hardware signer's screen is a prerequisite for security in adversarial environments.
+Designing a secure protocol for the coordination of a descriptor wallet among distant parties is also a challenging problem that is out of the scope of this document. See [[bip-0129.mediawiki|BIP-129 (Bitcoin Secure Multisig Setup)]] for an approach designed for multisig wallets. Regardless of the approach, the ability for the user to carefully verify all the details of the spending policies using the hardware signer's screen is a prerequisite for security in adversarial environments.
 
 === Policy registration as a solution ===
 
@@ -108,11 +108,11 @@ Once the previously registered policy is correctly identified and approved by th
 
 While reusing a pubkey in different branches of a miniscript is explicitly forbidden by miniscript (as it has certain negative security implications), it is still reasonable to reuse the same xpub in multiple places, albeit with different final steps of derivation (so that the actual pubkeys that are used in the script are indeed different).
 
-In fact, there are many reasonable spending policies with a quadratic size in the number of participants. For example, using Taproot, a 3-of-5 multisignature wallet could use:
-* a key path with a 5-of-5 MuSig2 aggregated key
+In fact, there are many reasonable spending policies with a quadratic size in the number of participants. For example, using Taproot, a 3-of-5 threshold wallet could use:
+* a key path with a 5-of-5 [[bip-0327.mediawiki|MuSig2]] aggregated key
 * a script tree with 11 leaves:
 ** 10 different scripts using a 3-of-3 MuSig2 aggregated key, plus
-** a final leaf with a fallback 3-of-5 multisignature using <tt>multi_a</tt> (in case interactive signing is not available).
+** a final leaf with a fallback 3-of-5 multisig using <tt>multi_a</tt> (in case interactive signing is not available).
 
 With each xpub being 118 bytes long, the repetition of xpubs makes the descriptor become extremely large.
 
@@ -133,11 +133,11 @@ A ''wallet descriptor template'' is a <tt>SCRIPT</tt> expression.
 <tt>SCRIPT</tt> expressions:
 * <tt>sh(SCRIPT)</tt> (top level only): P2SH embed the argument.
 * <tt>wsh(SCRIPT)</tt> (top level or inside <tt>sh</tt> only): P2WSH embed the argument.
-* <tt>pkh(KP)</tt> (not inside <tt>tr</tt>): P2PKH output for the given public key.
-* <tt>wpkh(KP)</tt> (top level or inside <tt>sh</tt> only): P2WPKH output for the given compressed pubkey.
-* <tt>multi(k,KP_1,KP_2,...,KP_n)</tt> (inside <tt>sh</tt> or <tt>wsh</tt> only): ''k''-of-''n'' multisig script.
-* <tt>sortedmulti(k,KP_1,KP_2,...,KP_n)</tt> (inside <tt>sh</tt> or <tt>wsh</tt> only): ''k''-of-''n'' multisig script with keys sorted lexicographically in the resulting script.
-* <tt>tr(KP)</tt> or <tt>tr(KP,TREE)</tt> (top level only): P2TR output with the specified key as internal key, and optionally a tree of script paths.
+* <tt>pkh(KEY)</tt> (not inside <tt>tr</tt>): P2PKH output for the given public key.
+* <tt>wpkh(KEY)</tt> (top level or inside <tt>sh</tt> only): P2WPKH output for the given compressed pubkey.
+* <tt>multi(k,KEY_1,KEY_2,...,KEY_n)</tt> (inside <tt>sh</tt> or <tt>wsh</tt> only): ''k''-of-''n'' multisig script.
+* <tt>sortedmulti(k,KEY_1,KEY_2,...,KEY_n)</tt> (inside <tt>sh</tt> or <tt>wsh</tt> only): ''k''-of-''n'' multisig script with keys sorted lexicographically in the resulting script.
+* <tt>tr(KEY)</tt> or <tt>tr(KEY,TREE)</tt> (top level only): P2TR output with the specified key as internal key, and optionally a tree of script paths.
 * any valid miniscript template (inside <tt>wsh</tt> or <tt>tr</tt> only).
 
 See [[bip-0379.md|BIP-379]] for a precise specification of all the valid miniscript <tt>SCRIPT</tt> expressions.
@@ -147,25 +147,38 @@ See [[bip-0379.md|BIP-379]] for a precise specification of all the valid miniscr
 * An open brace <tt>{</tt>, a <tt>TREE</tt> expression, a comma <tt>,</tt>, a <tt>TREE</tt> expression, and a closing brace <tt>}</tt>
 
 
-<tt>KP</tt> expressions (key placeholders) consist of
-* a single character <tt>@</tt>
-* followed by a non-negative decimal number, with no leading zeros (except for <tt>@0</tt>)
+<tt>KEY</tt> expressions consist of
+* a <tt>KP</tt> expression
 * ''always'' followed by either:
 ** the string  <tt>/**</tt>, or
 ** a string of the form <tt>/<NUM;NUM>/*</tt>, for two distinct decimal numbers <tt>NUM</tt> representing unhardened derivations, or
 ** any of the additional, implementation-specific valid derivation path patterns (see [[#optional-derivation-paths|Optional derivation paths]] below).
 
+<tt>KP</tt> expressions (key placeholders) consist of either:
+* a <tt>KI</tt> (key index) expression, or
+* (only inside <tt>tr</tt>): <tt>musig(KI_1,KI_2,...,KI_n)</tt>
+
+A <tt>KI</tt> (key index) expression consists of:
+* a single character <tt>@</tt>
+* followed by a non-negative decimal number, with no leading zeros (except for <tt>@0</tt>)
+
 The <tt>/**</tt> in the placeholder template represents commonly used paths for receive/change addresses, and is equivalent to <tt><0;1>/*</tt>.
 
 Note that while [[bip-0389.mediawiki|BIP-389]] allows multipath <tt>/<NUM;NUM;...;NUM></tt> expressions with an arbitrary number of options, this specification restricts it to exactly 2 choices (with the typical meaning of receive/change addresses).
 
-The placeholder <tt>@i</tt> for some number ''i'' represents the ''i''-th key in the vector of key information items (which must be of size at least ''i + 1'', or the wallet policy is invalid).
+<tt>SCRIPT</tt>, <tt>TREE</tt> and <tt>KEY</tt> expressions map directly to the corresponding concepts defined in [[bip-0380.mediawiki|BIP-380]] for output script descriptors.
+
+Each <tt>KEY</tt> expression always corresponds to a precise public key in the final bitcoin Script. Therefore, all the derivation steps in the BIP-32 hierarchy are included in a <tt>KEY</tt> expression.
+
+Each <tt>KP</tt> (key placeholder) expression, on the other hand, maps to the root of all the corresponding public keys for all the possible UTXOs that belong to the account represented in the wallet policy. Therefore, no derivation steps are allowed in a <tt>KP</tt> expression.
+
+A <tt>KI</tt> (key index) <tt>@i</tt> for some number ''i'' represents the ''i''-th key in the vector of key information items (which must be of size at least ''i + 1'', or the wallet policy is invalid).
 
 Note: while descriptor templates for miniscript are not formally defined in this version of the document (pending standardization), it is straightforward to adapt this approach by adding additional <tt>SCRIPT</tt> expressions.
 
 ==== Key information vector ====
 
-Each element of the key origin information vector is a <tt>KEY</tt> expression.
+Each element of the key origin information vector is a <tt>KEY_INFO</tt> expression, containing an extended public key, and (optionally) its key origin.
 
 * Optionally, key origin information, consisting of:
 ** An open bracket <tt>[</tt>
@@ -180,7 +193,9 @@ A wallet policy must have at least one key placeholder and the corresponding key
 
 The public keys obtained by deserializing elements of the key information vector must be pairwise distinct<ref>'''Why must public keys be distinct?''' Reusing pubkeys could be insecure in the context of wallet policies containing [https://bitcoin.sipa.be/miniscript/ miniscript]. Avoiding repeated public keys altogether avoids the problem at the source.</ref>.
 
-If two key placeholders are <tt>@i/<M;N>/*</tt> and <tt>@i/<P;Q>/*</tt> for the same index <tt>i</tt>, then the sets <tt>{M, N}</tt> and <tt>{P, Q}</tt> must be disjoint.
+If two <tt>KEY</tt> are <tt>KP/<M;N>/*</tt> and <tt>KP/<P;Q>/*</tt> for the same key placeholder <tt>KP</tt>, then the sets <tt>{M, N}</tt> and <tt>{P, Q}</tt> must be disjoint. Two <tt>musig</tt> key placeholders are the same if they have exactly the same set of key indexes (regardless of the order).
+
+Repeated <tt>KI</tt> expressions are not allowed inside a <tt>musig</tt> placeholder.
 
 The key information vector should be ordered so that placeholder <tt>@i</tt> never appears for the first time before an occurrence of <tt>@j</tt>  for some <tt>j < i</tt>; for example, the first placeholder is always <tt>@0</tt>, the next one is <tt>@1</tt>, etc.
 
@@ -188,8 +203,7 @@ The key information vector should be ordered so that placeholder <tt>@i</tt> nev
 
 From a wallet descriptor template (and the associated vector of key information items), one can therefore obtain the corresponding multipath descriptor by:
 
-* replacing each key placeholder with the corresponding key origin
-information;
+* replacing each key placeholder with the corresponding key origin information;
 * replacing every <tt>/**</tt> with <tt>/<0;1>/*</tt>.
 
 For example, the wallet descriptor <tt>pkh(@0/**)</tt> with key information
@@ -225,9 +239,10 @@ Common single-signature account patterns:
 * <tt>sh(wpkh(@0/**))</tt> (nested segwit).
 * <tt>tr(@0/**)</tt> (taproot single-signature account).
 
-Common multisignature schemes:
-* <tt>wsh(multi(2,@0/**,@1/**))</tt> - SegWit 2-of-2 multisignature, keys in order.
-* <tt>sh(sortedmulti(2,@0/**,@1/**,@2/**))</tt> - Legacy 2-of-3 multisignature, sorted keys.
+Common multisig schemes:
+* <tt>wsh(multi(2,@0/**,@1/**))</tt> - SegWit 2-of-2 multisig, keys in order.
+* <tt>sh(sortedmulti(2,@0/**,@1/**,@2/**))</tt> - Legacy 2-of-3 multisig, sorted keys.
+* <tt>tr(musig(@0/**,@1/**))</tt> - MuSig2 2-of-2 in the taproot keypath
 
 Some miniscript policies in <tt>wsh</tt>:
 * <tt>wsh(and_v(v:pk(@0/**),or_d(pk(@1/**),older(12960))))</tt> - Trust-minimized second factor, degrading to a single signature after about 90 days.
@@ -241,43 +256,47 @@ Some miniscript policies in <tt>wsh</tt>:
 [[bip-0044.mediawiki|BIP-44]], first account
  Descriptor template: pkh(@0/**)
  Keys info: ["[6738736c/44'/0'/0']xpub6Br37sWxruYfT8ASpCjVHKGwgdnYFEn98DwiN76i2oyY6fgH1LAPmmDcF46xjxJr22gw4jmVjTE2E3URMnRPEPYyo1zoPSUba563ESMXCeb"]
- Descriptor: pkh([6738736c/44'/0'/0']xpub6Br37sWxruYfT8ASpCjVHKGwgdnYFEn98DwiN76i2oyY6fgH1LAPmmDcF46xjxJr22gw4jmVjTE2E3URMnRPEPYyo1zoPSUba563ESMXCeb)
+ Descriptor: pkh([6738736c/44'/0'/0']xpub6Br37sWxruYfT8ASpCjVHKGwgdnYFEn98DwiN76i2oyY6fgH1LAPmmDcF46xjxJr22gw4jmVjTE2E3URMnRPEPYyo1zoPSUba563ESMXCeb/<0;1>/*)
 <br>
 [[bip-0049.mediawiki|BIP-49]], second account
  Descriptor template: sh(wpkh(@0/**))
  Keys info: ["[6738736c/49'/0'/1']xpub6Bex1CHWGXNNwGVKHLqNC7kcV348FxkCxpZXyCWp1k27kin8sRPayjZUKDjyQeZzGUdyeAj2emoW5zStFFUAHRgd5w8iVVbLgZ7PmjAKAm9"]
- Descriptor: sh(wpkh([6738736c/49'/0'/1']xpub6Bex1CHWGXNNwGVKHLqNC7kcV348FxkCxpZXyCWp1k27kin8sRPayjZUKDjyQeZzGUdyeAj2emoW5zStFFUAHRgd5w8iVVbLgZ7PmjAKAm9))
+ Descriptor: sh(wpkh([6738736c/49'/0'/1']xpub6Bex1CHWGXNNwGVKHLqNC7kcV348FxkCxpZXyCWp1k27kin8sRPayjZUKDjyQeZzGUdyeAj2emoW5zStFFUAHRgd5w8iVVbLgZ7PmjAKAm9/<0;1>/*))
 <br>
 [[bip-0084.mediawiki|BIP-84]], third account
  Descriptor template: wpkh(@0/**)
  Keys info: ["[6738736c/84'/0'/2']xpub6CRQzb8u9dmMcq5XAwwRn9gcoYCjndJkhKgD11WKzbVGd932UmrExWFxCAvRnDN3ez6ZujLmMvmLBaSWdfWVn75L83Qxu1qSX4fJNrJg2Gt"]
- Descriptor: wpkh([6738736c/84'/0'/2']xpub6CRQzb8u9dmMcq5XAwwRn9gcoYCjndJkhKgD11WKzbVGd932UmrExWFxCAvRnDN3ez6ZujLmMvmLBaSWdfWVn75L83Qxu1qSX4fJNrJg2Gt)
+ Descriptor: wpkh([6738736c/84'/0'/2']xpub6CRQzb8u9dmMcq5XAwwRn9gcoYCjndJkhKgD11WKzbVGd932UmrExWFxCAvRnDN3ez6ZujLmMvmLBaSWdfWVn75L83Qxu1qSX4fJNrJg2Gt/<0;1>/*)
 <br>
 [[bip-0086.mediawiki|BIP-86]], first account
  Descriptor template: tr(@0/**)
  Keys info: ["[6738736c/86'/0'/0']xpub6CryUDWPS28eR2cDyojB8G354izmx294BdjeSvH469Ty3o2E6Tq5VjBJCn8rWBgesvTJnyXNAJ3QpLFGuNwqFXNt3gn612raffLWfdHNkYL"]
- Descriptor: tr([6738736c/86'/0'/0']xpub6CryUDWPS28eR2cDyojB8G354izmx294BdjeSvH469Ty3o2E6Tq5VjBJCn8rWBgesvTJnyXNAJ3QpLFGuNwqFXNt3gn612raffLWfdHNkYL)
+ Descriptor: tr([6738736c/86'/0'/0']xpub6CryUDWPS28eR2cDyojB8G354izmx294BdjeSvH469Ty3o2E6Tq5VjBJCn8rWBgesvTJnyXNAJ3QpLFGuNwqFXNt3gn612raffLWfdHNkYL/<0;1>/*)
 <br>
 [[bip-0048.mediawiki|BIP-48]] P2WSH multisig
  Descriptor template: wsh(sortedmulti(2,@0/**,@1/**))
  Keys info: ["[6738736c/48'/0'/0'/2']xpub6FC1fXFP1GXLX5TKtcjHGT4q89SDRehkQLtbKJ2PzWcvbBHtyDsJPLtpLtkGqYNYZdVVAjRQ5kug9CsapegmmeRutpP7PW4u4wVF9JfkDhw", "[b2b1f0cf/48'/0'/0'/2']xpub6EWhjpPa6FqrcaPBuGBZRJVjzGJ1ZsMygRF26RwN932Vfkn1gyCiTbECVitBjRCkexEvetLdiqzTcYimmzYxyR1BZ79KNevgt61PDcukmC7"]
- Descriptor: wsh(sortedmulti(2,[6738736c/48'/0'/0'/2']xpub6FC1fXFP1GXLX5TKtcjHGT4q89SDRehkQLtbKJ2PzWcvbBHtyDsJPLtpLtkGqYNYZdVVAjRQ5kug9CsapegmmeRutpP7PW4u4wVF9JfkDhw,[b2b1f0cf/48'/0'/0'/2']xpub6EWhjpPa6FqrcaPBuGBZRJVjzGJ1ZsMygRF26RwN932Vfkn1gyCiTbECVitBjRCkexEvetLdiqzTcYimmzYxyR1BZ79KNevgt61PDcukmC7))
+ Descriptor: wsh(sortedmulti(2,[6738736c/48'/0'/0'/2']xpub6FC1fXFP1GXLX5TKtcjHGT4q89SDRehkQLtbKJ2PzWcvbBHtyDsJPLtpLtkGqYNYZdVVAjRQ5kug9CsapegmmeRutpP7PW4u4wVF9JfkDhw/<0;1>/*,[b2b1f0cf/48'/0'/0'/2']xpub6EWhjpPa6FqrcaPBuGBZRJVjzGJ1ZsMygRF26RwN932Vfkn1gyCiTbECVitBjRCkexEvetLdiqzTcYimmzYxyR1BZ79KNevgt61PDcukmC7/<0;1>/*))
 <br>
 Miniscript: A 3-of-3 that becomes a 2-of-3 after 90 days
  Descriptor template: wsh(thresh(3,pk(@0/**),s:pk(@1/**),s:pk(@2/**),sln:older(12960)))
  Keys info: ["[6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa", "[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js", "[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2"]
- Descriptor: wsh(thresh(3,pk([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<0,1>/*),s:pk([b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js/<0,1>/*),s:pk([a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2/<0,1>/*),sln:older(12960)))
+ Descriptor: wsh(thresh(3,pk([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<0;1>/*),s:pk([b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js/<0;1>/*),s:pk([a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2/<0;1>/*),sln:older(12960)))
 <br>
 Miniscript: A singlesig wallet with automatic inheritance to a timelocked 2-of-3 multisig
  Descriptor template: wsh(or_d(pk(@0/**),and_v(v:multi(2,@1/**,@2/**,@3/**),older(65535))))
  Keys info: ["[6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa", "[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js", "[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2", "[bb641298/44'/0'/0'/100']xpub6Dz8PHFmXkYkykQ83ySkruky567XtJb9N69uXScJZqweYiQn6FyieajdiyjCvWzRZ2GoLHMRE1cwDfuJZ6461YvNRGVBJNnLA35cZrQKSRJ"]
- Descriptor: wsh(or_d(pk([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa),and_v(v:multi(2,[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js,[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2,[bb641298/44'/0'/0'/100']xpub6Dz8PHFmXkYkykQ83ySkruky567XtJb9N69uXScJZqweYiQn6FyieajdiyjCvWzRZ2GoLHMRE1cwDfuJZ6461YvNRGVBJNnLA35cZrQKSRJ),older(65535))))
+ Descriptor: wsh(or_d(pk([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<0;1>/*),and_v(v:multi(2,[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js/<0;1>/*,[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2/<0;1>/*,[bb641298/44'/0'/0'/100']xpub6Dz8PHFmXkYkykQ83ySkruky567XtJb9N69uXScJZqweYiQn6FyieajdiyjCvWzRZ2GoLHMRE1cwDfuJZ6461YvNRGVBJNnLA35cZrQKSRJ/<0;1>/*),older(65535))))
 <br>
 Taproot wallet policy with sortedmulti_a and a miniscript leaf
  Descriptor template: tr(@0/**,{sortedmulti_a(1,@0/<2;3>/*,@1/**),or_b(pk(@2/**),s:pk(@3/**))})
  Keys info: ["[6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa", "xpub6Fc2TRaCWNgfT49nRGG2G78d1dPnjhW66gEXi7oYZML7qEFN8e21b2DLDipTZZnfV6V7ivrMkvh4VbnHY2ChHTS9qM3XVLJiAgcfagYQk6K", "xpub6GxHB9kRdFfTqYka8tgtX9Gh3Td3A9XS8uakUGVcJ9NGZ1uLrGZrRVr67DjpMNCHprZmVmceFTY4X4wWfksy8nVwPiNvzJ5pjLxzPtpnfEM", "xpub6GjFUVVYewLj5no5uoNKCWuyWhQ1rKGvV8DgXBG9Uc6DvAKxt2dhrj1EZFrTNB5qxAoBkVW3wF8uCS3q1ri9fueAa6y7heFTcf27Q4gyeh6"]
  Descriptor: tr([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<0;1>/*,{sortedmulti_a(1,xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa/<2;3>/*,xpub6Fc2TRaCWNgfT49nRGG2G78d1dPnjhW66gEXi7oYZML7qEFN8e21b2DLDipTZZnfV6V7ivrMkvh4VbnHY2ChHTS9qM3XVLJiAgcfagYQk6K/<0;1>/*),or_b(pk(xpub6GxHB9kRdFfTqYka8tgtX9Gh3Td3A9XS8uakUGVcJ9NGZ1uLrGZrRVr67DjpMNCHprZmVmceFTY4X4wWfksy8nVwPiNvzJ5pjLxzPtpnfEM/<0;1>/*),s:pk(xpub6GjFUVVYewLj5no5uoNKCWuyWhQ1rKGvV8DgXBG9Uc6DvAKxt2dhrj1EZFrTNB5qxAoBkVW3wF8uCS3q1ri9fueAa6y7heFTcf27Q4gyeh6/<0;1>/*))})
 <br>
+Taproot MuSig2 3-of-3 in the key path, with three 2-of-2 MuSig2 recovery paths after 90 days in the script paths
+ Descriptor template: tr(musig(@0,@1,@2)/**,{and_v(v:pk(musig(@0,@1)/**),older(12960)),{and_v(v:pk(musig(@0,@2)/**),older(12960)),and_v(v:pk(musig(@1,@2)/**),older(12960))}})
+ Keys info: ["[6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa", "[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js", "[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2"]
+ Descriptor: tr(musig([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa,[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js,[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2)/<0;1>/*,{and_v(v:pk(musig([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa,[b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js)/<0;1>/*),older(12960)),{and_v(v:pk(musig([6738736c/48'/0'/0'/100']xpub6FC1fXFP1GXQpyRFfSE1vzzySqs3Vg63bzimYLeqtNUYbzA87kMNTcuy9ubr7MmavGRjW2FRYHP4WGKjwutbf1ghgkUW9H7e3ceaPLRcVwa,[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2)/<0;1>/*),older(12960)),and_v(v:pk(musig([b2b1f0cf/44'/0'/0'/100']xpub6EYajCJHe2CK53RLVXrN14uWoEttZgrRSaRztujsXg7yRhGtHmLBt9ot9Pd5ugfwWEu6eWyJYKSshyvZFKDXiNbBcoK42KRZbxwjRQpm5Js,[a666a867/44'/0'/0'/100']xpub6Dgsze3ujLi1EiHoCtHFMS9VLS1UheVqxrHGfP7sBJ2DBfChEUHV4MDwmxAXR2ayeytpwm3zJEU3H3pjCR6q6U5sP2p2qzAD71x9z5QShK2)/<0;1>/*),older(12960))}})
 
 === Invalid policies ===
 
@@ -291,6 +310,7 @@ The following descriptor templates are invalid:
 * <tt>sh(multi(1,@0/<0;1>/*,@0/<1;2>/*))</tt>: Non-disjoint multipath expressions (<tt>@0/1/*</tt> appears twice)
 * <tt>sh(multi(1,@0/**,xpub6AHA9hZDN11k2ijHMeS5QqHx2KP9aMBRhTDqANMnwVtdyw2TDYRmF8PjpvwUFcL1Et8Hj59S3gTSMcUQ5gAqTz3Wd8EsMTmF3DChhqPQBnU/<0;1>/*))</tt>: Expression with a non-KP key present
 * <tt>pkh(@0/<0;1;2>/*)</tt>: Solved cardinality > 2
+* <tt>tr(musig(@0/**,@1/**))</tt>: Derivation before aggregation is not allowed in wallet policies (despite being allowed in [[bip-0390.mediawiki|BIP-390]])
 
 Remark: some of the examples of invalid descriptor templates may be valid via optional extensions.
 
@@ -312,7 +332,14 @@ Wallet policies are implemented in
 For development and testing purposes, we provide a [[bip-0388/wallet_policies.py|Python 3.7 reference implementation]] of simple classes to handle wallet policies, and the conversion to/from output script descriptors.
 The reference implementation is for demonstration purposes only and not to be used in production environments.
 
-==Footnotes==
+== Change Log ==
+
+* '''1.1.0''' (2024-11):
+** Added support for <tt>musig</tt> key placeholders in descriptor templates.
+* '''1.0.0''' (2024-05):
+** Initial version.
+
+== Footnotes ==
 
 <references />
 
