@@ -258,15 +258,43 @@ To integrate P2QRH into existing wallet software and scripts, we introduce a new
 <code>qrh()</code>. This function represents a P2QRH output, similar to how <code>wpkh()</code> and <code>tr()</code>
 are used for P2WPKH and P2TR outputs, respectively.
 
-The <code>qrh()</code> function takes the HASH256 of the concatenated HASH256 of the quantum-resistant public keys as
-its argument. For example:
+The <code>qrh()</code> function takes a threshold value and multiple key specifications grouped by key type. The format is:
 
-  qrh(HASH256(HASH256(pubkey1) <nowiki>||</nowiki> HASH256(pubkey2) <nowiki>||</nowiki> ...))
+  qrh(threshold, keytype(0x01, [hash1, hash2, ...]), keytype(0x02, [hash1, hash2, ...]), ...)
 
-This function allows wallets to manage P2QRH addresses and outputs while accommodating multiple public keys of varying
-lengths, such as in multisig schemes, while keeping the public keys hidden until the time of spending. At a minimum,
-there should be two public keys in a P2QRH output: one key that makes use of classical cryptography, and one that makes use
-of a PQC algorithm chosen within the wallet.
+Where:
+
+* <code>threshold</code> is an integer specifying the minimum number of signatures required
+* <code>keytype</code> is the hex value representing the key type (0x01 for secp256k1, 0x02 for FALCON-512, 0x04 for CRYSTALS-Dilithium Level I, 0x08 for SPHINCS+-128s)
+* <code>[hash1, hash2, ...]</code> is an array of HASH256 hashes of public keys for the corresponding algorithm type
+
+For example:
+
+  qrh(3, keytype(0x01, hash256(secp256k1_pubkey1), hash256(secp256k1_pubkey2), hash256(secp256k1_pubkey3), secp256k1_pubkey4_hash, secp256k1_pubkey5_hash),
+      keytype(0x02, hash256(falcon_pubkey1), hash256(falcon_pubkey2), hash256(falcon_pubkey3), falcon_pubkey4_hash, falcon_pubkey5_hash),
+      keytype(0x04, hash256(dilithium_pubkey1), hash256(dilithium_pubkey2), hash256(dilithium_pubkey3), dilithium_pubkey4_hash, dilithium_pubkey5_hash),
+      keytype(0x08, hash256(sphincs_pubkey1), hash256(sphincs_pubkey2), hash256(sphincs_pubkey3), sphincs_pubkey4_hash, sphincs_pubkey5_hash))
+
+This represents a 3-of-5 multisig for each key type, with a total of 20 keys: 5 keys per type (3 full public keys and 2
+hashes) across 4 different key types.
+
+Internally, the descriptor computes the HASH256 of the concatenated HASH256 of all the quantum-resistant public keys,
+with the threshold and key type bitmask prepended. For each key in the descriptor:
+
+- If it is already a hash (indicated in the descriptor), it is used directly
+- If it is a public key, HASH256 is applied to it first
+
+This approach ensures that all items in the vector are HASH256 values, whether they originated from raw public keys or
+were provided as hashes. During spending, this allows for selective disclosure of public keys, where some keys can
+remain hidden (represented only by their hashes) while others are fully revealed with their corresponding public keys.
+This flexibility is particularly valuable in multisig schemes where not all keys need to be revealed to satisfy the
+threshold requirement. At a minimum, there should be two different key types in a P2QRH output: one key that makes use
+of classical cryptography, and one that makes use of a PQC algorithm chosen within the wallet.
+
+Also, it's important to note that order of keys and hashes in the descriptor matters and is based on the original
+public key values, in addition to the key type. Additionally, qrh() does not compile to script, but instead, describes
+what's needed to compute the scriptPubKey hash commitment and also to reveal the attestation needed to spend the
+output.
 
 === Address Format ===
 
@@ -686,7 +714,7 @@ seeds to act as the authoritative secret when signing. These measures are deemed
 
 To help implementors understand updates to this BIP, we keep a list of substantial changes.
 
-* 2025-03-18 - Correct inconsistencies in commitment and attestation structure. Switch from merkle tree commitment to sorted vector hash commitment.
+* 2025-03-18 - Correct inconsistencies in commitment and attestation structure. Switch from merkle tree commitment to sorted vector hash commitment. Update descriptor format.
 * 2025-03-12 - Add verification times for each algorithm. 256 -> 128 (NIST V -> NIST I). Add key type bitmask. Clarify multisig semantics.
 * 2025-02-23 - More points of clarification from review. Update dead link.
 * 2025-01-20 - Remove SQIsign from consideration due to significant performance concerns. Refactor language from long-range attack to long-exposure so as to not be confused with the language around block re-org attacks.
