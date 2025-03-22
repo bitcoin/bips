@@ -46,22 +46,22 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
                 pubkey_hash = hash160(pubkey_bytes)
                 if pubkey_hash == spk_hash:
                     pubkey = ECPubKey().set(pubkey_bytes)
-                    if (pubkey.valid) & (pubkey.compressed):
+                    if pubkey.valid and pubkey.compressed:
                         return pubkey
     if is_p2sh(vin.prevout):
         redeem_script = vin.scriptSig[1:]
         if is_p2wpkh(redeem_script):
             pubkey = ECPubKey().set(vin.txinwitness.scriptWitness.stack[-1])
-            if (pubkey.valid) & (pubkey.compressed):
+            if pubkey.valid and pubkey.compressed:
                 return pubkey
     if is_p2wpkh(vin.prevout):
         txin = vin.txinwitness
         pubkey = ECPubKey().set(txin.scriptWitness.stack[-1])
-        if (pubkey.valid) & (pubkey.compressed):
+        if pubkey.valid and pubkey.compressed:
             return pubkey
     if is_p2tr(vin.prevout):
         witnessStack = vin.txinwitness.scriptWitness.stack
-        if (len(witnessStack) >= 1):
+        if len(witnessStack) > 0:
             if (len(witnessStack) > 1 and witnessStack[-1][0] == 0x50):
                 # Last item is annex
                 witnessStack.pop()
@@ -69,14 +69,14 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
             if (len(witnessStack) > 1):
                 # Script-path spend
                 control_block = witnessStack[-1]
-                #  control block is <control byte> <32 byte internal key> and 0 or more <32 byte hash>
+                # control block is <control byte> <32 byte internal key> and 0 or more <32 byte hash>
                 internal_key = control_block[1:33]
                 if (internal_key == NUMS_H.to_bytes(32, 'big')):
                     # Skip if NUMS_H
                     return ECPubKey()
 
             pubkey = ECPubKey().set(vin.prevout[2:])
-            if (pubkey.valid) & (pubkey.compressed):
+            if pubkey.valid and pubkey.compressed:
                 return pubkey
 
 
@@ -239,7 +239,7 @@ if __name__ == "__main__":
                 input_pub_keys.append(pubkey)
 
             sending_outputs = []
-            if (len(input_pub_keys) > 0):
+            if input_pub_keys:
                 outpoints = [vin.outpoint for vin in vins]
                 sending_outputs = create_outputs(input_priv_keys, outpoints, given["recipients"], hrp="sp")
 
@@ -298,7 +298,7 @@ if __name__ == "__main__":
                 input_pub_keys.append(pubkey)
 
             add_to_wallet = []
-            if (len(input_pub_keys) > 0):
+            if input_pub_keys:
                 A_sum = reduce(lambda x, y: x + y, input_pub_keys)
                 if A_sum.get_bytes() is None:
                     # Input pubkeys sum is point at infinity -> skip tx
