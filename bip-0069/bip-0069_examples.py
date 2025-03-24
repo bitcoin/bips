@@ -29,7 +29,7 @@ def input_cmp(input_tuple1, input_tuple2):
 	elif (input_tuple1[1] > input_tuple2[1]):
 		return 1
 	else:
-		raise ValueError('Matching previous transaction hash and previous transaction output index for two disinct inputs. Invalid!')
+		raise ValueError('Matching previous transaction hash and previous transaction output index for two distinct inputs. Invalid!')
 
 def sort_inputs(input_tuples):
 	return sorted(input_tuples, cmp=input_cmp)
