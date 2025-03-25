@@ -9,18 +9,24 @@
   Type: Standards Track
   Created: 2024-11-15
   License: BSD-2-Clause
+  Replaces: 21
 </pre>
 
-==Copyright==
+== Copyright ==
+
 This BIP is licensed under the BSD 2-clause license.
 
-==Abstract==
-This BIP proposes a URI scheme for making Bitcoin payments.
+== Abstract ==
 
-==Motivation==
+This BIP proposes a URI scheme for describing Bitcoin payment instructions.
+
+== Motivation ==
+
 The purpose of this URI scheme is to enable users to easily make payments by simply clicking links on webpages or scanning QR Codes.
 
-==Specification==
+This BIP is a modification of [[bip-0021.mediawiki|BIP 0021]] to add information about the modern usage of bitcoin: URIs (including standard query parameters and modern address types) as well as provide forward-looking guidance on how to incorporate new payment instructions. It further adds an optional extension to provide the payment initiator with proof of payment. BIP 21 was based on BIP 20, which was, in turn based on an earlier document by Nils Schneider.
+
+== Specification ==
 
 === General rules for handling (important!) ===
 
@@ -28,6 +34,7 @@ Bitcoin clients MUST NOT act on URIs without getting the user's authorization.
 They SHOULD require the user to manually approve each payment individually, though in some cases they MAY allow the user to automatically make this decision.
 
 === Operating system integration ===
+
 Graphical bitcoin clients SHOULD register themselves as the handler for the "bitcoin:" URI scheme by default, if no other handler is already registered. If there is already a registered handler, they MAY prompt the user to change it once when they first run the client.
 
 === General Format ===
@@ -38,28 +45,43 @@ Elements of the query component may contain characters outside the valid range. 
 
 === ABNF grammar ===
 
-(See also [[#Simpler syntax|a simpler representation of syntax]])
-
- bitcoinurn     = "bitcoin:" bitcoinaddress [ "?" bitcoinparams ]
+ bitcoinurn     = "bitcoin:" [ bitcoinaddress ] [ "?" bitcoinparams ]
  bitcoinaddress = *base58 / *bech32 / *bech32m
  bitcoinparams  = bitcoinparam [ "&" bitcoinparams ]
- bitcoinparam   = [ amountparam / labelparam / messageparam / otherparam / reqparam ]
+ bitcoinparam   = [ amountparam / labelparam / messageparam / responseparam / otherparam / reqparam ]
  amountparam    = "amount=" *digit [ "." *digit ]
  labelparam     = "label=" *qchar
  messageparam   = "message=" *qchar
+ responseparam  = [ "req-" ] "pop=" *qchar
  otherparam     = qchar *qchar [ "=" *qchar ]
  reqparam       = "req-" qchar *qchar [ "=" *qchar ]
 
 Here, "qchar" corresponds to valid characters of an RFC 3986 URI query component, excluding the "=" and "&" characters, which this BIP takes as separators.
 
-The scheme component ("bitcoin:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The rest of the URI is case-sensitive, including the query parameter keys.
+The scheme component ("bitcoin:") is case-insensitive, and implementations must accept any combination of uppercase and lowercase letters. The query parameter keys are also case-insensitive. Query parameter values and bitcoin address fields may be case-sensitive depending on their content.
+
+Multiple query parameters with the same key MAY be included for query parameters representing payment instructions. Multiple query parameters with the same key MUST NOT be included for keys "label", "message", or "pop". Multiple query parameters with the same key for other keys MUST be allowed for unknown query parameters. Future query parameter keys may or may not allow for duplicate parameters.
+
+=== Bitcoin Address ===
+
+The bitcoinaddress body MUST be either a base58 P2SH or P2PKH address, bech32 Segwit version 0 address, bech32m Segwit address, or empty. Future address formats SHOULD instead be placed in query keys as optional payment instructions to provide backwards compatibility during upgrade cycles. The bitcoinaddress part of the URI MAY be left empty if there is at least one payment instruction provided in a query parameter, allowing for recipients wishing to avoid a standard on-chain fallback.
 
 === Query Keys ===
 
-*label: Label for that address (e.g. name of receiver)
-*address: bitcoin address
+The following keys are defined generally and apply to any URI regardless of payment instructions:
+
+*label: Label for the recipient (e.g. name of receiver)
 *message: message that describes the transaction to the user ([[#Examples|see examples below]])
-*(others): optional, for future extensions
+*pop: a URI which the Bitcoin Wallet may return to in order to provide the application which initiated the payment with proof that a payment was completed.
+
+The following keys are currently defined for payment instructions of various forms:
+
+*lightning: Lightning BOLT 11 invoices
+*lno: Lightning BOLT12 offers
+*pay: [[bip-0351.mediawiki|BIP 351 Private Payment addresses]]
+*sp: [[bip-0352.mediawiki|BIP 352 Silent Payment addresses]]
+
+New payment instructions using bech32 or bech32m encodings SHOULD reuse their address format's Human Readable Part as the parameter key.
 
 ==== Transfer amount ====
 
@@ -67,51 +89,89 @@ If an amount is provided, it MUST be specified in decimal BTC.
 All amounts MUST contain no commas and use a period (.) as the separating character to separate whole numbers and decimal fractions.
 I.e. amount=50.00 or amount=50 is treated as 50 BTC, and amount=50,000.00 is invalid.
 
-Bitcoin clients MAY display the amount in any format that is not intended to deceive the user.
-They SHOULD choose a format that is foremost least confusing, and only after that most reasonable given the amount requested.
-For example, so long as the majority of users work in BTC units, values should always be displayed in BTC by default, even if mBTC or TBC would otherwise be a more logical interpretation of the amount.
+=== Proof of Payment ===
+
+The URI MAY include a "pop" (or "req-pop") parameter whose value can be used to build a URI which the wallet application can, after payment completes, "open" to provide proof the payment was completed or other information about the payment.
+
+The value of a "pop" (or "req-pop") parameter shall be a percent-encoded (per RFC 3986 section 2.1) URI prefix. The wallet application, if it supports providing payment information SHOULD percent-decode the provided URI once, append the query parameter key from which the payment instructions used were read, append a single =, and finally append the Payment Information to the resulting URI and open it with the default system handler for the URI. For payment instructions read from the body of the URI, "onchain" SHALL be used in place of the key.
+
+A wallet MUST validate that the provided URI's scheme is not (case-insensitive) "http", "https", "file", "javascript", "mailto" or any other scheme which will open in a web browser prior to opening it.
+
+If a wallet will not open the pop scheme (either because it does not support returning payment information for the selected payment method or because it uses a URI scheme which should not be opened) and the parameter was passed as a "req-pop" parameter, the wallet MUST NOT initiate payment.
+
+For payments made using an on-chain transaction, the Payment Information shall be the full (including witness data) Bitcoin transaction as it was broadcasted to the Bitcoin network, encoded in hex.
+
+For payments made using a BOLT 11 invoice (communicated via the `lightning` parameter), the Payment Information shall be the hex-encoded payment preimage.
+
+Other payment schemes will define their own Payment Information format. This BIP may be updated from time to time with Payment Information formats for other payment schemes.
+
 == Rationale ==
 
-===Payment identifiers, not person identifiers===
-Current best practices are that a unique address should be used for every transaction.
-Therefore, a URI scheme should not represent an exchange of personal information, but a one-time payment.
+=== Payment identifiers, not person identifiers ===
 
-===Accessibility (URI scheme name)===
-Should someone from the outside happen to see such a URI, the URI scheme name already gives a description.
-A quick search should then do the rest to help them find the resources needed to make their payment.
-Other proposed names sound much more cryptic; the chance that someone googles that out of curiosity are much slimmer.
-Also, very likely, what he will find are mostly technical specifications - not the best introduction to bitcoin.
+Best practices are that a unique address should be used for every transaction on-chain.
+Therefore, a URI which contains an on-chain payment address MUST NOT represent an exchange of personal information, but a one-time payment instruction. URIs which represent only reusable non-address-reusing payment instructions (like Lightning BOLT12 offers or Silent Payments) MAY be reused as a wallet sees fit.
 
-==Forward compatibility==
-Variables which are prefixed with a req- are considered required.  If a client does not implement any variables which are prefixed with req-, it MUST consider the entire URI invalid.  Any other variables which are not implemented, but which are not prefixed with a req-, can be safely ignored.
+=== Proof of Payment ===
 
-==Backward compatibility==
-As this BIP is written, several clients already implement a bitcoin: URI scheme similar to this one, however usually without the additional "req-" prefix requirement.  Thus, it is recommended that additional variables prefixed with req- not be used in a mission-critical way until a grace period of 6 months from the finalization of this BIP has passed in order to allow client developers to release new versions, and users of old clients to upgrade.
+On many mobile operating systems (especially, or any operating system more generally), applications may "open" a bitcoin: URI in order to initiate a payment with the user's default wallet application. These payment-initiating applications may wish to learn about the completed payment.
+
+For payments completed on-chain, this is largely addressed by having the payment-initiating application monitor the blockchain for payment completion, however for other payment schemes (e.g. lightning), no such global ledger of transactions exists. In that case, proof of payment must be provided via some other mechanism.
+
+In order to avoid inadvertently revealing the sender's IP address or other information to the recipient, proof URIs must only be opened when they will simply switch to another locally-installed application (i.e. the application which initiated the payment). When clicking a URI from a website, the website should already have plenty of logic on its backend to process payment completion and a proof-of-payment callback is unnecessary.
+
+== Forward compatibility ==
+
+Query parameter keys which are prefixed with a req- are considered required.  If a client does not implement handling a query parameter which has a key prefixed with req-, it MUST consider the entire URI invalid.  Any other query parameters which are not implemented, but which are not prefixed with a req-, can be safely ignored.
+
+As future new address types should be added using query parameters rather than the `bitcoinaddress` field, URIs seamlessly support various payment instructions while senders only need to support legacy instructions. This allows old senders to pay newer recipients which offer more modern payment instruction formats.
+
+== Backward compatibility ==
+
+Compared to BIP 21, this document describes standard query parameters containing payment instructions, makes query parameters case-insensitive, allows bech32 and bech32m addresses in the `bitcoinaddress` field, and allows for URIs with an empty `bitcoinaddress` field. Use of bech32 and bech32m `bitcoinaddress` fields were long-since common practice in 2024, and the `lightning` query parameter storing BOLT 11 payment instructions became common practice in the year or three leading up to 2024. Inclusion of standard query parameters was added to provide guidance on query parameter usage going forward.
+
+Additionally, this BIP describes the "pop" query parameter, which was unused and will be ignored by BIP 21 implementations.
+
+Any existing BIP 21 implementation should automatically be fully compliant with this BIP, as the changes only describe existing practice or impact future address format inclusion, with the one possible exception of query parameters being made case-insensitive. Note, however, that treating query parameters as case-insensitive is already common practice due to the use of mostly-uppercase URIs in QR codes.
 
 == Appendix ==
 
-=== Simpler syntax ===
-
-This section is non-normative and does not cover all possible syntax.
-Please see the BNF grammar above for the normative syntax.
-
-[foo] means optional, &lt;bar&gt; are placeholders
-
- <nowiki>bitcoin:<address>[?amount=<amount>][?label=<label>][?message=<message>]</nowiki>
-
 === Examples ===
+
+==== URIs ====
 
 Just the address:
  bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W
 
-Address with name:
+Address with recipient's name as label:
  bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?label=Luke-Jr
 
 Request 20.30 BTC to "Luke-Jr":
  bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?amount=20.3&label=Luke-Jr
 
+Address with recipient's name as label:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?label=Luke-Jr
+
 Request 50 BTC with message:
  bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?amount=50&label=Luke-Jr&message=Donation%20for%20project%20xyz
+
+Request funds to be paid over lightning to a BOLT 11 invoice with a fallback to on-chain payments:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?lightning=lnbc420bogusinvoice
+
+Request funds to be paid over lightning to a BOLT 11 invoice with no fallback:
+ bitcoin:?lightning=lnbc420bogusinvoice
+
+Request funds to be paid over lightning to a BOLT 12 offer with no fallback:
+ bitcoin:?lno=lno1bogusoffer
+
+Request funds to be paid over lightning to a BOLT 12 offer or silent payments address with no fallback:
+ bitcoin:?lno=lno1bogusoffer&sp=sp1qsilentpayment
+
+Request funds to be paid to a silent payments address with no fallback:
+ bitcoin:?sp=sp1qsilentpayment
+
+Request funds to be paid to a silent payments address with a fallback:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?sp=sp1qsilentpayment
 
 Some future version that has variables which are (currently) not understood and required and thus invalid:
  bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?req-somethingyoudontunderstand=50&req-somethingelseyoudontget=999
@@ -119,13 +179,58 @@ Some future version that has variables which are (currently) not understood and 
 Some future version that has variables which are (currently) not understood but not required and thus valid:
  bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?somethingyoudontunderstand=50&somethingelseyoudontget=999
 
+Multiple segwit addresses may be included for various versions of segwit, note that the human-readable part for all of them is `bc`
+ bitcoin:?bc=bc1qufgy354j3kmvuch987xe4s40836x3h0lg8f5n2&bc=bc1p5swkugezn97763tl0yty6556856uug0q6jflljvep9m4p7339x5qzyrh4g
+
+Many QR codes utilize all-uppercase URIs, which should be handled fine
+ BITCOIN:BC1QUFGY354J3KMVUCH987XE4S40836X3H0LG8F5N2?BC=BC1P5SWKUGEZN97763TL0YTY6556856UUG0Q6JFLLJVEP9M4P7339X5QZYRH4G
+ BITCOIN:?BC=BC1QUFGY354J3KMVUCH987XE4S40836X3H0LG8F5N2&BC=BC1P5SWKUGEZN97763TL0YTY6556856UUG0Q6JFLLJVEP9M4P7339X5QZYRH4G
+
+A testnet segwit addresses must be included in the `tb` parameter
+ bitcoin:?tb=tb1qghfhmd4zh7ncpmxl3qzhmq566jk8ckq4gafnmg
+
 Characters must be URI encoded properly.
 
-== Reference Implementations ==
-=== Bitcoin clients ===
-* Bitcoin-Qt supports the old version of Bitcoin URIs (ie without the req- prefix), with Windows and KDE integration as of commit 70f55355e29c8e45b607e782c5d76609d23cc858.
+==== Invalid URIs ====
 
-=== Libraries ===
-* Javascript - https://github.com/bitcoinjs/bip21
-* Java - https://github.com/SandroMachado/BitcoinPaymentURI
-* Swift - https://github.com/SandroMachado/BitcoinPaymentURISwift
+Labels must not appear twice:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?label=Luke-Jr&label=Matt
+
+Amounts must not appear twice:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?amount=42&amount=10
+
+Amounts must not appear twice even if they are the same:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?amount=42&amount=42
+
+Multiple proof of payment URIs must not appear, even if they are sometimes prefixed with req-:
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?pop=callback%3a&req-pop=callback%3a
+
+A testnet segwit addresses must be included in the `tb` parameter, not the `bc` parameter.
+ bitcoin:?bc=tb1qghfhmd4zh7ncpmxl3qzhmq566jk8ckq4gafnmg
+
+==== Proof of Payment ====
+
+If the original URI is
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?pop=initiatingapp%3a
+the wallet should perform the payment information callback by opening
+ initiatingapp:onchain=$HEX_ENCODED_TRANSACTION
+
+If the original URI is
+ bitcoin:?lightning=lnbc420bogusinvoice&pop=callbackuri%3abody%3fpop=
+the wallet should perform the proof-of-payment callback by opening
+ callbackuri:body?pop=lightning=$HEX_ENCODED_PAYMENT_PREIMAGE
+
+If the original URI is
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?lightning=lnbc420bogusinvoice&pop=app%3a%3f
+and the wallet pays on-chain, it should perform the payment information callback by opening
+ app:?onchain=$HEX_ENCODED_TRANSACTION
+but if the app pays using lightning, it should perform the proof-of-payment callback by opening
+ app:?lightning=$HEX_ENCODED_PAYMENT_PREIMAGE
+
+If the original URI is
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?pop=https%3aiwantyouripaddress.com
+the wallet should make a payment as it normally would but MUST NOT interact with iwantyouripaddress.com
+
+If the original URI is
+ bitcoin:175tWpb8K1S7NmH4Zx6rewF9WQrcZv245W?req-pop=https%3aevilwebsite.com
+the wallet MUST NOT make a payment
