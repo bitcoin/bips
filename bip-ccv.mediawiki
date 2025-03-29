@@ -57,10 +57,10 @@ This allows to embed a commitment to the data that can be validated during the S
 
 When checking the Script of one or more output with <code>OP_CHECKCONTRACTVERIFY</code>, it is usually necessary to also check that the amount of the current UTXO is correctly distributed among the outputs in the expected way. Therefore, the opcode already includes an amount semantic that covers the common use cases.
 
-There are two main behaviors that the opcode can enforce when checking an output, depending on the value of the flags:
+There are three supported modes for the opcode when checking an output, depending on the value of the <code>mode</code> parameter:
 * ''default'': the residual amount of the current input must be preserved in the output (aggregate across the inputs that specify the output);
-* ''deduct'': the amount of the checked output is subtracted from the amount of the current input (the residual amount is then available for further checks);
 * ''ignore'': the output amount is ignored.
+* ''deduct'': the amount of the checked output is subtracted from the amount of the current input (the residual amount is then available for further checks);
 
 The ''default'' logic covers the common case where an input wishes to send the full amount to a specific output.
 
@@ -104,7 +104,7 @@ When evaluating <code>OP_CHECKCONTRACTVERIFY</code> (<code>OP_SUCCESS187</code>,
 <code>0xbb</code>), the expected format of the stack, shown top to bottom, is:
 
 <source>
-<flags>
+<mode>
 <taptree>
 <pk>
 <index>
@@ -113,7 +113,7 @@ When evaluating <code>OP_CHECKCONTRACTVERIFY</code> (<code>OP_SUCCESS187</code>,
 
 where:
 
-* <code><flags></code> is a minimally encoded integer, according to one of the values defined below.
+* <code><mode></code> is a minimally encoded integer, according to one of the values defined below.
 * <code><taptree></code> is the Merkle root of the taproot tree, or a minimally encoded <code>-1</code>, or the empty buffer.
 * <code><pk></code> is called the ''naked key'', and it's a valid 32-byte x-only public key, or a minimally encoded <code>-1</code>, or the empty buffer.
 * <code><index></code> is a minimally encoded -1, or a minimally encoded non-negative integer.
@@ -133,13 +133,13 @@ If the <code><data></code> is non-empty, then the additive tweak for the data is
 
 In the following, the ''current input'' is the input whose Script is being executed.
 
-The following value of the <code><flags></code> are defined:
-* <code>CCV_FLAG_CHECK_INPUT = -1</code>: Check an input's script; no amount check.
-* <code>CCV_FLAG_CHECK_OUTPUT = 0</code>: Check an output's script; preserve the (possibly residual) amount.
-* <code>CCV_FLAG_IGNORE_OUTPUT_AMOUNT = 1</code>: Check an output's script; ignore amounts.
-* <code>CCV_FLAG_DEDUCT_OUTPUT_AMOUNT = 2</code>: Check an output's script; deduct the output amount from the input's residual amount.
+The following value of the <code><mode></code> are defined:
+* <code>CCV_MODE_CHECK_INPUT = -1</code>: Check an input's script; no amount check.
+* <code>CCV_MODE_CHECK_OUTPUT = 0</code>: Check an output's script; preserve the (possibly residual) amount.
+* <code>CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT = 1</code>: Check an output's script; ignore amounts.
+* <code>CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT = 2</code>: Check an output's script; deduct the output amount from the input's residual amount.
 
-Any other value of the <code><flags></code> makes the opcode succeed validation immediately for the current input<ref>This allows to soft-fork future behavior by introducing new values for the <code><flags></code>. As the flags would always be hard-coded via a push in the Script, the risk of mistakes seems negligible.</ref>.
+Any other value of the <code><mode></code> makes the opcode succeed validation immediately for the current input<ref>This allows to soft-fork future behavior by introducing new values for the <code><mode></code>. As the mode would always be hard-coded via a push in the Script, the risk of mistakes seems negligible.</ref>.
 
 The following values of the other parameters have special meanings:
 * If the <code><taptree></code> is -1, it is replaced with the Merkle root of the current input's tapscript tree. If the taptree is the empty buffer, then the taptweak is skipped.
@@ -208,13 +208,13 @@ The following code is executed every time the <code>OP_CHECKCONTRACTVERIFY</code
 <code>BIP341_NUMS_KEY</code> is the x-only provably unspendable key <code>50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code> defined in [[bip-341.mediawiki|BIP-341]].
 
 <source lang="python">
-  if flags < CCV_FLAG_CHECK_INPUT or flags > CCV_FLAG_DEDUCT_OUTPUT_AMOUNT:
-    return success()  # undefined flags are OP_SUCCESS
+  if mode < CCV_MODE_CHECK_INPUT or mode > CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT:
+    return success()  # undefined mode is OP_SUCCESS
 
   if index == -1:
     index = this_input_index
 
-  if flags == CCV_FLAG_CHECK_INPUT:
+  if mode == CCV_MODE_CHECK_INPUT:
     if index < 0 or index >= n_inputs:
       return fail()  # input index out of bounds
 
@@ -253,7 +253,7 @@ The following code is executed every time the <code>OP_CHECKCONTRACTVERIFY</code
 
   # Amount checks
 
-  if flags == CCV_FLAG_CHECK_OUTPUT:
+  if mode == CCV_MODE_CHECK_OUTPUT:
     # default amount semantic
     if output_checked_deduct[index]:
       return fail()
@@ -265,7 +265,7 @@ The following code is executed every time the <code>OP_CHECKCONTRACTVERIFY</code
       return fail()
 
     output_checked_default[index] = True
-  elif flags == CCV_FLAG_DEDUCT_OUTPUT_AMOUNT:
+  elif mode == CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT:
     # 'deduct' amount semantic
     if residual_input_amount < outputs[index].amount:
       return fail()
@@ -306,7 +306,7 @@ Check data embedded in the current input:
 <index=-1>
 <pk=naked_pk>
 <taptree=-1>
-<flags=-1 (CCV_FLAG_CHECK_INPUT)>
+<mode=-1 (CCV_MODE_CHECK_INPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
@@ -318,7 +318,7 @@ Check that the input with index <code>in_i</code> is a specific contract with em
 <index=in_i>
 <pk=input_i_naked_pk>
 <taptree=input_i_taptree>
-<flags=-1 (CCV_FLAG_CHECK_INPUT)>
+<mode=-1 (CCV_MODE_CHECK_INPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
@@ -330,7 +330,7 @@ Check that the output with index <code>out_i</code> is a certain contract (pubke
 <index=out_i>
 <pk=output_naked_pk>
 <taptree=output_taptree>
-<flags=0>
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
@@ -342,7 +342,7 @@ Check that the output with index <code>out_i</code> is a P2TR with pubkey <code>
 <index=out_i>
 <pk=output_pk>
 <taptree=<>>  # no taptweak
-<flags=0>
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
@@ -354,7 +354,7 @@ Check that the output with index <code>out_i</code> is a certain contract (pubke
 <index=out_i>
 <pk=output_i_naked_pk>
 <taptree=output_i_taptree>
-<flags=CCV_FLAG_IGNORE_OUTPUT_AMOUNT>
+<mode=1 (CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
@@ -368,7 +368,7 @@ Check that the input's amount is sent exactly to the same scriptPubKey:
 <index=-1>
 <pk=-1>
 <taptree=-1>
-<flags=0>
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
@@ -380,14 +380,14 @@ Check that the amount of the current input is partially sent to the first output
 <index=0>
 <pk=<output_0_pk>>
 <taptree=<>>  # no tweak
-<flags=CCV_FLAG_DEDUCT_OUTPUT_AMOUNT>
+<mode=2 (CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT)>
 OP_CHECKCONTRACTVERIFY
 
 <data=<>>     # no data
 <index=1>
 <pk=-1>
 <taptree=-1>
-<flags=0>
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
 
