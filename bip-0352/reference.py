@@ -32,53 +32,50 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
         # skip the first 3 op_codes and grab the 20 byte hash
         # from the scriptPubKey
         spk_hash = vin.prevout[3:3 + 20]
-        for i in range(len(vin.scriptSig), 0, -1):
-            if i - 33 >= 0:
+        for i in range(len(vin.scriptSig) - 33, 0, -1):
+            if i >= 33:
                 # starting from the back, we move over the scriptSig with a 33 byte
                 # window (to match a compressed pubkey). we hash this and check if it matches
-                # the 20 byte has from the scriptPubKey. for standard scriptSigs, this will match
+                # the 20 byte hash from the scriptPubKey. for standard scriptSigs, this will match
                 # right away because the pubkey is the last item in the scriptSig.
-                # if its a non-standard (malleated) scriptSig, we will still find the pubkey if its
+                # if it's a non-standard (malleated) scriptSig, we will still find the pubkey if it's
                 # a compressed pubkey.
-                #
-                # note: this is an incredibly inefficient implementation, for demonstration purposes only.
                 pubkey_bytes = vin.scriptSig[i - 33:i]
                 pubkey_hash = hash160(pubkey_bytes)
                 if pubkey_hash == spk_hash:
                     pubkey = ECPubKey().set(pubkey_bytes)
-                    if (pubkey.valid) & (pubkey.compressed):
+                    if pubkey.valid and pubkey.compressed:
                         return pubkey
     if is_p2sh(vin.prevout):
         redeem_script = vin.scriptSig[1:]
         if is_p2wpkh(redeem_script):
             pubkey = ECPubKey().set(vin.txinwitness.scriptWitness.stack[-1])
-            if (pubkey.valid) & (pubkey.compressed):
+            if pubkey.valid and pubkey.compressed:
                 return pubkey
     if is_p2wpkh(vin.prevout):
         txin = vin.txinwitness
         pubkey = ECPubKey().set(txin.scriptWitness.stack[-1])
-        if (pubkey.valid) & (pubkey.compressed):
+        if pubkey.valid and pubkey.compressed:
             return pubkey
     if is_p2tr(vin.prevout):
         witnessStack = vin.txinwitness.scriptWitness.stack
-        if (len(witnessStack) >= 1):
-            if (len(witnessStack) > 1 and witnessStack[-1][0] == 0x50):
+        if len(witnessStack) >= 1:
+            if len(witnessStack) > 1 and witnessStack[-1][0] == 0x50:
                 # Last item is annex
                 witnessStack.pop()
 
-            if (len(witnessStack) > 1):
+            if len(witnessStack) > 1:
                 # Script-path spend
                 control_block = witnessStack[-1]
-                #  control block is <control byte> <32 byte internal key> and 0 or more <32 byte hash>
+                # control block is <control byte> <32 byte internal key> and 0 or more <32 byte hash>
                 internal_key = control_block[1:33]
-                if (internal_key == NUMS_H.to_bytes(32, 'big')):
+                if internal_key == NUMS_H.to_bytes(32, 'big'):
                     # Skip if NUMS_H
                     return ECPubKey()
 
             pubkey = ECPubKey().set(vin.prevout[2:])
-            if (pubkey.valid) & (pubkey.compressed):
+            if pubkey.valid and pubkey.compressed:
                 return pubkey
-
 
     return ECPubKey()
 
