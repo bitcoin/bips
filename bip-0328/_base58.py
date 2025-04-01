@@ -53,7 +53,7 @@ def decode(s: str) -> bytes:
     """
     Decode a base58-encoding string, returning bytes
 
-    :param s: Base48 string to decode
+    :param s: Base58 string to decode
     :return: Bytes encoded by ``s``
     """
     if not s:
@@ -118,7 +118,7 @@ def get_xpub_fingerprint_hex(xpub: str) -> str:
     """
     Get the parent fingerprint as a hex string from an extended public key
 
-    :param s: The extended pubkey
+    :param xpub: The extended pubkey
     :return: The parent fingerprint as a hex string
     """
     data = decode(xpub)
