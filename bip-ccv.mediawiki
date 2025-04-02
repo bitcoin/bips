@@ -13,7 +13,7 @@
 </pre>
 
 
-== Introduction ==
+== Abstract ==
 
 This BIP proposes a new tapscript opcode that adds consensus support for an opcode that enables a new type of output restrictions: <code>OP_CHECKCONTRACTVERIFY</code> (<code>OP_CCV</code>).
 
@@ -94,7 +94,7 @@ The following figures illustrate some common examples of supported use cases for
 
 -----
 
-Note that the ''deduct'' semantic does not allow to check the exact amount of its output. Therefore, in contracts using a scheme similar to figure 3 or 4 above, amounts be constrained with a signature, or with future introspection opcodes that allow fixing the amount.
+Note that the ''deduct'' semantic does not allow to check the exact amount of its output. Therefore, in contracts using a scheme similar to figure 3 or 4 above, amounts should be constrained either with a signature, or with a future introspection opcodes that allow fixing the amount. In lack of that, amounts would be malleable.
 
 == Specification ==
 
@@ -310,6 +310,8 @@ Check data embedded in the current input:
 OP_CHECKCONTRACTVERIFY
 </source>
 
+This would be used to access the data committed in the current input. The <data> parameter, of course, would be passed via the witness stack.
+
 ----
 
 Check that the input with index <code>in_i</code> is a specific contract with embedded <code>input_data</code>:
@@ -321,6 +323,8 @@ Check that the input with index <code>in_i</code> is a specific contract with em
 <mode=-1 (CCV_MODE_CHECK_INPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
+
+This allows introspecting the program (naked key and taptree) and data of another input of the transaction.
 
 ----
 
@@ -334,6 +338,8 @@ Check that the output with index <code>out_i</code> is a certain contract (pubke
 OP_CHECKCONTRACTVERIFY
 </source>
 
+This allows introspecting an output's program and data, and sending the full residual amount to it. Logically, it can be thought as a state transition, moving money to a different state, but still under the control of the pre-set rules. Typically, the <code>data</code> would be computed based on the witness stack, while the output program would be hard-coded in Script.
+
 ----
 
 Check that the output with index <code>out_i</code> is a P2TR with pubkey <code>output_pk</code>, preserving amount:
@@ -345,6 +351,8 @@ Check that the output with index <code>out_i</code> is a P2TR with pubkey <code>
 <mode=0 (CCV_MODE_CHECK_OUTPUT)>
 OP_CHECKCONTRACTVERIFY
 </source>
+
+Unlike the previous example, here there is no computation over the destination taproot public key, since both <code>data</code> and <code>taptweak</code> are omitted.
 
 ----
 
@@ -358,19 +366,7 @@ Check that the output with index <code>out_i</code> is a certain contract (pubke
 OP_CHECKCONTRACTVERIFY
 </source>
 
-'''Remark:''' it is expected that the amount is checked with separate introspection opcodes.
-
-----
-
-Check that the input's amount is sent exactly to the same scriptPubKey:
-<source>
-<data=<>>
-<index=-1>
-<pk=-1>
-<taptree=-1>
-<mode=0 (CCV_MODE_CHECK_OUTPUT)>
-OP_CHECKCONTRACTVERIFY
-</source>
+'''Remark:''' amounts are malleable with this check alone; therefore, it is expected that the amount is also checked with separate introspection opcodes.
 
 ----
 
@@ -411,9 +407,6 @@ Stricter verification semantics for an OP_SUCCESSx opcode are a soft fork, so ex
 
 <references />
 
-== References ==
-
-TODO
 
 == Acknowledgements ==
 
