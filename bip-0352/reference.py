@@ -36,7 +36,7 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
             if i - 33 >= 0:
                 # starting from the back, we move over the scriptSig with a 33 byte
                 # window (to match a compressed pubkey). we hash this and check if it matches
-                # the 20 byte has from the scriptPubKey. for standard scriptSigs, this will match
+                # the 20 byte hash from the scriptPubKey. for standard scriptSigs, this will match
                 # right away because the pubkey is the last item in the scriptSig.
                 # if its a non-standard (malleated) scriptSig, we will still find the pubkey if its
                 # a compressed pubkey.
