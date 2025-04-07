@@ -566,7 +566,7 @@ class FSChaCha20:
         return ret
 
     def crypt(self, chunk):
-        """Encrypt or decypt chunk."""
+        """Encrypt or decrypt chunk."""
         ks = self.get_keystream_bytes(len(chunk))
         ret = bytes([ks[i] ^ chunk[i] for i in range(len(chunk))])
         if ((self.chunk_counter + 1) % REKEY_INTERVAL) == 0:
