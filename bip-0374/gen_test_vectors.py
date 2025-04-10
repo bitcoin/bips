@@ -111,7 +111,7 @@ def gen_all_verify_proof_vectors(f):
     # modifying message should fail (flip one bit)
     msg_damage_pos = random_scalar_int(idx, "damage_pos") % 256
     msg_damaged = list(msg)
-    msg_damaged[proof_damage_pos // 8] ^= (1 << (msg_damage_pos % 8))
+    msg_damaged[msg_damage_pos // 8] ^= (1 << (msg_damage_pos % 8))
     msg_damaged = bytes(msg_damaged)
     writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
                      C.to_bytes_compressed().hex(), proof.hex(), msg_damaged.hex(), "FALSE", f"Tampered message (random bit-flip)"))
