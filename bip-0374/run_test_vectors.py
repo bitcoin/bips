@@ -20,7 +20,7 @@ print("----- Proof generation test vectors -----")
 print("-----------------------------------------")
 with open(FILENAME_GENERATE_PROOF_TEST, newline='') as csvfile:
     reader = csv.reader(csvfile)
-    reader.__next__()
+    next(reader)
     for row in reader:
         (index, point_G_hex, seckey_a_hex, point_B_hex, aux_rand_hex, msg_hex, result_str, comment) = row
         print(seckey_a_hex)
@@ -48,7 +48,7 @@ print("----- Proof verification test vectors -----")
 print("-------------------------------------------")
 with open(FILENAME_VERIFY_PROOF_TEST, newline='') as csvfile:
     reader = csv.reader(csvfile)
-    reader.__next__()
+    next(reader)
     for row in reader:
         (index, point_G_hex, point_A_hex, point_B_hex, point_C_hex, proof_hex, msg_hex, result_success, comment) = row
         G = GE() if point_G_hex == 'INFINITY' else GE.from_bytes(bytes.fromhex(point_G_hex))
