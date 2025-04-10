@@ -67,33 +67,48 @@ fallback transaction in the Original PSBT.
 
 ===Basic scheme===
 
-The receiver first generates a 256-bit keypair. This key will be the basis of end-to-end authenticated
-encryption and identification of a particular mailbox in the mailroom.
+Before initiating the protocol, the receiver first obtains the mailroom's OHTTP
+configuration (which includes its OHTTP public key).
 
-Rather than hosting a public server itself, the receiver specifies a Payjoin Session associated with their
-keypair's public key. This public key, compressed, hashed, truncated to 8 bytes, and bech32 encoded without a
-checksum [[#short-id| short ID]], is used to identify a store-and-forward mailbox on the
-mailroom server and establish end-to-end encryption. As long as a Session is active, the receiver long
-polls GET requests to this mailbox to await a message from the sender. Out
-of band, the receiver shares a [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]]
-Payjoin URI including the mailbox endpoint in the <code>pj=</code> query parameter and [[#receiver-fragment-parameters| receiver fragment parameters]] including the Payjoin Mailroom's [[https://www.ietf.org/rfc/
+The receiver initializes a Payjoin Session by generating a secp256k1 keypair.
+The public key of this keypair is the ''receiver key''. The receiver key enables
+the sender to establish end-to-end authenticated encryption using HPKE.
+
+A [[#short-id| ''short ID'']] is derived as a truncated hash of the receiver
+key, encoded as uppercase bech32 (without a checksum or human readable part).
+The short ID is used to identify a store-and-forward mailbox on the mailroom
+server. A ''mailbox endpoint'' is the HTTP resource whose URL has a short ID as
+its path component.
+
+As long as a Session is active, the receiver waits for a message from the
+sender, by long GET requests to the mailbox endpoint hosted on the server.
+
+This information is included in the
+[[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]]
+Payjoin URI, which the receiver shares with the sender out of band The
+<code>pj=</code> query parameter contains the mailbox endpoint URL with
+additional [[#receiver-fragment-parameters| receiver fragment parameters]] that
+encode the receiver key and the Payjoin Mailroom's [[https://www.ietf.org/rfc/
 rfc9458.html#name-key-configuration| OHTTP Key Configuration]].
 
-The sender constructs an [[https://www.rfc-editor.org/rfc/rfc9180.html#name-authentication-using-an-asy| HPKE
-Auth mode]] payload containing a PSBT and optional parameters similar to BIP 78. The resulting ciphertext
-ensures message secrecy and integrity when passed to the receiver using the mailbox <code>pj=</code>
-endpoint.
+The sender constructs an
+[[https://www.rfc-editor.org/rfc/rfc9180.html#name-authentication-using-an-asy|
+HPKE Auth mode]] payload containing the sender's ''reply key'', a PSBT and
+optional parameters similar to BIP 78. The resulting ciphertext ensures message
+secrecy and integrity when passed to the receiver using the mailbox endpoint.
 
-The receiver augments the Sender's PSBT with new inputs and outputs, and may adjust the fee. The receiver then
-encrypts the resulting PSBT and sends it back to the sender by POSTing it to a new mailbox derived from
-the sender's reply key shared in their payload along with their original PSBT.
+The receiver augments the Sender's PSBT with new inputs and outputs, and may
+adjust the fee. The receiver then encrypts the resulting PSBT using the sender's
+reply key, and and sends it back to the sender by POSTing it to a new mailbox
+whose short ID derived from the reply key.
 
-The sender will be long polling this second mailbox for a response from the receiver. Upon receipt, the
-sender validates the receiver's Proposal PSBT, and if satisfied, signs its inputs and broadcasts the
-transaction to the Bitcoin network.
+The sender will be long polling the reply mailbox endpoint for a response from
+the receiver. Upon receipt, the sender validates the receiver's Proposal PSBT,
+and if satisfied, signs its inputs and broadcasts the transaction to the Bitcoin
+network.
 
-Messages are secured by symmetric cipher rather than TLS or Onion routing session key. Sender and receiver may
-experience network interruption and proceed with the protocol since their request and response are buffered in the mailroom.
+Sender and receiver may experience network interruption and proceed with the
+protocol since their request and response are buffered in the mailroom.
 
 ====Sequence Diagram====
 
