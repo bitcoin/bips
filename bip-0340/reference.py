@@ -100,7 +100,7 @@ def schnorr_sign(msg: bytes, seckey: bytes, aux_rand: bytes) -> bytes:
     if not (1 <= d0 <= n - 1):
         raise ValueError('The secret key must be an integer in the range 1..n-1.')
     if len(aux_rand) != 32:
-        raise ValueError('aux_rand must be 32 bytes instead of %i.' % len(aux_rand))
+        raise ValueError(f'aux_rand must be 32 bytes instead of {len(aux_rand)}.')
     P = point_mul(G, d0)
     assert P is not None
     d = d0 if has_even_y(P) else n - d0
@@ -174,7 +174,7 @@ def test_vectors() -> bool:
                         print('     Actual signature:', sig_actual.hex().upper())
                         all_passed = False
                 except RuntimeError as e:
-                    print(' * Signing test raised exception:', e)
+                    print(f' * Signing test raised exception: {e}')
                     all_passed = False
             result_actual = schnorr_verify(msg, pubkey, sig)
             if result == result_actual:
