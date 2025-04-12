@@ -35,7 +35,7 @@ my %MiscField = (
 	'Post-History' => undef,
 	'Replaces' => undef,
 	'Requires' => undef,
-	'Superseded-By' => undef,
+	'Proposed-Replacement' => undef,
 );
 my @FieldOrder = qw(
 	BIP
