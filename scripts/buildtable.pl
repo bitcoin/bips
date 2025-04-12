@@ -9,7 +9,6 @@ my %RequiredFields = (
 	BIP => undef,
 	Title => undef,
 	Author => undef,
-	'Comments-URI' => undef,
 	Status => undef,
 	Type => undef,
 	Created => undef,
@@ -30,6 +29,7 @@ my %EmailField = (
 	Editor => undef,
 );
 my %MiscField = (
+	'Comments-URI' => undef,
 	'Comments-Summary' => undef,
 	'Discussions-To' => undef,
 	'Discussion' => undef,
@@ -189,7 +189,7 @@ while (++$bipnum <= $topbip) {
 				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum});
 			}
 		} elsif ($field eq 'Comments-URI') {
-			if (not $found{'Comments-URI'}) {
+			if ($found{'Comments-URI'}) {
 				my $first_comments_uri = sprintf('https://github.com/bitcoin/bips/wiki/Comments:BIP-%04d', $bipnum);
 				die "First Comments-URI must be exactly \"$first_comments_uri\" in $fn" unless $val eq $first_comments_uri;
 			}
