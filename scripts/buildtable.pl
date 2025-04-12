@@ -47,13 +47,9 @@ my %ValidLayer = (
 );
 my %ValidStatus = (
 	Draft => undef,
-	Deferred => undef,
 	Complete => "background-color: #ffffcf",
-	Rejected => "background-color: #ffcfcf",
-	Withdrawn => "background-color: #ffcfcf",
 	Deployed => "background-color: #cfffcf",
-	Replaced => "background-color: #ffcfcf",
-	Obsolete => "background-color: #ffcfcf",
+	Closed => "background-color: #ffcfcf",
 );
 my %ValidType = (
 	'Standards Track' => 'Standard',
