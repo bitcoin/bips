@@ -20,7 +20,7 @@ my %MayHaveMulti = (
 	'Comments-URI' => undef,
 	License => undef,
 	'License-Code' => undef,
-	'Post-History' => undef,
+	'Discussion' => undef,
 );
 my %DateField = (
 	Created => undef,
@@ -32,7 +32,7 @@ my %EmailField = (
 my %MiscField = (
 	'Comments-Summary' => undef,
 	'Discussions-To' => undef,
-	'Post-History' => undef,
+	'Discussion' => undef,
 	'Replaces' => undef,
 	'Requires' => undef,
 	'Proposed-Replacement' => undef,
