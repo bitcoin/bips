@@ -8,14 +8,14 @@ my $include_layer = 1;
 my %RequiredFields = (
 	BIP => undef,
 	Title => undef,
-	Author => undef,
+	Authors => undef,
 	Status => undef,
 	Type => undef,
 	Created => undef,
 	# License => undef,   (has exceptions)
 );
 my %MayHaveMulti = (
-	Author => undef,
+	Authors => undef,
 	'Comments-URI' => undef,
 	License => undef,
 	'License-Code' => undef,
@@ -25,7 +25,7 @@ my %DateField = (
 	Created => undef,
 );
 my %EmailField = (
-	Author => undef,
+	Authors => undef,
 	Editor => undef,
 );
 my %MiscField = (
@@ -132,7 +132,7 @@ while (++$bipnum <= $topbip) {
 		}
 	}
 	my %found;
-	my ($title, $author, $status, $type, $layer);
+	my ($title, $authors, $status, $type, $layer);
 	my ($field, $val, @field_order);
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
@@ -157,15 +157,15 @@ while (++$bipnum <= $topbip) {
 			$title = $val;
 			my $title_len = length($title);
 			die "$fn has too-long Title ($title_len > 44 char max)" if $title_len > 44 and not exists $TolerateTitleTooLong{$bipnum};
-		} elsif ($field eq 'Author') {
-			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Author line in $fn";
+		} elsif ($field eq 'Authors') {
+			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Authors line in $fn";
 			my ($authorname, $authoremail) = ($1, $2);
 			$authoremail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
 			$emails{$authorname}->{$authoremail} = undef;
-			if (defined $author) {
-				$author .= ", $authorname";
+			if (defined $authors) {
+				$authors .= ", $authorname";
 			} else {
-				$author = $authorname;
+				$authors = $authorname;
 			}
 		} elsif ($field eq 'Status') {
 			if ($bipnum == 38) {  # HACK
@@ -228,15 +228,15 @@ while (++$bipnum <= $topbip) {
 		}
 	}
 	print "| ${title}\n";
-	print "| ${author}\n";
+	print "| ${authors}\n";
 	print "| ${type}\n";
 	print "| ${status}\n";
 	close $F;
 }
 
-for my $author (sort keys %emails) {
-	my @emails = sort keys %{$emails{$author}};
+for my $authors (sort keys %emails) {
+	my @emails = sort keys %{$emails{$authors}};
 	my $email_count = @emails;
 	next unless $email_count > 1;
-	warn "NOTE: $author has $email_count email addresses: @emails\n";
+	warn "NOTE: $authors has $email_count email addresses: @emails\n";
 }
