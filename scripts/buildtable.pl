@@ -76,7 +76,7 @@ my %ValidStatus = (
 	Closed => "background-color: #ffcfcf",
 );
 my %ValidType = (
-	'Standards Track' => 'Standard',
+	'Specification' => undef,
 	'Informational' => undef,
 	'Process' => undef,
 );
