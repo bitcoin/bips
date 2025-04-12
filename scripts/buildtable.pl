@@ -51,8 +51,7 @@ my %ValidStatus = (
 	Complete => "background-color: #ffffcf",
 	Rejected => "background-color: #ffcfcf",
 	Withdrawn => "background-color: #ffcfcf",
-	Final => "background-color: #cfffcf",
-	Active => "background-color: #cfffcf",
+	Deployed => "background-color: #cfffcf",
 	Replaced => "background-color: #ffcfcf",
 	Obsolete => "background-color: #ffcfcf",
 );
