@@ -16,6 +16,7 @@ my %RequiredFields = (
 );
 my %MayHaveMulti = (
 	Authors => undef,
+	Deputies => undef,
 	'Comments-URI' => undef,
 	License => undef,
 	'License-Code' => undef,
@@ -27,8 +28,10 @@ my %DateField = (
 my %EmailField = (
 	Authors => undef,
 	Editor => undef,
+	Deputies => undef,
 );
 my %MiscField = (
+ 	'Deputies' => undef,
 	'Comments-URI' => undef,
 	'Comments-Summary' => undef,
 	'Discussions-To' => undef,
