@@ -83,19 +83,19 @@ my %ValidType = (
 	'Informational' => undef,
 	'Process' => undef,
 );
-my %RecommendedLicenses = (
+my %AcceptableLicenses = (
 	'BSD-2-Clause' => undef,
 	'BSD-3-Clause' => undef,
 	'CC0-1.0' => undef,
 	'GNU-All-Permissive' => undef,
-);
-my %AcceptableLicenses = (
-	%RecommendedLicenses,
+	'MIT' => undef,
+	'CC-BY-4.0' => undef,
 	'Apache-2.0' => undef,
 	'BSL-1.0' => undef,
-	'CC-BY-4.0' => undef,
+);
+my %DefinedLicenses = (
+	%AcceptableLicenses,
 	'CC-BY-SA-4.0' => undef,
-	'MIT' => undef,
 	'AGPL-3.0' => undef,
 	'AGPL-3.0+' => undef,
 	'FDL-1.3' => undef,
@@ -103,13 +103,11 @@ my %AcceptableLicenses = (
 	'GPL-2.0+' => undef,
 	'LGPL-2.1' => undef,
 	'LGPL-2.1+' => undef,
-);
-my %DefinedLicenses = (
-	%AcceptableLicenses,
 	'OPL' => undef,
 	'PD' => undef,
 );
 my %GrandfatheredPD = map { $_ => undef } qw(9 36 37 38 42 49 50 60 65 67 69 74 80 81 83 90 99 105 107 109 111 112 113 114 122 124 125 126 130 131 132 133 140 141 142 143 144 146 147 150 151 152);
+my %GrandfatheredCCBySA = map { $_ => undef } qw(98 116 117 134);
 my %TolerateMissingLicense = map { $_ => undef } qw(1 10 11 12 13 14 15 16 21 31 33 34 35 39 43 44 45 47 61 64 68 70 71 72 73 101 102 106 120 121);
 my %TolerateTitleTooLong = map { $_ => undef } qw(39 44 45 47 49 60 67 68 69 73 74 75 80 81 99 105 106 109 113 122 126 131 143 145 147 173 327);
 
@@ -189,7 +187,7 @@ while (++$bipnum <= $topbip) {
 		} elsif ($field =~ /^License(?:\-Code)?$/) {
 			die "Undefined license $val in $fn" unless exists $DefinedLicenses{$val};
 			if (not $found{$field}) {
-				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum});
+				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum}) or ($val eq 'CC-BY-SA-4.0' and exists $GrandfatheredCCBySA{$bipnum});
 			}
 		} elsif ($field eq 'Comments-URI') {
 			if ($found{'Comments-URI'}) {
