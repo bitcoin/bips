@@ -50,7 +50,7 @@ Credits: @Kirvx @NicolasDorier @ecdsa @EricLarch
 4.  Only infinitive verbs, adjectives and nouns.
 5.  No pronouns, no adverbs, no prepositions, no conjunctions, no interjections (unless a noun/adjective is also popular than its interjection like "mince;chouette").
 6.  No numeral adjectives.
-7.  No words in the plural (except invariable words like "univers", or same spelling than singular like "heureux").
+7.  No words in the plural (except invariable words like "univers", or same spelling as singular like "heureux").
 8.  No female adjectives (except words with same spelling for male and female adjectives like "magique").
 9.  No words with several senses AND different spelling in speaking like "verre-vert", unless a word has a meaning much more popular than another like "perle" and "pairle".
 10. No very similar words with only 1 letter of difference.
