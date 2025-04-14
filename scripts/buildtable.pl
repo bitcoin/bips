@@ -34,7 +34,6 @@ my %MiscField = (
  	'Deputies' => undef,
 	'Comments-URI' => undef,
 	'Comments-Summary' => undef,
-	'Discussions-To' => undef,
 	'Discussion' => undef,
 	'Replaces' => undef,
 	'Requires' => undef,
