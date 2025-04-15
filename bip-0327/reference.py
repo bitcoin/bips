@@ -468,7 +468,7 @@ import sys
 def fromhex_all(l):
     return [bytes.fromhex(l_i) for l_i in l]
 
-# Check that calling `try_fn` raises a `exception`. If `exception` is raised,
+# Check that calling `try_fn` raises an `exception`. If `exception` is raised,
 # examine it with `except_fn`.
 def assert_raises(exception, try_fn, except_fn):
     raised = False
@@ -837,7 +837,7 @@ def test_sign_and_verify_random(iters: int) -> None:
         secnonce_1, pubnonce_1 = nonce_gen(sk_1, pk_1, aggpk, msg, i.to_bytes(4, 'big'))
 
         # On even iterations use regular signing algorithm for signer 2,
-        # otherwise use deterministic signing algorithm
+        # otherwise use a deterministic signing algorithm
         if i % 2 == 0:
             # Use a clock for extra_in
             t = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
