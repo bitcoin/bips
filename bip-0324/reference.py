@@ -42,7 +42,7 @@ def modinv(a, n):
     if a == 0:
         return 0
     if sys.hexversion >= 0x3080000:
-        # More efficient version available in Python 3.8.
+        # A more efficient version is available in Python 3.8.
         return pow(a, -1, n)
     t1, t2 = 0, 1
     r1, r2 = n, a
@@ -174,7 +174,7 @@ class FE:
         """Compute all cube roots of a field element, if any.
 
         Due to the fact that our modulus p is of the form p = 7 (mod 9), one cube root
-        can always be computed by raising to the power (p + 2) / 9. The other roots
+        can always be computed by raising to the power of (p + 2) / 9. The other roots
         (if any) can be found by multiplying with the two non-trivial cube roots of 1.
 
         To see why: p-1 = 0 (mod 3), so 3 divides the order of the multiplicative group,
