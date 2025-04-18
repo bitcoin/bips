@@ -154,32 +154,14 @@ protocol since their request and response are buffered in the directory.
 The Payjoin version 2 protocol takes the following steps:
 
 * The receiver generates a Payjoin Session public key.
-* Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter.
-The <code>pj</code> URL path ends with the [[#short-id| short ID]], bech32-encoded (without a checksum or HRP)
-followed by the [[#receiver-fragment-parameters| receiver fragment parameters]].
-  * To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code>
-must be specified in the URI. Version 2 senders may safely allow output substitution regardless.
-* The sender creates a valid version 0 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-
-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the ''Original
-PSBT''. This ''Original PSBT'', and optional sender parameters, are wrapped in HPKE authenticated
-encryption, including a sender session public key as associated data, and encapsulates it all as OHTTP. This
-[[#send-messaging| Original PSBT Request send message]] is made to the directory's OHTTP Gateway. The request
-is stored in the receiver mailbox.
-* The sender polls GET requests to the mailbox defined by the sender's Payjoin Session public key short
-ID in order to await a response from the directory containing a ''Proposal PSBT''. It stops polling
-after expiry.
-* Once the receiver is online, it sends <code>GET</code> requests [[#receive-messaging| to the receiver
-mailbox]] requests to the mailbox. The receiver decrypts and authenticates the response, which it
-checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-
-checklist| the receiver checklist]]. The receiver updates the Original PSBT to include new signed inputs and
-outputs, invalidating sender signatures, and may adjust the fee. The result is called the ''Proposal
-PSBT''.
-* The ''Proposal PSBT'' and reply key are encrypted using the receiver's key, then encapsulated in OHTTP
-encrypted using the OHTTP configuration, and POSTed to the sender's mailbox via the directory's OHTTP Gateway.
-* The directory awaits a GET request from the sender. Upon request, the directory relays the encrypted
-''Proposal PSBT''.
-* The sender validates the ''Proposal PSBT'' according to [[#senders-proposal-psbt-checklist|the
-sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
+* Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter. The <code>pj</code> URL path ends with the [[#short-id| short ID]], bech32-encoded (without a checksum or HRP) followed by the [[#receiver-fragment-parameters| receiver fragment parameters]].
+** To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless.
+* The sender creates a valid version 0 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the ''Original PSBT''. This ''Original PSBT'', and optional sender parameters, are wrapped in HPKE authenticated encryption, including a sender session public key as associated data, and encapsulates it all as OHTTP. This [[#send-messaging| Original PSBT Request send message]] is made to the directory's OHTTP Gateway. The request is stored in the receiver mailbox.
+* The sender polls GET requests to the mailbox defined by the sender's Payjoin Session public key short ID in order to await a response from the directory containing a ''Proposal PSBT''. It stops polling after expiry.
+* Once the receiver is online, it sends <code>GET</code> requests [[#receive-messaging| to the receiver mailbox]] requests to the mailbox. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the Original PSBT to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the ''Proposal PSBT''.
+* The ''Proposal PSBT'' and reply key are encrypted using the receiver's key, then encapsulated in OHTTP encrypted using the OHTTP configuration, and POSTed to the sender's mailbox via the directory's OHTTP Gateway.
+* The directory awaits a GET request from the sender. Upon request, the directory relays the encrypted ''Proposal PSBT''.
+* The sender validates the ''Proposal PSBT'' according to [[#senders-proposal-psbt-checklist|the sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
 
 The Original PSBT MUST:
 
@@ -362,16 +344,9 @@ percent-encoded as </code>%23</code>, as it is part of the URL included in the
 Bech32 encoded parameters with no checksum are separated by an <code>+</code> character and prefixed with HRPs
 according to their role:
 
-* <code>RK</code>: represents the receiver's Payjoin Session public key. This is a compressed public key of the
-receiver's Payjoin Session. Senders will initiate HPKE with the receiver using this key.
-* <code>OH</code>: represents the OHTTP Key Configuration of the directory. This is a compressed public key of
-the directory's OHTTP Gateway, prefixed by the 2-byte Key Identifier, from which the [[https://www.ietf.org/rfc/
-rfc9458.html#section-3.1| RFC 9458 Key Configuration can be constructed]]. This parameter is required for Payjoin
-version 2 URIs.
-* <code>EX</code>: represents a request expiration in [[https://pubs.opengroup.org/onlinepubs/9699919799/
-basedefs/V1_chap04.html#tag_04_16| Unix time]] after which the receiver reserves the right to broadcast the
-transaction extracted from the Original PSBT and ignore requests. This is only necessary for receivers who only
-support synchronous execution of the protocol, like automated payment processors.
+* <code>RK</code>: represents the receiver's Payjoin Session public key. This is a compressed public key of the receiver's Payjoin Session. Senders will initiate HPKE with the receiver using this key.
+* <code>OH</code>: represents the OHTTP Key Configuration of the directory. This is a compressed public key of the directory's OHTTP Gateway, prefixed by the 2-byte Key Identifier, from which the [[https://www.ietf.org/rfc/rfc9458.html#section-3.1| RFC 9458 Key Configuration can be constructed]]. This parameter is required for Payjoin version 2 URIs.
+* <code>EX</code>: represents a request expiration in [[https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_16| Unix time]] after which the receiver reserves the right to broadcast the transaction extracted from the Original PSBT and ignore requests. This is only necessary for receivers who only support synchronous execution of the protocol, like automated payment processors.
 
 For example, a properly encoded endpoint URL fragment looks like this <code>bitcoin:tb1q6q6de88mj8qkg0q5lupmpfex
 wnqjsr4d2gvx2p?amount=0.00666666&pjos=0&pj=HTTPS://PAYJO.IN/TXJCGKTKXLUUZ%23RK1Q0DJS3VVDXWQQTLQ8022QGXSX7ML9PHZ
@@ -385,8 +360,7 @@ are contained in alphanumeric QR mode is more compact than the byte mode.
 When a Payjoin sender POSTs an Original PSBT to the receiver, the sender should specify the following HTTP
 query string parameters:
 
-* <code>v</code>: represents the version number of the Payjoin protocol that the sender is using. This version
-is <code>2</code>.
+* <code>v</code>: represents the version number of the Payjoin protocol that the sender is using. This version is <code>2</code>.
 
 BIP 78's optional query parameters are also valid as version 2 parameters.
 
@@ -511,7 +485,7 @@ in [[https://www.rfc-editor.org/rfc/rfc8439| RFC 8439]] and has high
 performance. ChaCha20Poly1305 AEAD has been implemented
 [[https://github.com/bitcoin/bitcoin/pull/15649| in Bitcoin Core]]
 [[https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki| BIP 324]] as
-well. The protocol has widespread support in browsers, OpenSSL and libsodium.
+well. This has widespread support in browsers, OpenSSL and libsodium.
 AES-GCM is more widespread but is both older, slower, and not necessarily
 already a dependency in bitcoin software.
 
@@ -572,7 +546,9 @@ MUST consider the entire URI invalid per BIP 21.
 
 ==Reference implementation==
 
-An production reference implementation client can be found at [[https://crates.io/crates/payjoin-cli]]. Source
-code for the clients, the directory, and development kit may be found here: [[https://github.com/payjoin/
-rust-payjoin]]. Source code for an Oblivious HTTP relay implementation may be found here [[https://github.com/
-payjoin/ohttp-relay]].
+An production reference implementation client can be found at
+[[https://crates.io/crates/payjoin-cli]]. Source code for the clients, the
+directory, and development kit may be found here:
+[[https://github.com/payjoin/rust-payjoin]]. Source code for an Oblivious HTTP
+relay implementation may be found here
+[[https://github.com/payjoin/ohttp-relay]].
