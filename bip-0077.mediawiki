@@ -282,28 +282,41 @@ script types are allowed, and it expects all UTXO data to be filled in. BIP 78 r
 to be excluded from the PSBT, which has caused many issues, as it required the sender to add them back to the
 Payjoin proposal PSBT. Version 2 has no such requirement.
 
-===Directory interactions===
+===Client/Directory interactions===
 
 The Payjoin Directory provides a rendezvous point for sender and receiver to meet. The directory stores Payjoin
 payloads to support asynchronous communication. The directory must only accept OHTTP requests with an OHTTP
 Gateway for Payjoin version 2, accepting encrypted payloads. The directory may optionally accept HTTP/1.1 POST
 requests without OHTTP to mailbox URLs for backwards compatibility with Payjoin version 1 requests.
 
-====Directory Discovery====
+====Relay/Directory interactions====
 
-Directories may be found behind OHTTP Gateways. They use [[https://www.rfc-editor.org/rfc/rfc9540.html#name-key-configuration-fetching| RFC 9540 Key Configuration Fetching]]
-to advertise their presence as an OHTTP Gateway, along with a BIP 78-specific "allowed_purposes" parameter.
+Directories accept requests from relays using their OHTTP Gateways. The gateway may
+be found according to RFC 9540, at <code>/.well-known/ohttp-gateway</code>. GET
+requests on the are used for
+[[https://www.rfc-editor.org/rfc/rfc9540.html#name-key-configuration-fetching|
+RFC 9540 Key Configuration Fetching]]. POST requests are used to submit OHTTP
+requests.
 
-The directory handles GET requests to the <code>/.well-known/ohttp-gateway</code> path with an
-<code>allowed_purposes</code> parameter. The response body contains a magic string in the same format as a TLS
-ALPN protocol list (a U16BE length encoded list of U8 length encoded strings). The string is just "BIP77"
-followed by a space and the specific 454403bb-9f7b-4385-b31f-acd2dae20b7e UUID, offering an unambiguous signal
-to relays that this OHTTP gateway will accept any requests associated with this purpose.
+Relays may either be configured to allow forwarding to a specific gateway, or
+probe directory hosts to check whether they accept requests. When the directory
+receives GET requests to the <code>/.well-known/ohttp-gateway</code> path with
+an <code>allowed_purposes</code> query parameter, The response body contains a
+magic string in the same format as a TLS ALPN protocol list (a U16BE length
+encoded list of U8 length encoded strings). The magic string is just "BIP77"
+followed by a space and the specific 454403bb-9f7b-4385-b31f-acd2dae20b7e UUID,
+offering an unambiguous signal to relays that this OHTTP gateway will accept
+requests associated with this purpose from any relay.
 
-By including this <code>allowed_purposes</code> parameter, the directory signals to the OHTTP Gateway that it
-is willing to handle BIP 78 Payjoin version 2 requests, removing the OHTTP requirement that relays and Gateways
-be configured in a one-to-one relationship. This requirement is removed so that no single directory monopolizes
-the Payjoin version 2 protocol, and that operation of those directories may be decentralized.
+By including this <code>allowed_purposes</code> parameter, the directory signals
+to the OHTTP Gateway that it is willing to handle BIP 77 Payjoin version 2
+requests, removing the RFC 9458's requirement that relays and Gateways be
+configured in a one-to-one relationship. This requirement is removed to allow
+receivers to choose directories and senders to choose relays independently of
+each other. Otherwise senders would have to know which relay is appropriate to
+use for which directory, creating a tendency for one directory and its
+affiliated relays to monopolize the Payjoin version 2 protocol. This also
+reduces the burden of configuring and operating a relay or directory.
 
 ===Mailboxes===
 
