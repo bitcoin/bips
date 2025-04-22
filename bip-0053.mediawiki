@@ -31,7 +31,7 @@ several security weaknesses, including at least two forms of block malleability
 that have an impact on the consensus logic of Bitcoin Core, and an attack on
 light clients, where an invalid transaction could be ”proven” to appear in a block
 by doing substantially less work than a SHA256 hash collision would require.
-This has been prevented by Bitcoin Core's relay policy and the RPC interface since 2018<ref>[https://github.com/bitcoin/bitcoin/pull/11423/commits/7485488e907e236133a016ba7064c89bf9ab6da3 PR #11423 disallows transactions that are less than 82 bytes in size from Bitcoin Core relay and RPC interface]</ref><ref>[https://github.com/bitcoin/bitcoin/commit/8c5b3646b5afe8a61f5c66478d8e11f0d2ce5108 Reduces the minimum transaction size required for a transaction to be considered standard from 82 bytes to 65 bytes]</ref>.
+This has been mitigated by Bitcoin Core's relay policy and the RPC interface since 2018<ref>[https://github.com/bitcoin/bitcoin/pull/11423/commits/7485488e907e236133a016ba7064c89bf9ab6da3 PR #11423 disallows transactions that are less than 82 bytes in size from Bitcoin Core relay and RPC interface]</ref><ref>[https://github.com/bitcoin/bitcoin/commit/8c5b3646b5afe8a61f5c66478d8e11f0d2ce5108 Reduces the minimum transaction size required for a transaction to be considered standard from 82 bytes to 65 bytes]</ref>.
 
 === Block malleability ===
 
@@ -55,7 +55,7 @@ within the block's Merkle root. Finding this collision is approximately 22 bits 
 root which is a hash of a 64-byte quantity that deserializes validly, it’s enough
 to just do 8 bits of work to find a workable coinbase (which will hash to the first
 32 bytes), plus another ≈22 bits of work ((1/5) ∗224, so slightly less) to find
-a workable second transaction which will hash to the second 32 bytes) – a very
+a workable second transaction which will hash to the second 32 bytes)– a very
 small amount of computation.]</ref>
 
 This attack vector was fixed in 0.6.2<ref>[https://bitcoin.org/en/alert/2012-05-14-dos#risks CVE-2012-2459]</ref>, re-introduced in 0.13.x<ref>[https://github.com/bitcoin/bitcoin/pull/7225 #7225]</ref> and patched again in
@@ -76,7 +76,7 @@ This is computationally and financially expensive but theoretically possible. Th
 === Attack on SPV clients ===
 
 BIP37<ref>[https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki BIP37]</ref>provides a partial Merkle tree format<ref>[https://github.com/bitcoin/bips/blob/master/bip-0037.mediawiki#user-content-Partial_Merkle_branch_format Partial Merkle Tree Format]</ref>
-that allows you to verify your bitcoin transaction is included in a Merkle root embedded in a bitcoin block header.
+that allows you to verify that your bitcoin transaction is included in a Merkle root embedded in a bitcoin block header.
 Notably this format does not commit to the height of the Merkle tree.
 
 Suppose a (valid) 64-byte transaction T is included in a block with the property that the second 32 bytes (which
@@ -84,7 +84,7 @@ are less constrained than the first 32 bytes) are constructed so that they colli
 with the hash of some other fake, invalid transaction F. The attacker can fool the SPV client into believing that F
 was included in a bitcoin block rather than T with 81 bits<ref>[https://github.com/Christewart/bips/blob/2024-12-20-64bytetxs/bip-XXXX/2-BitcoinMerkle.pdf An attacker who can do 81 bits of work (followed by another 40 bits of work, to
 construct the funding transaction whose coins will be spent by this one) is able
-to fool an SPV client in this way.]</ref> of work. This also reduces implementation complexity of SPV wallets<ref>[https://delvingbitcoin.org/t/great-consensus-cleanup-revival/710/43 The steps needed to make sure a Merkle proof for a transaction is secure.]</ref>.
+to fool an SPV client in this way.]</ref> of work. This also reduces implementation complexity for SPV wallets<ref>[https://delvingbitcoin.org/t/great-consensus-cleanup-revival/710/43 The steps needed to make sure a Merkle proof for a transaction is secure.]</ref>.
 
 ==Rationale==
 
@@ -104,8 +104,8 @@ occurring at block height 419,606<ref>[https://mempool.space/block/0000000000000
 
 ====Pre segwit 64-byte transactions====
 
-64-byte transactions cannot spend a utxo protected by a digital signature.<ref>[https://github.com/bitcoin/bips/blob/master/bip-0066.mediawiki After BIP66 was activated on the bitcoin network, bitcoin transactions cannot have a digital signature smaller than 9 bytes.]</ref>
-The largest scriptSig a 64-byte transaction can have is 4 bytes.<ref>[https://delvingbitcoin.org/t/great-consensus-cleanup-revival/710/73]</ref>
+Pre-segwit 64-byte transactions cannot spend a utxo protected by a digital signature.<ref>[https://github.com/bitcoin/bips/blob/master/bip-0066.mediawiki After BIP66 was activated on the bitcoin network, bitcoin transactions cannot have a digital signature smaller than 9 bytes.]</ref>
+The largest scriptSig a pre-segwit 64-byte transaction can have is 4 bytes.<ref>[https://delvingbitcoin.org/t/great-consensus-cleanup-revival/710/73]</ref>
 
 There are 6<ref>[https://github.com/Christewart/bips/blob/2024-12-20-64bytetxs/non-standard-hashlock-utxos.txt As of block `00000000000000000001194ae6be942619bf61aa70822b9643d01c1a441bf2b7` there exist 6 non-standard hashlock utxos that could theoretically have a 0-3 byte pre-image. None of them have a 0-3 byte pre-image.]</ref>
 non standard hashlock utxos in the bitcoin blockchain. None of them have a 0-3 byte pre-image. This means they cannot be spent by a 64-byte transaction.
@@ -116,8 +116,8 @@ Policy rules such as CLEANSTACK, MINIMALDATA, PUSHONLY are not consensus rules. 
 
 ====Segwit 64-byte transactions====
 
-This BIP disallows single-input single output segwit transactions that pay to a 2 byte witness program.<ref>[https://delvingbitcoin.org/t/great-consensus-cleanup-revival/710/73#p-4382-future-segwit-versions-10 BIP141 says witness programs can be 2 bytes in size, which makes the scriptPubKey a total of 4 bytes]</ref>
-The only known use case<ref>[https://bitcoin.stackexchange.com/a/110664 Why do we have 2 byte witness programs? The original rationale for the lower end of the range of valid witness program lengths is that 2 bytes is enough to guarantee no ambiguity of how the program would be pushed (some 1 byte values can - and according to standardness, must - be pushed with OP_n, and dealing with those would have complicated the matter).]</ref>
+This BIP disallows single-input single-output segwit transactions that pay to a 2 byte witness program.<ref>[https://delvingbitcoin.org/t/great-consensus-cleanup-revival/710/73#p-4382-future-segwit-versions-10 BIP141 says witness programs can be 2 bytes in size, which makes the scriptPubKey a total of 4 bytes]</ref>
+The only known use case<ref>[https://bitcoin.stackexchange.com/a/110664 Why do we have 2 byte witness programs? The original rationale for the lower end of the range of valid witness program lengths is that 2 bytes is enough to guarantee no ambiguity of how the program would be pushed (some 1-byte values can - and according to standardness, must - be pushed with OP_n, and dealing with those would have complicated the matter).]</ref>
 for this type of transaction is ephemeral anchor outputs.<ref>[https://bitcoinops.org/en/topics/ephemeral-anchors/ What are ephemeral anchor outputs? This allows anyone on the network to use that output as the input to a child transaction. This allows anyone to create the fee-paying child, even if they don’t receive any of the other outputs from the parent transaction. This allows ephemeral anchors to function as fee sponsorship but without requiring any consensus changes.]</ref>
 
 ==Reference implementation==
