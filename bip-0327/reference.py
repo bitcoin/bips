@@ -468,8 +468,7 @@ import sys
 def fromhex_all(l):
     return [bytes.fromhex(l_i) for l_i in l]
 
-# Check that calling `try_fn` raises a `exception`. If `exception` is raised,
-# examine it with `except_fn`.
+# Check if calling `try_fn` raises an exception. If yes, examine it with `except_fn`.
 def assert_raises(exception, try_fn, except_fn):
     raised = False
     try:
