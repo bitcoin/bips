@@ -118,11 +118,11 @@ server. A ''mailbox endpoint'' is the HTTP resource whose URL has a short ID as
 its path component.
 
 As long as a Session is active, the receiver waits for a message from the
-sender, by long GET requests to the mailbox endpoint hosted on the server.
+sender, by long polling GET requests to the mailbox endpoint hosted on the server.
 
 This information is included in the
 [[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]]
-Payjoin URI, which the receiver shares with the sender out of band The
+Payjoin URI, which the receiver shares with the sender out of band. The
 <code>pj=</code> query parameter contains the mailbox endpoint URL with
 additional [[#receiver-fragment-parameters| receiver fragment parameters]] that
 encode the receiver key and the Payjoin Directory's [[https://www.ietf.org/rfc/
@@ -135,7 +135,7 @@ optional parameters similar to BIP 78. The resulting ciphertext ensures message
 secrecy and integrity when passed to the receiver using the mailbox endpoint.
 
 The receiver augments the Sender's PSBT with new inputs and outputs, and may
-adjust the fee. The receiver then encrypts the resulting PSBT using
+adjust the transaction fee. The receiver then encrypts the resulting PSBT using
 [[https://www.rfc-editor.org/rfc/rfc9180.html#name-authentication-using-an-asy|
 HPKE Auth mode]] to the sender's reply key, authenticated using the receiver
 key. The receiver then posts this response to a new mailbox whose short ID
@@ -155,7 +155,6 @@ The Payjoin version 2 protocol takes the following steps:
 
 * The receiver generates a Payjoin Session public key.
 * Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter. The <code>pj</code> URL path ends with the [[#short-id| short ID]], bech32-encoded (without a checksum or HRP) followed by the [[#receiver-fragment-parameters| receiver fragment parameters]].
-** To support version 1 senders, the directory acts as an unsecured Payjoin server, so <code>pjos=0</code> must be specified in the URI. Version 2 senders may safely allow output substitution regardless.
 * The sender creates a valid version 0 PSBT satisfying the [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. We call this the ''Original PSBT''. This ''Original PSBT'', and optional sender parameters, are wrapped in HPKE authenticated encryption, including a sender session public key as associated data, and encapsulates it all as OHTTP. This [[#send-messaging| Original PSBT Request send message]] is made to the directory's OHTTP Gateway. The request is stored in the receiver mailbox.
 * The sender polls GET requests to the mailbox defined by the sender's Payjoin Session public key short ID in order to await a response from the directory containing a ''Proposal PSBT''. It stops polling after expiry.
 * Once the receiver is online, it sends <code>GET</code> requests [[#receive-messaging| to the receiver mailbox]] requests to the mailbox. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the Original PSBT to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the ''Proposal PSBT''.
@@ -263,19 +262,13 @@ payload to the sender's Payjoin Session mailbox.
 
 The receiver checklist is the same as the
 [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist|
-the BIP 78 receiver checklist]], except for the "Verify that the payjoin
-proposal did not introduce mixed input [output script] types" step, which may be
-ignored.
+the BIP 78 receiver checklist]].
 
 ===Sender's Proposal PSBT checklist===
 
-The version 2 sender's checklist is largely the same as the
+The version 2 sender's checklist is the same as the
 [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#senders-payjoin-proposal-checklist|
-the BIP 78 checklist]], with the exception that mixed input script types are
-allowed, and it expects all UTXO data to be filled in. BIP 78 required sender
-input UTXO data to be excluded from the PSBT, which has caused many issues, as
-it required the sender to add them back to the Payjoin proposal PSBT. Version 2
-has no such requirement.
+the BIP 78 sender checklist]].
 
 ===Client/Directory interactions===
 
@@ -436,7 +429,7 @@ sharing, making misuse of the directory impractical.
 OHTTP Encapsulated Message Byte Representation (8192 bytes total)
 +-----------------------------------------------------------------------------------+
 |         HPKE KEM        | OHTTP Header |               Ciphertext                 |
-| Uncomrpessed Public Key |  (7 bytes)   |        (8120 bytes = 8192-65-7)          +
+| Uncompressed Public Key |  (7 bytes)   |        (8120 bytes = 8192-65-7)          +
 |        (65 bytes)       |              +-----------------------------+------------+
 |                         |              |     Padded BHTTP Request    |  AEAD Tag  |
 |                         |              | (8104 bytes = 8192-65-16-7) | (16 bytes) |
@@ -559,7 +552,7 @@ MUST consider the entire URI invalid per BIP 21.
 
 ==Reference implementation==
 
-An production reference implementation client can be found at
+A production reference implementation client can be found at
 [[https://crates.io/crates/payjoin-cli]]. Source code for the clients, the
 directory, and development kit may be found here:
 [[https://github.com/payjoin/rust-payjoin]]. Source code for an Oblivious HTTP
