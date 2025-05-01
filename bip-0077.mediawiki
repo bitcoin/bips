@@ -3,6 +3,7 @@
   Layer: Applications
   Title: Async Payjoin
   Author: Dan Gould <d@ngould.dev>
+          Yuval Kogman <nothingmuch@woobling.org>
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0077
   Post-History: https://github.com/bitcoin/bips/pull/1483
                 https://gnusha.org/pi/bitcoindev/7B11AE34-27A7-46ED-95BF-66CA13BA26F3@ngould.dev/#t
@@ -174,45 +175,13 @@ The Payjoin version 2 protocol takes the following steps:
 * Out of band, the receiver shares a bitcoin URI with the sender, including a <code>pj=</code> query parameter. The <code>pj</code> URL path ends with the [[#short-id| short ID]], bech32-encoded (without a checksum or HRP) followed by the [[#receiver-fragment-parameters| receiver fragment parameters]].
 * The sender generates an ephemeral mailbox key. Its public key is known as their ''reply key''
 * The sender creates a valid version 0 PSBT, the ''Original PSBT'', satisfying [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]].
-* The sender's ''reply key'', the ''Original PSBT'', and optional sender parameters, are end-to-end encrypted to the ''receiver key'' using HPKE, and finally encapsulated as OHTTP using the directory's OHTTP key configuration. This is [[#send-messaging| POSTed]] to the directory's OHTTP Gateway. The request is stored in the receiver mailbox.
-* The sender polls GET requests to the mailbox identified by the sender's ''reply key'' in order to await a response from the directory containing a ''Proposal PSBT''. It stops polling after expiry.
-* Once the receiver is online, it sends <code>GET</code> requests [[#receive-messaging| to the receiver mailbox]] requests to the mailbox. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the ''Original PSBT'' to include new signed inputs and outputs, invalidating sender signatures, and may adjust the fee. The result is called the ''Proposal PSBT''.
+* The sender's ''reply key'', the ''Original PSBT'', and optional sender parameters, are end-to-end encrypted to the ''receiver key'' using HPKE, and finally encapsulated as OHTTP using the directory's OHTTP key configuration. This is [[#sender-messaging| POSTed]] to the directory's OHTTP Gateway. The request is stored in the receiver mailbox.
+* The sender polls GET requests to the mailbox identified by the sender's ''reply key'' in order to await a response from the directory containing a ''Proposal PSBT''. It stops polling after expiration.
+* Once the receiver is online, it sends <code>GET</code> requests [[#receiver-messaging| to the receiver mailbox]] requests to the mailbox. The receiver decrypts and authenticates the response, which it checks according to [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist| the receiver checklist]]. The receiver updates the ''Original PSBT'' to include new signed inputs and outputs, invalidating sender signatures, and may adjust the transaction fee. The result is called the ''Proposal PSBT''.
 * The ''Proposal PSBT'' is encrypted to the sender's ''reply key'', then encapsulated in OHTTP, and POSTed to the sender's mailbox via the directory's OHTTP Gateway.
 * The directory awaits a GET request from the sender. Upon request, the directory relays the encrypted ''Proposal PSBT''.
 * The sender validates the ''Proposal PSBT'' according to [[#senders-proposal-psbt-checklist|the sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
 
-<!-- TODO move these into their home. PSBT Requirements?-->
-The Original PSBT MUST:
-
-* Include complete UTXO data.
-* Be fully signed.
-* Exclude unnecessary fields such as global xpubs or keypath information.
-* Be broadcastable.
-
-The Original PSBT MAY:
-
-* Include outputs unrelated to the sender-receiver transfer for batching purposes.
-
-The Proposal PSBT MUST:
-
-* Include all inputs from the Original PSBT.
-* Include all outputs which do not belong to the receiver from the Original PSBT.
-* Include complete UTXO data.
-* Insert additional inputs and outputs at a random index.
-
-The Proposal PSBT sender MAY:
-
-* Add, remove or modify Original PSBT outputs under the control of the receiver (i.e. not sender change).
-
-The Proposal PSBT MUST NOT:
-
-* Shuffle the order of inputs or outputs contained in the Original PSBT.
-* Decrease the absolute fee of the Original PSBT.
-
-Complete UTXO data is required because this information is required for signing
-some input types.
-
-<!-- TODO ...by receiver?-->
 ===OHTTP Bootstrapping===
 
 Before initiating a Payjoin Session
@@ -229,14 +198,8 @@ binary, https-in-http CONNECT method, https-in-WebSocket, or using Tor.
 Directories MUST support
 [[https://www.rfc-editor.org/rfc/rfc9540.html#name-key-configuration-fetching|
 RFC 9540 Key Configuration Fetching]] via GET requests to the directory's OHTTP
-Gateway.
-
-If a directory is subject to denial of service attacks, it may require
-[[https://datatracker.ietf.org/doc/html/rfc6750| RFC 6750]] authorization and
-otherwise respond with <code>401</code> unauthorized responses to
-requests. Authorization tokens must be unlinkable to preserve client privacy. A
-specific unlinkable authorization token mechanism is out of the scope of this
-proposal.
+Gateway. RFC 9540
+defines the gateway location as <code>/.well-known/ohttp-gateway</code>.
 
 ===Session Initiation===
 
@@ -252,9 +215,20 @@ are a standard way to request bitcoin.
 A Payjoin URI is a Bitcoin URI that contains a <code>pj</code> parameter. The
 <code>pj</code> parameter is a URL in both BIP 78 and BIP 77.
 
+Senders that understand Bitcoin URI but don't support Payjoin will just ignore the <code>pj</code> parameter and proceed to typical address-
+based transaction flows.
+
+A <code>req-pj</code> parameter, as specified in BIP 21, may be used instead of <code>pj</code> to signal that
+Payjoin is required.
 
 The <code>pj</code> parameter must be [[#uppercase-url| uppercased and
 should be the last parameter of the URI]].
+
+Since version 1 payloads are neither encrypted nor authenticated, and directory
+acts as an
+[[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#unsecured-payjoin-server| "unsecured payjoin server" in BIP 78 parlance]],
+backwards compatible receivers MUST enable <code>pjos=0</code> to disable
+output substitution in order to prevent modification by a malicious directory.
 
 =====Mailbox endpoint=====
 
@@ -290,11 +264,23 @@ according to their role:
 
 For example, a properly encoded endpoint URL fragment looks like this <code>bitcoin:tb1q6q6de88mj8qkg0q5lupmpfexwnqjsr4d2gvx2p?amount=0.00666666&pjos=0&pj=HTTPS://PAYJO.IN/TXJCGKTKXLUUZ%23RK1Q0DJS3VVDXWQQTLQ8022QGXSX7ML9PHZ6EDSF6AKEWQG758JPS2EV+OH1QYPM59NK2LXXS4890SUAXXYT25Z2VAPHP0X7YEYCJXGWAG6UG9ZU6NQ+EX1WKV8CEC</code>
 
-====Send Messaging====
+====Sender Messaging====
 
 The sender constructs the fallback transaction, a typical transaction spending
 funds to the receiver's address specified in the Payjoin URI. This transaction
 is serialized as a PSBT, including UTXO information.
+
+The Original PSBT MUST:
+
+* Include complete UTXO data.
+* Be fully signed.
+* Exclude unnecessary fields such as global xpubs or keypath information.
+* Be broadcastable.
+
+The Original PSBT MAY:
+
+* Include outputs unrelated to the sender-receiver transfer for batching purposes.
+
 
 This ''Original PSBT'' is encoded as base64, followed by the query parameter string on a new line containing [[#optional-sender-parameters| optional sender parameters]].
 
@@ -313,27 +299,16 @@ PjV2MsgA Byte Representation (7168 bytes total)
 </pre>
 
 The resulting HPKE payload is the body of a POST request to the receiver's mailbox. This request is
-then encapsulated according to Oblivious HTTP to the directory's OHTTP Gateway.
+then [[#client-directory-interactions| encapsulated]] according to Oblivious HTTP to the directory's OHTTP Gateway.
 OHTTP serializes the inner request as BHTTP, and provides another layer of HPKE
 encryption, between the client and directory.
-
-<pre>
-OHTTP Encapsulated Message Byte Representation (8192 bytes total)
-+-----------------------------------------------------------------------------------+
-|         HPKE KEM        | OHTTP Header |               Ciphertext                 |
-| Uncompressed Public Key |  (7 bytes)   |        (8120 bytes = 8192-65-7)          +
-|        (65 bytes)       |              +-----------------------------+------------+
-|                         |              |     Padded BHTTP Request    |  AEAD Tag  |
-|                         |              | (8104 bytes = 8192-65-16-7) | (16 bytes) |
-+-----------------------------------------------------------------------------------+
-</pre>
 
 Upon receipt, the directory's OHTTP Gateway decapsulates the OHTTP request and handles the inner POST request
 at the receiver's mailbox endpoint, which stores the HPKE encrypted payload to be
 forwarded to the receiver.
 
 The sender then polls OHTTP encapsulated GET requests to the sender's mailbox endpoint until it receives a
-response from the directory containing a ''Proposal PSBT''. It stops polling after expiry.
+response from the directory containing a ''Proposal PSBT''. It stops polling after expiration.
 
 
 ===Optional sender parameters===
@@ -346,19 +321,35 @@ Because of this domain separation, BIP 78's
 <code>v</code> parameter is redundant and should be omitted for version 2.
 
 
-====Receive Messaging====
+====Receiver Messaging====
 
-After sharing the Payjoin URI with the sender, the receiver polls OHTTP
+After sharing the Payjoin URI with the sender, the receiver polls via OHTTP
 encapsulated GET requests to the receiver's mailbox endpoint.
-So long as the mailbox contains no message, the directory responds with 202 ACCEPTED. Once a mailbox contains a message, the directory includes
+So long as the mailbox contains no message, the directory responds with status 202 ACCEPTED. Once a mailbox contains a message, the directory return
 it in the response body with status 200 OK.
 
-Upon receiving a encapsulated 200 OK response, the receiver decrypts the payload and checks
+Upon receiving an encapsulated 200 OK response, the receiver decrypts the payload and checks
 the ''Original PSBT'' therein according to the
 [[#receivers-original-psbt-checklist|checklist]].
 
-The receiver then updates the ''Original PSBT'' to include new signed inputs and outputs, invalidating
-sender signatures, and may adjust the fee. The result is called the ''Proposal PSBT''.
+The receiver then updates the ''Original PSBT'' to include new signed inputs and outputs, invalidating the
+sender's signatures. The receiver may also adjust the transaction fee. The result is called the ''Proposal PSBT''.
+
+The Proposal PSBT MUST:
+
+* Include all inputs from the Original PSBT.
+* Include all outputs which do not belong to the receiver from the Original PSBT.
+* Include complete UTXO data.
+* Insert additional inputs and outputs at a random index.
+
+The Proposal PSBT sender MAY:
+
+* Add, remove or modify Original PSBT outputs under the control of the receiver (i.e. not sender change).
+
+The Proposal PSBT MUST NOT:
+
+* Shuffle the order of inputs or outputs contained in the Original PSBT.
+* Decrease the absolute fee of the Original PSBT.
 
 The receiver encrypts the ''Proposal PSBT'' to the sender's reply key according
 to the HPKE protocol. The HPKE <code>info</code> string is <code>PjV2MsgB</code>.
@@ -374,16 +365,21 @@ PjV2MsgB Byte Representation (7168 bytes total)
 +---------------------------------------------------------------------------------------+
 </pre>
 
-OHTTP encapsulated requests from the receivers have the same structure and
+OHTTP [[#client-directory-interactions| encapsulated]] requests from the receivers have the same structure and
 are thus indistinguishable from those of the sender.
 
-===Receiver's Original PSBT checklist===
+=====Receiver's Original PSBT checklist=====
 
 The receiver checklist is the same as the
 [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-original-psbt-checklist|
 the BIP 78 receiver checklist]].
 
-===Sender's Proposal PSBT checklist===
+====Sender signing and broadcast====
+
+The sender validates the ''Proposal PSBT'' it receives against a checklist. If
+the checks pass, it may sign and broadcast the resulting payjoin transaction.
+
+=====Sender's Proposal PSBT checklist=====
 
 The version 2 sender's checklist is the same as the
 [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#senders-payjoin-proposal-checklist|
@@ -391,41 +387,55 @@ the BIP 78 sender checklist]].
 
 ===Client/Directory interactions===
 
-The Payjoin Directory provides a rendezvous point for sender and receiver to meet. The directory stores Payjoin
-payloads to support asynchronous communication. The directory must only accept OHTTP requests with an OHTTP
-Gateway for Payjoin version 2, accepting encrypted payloads. The directory may optionally accept HTTP/1.1 POST
-requests without OHTTP to mailbox URLs for backwards compatibility with Payjoin version 1 requests.
+The Payjoin Directory provides a rendezvous point for senders and receivers to exchange messages. The directory stores Payjoin
+payloads to support asynchronous communication. Payjoin version 2 requests must be submitted as encapsulated messages to the directory's OHTTP
+Gateway.
 
-<!-- TODO emphasize long-polling is instantaneous when a message is received-->
+<pre>
+OHTTP Encapsulated Message Byte Representation (8192 bytes total)
++-----------------------------------------------------------------------------------+
+|         HPKE KEM        | OHTTP Header |               Ciphertext                 |
+| Uncompressed Public Key |  (7 bytes)   |        (8120 bytes = 8192-65-7)          +
+|        (65 bytes)       |              +-----------------------------+------------+
+|                         |              |     Padded BHTTP Request    |  AEAD Tag  |
+|                         |              | (8104 bytes = 8192-65-16-7) | (16 bytes) |
++-----------------------------------------------------------------------------------+
+</pre>
 
-====Relay/Directory interactions====
+GET requests on an empty mailbox should block until a message is posted or a timeout occurs. The timeout should be 30 seconds because that will not exceed
+the default timeout for most HTTP clients.
 
-Directories accept requests from relays using their OHTTP Gateways. The gateway may
-be found according to RFC 9540, at <code>/.well-known/ohttp-gateway</code>. GET
-requests on the are used for
-[[https://www.rfc-editor.org/rfc/rfc9540.html#name-key-configuration-fetching|
-RFC 9540 Key Configuration Fetching]]. POST requests are used to submit OHTTP
-requests.
+The directory may optionally accept HTTP/1.1 POST
+requests without OHTTP to mailbox endpoint URLs for backwards compatibility with Payjoin version 1 senders.
 
-Relays may either be configured to allow forwarding to a specific gateway, or
-probe directory hosts to check whether they accept requests. When the directory
-receives GET requests to the <code>/.well-known/ohttp-gateway</code> path with
-an <code>allowed_purposes</code> query parameter, The response body contains a
+====OHTTP Sequence Diagram====
+
+<img src=bip-0077/oblivious-http-sequence.png></img>
+
+===Relay/Directory interactions===
+
+RFC 9458 requires each OHTTP Relay to be configured to forward requests to
+exactly one OHTTP Gateway. This requirement prevents receivers
+from being able to choose any directory, and senders from choosing relays
+independently. Without addressing this limitation, senders would have to know
+which relays are appropriate to
+use for each directory, creating a tendency for one directory and its
+affiliated relays to monopolize the Payjoin version 2 protocol.
+
+In order to allow OHTTP Relays to be used with any directory, a directory's
+OHTTP Gateway may advertise this allowed purpose.
+When the directory
+receives a GET request to the <code>/.well-known/ohttp-gateway</code> path with
+an <code>allowed_purposes</code> query parameter, its response body should contain a
 magic string in the same format as a TLS ALPN protocol list (a U16BE length
-encoded list of U8 length encoded strings). The magic string is just "BIP77"
-followed by a space and the specific 454403bb-9f7b-4385-b31f-acd2dae20b7e UUID,
-offering an unambiguous signal to relays that this OHTTP gateway will accept
+encoded list of U8 length encoded strings). The magic string is <code>BIP77 454403bb-9f7b-4385-b31f-acd2dae20b7e</code>,
+offering an unambiguous signal to relays that this OHTTP Gateway will accept
 requests associated with this purpose from any relay.
 
-By including this <code>allowed_purposes</code> parameter, the directory signals
-to the OHTTP Gateway that it is willing to handle BIP 77 Payjoin version 2
-requests, removing the RFC 9458's requirement that relays and Gateways be
-configured in a one-to-one relationship. This requirement is removed to allow
-receivers to choose directories and senders to choose relays independently of
-each other. Otherwise senders would have to know which relay is appropriate to
-use for which directory, creating a tendency for one directory and its
-affiliated relays to monopolize the Payjoin version 2 protocol. This also
-reduces the burden of configuring and operating a relay or directory.
+By supporting this <code>allowed_purposes</code> parameter, the directory
+signals to OHTTP Relays that it is willing to handle requests related to
+BIP 77 Payjoin version 2, removing the RFC 9458's requirement that relays and Gateways be configured in a one-to-one relationship.
+
 
 ==Rationale==
 
@@ -433,7 +443,7 @@ reduces the burden of configuring and operating a relay or directory.
 
 In order to simplify parsing and allow QR encoders to use
 [[https://www.rfc-editor.org/rfc/rfc9285.html#name-the-alphabet-used-in-base45| Alphanumeric QR mode]],
-which is more compact than Byte mode, the mailbox endpoint URL, including the fragment parameters, are encoded in uppercase.
+which is more compact than Byte mode, the mailbox endpoint URL, including the fragment parameters, is encoded in uppercase.
 
 Unlike Bitcoin URI parameters, which require switching back to Byte mode,
 the use of the URL fragment for session-specific parameters makes it possible
@@ -449,22 +459,33 @@ spec [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receiver-d
 recommends]] broadcasting Original PSBTs in the case of an offline counterparty. Doing so exposes a naïve,
 surveillance-vulnerable transaction which Payjoin intends to avoid.
 
-Because BIP 78 is a synchronous protocol without a standard expiry mechanism.
-Automated receivers are vulnerable to probing attacks, and should therefore
-broadcast the Original PSBT after some expiration time.
+Because BIP 78 is a synchronous protocol without a standard expiration
+mechanism, and automated receivers are vulnerable to probing attacks, BIP 78
+encourages receivers to broadcast the Original PSBT after some undefined
+expiration time.
 
-Because BIP 77 is an asynchronous protocol, ir requires an explicit
-[[#receiver-fragment-parameters| session-specific fragment parameter]] <code>EX</code> to specify this expiration.
+Because BIP 77 is an asynchronous protocol, it requires an explicit
+[[#receiver-fragment-parameters| session-specific fragment parameter]],<code>EX</code>, to communicate this expiration time to the sender.
+
+There is no way for a sender to prevent a receiver from broadcasting the
+fallback transaction extracted from the Original PSBT before the receiver-specified expiration time.
 
 ===64-bit Short ID Length===
 
 64 bits are sufficient to make the probability of experiencing a random collision negligible. As of writing,
 the UTXO set has ~2^28 elements. This is a very loose upper bound for the number of concurrent (non-spam)
 sessions, for which the probability of a random collision will be less than 1%. The actual number of
-sessions will of course be (orders of magnitudes) lower given they are short lived. With ~2^21 sessions (a loose
+sessions will of course be (orders of magnitudes) lower given that session are short lived. With ~2^21 sessions (a loose
 bound on number of transactions that can be confirmed in 24 hours) the probability is less than 1e-6. These
-figures bound the probability of a collision in the entire set, whereas the probability for an individual session to
+figures bound the probability of a collision existing anywhere in the entire set, whereas the probability for an individual session to
 experience a collision is << 1e-10 in either case.
+
+===Complete UTXO Data===
+
+<!-- TODO link to the ugly implementation detail that requires this. explain why
+it's not necessary to validate that the previous utxos haven't been modified -->
+Complete UTXO data is required because this information is required for signing
+some input types.
 
 ===HTTP===
 
@@ -478,28 +499,24 @@ more difficult for a directory to correlate many payjoin transactions with speci
 
 OHTTP relays can be run as basic HTTP proxies from wallet providers or third parties.
 
-====OHTTP Sequence Diagram====
-
-<img src=bip-0077/oblivious-http-sequence.png></img>
-
 ===Uniform Payloads===
 
 Encapsulated OHTTP payloads seen by the relay and directory, and encrypted
-messages seen by the directory are constructed to be uniform so that these
+messages seen by the directory, are constructed to be uniform so that these
 third-party services are unable to distinguish between them.
 
-Encapsulated OHTTP messages are 8192 bytes long, and begin with cleartext OHTTP
-header and an uncompressed key for the DHKEM which is distinguishable from
+Encapsulated OHTTP messages are 8192 bytes long, and begin with a cleartext
+OHTTP header and an uncompressed key which is distinguishable from
 random bytes but uniform across different encapsulated requests.
 
-End to end encrypted messages are 7168 bytes long, and should not be
-distinguishable from uniformly random bytes. Elligator swift is used to encode
+End-to-end encrypted messages are 7168 bytes long, and should be
+indistinguishable from uniformly random bytes. Elligator swift is used to encode
 encapsulated HPKE public keys prepended to the HPKE ciphertext so that the
 directory can't distinguish between key material, the ciphertext, and
-randomness, so that the directory may accommodate new protocols in the future
-without discrimination.
+randomness. This ensures the two different protocol messages are
+indistinguishable from each other as well as any protocol extentions.
 
-This is sufficient size for most PSBTs without exceeding the
+These padded sizes are sufficient for most PSBTs without exceeding the
 [[https://www.geekersdigest.com/max-http-request-header-size-server-comparison/|
 8KB limit]] of many HTTP/1.1 web servers. 8KB is also too small for image
 sharing, making misuse of the directory impractical.
@@ -510,11 +527,12 @@ Hybrid Public Key Encryption (HPKE) is a modern IETF standard for secure message
 exchange without TLS.
 
 Payjoin version 2 uses <code>DHKEM(Secp256k1, HKDF-SHA256)</code> and <code>ChaCha20Poly1305</code> AEAD
-for both OHTTP encapsulation and for end to end encryption between the sender
+for both OHTTP encapsulation and for end-to-end encryption between the sender
 and receiver.
 
 The receiver transmits its receiver key in [[#receiver-fragment-parameters|
-receiver fragment parameters]]. The sender shares its reply key in message A.
+receiver fragment parameters]]. The sender shares its reply key along with
+the Original PSBT.
 These keys are ephemeral and must only be used for a single Payjoin Session.
 
 ====Secp256k1-based DHKEM====
@@ -528,52 +546,47 @@ This authenticated encryption with additional data
 [[https://en.wikipedia.org/wiki/ChaCha20-Poly1305| algorithm]] is standardized
 in [[https://www.rfc-editor.org/rfc/rfc8439| RFC 8439]] and has high
 performance. ChaCha20Poly1305 AEAD has been implemented
-[[https://github.com/bitcoin/bitcoin/pull/15649| in Bitcoin Core]]
-[[https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki| BIP 324]] as
-well. This has widespread support in browsers, OpenSSL and libsodium.
-AES-GCM is more widespread but is both older, slower, and not necessarily
+[[https://github.com/bitcoin/bitcoin/pull/15649| in Bitcoin Core]] for
+[[https://github.com/bitcoin/bips/blob/master/bip-0324.mediawiki| BIP 324 Encrypted Transport]] as
+well. This has widespread support in browsers and common cryptographic libraries.
+AES-GCM is more widespread but is both older, slower, and not typically
 already a dependency in bitcoin software.
 
 ====HKDF-SHA256====
 
-SHA-256 is considered secure and is necessarily available in bitcoin contexts.
+SHA-256 is necessarily available in bitcoin contexts.
 
 ==Attack vectors==
 
 In addition to the attack vectors and mitigations in [[https://github.com/bitcoin/bips/blob/master/bip-0078.
 mediawiki#attack-vectors| BIP 78 Payjoin version 1]], Payjoin version 2 has the following attack vectors.
 
-Since each mailbox stores arbitrary encrypted payloads they are vulnerable to the tragedy of the commons and
-denial of service attacks. To mitigate such attacks, directory operators may impose an authentication
-requirement before they allocate a Payjoin Session mailbox to receivers.
+===Directory Denial of Service===
 
-Receivers may break spec by ignoring the <code>exp=</code> without financial consequence since the sender
-payload contains a valid transaction that may be broadcast at any time. There is no mechanism to enforce
-penalties if a receiver fails to construct a Proposal PSBT and wait for a signature once a Proposal PSBT is
-returned to a sender. However, such basic transactions that comply with the common-input-ownership heuristic are the
-norm, so falling back to them is no worse than typical bitcoin transaction behavior.
+Since each mailbox stores arbitrary encrypted payloads, directories are
+vulnerable to flooding. To mitigate such denial of service attacks, directory operators may respond with <code>401</code> unauthorized unless an authorization
+token is provided. Authorization tokens must be unlinkable to preserve client
+privacy. A specific unlinkable authorization token mechanism is out of the scope of this proposal.
 
 ===Network privacy===
 
 Oblivious HTTP must be used to protect the IP addresses of both sender and receiver from the directory. This
 requires an OHTTP Key Configuration to be shared in the Payjoin URI and for the directory to support Oblivious
-HTTP. A secp256k1 HPKE OHTTP configuration should be used to leverage the cryptography already available in
-bitcoin contexts.
+HTTP.
 
 Unlike BIP 78 implementations, sender and receiver peers will only see the IP
-address of the directory and not that of their peers. A directory may additionally
-be made available via Tor hidden service to allow either of the peers to protect
-their IP from the directory without using an OHTTP relay (e.g. to avoid TLS when
-relying on a relay), but the submitted request must still be OHTTP encapsulated
-and submitted to the directory's OHTTP gateway.
+address of the directory and not that of their peers.
+
+Senders which submit requests directly to the directory, without using an OHTTP 
+Relay, may reveal thier IP address to the receiver since that receiver also specifies the directory.
 
 ==Backwards compatibility==
 
-All payjoin versions use [[#payjoin-uri|bitcoin URIs]]. Receivers may choose to accept version 1 payloads. Since
-version 1 payloads are neither encrypted nor authenticated, the directory acts as an
-[[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#unsecured-payjoin-server| unsecured payjoin server]]
-in BIP 78 parlance, so backwards compatible receivers MUST enable <code>pjos=0</code> to disable output
-substitution in order to prevent modification by a malicious directory.
+Senders not supporting Payjoin will just ignore the <code>pj</code> parameter and proceed to typical address-
+based transaction flows.
+
+All payjoin versions use [[#payjoin-uri|bitcoin URIs]]. Receivers may choose to
+accept version 1 payloads at their discretion.
 
 A version 1 sender posts their request to the directory, which stores and forwards it to the version 2
 receiver. A backwards compatible receiver proceeds with the version 1 checks if the encapsulated response
@@ -582,12 +595,6 @@ be returned to the sender within 30 seconds or else the directory should respond
 with an <code>unavailable</code> JSON error code as
 [[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-well-known-errors| defined in BIP
 78]].
-
-<!-- TODO move to BIP 21-specific section -->
-Senders not supporting Payjoin will just ignore the <code>pj=</code> parameter and proceed to typical address-
-based transaction flows. A <code>req-pj=</code> parameter, as specified in BIP 21, may be advertised to compel
-Payjoin. If a sender intending to pay such a URI containing <code>req-pj=</code> does not support Payjoin, it
-MUST consider the entire URI invalid per BIP 21.
 
 ==Reference implementation==
 
