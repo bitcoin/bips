@@ -63,14 +63,12 @@ widespread implementation. To this end, the proposal leverages widespread
 solutions to common problems, building on web standards and common Bitcoin
 primitives.
 
-==Specification==
-
-===Overview===
+==Overview==
 
 Payjoin senders and receivers interact to construct a transaction. In version 2 they
 exchange end-to-end encrypted asynchronous messages using a store-and-forward
 directory server, which is accessed using OHTTP.
-The ''receiver''  initiates the protocol by sharing a [[#bitcoin-uri|bitcoin URI]]. The ''sender''
+The ''receiver''  initiates the protocol by sharing a [[#payjoin-uri|Payjoin URI]]. The ''sender''
 responds with a fully signed fallback transaction, known as the ''Original PSBT''.
 
 The receiver replies with a ''Proposal PSBT'' based on the original PSBT. The
@@ -80,7 +78,7 @@ The sender may opt out by ignoring the payjoin information in the bitcoin URI.
 Otherwise, at the next step the receiver may opt out by broadcasting the
 fallback transaction in the Original PSBT.
 
-====Sequence Diagram====
+===Sequence Diagram===
 
 <pre>
 Key:
@@ -116,6 +114,7 @@ Key:
 +                                  +                  +                +
 </pre>
 
+
 ===Basic scheme===
 
 Before initiating the protocol, the receiver first obtains the directory's OHTTP
@@ -137,7 +136,7 @@ As long as a Session is active, the receiver waits for a message from the
 sender, by long polling GET requests to the mailbox endpoint hosted on the server.
 
 This information is included in the
-[[#bitcoin-uri| Payjoin URI]]
+[[#payjoin-uri| Payjoin URI]]
 which the receiver shares with the sender out of band. The
 <code>pj=</code> query parameter contains the mailbox endpoint URL with
 additional [[#receiver-fragment-parameters| receiver fragment parameters]] that
@@ -165,7 +164,9 @@ network.
 Sender and receiver may experience network interruption and proceed with the
 protocol since their request and response are buffered in the directory.
 
-===Payjoin version 2 messaging===
+==Specification==
+
+===Protocol Sequence===
 
 The Payjoin version 2 protocol takes the following steps:
 
@@ -180,6 +181,7 @@ The Payjoin version 2 protocol takes the following steps:
 * The directory awaits a GET request from the sender. Upon request, the directory relays the encrypted ''Proposal PSBT''.
 * The sender validates the ''Proposal PSBT'' according to [[#senders-proposal-psbt-checklist|the sender checklist]], signs its inputs and broadcasts the transaction to the Bitcoin network.
 
+<!-- TODO move these into their home. PSBT Requirements?-->
 The Original PSBT MUST:
 
 * Include complete UTXO data.
@@ -210,13 +212,11 @@ The Proposal PSBT MUST NOT:
 Complete UTXO data is required because this information is required for signing
 some input types.
 
-====Session Initiation====
+<!-- TODO ...by receiver?-->
+===OHTTP Bootstrapping===
 
-Sessions between senders and receivers are established out of band when a
-receiver shares a Payjoin URI containing its mailbox public key with a
-sender.
-
-A receiver must first discover the directory's OHTTP Gateway Key Configuration
+Before initiating a Payjoin Session
+a receiver must first discover the directory's OHTTP Gateway Key Configuration
 via an authenticated bootstrap mechanism before it can initialize a Session to
 receive payjoin requests. This mechanism may vary by implementation but must
 follow
@@ -238,9 +238,67 @@ requests. Authorization tokens must be unlinkable to preserve client privacy. A
 specific unlinkable authorization token mechanism is out of the scope of this
 proposal.
 
+===Session Initiation===
+
+Receivers initiate sessions by sharing a Payjoin URI. Because these URIs
+contain sensitive information, such as addresses, they should be shared over a
+confidential channel.
+
+====Payjoin URI====
+
+Bitcoin URIs ([[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] or [[https://github.com/bitcoin/bips/blob/master/bip-0321.mediawiki| BIP 321]])
+are a standard way to request bitcoin.
+
+A Payjoin URI is a Bitcoin URI that contains a <code>pj</code> parameter. The
+<code>pj</code> parameter is a URL in both BIP 78 and BIP 77.
+
+
+The <code>pj</code> parameter must be [[#uppercase-url| uppercased and
+should be the last parameter of the URI]].
+
+=====Mailbox endpoint=====
+
+In Payjoin version 2 the URL in the <code>pj</code> parameter is the
+mailbox endpoint URL. Mailboxes are shared HTTP resources served by the directory. Clients POST messages to and GET messages from mailbox endpoints.
+
+======Short ID======
+
+A Short ID identifies a mailbox. The Short ID is the path component of the mailbox endpoint. They are derived by hashing the compressed secp256k1
+mailbox public key with SHA-256, truncating
+it to [[#64-bit-short-id| 8 bytes (64 bits)]], and encoding it in [[#uppercase-url|uppercase]] bech32 with
+no checksum and with no HRP (also omitting the '1' separator).
+
+=====Receiver fragment parameters=====
+
+Payjoin version 2 introduces session-specific parameters which the receiver
+shares encoded in the URI. 
+
+Instead of defining new Bitcoin URI
+parameters, the session-specific parameters are encoded in the
+[[https://datatracker.ietf.org/doc/html/rfc3986#section-3.5| fragment]] of the
+the mailbox endpoint URL.
+
+The <code>#</code> fragment separator character must be [[https://datatracker.ietf.org/doc/html/rfc3986#section-2.1| RFC 3986 percent-encoded]]
+ as </code>%23</code>, because it is part of the mailbox endpoint URL included in the
+<code>pj</code> parameter, not a fragment of the Bitcoin URI.
+
+These session-specific parameters are [[#uppercase-url| uppercase]] bech32 encoded, with no checksum, and are separated by a <code>+</code> character and prefixed with HRPs
+according to their role:
+* <code>RK</code>: encodes the ''receiver key'' in compressed form. Senders will initiate HPKE with the receiver using this key.
+* <code>OH</code>: encodes an alternate format of the OHTTP Key Configuration of the directory. It consists of a compressed public key of the directory's OHTTP Gateway, prefixed by the 2-byte Key Identifier. A [[https://www.ietf.org/rfc/rfc9458.html#section-3.1| RFC 9458 Key Configuration]] is reconstructed by assuming the HPKE KEM ID and Symmetric Algorithms are [[#secp256k1-hybrid-public-key-encryption| fixed]].
+* <code>EX</code>: specifies a [[#session-expiration| session expiration]] in [[https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_16| unix time]].
+
+For example, a properly encoded endpoint URL fragment looks like this <code>bitcoin:tb1q6q6de88mj8qkg0q5lupmpfexwnqjsr4d2gvx2p?amount=0.00666666&pjos=0&pj=HTTPS://PAYJO.IN/TXJCGKTKXLUUZ%23RK1Q0DJS3VVDXWQQTLQ8022QGXSX7ML9PHZ6EDSF6AKEWQG758JPS2EV+OH1QYPM59NK2LXXS4890SUAXXYT25Z2VAPHP0X7YEYCJXGWAG6UG9ZU6NQ+EX1WKV8CEC</code>
+
 ====Send Messaging====
 
-The Original PSBT is serialized in base64, followed by the query parameter string on a new line. This plaintext
+The sender constructs the fallback transaction, a typical transaction spending
+funds to the receiver's address specified in the Payjoin URI. This transaction
+is serialized as a PSBT, including UTXO information.
+
+This ''Original PSBT'' is encoded as base64, followed by the query parameter string on a new line containing [[#optional-sender-parameters| optional sender parameters]].
+
+This plaintext
 string is encrypted to the receiver key according to HPKE. The HPKE <code>info</code> string, used for domain separation, is <code>PjV2MsgA</code>.
 
 <pre>
@@ -276,6 +334,17 @@ forwarded to the receiver.
 
 The sender then polls OHTTP encapsulated GET requests to the sender's mailbox endpoint until it receives a
 response from the directory containing a ''Proposal PSBT''. It stops polling after expiry.
+
+
+===Optional sender parameters===
+
+When a Payjoin sender POSTs an Original PSBT to the receiver,
+[[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#optional-parameters| BIP 78's optional parameters]] are also valid as version 2 parameters.
+
+HPKE binds ciphertexts to application-specific <code>info</code> strings.
+Because of this domain separation, BIP 78's
+<code>v</code> parameter is redundant and should be omitted for version 2.
+
 
 ====Receive Messaging====
 
@@ -327,6 +396,8 @@ payloads to support asynchronous communication. The directory must only accept O
 Gateway for Payjoin version 2, accepting encrypted payloads. The directory may optionally accept HTTP/1.1 POST
 requests without OHTTP to mailbox URLs for backwards compatibility with Payjoin version 1 requests.
 
+<!-- TODO emphasize long-polling is instantaneous when a message is received-->
+
 ====Relay/Directory interactions====
 
 Directories accept requests from relays using their OHTTP Gateways. The gateway may
@@ -356,71 +427,20 @@ use for which directory, creating a tendency for one directory and its
 affiliated relays to monopolize the Payjoin version 2 protocol. This also
 reduces the burden of configuring and operating a relay or directory.
 
-===Mailboxes===
-
-Each Payjoin Session mailbox allocated in the directory has one buffer for a PSBT payload. The buffer
-updates listeners through awaitable events so that updates are immediately apparent upon client request.
-
-====Short ID====
-
-A Short ID identifies a mailbox. Clients generate one
-by hashing the compressed secp256k1 mailbox public key with SHA-256, truncating
-it to [[#64-bit-short-id| 8 bytes (64 bits)]], and encoding it in uppercase bech32 with
-no checksum and with no HRP (also omitting the '1' separator).
-
-===Bitcoin URI===
-
-Bitcoin URIs ([[https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki| BIP 21]] or [[https://github.com/bitcoin/bips/blob/master/bip-0321.mediawiki| BIP 321]])
-are a standard way to request bitcoin.
-
-A Payjoin URI is a Bitcoin URI that contains a <code>pj</code> parameter. The
-<code>pj</code> parameter is a URL in both BIP 78 and BIP 77.
-
-====Receiver fragment parameters====
-
-Payjoin version 2 introduces session-specific parameters which the receiver
-shares encoded in the URI. 
-
-In Payjoin version 2 the URL in the <code>pj</code> parameter is the
-mailbox endpoint URL.
-Instead of defining new Bitcoin URI
-parameters, the session-specific parameters are encoded in the
-[[https://datatracker.ietf.org/doc/html/rfc3986#section-3.5| fragment]] of the
-the mailbox endpoint URL.
-
-The <code>#</code> fragment separator character must be [[https://datatracker.ietf.org/doc/html/rfc3986#section-2.1| RFC 3986 percent-encoded]]
- as </code>%23</code>, because it is part of the URL included in the
-<code>pj</code> parameter, not a fragment of the Bitcoin URI.
-
-Session-specific parameters are bech32 encoded, with no checksum, and are separated by a <code>+</code> character and prefixed with HRPs
-according to their role:
-* <code>RK</code>: encodes the ''receiver key'' in compressed form. Senders will initiate HPKE with the receiver using this key.
-* <code>OH</code>: encodes an alternate format of the OHTTP Key Configuration of the directory. It encodes a compressed public key of the directory's OHTTP Gateway, prefixed by the 2-byte Key Identifier, from which the [[https://www.ietf.org/rfc/rfc9458.html#section-3.1| RFC 9458 Key Configuration can be reconstructed]] by assuming the HPKE KEM ID and Symmetric Algorithms are [[#secp256k1-hybrid-public-key-encryption| fixed]].
-* <code>EX</code>: represents a session expiration in [[https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_16| unix time]] after which the receiver reserves the right to broadcast the transaction extracted from the Original PSBT and ignore requests. This is only necessary for receivers who only support synchronous execution of the protocol, like automated payment processors.
-
-For example, a properly encoded endpoint URL fragment looks like this <code>bitcoin:tb1q6q6de88mj8qkg0q5lupmpfex
-wnqjsr4d2gvx2p?amount=0.00666666&pjos=0&pj=HTTPS://PAYJO.IN/TXJCGKTKXLUUZ%23RK1Q0DJS3VVDXWQQTLQ8022QGXSX7ML9PHZ
-6EDSF6AKEWQG758JPS2EV+OH1QYPM59NK2LXXS4890SUAXXYT25Z2VAPHP0X7YEYCJXGWAG6UG9ZU6NQ+EX1WKV8CEC</code>
-
-Using the fragment for Payjoin URI parameters makes for more compact QR codes too, since all of the characters
-are contained in alphanumeric QR mode is more compact than the byte mode.
-
-In order to simplify parsing and allow QR encoders to use alphanumeric QR mode
-wherever possible, the <code>pj</code> parameter must be uppercased and
-should be the last parameter of the URI. Since URLs are case sensitive, path
-elements of a directory URL may be lowercased but SHOULD be configured to be
-uppercased.
-
-===Optional sender parameters===
-
-When a Payjoin sender POSTs an Original PSBT to the receiver, BIP 78's optional
-query parameters are also valid as version 2 parameters.
-
-HPKE bind ciphertexts to application-specific <code>info</code> strings.
-Because of this domain separation, BIP 78's
-<code>v</code> parameter is redundant and should be omitted for version 2.
-
 ==Rationale==
+
+===Uppercase URL===
+
+In order to simplify parsing and allow QR encoders to use
+[[https://www.rfc-editor.org/rfc/rfc9285.html#name-the-alphabet-used-in-base45| Alphanumeric QR mode]],
+which is more compact than Byte mode, the mailbox endpoint URL, including the fragment parameters, are encoded in uppercase.
+
+Unlike Bitcoin URI parameters, which require switching back to Byte mode,
+the use of the URL fragment for session-specific parameters makes it possible
+to stay in Alphanumeric mode.
+
+The <code>pj</code> parameter mailbox endpoint URL SHOULD be the last Bitcoin
+URI parameter to avoid QR mode switching.
 
 ===Session Expiration===
 
@@ -549,9 +569,9 @@ and submitted to the directory's OHTTP gateway.
 
 ==Backwards compatibility==
 
-All payjoin versions use [[#bitcoin-uri|bitcoin URIs]]. Receivers may choose to accept version 1 payloads. Since
+All payjoin versions use [[#payjoin-uri|bitcoin URIs]]. Receivers may choose to accept version 1 payloads. Since
 version 1 payloads are neither encrypted nor authenticated, the directory acts as an
-[[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#user-content-span_idunsecuredpayjoinspanUnsecured_payjoin_server| unsecured payjoin server]]
+[[https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#unsecured-payjoin-server| unsecured payjoin server]]
 in BIP 78 parlance, so backwards compatible receivers MUST enable <code>pjos=0</code> to disable output
 substitution in order to prevent modification by a malicious directory.
 
