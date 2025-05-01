@@ -241,39 +241,72 @@ proposal.
 ====Send Messaging====
 
 The Original PSBT is serialized in base64, followed by the query parameter string on a new line. This plaintext
-string is encrypted to the receiver key according to HPKE. The resulting HPKE payload is the body of a POST request to the receiver's mailbox. This request is
-then encapsulated according to Oblivious HTTP (providing another layer of encryption) to the directory's OHTTP Gateway.
+string is encrypted to the receiver key according to HPKE. The HPKE <code>info</code> string, used for domain separation, is <code>PjV2MsgA</code>.
+
+<pre>
+PjV2MsgA Byte Representation (7168 bytes total)
++---------------------------------------------------------------------------------------+
+| ElligatorSwift |                             Ciphertext                               |
+|   (64 bytes)   |                            (7104 bytes)                              |
+|                +-----------------------+---------------------------------+------------+
+|                |       Reply Key       |         Padded Plaintext        |  AEAD Tag  |
+|                |       (33 bytes)      |   (7055 bytes = 7168-64-33-16)  | (16 bytes) |
++---------------------------------------------------------------------------------------+
+</pre>
+
+The resulting HPKE payload is the body of a POST request to the receiver's mailbox. This request is
+then encapsulated according to Oblivious HTTP to the directory's OHTTP Gateway.
+OHTTP serializes the inner request as BHTTP, and provides another layer of HPKE
+encryption, between the client and directory.
+
+<pre>
+OHTTP Encapsulated Message Byte Representation (8192 bytes total)
++-----------------------------------------------------------------------------------+
+|         HPKE KEM        | OHTTP Header |               Ciphertext                 |
+| Uncompressed Public Key |  (7 bytes)   |        (8120 bytes = 8192-65-7)          +
+|        (65 bytes)       |              +-----------------------------+------------+
+|                         |              |     Padded BHTTP Request    |  AEAD Tag  |
+|                         |              | (8104 bytes = 8192-65-16-7) | (16 bytes) |
++-----------------------------------------------------------------------------------+
+</pre>
 
 Upon receipt, the directory's OHTTP Gateway decapsulates the OHTTP request and handles the inner POST request
 at the receiver's mailbox endpoint, which stores the HPKE encrypted payload to be
 forwarded to the receiver.
 
-The sender then polls OHTTP encapsulated GET requests to the sender's mailbox endpoint in order to await a
+The sender then polls OHTTP encapsulated GET requests to the sender's mailbox endpoint until it receives a
 response from the directory containing a ''Proposal PSBT''. It stops polling after expiry.
 
 ====Receive Messaging====
 
-After sharing the Payjoin URI with the sender, the receiver sends an OHTTP
-encapsulated GET request to the path of the receiver's
-mailbox. This request is encapsulated in OHTTP. It continues to poll by sending a new
-OHTTP request after receiving an encapsulated 202 ACCEPTED response notifying the receiver that the directory
-has not yet received a request from the sender.
+After sharing the Payjoin URI with the sender, the receiver polls OHTTP
+encapsulated GET requests to the receiver's mailbox endpoint.
+So long as the mailbox contains no message, the directory responds with 202 ACCEPTED. Once a mailbox contains a message, the directory includes
+it in the response body with status 200 OK.
 
-Upon receiving OHTTP response from the directory encapsulating a request from
-the sender with status code 200 OK, the receiver decrypts the payload and checks
-the ''Proposal PSBT'' according to the
-[[#receivers-proposal-psbt-checklist|checklist]].
+Upon receiving a encapsulated 200 OK response, the receiver decrypts the payload and checks
+the ''Original PSBT'' therein according to the
+[[#receivers-original-psbt-checklist|checklist]].
 
 The receiver then updates the ''Original PSBT'' to include new signed inputs and outputs, invalidating
 sender signatures, and may adjust the fee. The result is called the ''Proposal PSBT''.
 
-The receiver encrypts the ''Proposal PSBT'' according to the HPKE protocol, generating an ephemeral
-keypair from which it derives a shared secret with the sender's reply key from the payload.
-It generates a nonce from sufficient randomness, and constructs a ciphertext containing the Proposal PSBT and
-serialized receiver ephemeral key <code>e</code>'s public key as associated data using ChaCha20Poly1305. A
-payload is constructed by concatenating the ephemeral public key, the nonce, and the ciphertext. This Proposal
-PSBT payload is then sent as a POST message to the directory in an OHTTP request encapsulating the binary
-payload to the sender's Payjoin Session mailbox.
+The receiver encrypts the ''Proposal PSBT'' to the sender's reply key according
+to the HPKE protocol. The HPKE <code>info</code> string is <code>PjV2MsgB</code>.
+
+<pre>
+PjV2MsgB Byte Representation (7168 bytes total)
++---------------------------------------------------------------------------------------+
+| ElligatorSwift |                             Ciphertext                               |
+|   (64 bytes)   |                            (7104 bytes)                              |
+|                +---------------------------------------------------------+------------+
+|                |           Padded Plaintext                              |  AEAD Tag  |
+|                |       (7088 bytes = 7168-64-16)                         | (16 bytes) |
++---------------------------------------------------------------------------------------+
+</pre>
+
+OHTTP encapsulated requests from the receivers have the same structure and
+are thus indistinguishable from those of the sender.
 
 ===Receiver's Original PSBT checklist===
 
@@ -374,7 +407,8 @@ are contained in alphanumeric QR mode is more compact than the byte mode.
 When a Payjoin sender POSTs an Original PSBT to the receiver, BIP 78's optional
 query parameters are also valid as version 2 parameters.
 
-Because HPKE relies on info strings for domain separation, BIP 78's
+HPKE bind ciphertexts to application-specific <code>info</code> strings.
+Because of this domain separation, BIP 78's
 <code>v</code> parameter is redundant and should be omitted for version 2.
 
 ==Rationale==
@@ -439,48 +473,6 @@ This is sufficient size for most PSBTs without exceeding the
 [[https://www.geekersdigest.com/max-http-request-header-size-server-comparison/|
 8KB limit]] of many HTTP/1.1 web servers. 8KB is also too small for image
 sharing, making misuse of the directory impractical.
-
-====Message Byte Representations====
-
-<pre>
-OHTTP Encapsulated Message Byte Representation (8192 bytes total)
-+-----------------------------------------------------------------------------------+
-|         HPKE KEM        | OHTTP Header |               Ciphertext                 |
-| Uncompressed Public Key |  (7 bytes)   |        (8120 bytes = 8192-65-7)          +
-|        (65 bytes)       |              +-----------------------------+------------+
-|                         |              |     Padded BHTTP Request    |  AEAD Tag  |
-|                         |              | (8104 bytes = 8192-65-16-7) | (16 bytes) |
-+-----------------------------------------------------------------------------------+
-</pre>
-
-<pre>
-Message A Byte Representation (7168 bytes total)
-+---------------------------------------------------------------------------------------+
-| ElligatorSwift |                             Ciphertext                               |
-|   (64 bytes)   |                            (7104 bytes)                              |
-|                +-----------------------+---------------------------------+------------+
-|                |       Reply Key       |         Padded Plaintext        |  AEAD Tag  |
-|                |       (33 bytes)      |   (7055 bytes = 7168-64-33-16)  | (16 bytes) |
-+---------------------------------------------------------------------------------------+
-</pre>
-
-<pre>
-Message B Byte Representation (7168 bytes total)
-+---------------------------------------------------------------------------------------+
-| ElligatorSwift |                             Ciphertext                               |
-|   (64 bytes)   |                            (7104 bytes)                              |
-|                +---------------------------------------------------------+------------+
-|                |           Padded Plaintext                              |  AEAD Tag  |
-|                |       (7088 bytes = 7168-64-16)                         | (16 bytes) |
-+---------------------------------------------------------------------------------------+
-</pre>
-
-The HPKE <code>info</code> strings used for message encryption are:
-* Message A: <code>PjV2MsgA</code> (Original PSBT Request)
-* Message B: <code>PjV2MsgB</code> (Proposal PSBT Response)
-
-These info strings are used as the application-specific info parameter during HPKE encryption to bind the
-ciphertext to its specific role in the protocol.
 
 ===Secp256k1 Hybrid Public Key Encryption===
 
