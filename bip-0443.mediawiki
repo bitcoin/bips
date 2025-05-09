@@ -38,20 +38,15 @@ This document is licensed under the 3-clause BSD license.
 The ability to constrain the future of coins beyond what is possible with presigned transactions is at the core of
 numerous attempts to improve bitcoin. Some of the proposed applications include:
 
-* UTXO sharing schemes like Ark, CoinPools, Timeout Trees, etc. use various types of output restrictions in order to
-  enable multiple parties to share the control of a UTXO, while ensuring that each participant controls their own
-  balance.
-* <code>OP_VAULT</code><ref>[[bip-0345.mediawiki|BIP-345]]</ref> is a proposed opcode to implement a 2-step withdrawal
-  process, enabling on-chain reactive security.
-* <code>OP_CHECKTEMPLATEVERIFY</code><ref>[[bip-119.mediawiki|BIP-114]]</ref> is a long-proposed opcode to constrain a
-  transaction to a ''template'' with a fixed set of outputs.
-* Sidechains and rollups could be implemented via a UTXO encumbered with a recursive covenant, updating the sidechain
-  state root every time it is spent.
+* UTXO sharing schemes like Ark, CoinPools, Timeout Trees, etc. use various types of output restrictions in order to enable multiple parties to share the control of a UTXO, while ensuring that each participant controls their own `balance.
+* <code>OP_VAULT</code><ref>[[bip-0345.mediawiki|BIP-345]]</ref> is a proposed opcode to implement a 2-step withdrawal process, enabling on-chain reactive security.
+* <code>OP_CHECKTEMPLATEVERIFY</code><ref>[[bip-119.mediawiki|BIP-114]]</ref> is a long-proposed opcode to constrain a transaction to a ''template'' with a fixed set of outputs.
+* Sidechains and rollups could be implemented via a UTXO encumbered with a recursive covenant, updating the sidechain state root every time it is spent.
 
 Constructions like BitVM<ref>https://bitvm.org/</ref> try to side-step the lack of a primitive allowing UTXOs to carry
 state with a clever use of Lamport Signatures, and optimistic execution of smart contracts. This comes with an extremely
- high cost in term of complexity, interactivity, and (potentially) in block size occupation, for some of the possible
- execution paths. Moreover, the design of fully trustless bridges remains elusive.
+high cost in term of complexity, interactivity, and (potentially) in block size occupation, for some of the possible
+execution paths. Moreover, the design of fully trustless bridges remains elusive.
 
 Rather than providing a construct optimized for a specific application, this BIP aims to provide a fundamental building
 block that is widely applicable, and common to many constructions.
@@ -73,13 +68,9 @@ The resulting key is the taproot internal key per BIP-341.
 This allows to embed a commitment to the data that can be validated during the script execution, while staying fully
 compatible with taproot. Notably:
 * the committed data does not make the UTXO any larger;
-* the keypath spend is still available to any party that possesses the private key of the naked key, as long as they
-  have knowledge of the embedded data (or at least the data’s hash)<ref>For example, in a multi-party contract, the
-  naked key could be an aggregate key using [[bip-0327.mediawiki|MuSig2]]; the taproot keypath would therefore allow a
-  ''cooperative'' spend, without executing any script at all. Like for all taproot transactions, this is indeed the
+* the keypath spend is still available to any party that possesses the private key of the naked key, as long as they have knowledge of the embedded data (or at least the data’s hash)<ref>For example, in a multi-party contract, the naked key could be an aggregate key using [[bip-0327.mediawiki|MuSig2]]; the taproot keypath would therefore allow a ''cooperative'' spend, without executing any script at all. Like for all taproot transactions, this is indeed the
   cheapest way of spending the UTXO — albeit not always possible in practice.</ref>;
-* if multiple scripts are in different leaves of the taptree, only the ones that actually need to access the data have
-  to pay a cost for it, in terms of additional witness bytes.
+* if multiple scripts are in different leaves of the taptree, only the ones that actually need to access the data have to pay a cost for it, in terms of additional witness bytes.
 
 <code>OP_CHECKCONTRACTVERIFY</code> can be applied to introspect the program and data of one of the inputs of the
 transaction (typically, the UTXO being spent, in order to access its committed data), or one of the outputs of the
@@ -93,11 +84,9 @@ outputs in the expected way. Therefore, the opcode already includes an amount se
 
 There are three supported modes for the opcode when checking an output, depending on the value of the <code>mode</code>
 parameter:
-* ''default'': the residual amount of the current input must be preserved in the output (aggregate across the inputs
-  that specify the output);
+* ''default'': the residual amount of the current input must be preserved in the output (aggregate across the inputs that specify the output);
 * ''ignore'': the output amount is ignored.
-* ''deduct'': the amount of the checked output is subtracted from the amount of the current input (the residual amount
-  is then available for further checks);
+* ''deduct'': the amount of the checked output is subtracted from the amount of the current input (the residual amount is then available for further checks);
 
 The ''default'' logic covers the common case where a UTXO’s full amount is required to be sent to a specific output.
 
@@ -155,10 +144,8 @@ When evaluating <code>OP_CHECKCONTRACTVERIFY</code> (<code>OP_SUCCESS187</code>,
 where:
 
 * <code><mode></code> is a minimally encoded integer, according to one of the values defined below.
-* <code><taptree></code> is the Merkle root of the taproot tree, or a minimally encoded <code>-1</code>, or the empty
-  buffer.
-* <code><pk></code> is called the ''naked key'', and it's a valid 32-byte x-only public key, or a minimally encoded
-  <code>-1</code>, or the empty buffer.
+* <code><taptree></code> is the Merkle root of the taproot tree, or a minimally encoded <code>-1</code>, or the empty buffer.
+* <code><pk></code> is called the ''naked key'', and it's a valid 32-byte x-only public key, or a minimally encoded <code>-1</code>, or the empty buffer.
 * <code><index></code> is a minimally encoded -1, or a minimally encoded non-negative integer.
 * <code><data></code> is a buffer of arbitrary length.
 
@@ -181,18 +168,15 @@ The following value of the <code><mode></code> are defined:
 * <code>CCV_MODE_CHECK_INPUT = -1</code>: Check an input's script; no amount check.
 * <code>CCV_MODE_CHECK_OUTPUT = 0</code>: Check an output's script; preserve the (possibly residual) amount.
 * <code>CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT = 1</code>: Check an output's script; ignore amounts.
-* <code>CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT = 2</code>: Check an output's script; deduct the output amount from the
-  input's residual amount.
+* <code>CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT = 2</code>: Check an output's script; deduct the output amount from the input's residual amount.
 
 Any other value of the <code><mode></code> makes the opcode succeed validation immediately for the current
 input<ref>This allows to soft-fork future behavior by introducing new values for the <code><mode></code>. As the mode
 would always be hard-coded via a push in the script, the risk of mistakes seems negligible.</ref>.
 
 The following values of the other parameters have special meanings:
-* If the <code><taptree></code> is -1, it is replaced with the Merkle root of the current input's tapscript tree. If the
-  taptree is the empty buffer, then the taptweak is skipped.
-* If the <code><pk></code> is 0, it is replaced with the NUMS x-only pubkey <code>0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code>
-  defined in BIP-0340. If the <code><pk></code> is -1, it is replaced with the taproot internal key of the current input.
+* If the <code><taptree></code> is -1, it is replaced with the Merkle root of the current input's tapscript tree. If the taptree is the empty buffer, then the taptweak is skipped.
+* If the <code><pk></code> is 0, it is replaced with the NUMS x-only pubkey <code>0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code> defined in BIP-0340. If the <code><pk></code> is -1, it is replaced with the taproot internal key of the current input.
 * If the <code><index></code> is -1, it is replaced with the index of the current input.
 * If the <code><data></code> is the empty buffer, then there is no data tweak for the input/output being checked.
 
