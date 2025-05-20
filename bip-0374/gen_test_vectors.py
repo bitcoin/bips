@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the BIP-0374 test vectors."""
 import csv
-import os
+from pathlib import Path
 import sys
 from reference import (
     TaggedHash,
@@ -14,8 +14,8 @@ from secp256k1 import G as GENERATOR, GE
 NUM_SUCCESS_TEST_VECTORS = 8
 DLEQ_TAG_TESTVECTORS_RNG = "BIP0374/testvectors_rng"
 
-FILENAME_GENERATE_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_generate_proof.csv')
-FILENAME_VERIFY_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_verify_proof.csv')
+FILENAME_GENERATE_PROOF_TEST = Path(__file__).parent / 'test_vectors_generate_proof.csv'
+FILENAME_VERIFY_PROOF_TEST = Path(__file__).parent / 'test_vectors_verify_proof.csv'
 
 
 def random_scalar_int(vector_i, purpose):
