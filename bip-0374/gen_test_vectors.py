@@ -8,7 +8,7 @@ from reference import (
     dleq_generate_proof,
     dleq_verify_proof,
 )
-from secp256k1 import G as GENERATOR, GE
+from secp256k1lab.secp256k1 import G as GENERATOR, GE
 
 
 NUM_SUCCESS_TEST_VECTORS = 8

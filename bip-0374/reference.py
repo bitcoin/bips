@@ -3,10 +3,14 @@
 """Reference implementation of DLEQ BIP for secp256k1 with unit tests."""
 
 from hashlib import sha256
+from pathlib import Path
 import random
-from secp256k1 import G, GE
 import sys
 import unittest
+
+# Prefer the vendored copy of secp256k1lab
+sys.path.insert(0, str(Path(__file__).parent / "secp256k1lab/src"))
+from secp256k1lab.secp256k1 import G, GE
 
 
 DLEQ_TAG_AUX = "BIP0374/aux"
