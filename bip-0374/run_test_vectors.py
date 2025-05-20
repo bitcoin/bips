@@ -7,7 +7,7 @@ from reference import (
     dleq_generate_proof,
     dleq_verify_proof,
 )
-from secp256k1 import GE
+from secp256k1lab.secp256k1 import GE
 
 
 FILENAME_GENERATE_PROOF_TEST = Path(__file__).parent / 'test_vectors_generate_proof.csv'
