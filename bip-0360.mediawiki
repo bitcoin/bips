@@ -3,6 +3,7 @@
   Title: Pay to Quantum Resistant Hash
   Layer: Consensus (soft fork)
   Author: Hunter Beast <hunter@surmount.systems>
+  Ethan Heilman <ethan.r.heilman@gmail.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0360
   Status: Draft
@@ -16,7 +17,7 @@
 
 === Abstract ===
 
-This document proposes the introduction of a new output type using signatures based on Post-Quantum Cryptography (PQC).
+This document proposes the introduction of a new output type Pay to Quantum Resistant Hash (P2QRH) allowing the use of Post-Quantum Cryptography (PQC) in Bitcoin.
 This approach for adding a post-quantum secure output type does not require a hard fork or block size increase.
 
 === Copyright ===
@@ -39,7 +40,7 @@ offering insufficient protection. The computational complexity of this attack is
 [https://pubs.aip.org/avs/aqs/article/4/1/013801/2835275/The-impact-of-hardware-specifications-on-reaching ''The impact of hardware specifications on reaching quantum advantage in the fault-tolerant regime''].
 
 This proposal aims to mitigate these risks by introducing a Pay to Quantum Resistant Hash (P2QRH) output type that
-relies on PQC signature algorithms. By adopting PQC, Bitcoin can enhance its quantum
+makes tapscript quantum resistant and enables the use of PQC signature algorithms. By adopting PQC, Bitcoin can enhance its quantum
 resistance without requiring a hard fork or block size increase.
 
 The vulnerability of existing Bitcoin addresses<ref name="address-vulnerability">A vulnerable Bitcoin address is any
@@ -80,7 +81,7 @@ possible. Once the transaction is mined, it makes useless the public key reveale
 never reused.
 
 It is proposed to implement a Pay to Quantum Resistant Hash (P2QRH) output type that relies on a PQC signature
-algorithm. This new output type protects transactions submitted to the mempool and helps preserve the free market by
+algorithm. This new output type protects transactions submitted to the mempool and helps preserve the fee market by
 preventing the need for private, out-of-band mempool transactions.
 
 The following table is intended to inform the average Bitcoin user whether their bitcoin is vulnerable to a long-exposure
@@ -176,60 +177,103 @@ It is proposed to use SegWit version 3. This results in addresses that start wit
 remember that these are quantum (r)esistant addresses. This is referencing the lookup table under
 [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
 
-P2QRH is meant to be implemented on top of P2TR, combining the security of classical Schnorr signatures along with
-post-quantum cryptography. This is a form of hybrid cryptography such that no regression in security is presented
-should a vulnerability exist in one of the signature algorithms used. One key distinction between P2QRH and P2TR
-however is that P2QRH will encode a hash of the public key. This is a significant deviation from how Taproot works by
-itself, but it is necessary to avoid exposing public keys on-chain where they are vulnerable to attack.
+We believe any approach to augment Bitcoin with quantum resistance should meet the following requirements. Any 
+upgrade to Bitcoin's quantum resistance should:
 
-P2QRH uses a 32-byte HASH256 (specifically SHA-256 twice-over) of the public key to reduce the size of new outputs and
-also to increase security by not having the public key available on-chain. While HASH256 uses double SHA-256 like
-Bitcoin's Proof of Work, this does not meaningfully increase quantum resistance compared to single SHA-256, as both
-provide approximately 2^128 security against Grover's algorithm. The practical impact of quantum attacks on SHA-256
-remains theoretical since quantum circuits for SHA-256 are still theoretical, but using the same hash function as
-Proof of Work maintains consistency with Bitcoin's existing security model. This hash serves as a minimal cryptographic
-commitment to a public key in the style of a
-[https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-Witness_program BIP-141 witness program].
-Because it goes into the scriptPubKey, it does not receive a witness or attestation discount.
+**Change as little as possible.** Unless absolutely necessary should reuse existing Bitcoin code, standards and the
+existing expectations of how to use Bitcoin.
 
-Post-quantum public keys are generally larger than those used by ECC, depending on the security level.
-Originally BIP-360 proposed NIST Level V, 256-bit security, but this was changed to NIST Level I, 128-bit security
-due to concerns over the size of the public keys, the time it would take to verify signatures, and being generally
-deemed "overkill".
+**The upgrade must be gentle, staged and low cost.** Rather than require that wallets and exchanges immediately support 
+post-quantum signatures we must provide a way for them to gentle move to greater quantum resistance in small steps. This
+is critical because an upgrade path which requires too much effort up front is unlikely to be adopted prior to a
+a state of quantum emergency. The earlier the ecosystem begins upgrading to quantum resistance, the lower the number of 
+coins at risk when quantum attacks become practical.
 
-Support for FALCON signatures will be introduced first, with the intention of adding other post-quantum
-algorithms as they are approved. By way of comparison, FALCON signatures are roughly 20x larger than Schnorr signatures.
-FALCON has recently been approved by NIST. NIST approval streamlines implementations through establishing
-consensus in the scientific and developer community. This means, to maintain present transaction throughput, an
-increase in the witness discount will likely be desired in a QuBit soft fork. That will be specified in a future QuBit
-BIP.
+**Use NIST standardized post-quantum signature algorithms.** These algorithms have gotten the most scrutiny
+and are likely to be most well supported and well studied going forward. The entire Bitcoin ecosystem will benefit
+from using the most popular post-quantum signature algorithms including leveraging hardware acceleration 
+instructions, commodity trusted hardware, software libraries and cryptography research.
 
-An increase in the witness discount must not be taken lightly. It must be resistant to applications that might take
-advantage of this discount (e.g., storage of arbitrary data as seen with "inscriptions") without a corresponding
+**Hedge against unexpected attacks on signature algorithms.** This is motivated by two factors. First,
+Bitcoin must enable parties to hold coins securely for decades if not centuries. The history of cryptography is
+one of unexpected breakthroughs in attacks. Thus, Bitcoin should enable the user of multiple signature algorithms
+to hedge against the failure of any particular algorithm. Second, Many post-quantum algorithms are relatively new
+and while it unlikely that a NIST standardized post-quantum signature algorithm will be broken, prudence dictates
+that we plan for the worst. For these reasons we are proposing two post-quantum signature algorithms, one which
+is intended as a performant replacement for Schnorr signatures and a far more conservative choice which provides 
+maximal assurance against unexpected attacks. Regardless of quantum attacks this maximal secure signature algorithm
+is both a natural and valuable feature for Bitcoin to have.
+
+Using these guiding principles, we propose the following design for P2QRH.
+
+To change as little as possible, we designed P2QRH to be P2TR with the quantum vulnerable key-spend path removed.
+Thus, rather than committing to a public key as P2TR does, P2QRH simply commits to the root 
+of the tapleaf merkle tree. This allows P2QRH to leverage the existing, mature and battle tested tapleaf code. 
+This reduces the implementation burden on wallets, exchanges, and parties in the Bitcoin ecosystem 
+since they can reuse the code they already have. P2QRH is a simplification of P2TR which removes 
+the quantum vulnerable key-spend in P2TR
+
+P2QRH will support both Schnorr and PQC signatures. This provides a gentle upgrade path for users, wallets and exchanges.
+Users can move from P2TR to P2QRH without simultaneously having to change from Schnorr signatures to PQC signatures.
+This change alone protects against long-range quantum attacks. Then wallets can provide full quantum resistance by
+adding support for PQC signatures as an additional tapleaf alongside Schnorr signatures<ref name="mattleaf">Inspired by Matt Corallo's discussion of this idea on the Bitcoin-dev mailing list [https://groups.google.com/g/bitcoindev/c/oQKezDOc4us/m/T1vSMkZNAAAJ Re: P2QRH / BIP-360 Update]</ref>. 
+In the event of that quantum attacks become practical, users in such outputs are fully protected as the P2QRH output 
+commits to a PQC signature.
+
+In looking at PQC signatures to support we follow our principle of using NIST standardized algorithms. As discussed above 
+NIST approval streamlines implementations establishes consensus in the scientific and developer community, sends a 
+strong signal that these algorithms will be well supported. Post-quantum public keys are generally larger than those
+used by ECC, depending on the security level. Originally BIP-360 proposed NIST Level V, 256-bit security, but this was
+changed to NIST Level I, 128-bit security due to concerns over the size of the public keys, the time it would take to
+verify signatures, and being generally deemed "overkill".
+
+We considered the NIST approved SLH-DSA (SPHINCS+), ML-DSA (CRYSTALS-Dilithium), and FN-DSA (FALCON). Of these three algorithms, 
+SLH-DSA has the largest signature size, but is the most conservative choice from a security perspective. This is because SLH-DSA
+is based on well studied and time-tested hash-based cryptography. Both FN-DSA and ML-DSA signatures are significantly 
+smaller than SLH-DSA signatures. However, FN-DSA and ML-DSA are based on lattice-based cryptography which is relatively 
+new and introduces novel security assumptions to Bitcoin.
+
+We choose to support Schnorr, ML-DSA, and SLH-DSA. As discussed earlier, supporting Schnorr in P2QRH
+enables a gentle upgrade path. Additionally removing Schnorr from P2QRH tapscripts would add complexity, whereas
+including requires no changes at all and provides maintains compatibility with tapscript. As ML-DSA and FN-DSA are
+both similar lattice-based designs we choose to only support ML-DSA as the additional value of supporting FN-DSA is
+marginal and would increase implementation cost. ML-DSA is intended to be the default PQC signature algorithm in
+P2QRH as it provides a good balance of security, performance and signature size and is likely to the most widely
+supported PQC signature algorithm. SLH-DSA has a radically different design than ML-DSA and provides an effective hedge
+against unexpected attacks on signature algorithms on ML-DSA and Schnorr.
+
+P2QRH is designed to enable parties holding Bitcoin to combine the security of classical Schnorr signatures along 
+with both post-quantum signatures. This allows the construction of outputs such that funds are still secure
+even if two of the three the signature algorithms are completely broken. This is motivated by the usecase of securely 
+storing Bitcoins in a cold wallet for extended periods of time (50 to 100 years).
+
+While it might be seen as a maintenance burden for Bitcoin ecosystem devs to support two additional distinct signature
+algorithms--and it most certainly is--the ramifications of a chain broken through cryptanalytic breakthroughs, 
+quantum or otherwise, should provide sufficient motivation. The complexity involved in supporting multiple signature
+algorithms should be seen as an acceptable compromise for maintained security of Bitcoin during a regime of quantum advantage.
+
+To improve the viability of the activation client and adoption by wallets and libraries, a library akin to 
+libsecp256k1 will be developed. This library, libbitcoinpqc, will support the new PQC signature algorithms 
+and can be used as a reference for other language-native implementations.
+
+
+==== Future Considerations ====
+
+We recognize that the size of CRYSTALS-Dilithium and SPHINCS+ signatures is a significant concern. By way of comparison with 
+Schnorr signatures, SPHINCS+ signatures are roughly 120x larger and CRYSTALS-Dilithium is roughly 40x larger. This means to 
+maintain present transaction throughput, an increase in the witness discount may be desired. 
+
+An increase in the witness discount must not be taken lightly. Parties make take advantage of this discount for purposes other than 
+authorizing transactions (e.g., storage of arbitrary data as seen with "inscriptions") and just without a corresponding
 increase in economic activity. An increase in the witness discount would not only impact node runners but those with
-inscriptions would also have the scarcity of their non-monetary assets affected. The only way to prevent these effects
-while also increasing the discount is to have a completely separate witness--a "quantum witness." Because it is meant
-only for public keys and signatures, we call this section of the transaction the attestation.
+inscriptions would have the scarcity of their non-monetary assets affected.
 
-Additionally, it should be noted, whether an output with a P2QRH spend script corresponds to a PQC signature is not
-known until the output is spent.
-
-While it might be seen as a maintenance burden for Bitcoin ecosystem devs to go from a single cryptosystem
-implementation to three additional distinct PQC cryptosystems--and it most certainly is--the ramifications of a chain
-broken through extrinsic factors should provide sufficient motivation. An increase in software maintenance everywhere
-signatures are used should be seen as an acceptable compromise for maintained integrity of Bitcoin transfers during a
-regime of quantum advantage.
-
-The inclusion of these three cryptosystems: SPHINCS+, CRYSTALS-Dilithium, and FALCON have various advocates
-within the community due to their varying security assumptions. Hash-based cryptosystems are more conservative,
-time-tested, and well-reviewed. Lattice cryptography is relatively new and introduces novel security assumptions to
-Bitcoin, but their signatures are smaller and might be considered by some to be an adequate alternative to hash-based
-signatures.
-
-The reason multiple cryptosystems are included is in the interest of supporting hybrid cryptography, especially for
-high value outputs, such as cold wallets used by exchanges. To improve the viability of the activation client and
-adoption by wallets and libraries, a library akin to libsecp256k1 will be developed. This library, libbitcoinpqc,
-will support the new PQC cryptosystems and can be used as a reference for other language-native implementations.
+There was some hope of designing P2QRH such that discounted public keys and signatures could not be repurposed for the storage of 
+arbitrary data by requiring that they successfully be verified before being written to Bitcoin's blockchain, a.k.a. "JPEG resistance".
+Later research <ref>
+Bas Westerbaan (2025), [https://groups.google.com/g/bitcoindev/c/5Ff0jdQPofo jpeg resistance of various post-quantum signature schemes]</ref> 
+provided strong evidence that this was not a feasible approach for the NIST approved Post-Quantum signature algorithms.
+It is an open question if Post-Quantum signature algorithms can be designed with to provide JPEG resistance property.
 
 In the distant future, following the implementation of the P2QRH output type in a QuBit soft fork, there will likely
 be a need for Pay to Quantum Secure (P2QS) addresses. A distinction is made between cryptography that's merely resistant
