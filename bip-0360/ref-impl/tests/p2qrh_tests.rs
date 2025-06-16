@@ -208,6 +208,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
     let script: &Script = script_buf.as_script();
     let script_pubkey = script.to_hex_string();
     assert_eq!(script_pubkey, *test_vector.expected.script_pubkey.as_ref().unwrap());
+    debug!("just passed script_pubkey validation. script_pubkey = {}", script_pubkey);
 
     // 4)  derive bech32m address and verify against test vector
     let bech32m_address = Address::p2qrh(Some(derived_merkle_root), Network::Bitcoin);
