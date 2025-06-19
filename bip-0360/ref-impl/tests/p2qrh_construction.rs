@@ -14,7 +14,7 @@ use p2qrh_ref::error::P2QRHError;
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
 static TEST_VECTORS: Lazy<TestVectors> = Lazy::new(|| {
-    let bip360_test_vectors = include_str!("../tests/data/bip-0360/test_vectors.json");
+    let bip360_test_vectors = include_str!("../tests/data/bip-0360/p2qrh_construction.json");
     let test_vectors: TestVectors = serde_json::from_str(bip360_test_vectors).unwrap();
     assert_eq!(test_vectors.version, 1);
     test_vectors
@@ -229,9 +229,9 @@ fn tagged_hash(tag: &str, data: &[u8]) -> String {
     // Create preimage:  tag_hash || tag_hash || message
     // tag_hash is prefixed twice so that the prefix is 64 bytes in total
     let mut preimage = sha256::Hash::engine();
-    preimage.write_all(&tag_hash.to_byte_array());  // First tag hash
-    preimage.write_all(&tag_hash.to_byte_array());  // Second tag hash
-    preimage.write_all(data);       // Message data
+    preimage.write_all(&tag_hash.to_byte_array()).unwrap();  // First tag hash
+    preimage.write_all(&tag_hash.to_byte_array()).unwrap();  // Second tag hash
+    preimage.write_all(data).unwrap();       // Message data
     let hash = sha256::Hash::from_engine(preimage).to_byte_array();
     hex::encode(hash)
 }
