@@ -211,7 +211,10 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
     debug!("just passed script_pubkey validation. script_pubkey = {}", script_pubkey);
 
     // 4)  derive bech32m address and verify against test vector
+    //     p2qrh adress is comprised of network HRP + WitnessProgram (version + program)
     let bech32m_address = Address::p2qrh(Some(derived_merkle_root), Network::Bitcoin);
+    //let bech32m_address = Address::p2qrh(Some(derived_merkle_root), Network::Regtest);
+
     assert_eq!(bech32m_address.to_string(), *test_vector.expected.bip350_address.as_ref().unwrap(), "Bech32m address mismatch.");
 
     Ok(())
