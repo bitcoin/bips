@@ -59,10 +59,16 @@ pub struct TestVector {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TestVectorGiven {
-    #[serde(rename = "internalPubkey")]
-    pub internal_pubkey: Option<String>,
+
     #[serde(rename = "scriptTree")]
     pub script_tree: Option<TVScriptTree>,
+
+    #[serde(rename = "scriptInputs")]
+    pub script_inputs: Option<Vec<String>>,
+    #[serde(rename = "scriptHex")]
+    pub script_hex: Option<String>,
+    #[serde(rename = "controlBlock")]
+    pub control_block: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -89,6 +95,16 @@ pub struct TestVectorExpected {
     pub error: Option<String>,
     #[serde(rename = "address")]
     pub address: Option<String>,
+    #[serde(default)]
+    pub witness: Option<String>
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TVScriptLeaf {
+    pub id: u8,
+    pub script: String,
+    #[serde(rename = "leafVersion")]
+    pub leaf_version: u8,
 }
 
 // Taproot script trees are binary trees, so each branch should have exactly two children.
@@ -192,78 +208,6 @@ impl std::fmt::Display for Direction {
             Direction::Root => write!(f, "Root"),
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TVScriptLeaf {
-    pub id: u8,
-    pub script: String,
-    #[serde(rename = "leafVersion")]
-    pub leaf_version: u8,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TVScriptPubKeyIntermediary {
-    #[serde(default)]
-    #[serde(rename = "leafHashes")]
-    pub leaf_hashes: Vec<String>,
-    #[serde(rename = "merkleRoot")]
-    pub merkle_root: Option<String>
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TVScriptPubKeyExpected {
-    #[serde(rename = "scriptPubKey")]
-    pub script_pubkey: String,
-    #[serde(rename = "bip350Address")]
-    pub bip350_address: String,
-    #[serde(default)]
-    #[serde(rename = "scriptPathControlBlocks")]
-    pub script_path_control_blocks: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TVUtxoSpent {
-    #[serde(rename = "scriptPubKey")]
-    pub script_pubkey: String,
-    #[serde(rename = "amountSats")]
-    pub amount_sats: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TVInputSpending {
-    pub given: TVInputSpendingGiven,
-    pub intermediary: TVInputSpendingIntermediary,
-    pub expected: TVInputSpendingExpected,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TVInputSpendingGiven {
-    #[serde(rename = "txinIndex")]
-    pub txin_index: u32,
-    #[serde(rename = "internalPrivkey")]
-    pub internal_privkey: String,
-    #[serde(rename = "merkleRoot")]
-    pub merkle_root: Option<String>,
-    #[serde(rename = "hashType")]
-    pub hash_type: u8,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TVInputSpendingIntermediary {
-    #[serde(rename = "internalPubkey")]
-    pub internal_pubkey: String,
-    #[serde(rename = "sigMsg")]
-    pub sig_msg: String,
-    #[serde(rename = "precomputedUsed")]
-    pub precomputed_used: Vec<String>,
-    #[serde(rename = "sigHash")]
-    pub sig_hash: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TVInputSpendingExpected {
-    pub witness: Vec<String>,
 }
 
 pub struct ScriptTreeHashCache {

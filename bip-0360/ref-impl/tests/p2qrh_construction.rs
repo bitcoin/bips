@@ -1,9 +1,9 @@
-use std::io::Write;
 use std::collections::HashSet;
 use bitcoin::{Address, Network, ScriptBuf, Script};
 use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch};
 use bitcoin::p2qrh::{P2qrhBuilder, P2qrhScriptBuf, P2qrhControlBlock, P2qrhSpendInfo };
-use bitcoin::hashes::{sha256, Hash};
+use bitcoin::hashes::Hash;
+
 use hex;
 use log::debug;
 use once_cell::sync::Lazy;
@@ -176,7 +176,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
         debug!("just passed leaf_hash validation: {}", leaf_hash);
     
         // Each leaf in the script tree has a corresponding control block.
-        // The 3 sections of the control block (control byte, public key & merkle path) are highlighted here:
+        // Specific to P2TR, the 3 sections of the control block (control byte, public key & merkle path) are highlighted here:
         //    https://learnmeabitcoin.com/technical/upgrades/taproot/#script-path-spend-control-block
         // The control block, which includes the Merkle path, must be 33 + 32 * n bytes, where n is the number of Merkle path hashes (n ≥ 0).
         // There is no consensus limit on n, but large Merkle trees increase the witness size, impacting block weight.
@@ -218,50 +218,4 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
     assert_eq!(bech32m_address.to_string(), *test_vector.expected.bip350_address.as_ref().unwrap(), "Bech32m address mismatch.");
 
     Ok(())
-}
-
-// https://learnmeabitcoin.com/technical/upgrades/taproot/#examples
-fn tagged_hash(tag: &str, data: &[u8]) -> String {
-
-    // Create a hash of the tag first
-    let tag_hash = sha256::Hash::hash(tag.as_bytes());
-
-    // Create preimage:  tag_hash || tag_hash || message
-    // tag_hash is prefixed twice so that the prefix is 64 bytes in total
-    let mut preimage = sha256::Hash::engine();
-    preimage.write_all(&tag_hash.to_byte_array()).unwrap();  // First tag hash
-    preimage.write_all(&tag_hash.to_byte_array()).unwrap();  // Second tag hash
-    preimage.write_all(data).unwrap();       // Message data
-    let hash = sha256::Hash::from_engine(preimage).to_byte_array();
-    hex::encode(hash)
-}
-
-fn serialize_script(script: &Vec<u8>) -> Vec<u8> {
-    // get length of script as number of bytes
-    let length = script.len();
-
-    // return script with compact size prepended
-    let mut result = compact_size(length as u64);
-    result.extend_from_slice(&script);
-    result
-}
-
-/// Encodes an integer into Bitcoin's compact size format
-/// Returns a Vec<u8> containing the encoded bytes
-fn compact_size(n: u64) -> Vec<u8> {
-    if n <= 252 {
-        vec![n as u8]
-    } else if n <= 0xffff {
-        let mut result = vec![0xfd];
-        result.extend_from_slice(&(n as u16).to_le_bytes());
-        result
-    } else if n <= 0xffffffff {
-        let mut result = vec![0xfe];
-        result.extend_from_slice(&(n as u32).to_le_bytes());
-        result
-    } else {
-        let mut result = vec![0xff];
-        result.extend_from_slice(&n.to_le_bytes());
-        result
-    }
 }
