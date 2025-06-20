@@ -7,7 +7,7 @@ use bitcoin::ScriptBuf;
 use p2qrh_ref::data_structures::{TestVector, TestVectors};
 
 static TEST_VECTORS: Lazy<TestVectors> = Lazy::new(|| {
-    let bip360_test_vectors = include_str!("../tests/data/bip-0360/p2qrh_spend.json");
+    let bip360_test_vectors = include_str!("../tests/data/p2qrh_spend.json");
     let test_vectors: TestVectors = serde_json::from_str(bip360_test_vectors).unwrap();
     assert_eq!(test_vectors.version, 1);
     test_vectors
