@@ -144,10 +144,10 @@ fn new_p2qrh(program: [u8; 32]) -> Self {
     WitnessProgram { version: WitnessVersion::V3, program: ArrayVec::from_slice(&program) }
 }
 
-/// Creates a [`WitnessProgram`] from `pk` for a P2WPKH output.
-pub fn p2wpkh(pk: &CompressedPublicKey) -> Self {
-    let hash = pk.wpubkey_hash();
-    WitnessProgram::new_p2wpkh(hash.to_byte_array())
+/// Creates a pay to quantum resistant hash address from a merkle root.
+pub fn p2qrh(merkle_root: Option<TapNodeHash>) -> Self {
+    let merkle_root = merkle_root.unwrap();
+    WitnessProgram::new_p2qrh(merkle_root.to_byte_array())
 }
 ```
 
