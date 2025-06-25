@@ -26,6 +26,7 @@ static P2QRH_DIFFERENT_VERSION_LEAVES_TEST: &str = "p2qrh_different_version_leav
 static P2QRH_TWO_LEAF_SAME_VERSION_TEST: &str = "p2qrh_two_leaf_same_version";
 static P2QRH_THREE_LEAF_COMPLEX_TEST: &str = "p2qrh_three_leaf_complex";
 static P2QRH_THREE_LEAF_ALTERNATIVE_TEST: &str = "p2qrh_three_leaf_alternative";
+static P2QRH_SIMPLE_LIGHTNING_CONTRACT_TEST: &str = "p2qrh_simple_lightning_contract";
 
 // https://learnmeabitcoin.com/technical/upgrades/taproot/#example-2-script-path-spend-simple
 #[test]
@@ -55,6 +56,14 @@ fn test_p2qrh_different_version_leaves() {
 
     let test_vectors = &*TEST_VECTORS;
     let test_vector = test_vectors.test_vector_map.get(P2QRH_DIFFERENT_VERSION_LEAVES_TEST).unwrap();
+    process_test_vector_p2qrh(test_vector).unwrap();
+}
+
+#[test]
+fn test_p2qrh_simple_lightning_contract() {
+
+    let test_vectors = &*TEST_VECTORS;
+    let test_vector = test_vectors.test_vector_map.get(P2QRH_SIMPLE_LIGHTNING_CONTRACT_TEST).unwrap();
     process_test_vector_p2qrh(test_vector).unwrap();
 }
 
@@ -207,7 +216,11 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
     let script_buf: P2qrhScriptBuf = P2qrhScriptBuf::new_p2qrh(derived_merkle_root);
     let script: &Script = script_buf.as_script();
     let script_pubkey = script.to_hex_string();
-    assert_eq!(script_pubkey, *test_vector.expected.script_pubkey.as_ref().unwrap());
+    assert_eq!( 
+        script_pubkey,
+        *test_vector.expected.script_pubkey.as_ref().unwrap(),
+        "Script pubkey mismatch"
+    );
     debug!("just passed script_pubkey validation. script_pubkey = {}", script_pubkey);
 
     // 4)  derive bech32m address and verify against test vector
