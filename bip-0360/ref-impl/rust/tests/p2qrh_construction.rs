@@ -54,6 +54,8 @@ fn test_p2qrh_single_leaf_script_tree() {
 #[test]
 fn test_p2qrh_different_version_leaves() {
 
+    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
+
     let test_vectors = &*TEST_VECTORS;
     let test_vector = test_vectors.test_vector_map.get(P2QRH_DIFFERENT_VERSION_LEAVES_TEST).unwrap();
     process_test_vector_p2qrh(test_vector).unwrap();
@@ -61,6 +63,8 @@ fn test_p2qrh_different_version_leaves() {
 
 #[test]
 fn test_p2qrh_simple_lightning_contract() {
+
+    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
 
     let test_vectors = &*TEST_VECTORS;
     let test_vector = test_vectors.test_vector_map.get(P2QRH_SIMPLE_LIGHTNING_CONTRACT_TEST).unwrap();
@@ -70,6 +74,8 @@ fn test_p2qrh_simple_lightning_contract() {
 #[test]
 fn test_p2qrh_two_leaf_same_version() {
 
+    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
+
     let test_vectors = &*TEST_VECTORS;
     let test_vector = test_vectors.test_vector_map.get(P2QRH_TWO_LEAF_SAME_VERSION_TEST).unwrap();
     process_test_vector_p2qrh(test_vector).unwrap();
@@ -78,6 +84,8 @@ fn test_p2qrh_two_leaf_same_version() {
 #[test]
 fn test_p2qrh_three_leaf_complex() {
 
+    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
+
     let test_vectors = &*TEST_VECTORS;
     let test_vector = test_vectors.test_vector_map.get(P2QRH_THREE_LEAF_COMPLEX_TEST).unwrap();
     process_test_vector_p2qrh(test_vector).unwrap();
@@ -85,6 +93,8 @@ fn test_p2qrh_three_leaf_complex() {
 
 #[test]
 fn test_p2qrh_three_leaf_alternative() {
+
+    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
 
     let test_vectors = &*TEST_VECTORS;
     let test_vector = test_vectors.test_vector_map.get(P2QRH_THREE_LEAF_ALTERNATIVE_TEST).unwrap();
@@ -223,12 +233,30 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
     );
     debug!("just passed script_pubkey validation. script_pubkey = {}", script_pubkey);
 
+    let mut bitcoin_network: Network = Network::Bitcoin;
+
+    // Check for BITCOIN_NETWORK environment variable and override if set
+    if let Ok(network_str) = std::env::var("BITCOIN_NETWORK") {
+        bitcoin_network = match network_str.to_lowercase().as_str() {
+            "regtest" => Network::Regtest,
+            "testnet" => Network::Testnet,
+            "signet" => Network::Signet,
+            _ => {
+                debug!("Invalid BITCOIN_NETWORK value '{}', using default Bitcoin network", network_str);
+                Network::Bitcoin
+            }
+        };
+    }
+
+    
     // 4)  derive bech32m address and verify against test vector
     //     p2qrh adress is comprised of network HRP + WitnessProgram (version + program)
-    let bech32m_address = Address::p2qrh(Some(derived_merkle_root), Network::Bitcoin);
-    //let bech32m_address = Address::p2qrh(Some(derived_merkle_root), Network::Regtest);
+    let bech32m_address = Address::p2qrh(Some(derived_merkle_root), bitcoin_network);
+    debug!("derived bech32m address for bitcoin_network: {} : {}", bitcoin_network, bech32m_address.to_string());
 
-    assert_eq!(bech32m_address.to_string(), *test_vector.expected.bip350_address.as_ref().unwrap(), "Bech32m address mismatch.");
+    if bitcoin_network == Network::Bitcoin {
+        assert_eq!(bech32m_address.to_string(), *test_vector.expected.bip350_address.as_ref().unwrap(), "Bech32m address mismatch.");
+    }
 
     Ok(())
 }
