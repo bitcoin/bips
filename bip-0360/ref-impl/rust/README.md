@@ -19,6 +19,14 @@ As such, these test vectors assume the presence of these customized forks cloned
    $ ln -s /path/to/git/clone/of/rust-miniscript
    ```
 
+1. environment variables
+   ```
+   // Specify Bitcoin network used when generating bip350 (bech32m) address
+   // Options: regtest, testnet, signet
+   // Default: mainnet
+   $ export BITCOIN_NETWORK=<regtest | testnet | signet >
+   ```
+
 1. run a specific test:
    ```
    $ cargo test test_p2qrh_single_leaf_script_tree -- --nocapture
