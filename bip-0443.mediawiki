@@ -100,7 +100,7 @@ exhaustive, as there are many more possible combinations.
 in the same transaction, or multiple times with the ''deduct'' logic. This prevents duplicate or inconsistent counting
 of the same amounts.
 
-'''Remark:''' it is allowed to check for multiple inputs to check the same output with the ''default'' logic. This
+'''Remark:''' it is allowed for multiple inputs to check the same output with the ''default'' logic. This
 allows multiple inputs to aggregate (in full or in part) their amounts to the same output.
 
 -----
@@ -128,6 +128,18 @@ allows multiple inputs to aggregate (in full or in part) their amounts to the sa
 Note that the ''deduct'' semantic does not allow to check the exact amount of its output. Therefore, in contracts using
 a scheme similar to figure 3 or 4 above, amounts should be constrained either with a signature, or with future
 introspection opcodes that allow fixing the amount. In lack of that, amounts would be malleable.
+
+=== Paying fees ===
+
+Since the amount-checking semantics of <code>OP_CHECKCONTRACTVERIFY</code> are designed to preserve the entire input
+amount across one or more outputs, transaction fees must be paid exogenously. This can be achieved by adding an extra
+input to the transaction, by using an anchor output, or with other future mechanisms.
+
+The ''ignore'' amount mode is not a safe mechanism for paying endogenous fees. An output checked with this mode has no
+amount constraint, which would allow a miner to claim the entire value of that input. This mode is included for forward
+compatibility with potential future soft forks that may introduce other amount-related logic that is compatible with
+<code>OP_CHECKCONTRACTVERIFY</code>'s script checks.
+
 
 == Specification ==
 
@@ -176,7 +188,7 @@ would always be hard-coded via a push in the script, the risk of mistakes seems 
 
 The following values of the other parameters have special meanings:
 * If the <code><taptree></code> is -1, it is replaced with the Merkle root of the current input's tapscript tree. If the taptree is the empty buffer, then the taptweak is skipped.
-* If the <code><pk></code> is 0, it is replaced with the NUMS x-only pubkey <code>0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code> defined in [[bip-0340.mediawiki|BIP-340]]. If the <code><pk></code> is -1, it is replaced with the taproot internal key of the current input.
+* If the <code><pk></code> is 0, it is replaced with the NUMS x-only pubkey <code>0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code> defined in [[bip-0341.mediawiki|BIP-341]]. If the <code><pk></code> is -1, it is replaced with the taproot internal key of the current input.
 * If the <code><index></code> is -1, it is replaced with the index of the current input.
 * If the <code><data></code> is the empty buffer, then there is no data tweak for the input/output being checked.
 
@@ -190,12 +202,16 @@ The specification is divided into three parts:
 * the input initialization;
 * the opcode evaluation.
 
-The following helper function is a version of <code>taproot_tweak_pubkey</code>, except that a raw 32-byte data is used
-as the tweak.
+The following helper function is a variant of <code>taproot_tweak_pubkey</code> from [[bip-0341.mediawiki|BIP341]],
+except that a regular SHA256-hash is used instead of a tagged hash, and the pubkey is returned unchanged if the length
+of <code>data</code> is 0.
 
 <source lang="python">
 def tweak_embed_data(pubkey, data):
     assert len(pubkey) == 32
+
+    if len(data) == 0:
+      return None, pubkey
 
     data_tweak = sha256(pubkey + data)
 
@@ -209,7 +225,7 @@ def tweak_embed_data(pubkey, data):
     return 0 if has_even_y(Q) else 1, bytes_from_int(x(Q))
 </source>
 
-The <code>taproot_tweak_pubkey</code> from [[bip-0341.mediawiki|BIP-341]] is also used as a helper function.
+The <code>taproot_tweak_pubkey</code> function is also used as a helper in the pseudocode below.
 
 The following notations are used in the pseudocode below:
 * <code>n_inputs</code> and <code>n_outputs</code> are the number of inputs and outputs of the transaction, respectively;
