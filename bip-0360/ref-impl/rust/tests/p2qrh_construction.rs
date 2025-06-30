@@ -250,7 +250,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
 
     
     // 4)  derive bech32m address and verify against test vector
-    //     p2qrh adress is comprised of network HRP + WitnessProgram (version + program)
+    //     p2qrh address is comprised of network HRP + WitnessProgram (version + program)
     let bech32m_address = Address::p2qrh(Some(derived_merkle_root), bitcoin_network);
     debug!("derived bech32m address for bitcoin_network: {} : {}", bitcoin_network, bech32m_address.to_string());
 
