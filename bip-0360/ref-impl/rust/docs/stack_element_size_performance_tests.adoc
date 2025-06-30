@@ -1,0 +1,175 @@
+
+:numbered:
+
+== Overview
+
+BIP-0360 proposes an increase in stack element size from current 520 bytes (v0.29) to 8kb.
+
+Subsequently, there is a need to determine the performance and stability related consequences of doing so.
+
+== Regression Tests
+
+The following regression tests failed with `MAX_SCRIPT_ELEMENT_SIZE` set to 8000
+
+[cols="1,1,2"]
+|===
+|feature_taproot.py       | line 1338       | Missing error message 'Push value size limit exceeded' from block response 'mandatory-script-verify-flag-failed (Stack size must be exactly one after execution)'
+|p2p_filter.py            | lines 130-132   | Check that too large data element to add to the filter is rejected
+|p2p_segwit.py            | lines 1047-1049 | mandatory-script-verify-flag-failed (Push value size limit exceeded)
+|rpc_createmultisig.py    | lines 75-75     | No exception raised: redeemScript exceeds size limit: 684 > 520"
+|===
+
+== Performance Analysis
+
+
+
+
+=== Results Summary
+
+|===
+| Preimage Bytes | ns/op | op/s | err% | ins/op | cyc/op | IPC | bra/op | miss% | total|
+| 1 | 637.28 | 1,569,165.30 | 0.3% | 8,736.00 | 1,338.55 | 6.526 | 832.00 | 0.0% | 5.53 |
+| 64 | 794.85 | 1,258,098.46 | 0.4% | 11,107.00 | 1,666.92 | 6.663 | 827.00 | 0.0% | 5.61 |
+| 65 | 831.95 | 1,201,996.30 | 0.5% | 11,144.00 | 1,698.26 | 6.562 | 841.00 | 0.0% | 5.53 |
+| 7500 | 19,172.67 | 52,157.58 | 0.5% | 285,220.02 | 40,203.63 | 7.094 | 1,636.02 | 0.4% | 5.49 |
+|===
+
+==== key
+
+[cols="1,6"]
+|===
+| Metric | Description
+| ns/op  | Nanoseconds per operation - the average time it takes to complete one benchmark iteration, measured in billionths of a second
+| op/s   | Operations per second - the throughput rate showing how many benchmark iterations can be completed per second
+| err%   | Error percentage - statistical margin of error in the measurement, indicating the reliability of the benchmark results
+| ins/op | Instructions per operation - the number of CPU instructions executed for each benchmark iteration
+| cyc/op | CPU cycles per operation - the number of CPU clock cycles consumed for each benchmark iteration
+| IPC    | Instructions per cycle - the ratio of instructions executed per CPU cycle, indicating CPU efficiency and pipeline utilization
+| bra/op | Branches per operation - the number of conditional branch instructions executed for each benchmark iteration
+| miss%  | Branch misprediction percentage - the rate at which the CPU incorrectly predicts branch outcomes, causing pipeline stalls
+| total  | Total benchmark time - the total wall-clock time spent running the entire benchmark in seconds
+|===
+
+=== Detailed Results
+
+==== Stack Element Size = 1 Byte
+
+|==
+|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
+|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
+|              637.28 |        1,569,165.30 |    0.3% |        8,736.00 |        1,338.55 |  6.526 |         832.00 |    0.0% |      5.53 | `VerifyP2WSHBench`
+|==
+
+==== Stack Element Size = 64 Bytes
+
+|==
+|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
+|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
+|              794.85 |        1,258,098.46 |    0.4% |       11,107.00 |        1,666.92 |  6.663 |         827.00 |    0.0% |      5.61 | `VerifyP2WSHBench`
+|==
+
+===== Explanation
+
+Even though 64 bytes doesn't require padding (it's exactly one SHA256 block), the ins/op still increases from 8,736 to 11,107 instructions. Here's why:
+
+. Data Movement Overhead
+   
+    * 1 byte: Minimal data to copy into the SHA256 processing buffer
+    * 64 bytes: 64x more data to move from the witness stack into the SHA256 input buffer
+    * Memory copying operations add instructions
+
+. SHA256 State Initialization
+
+    * 1 byte: The 1-byte input gets padded to 64 bytes internally, but the padding is mostly zeros
+    * 64 bytes: All 64 bytes are actual data that needs to be processed
+    * The SHA256 algorithm may have different code paths for handling "real" data vs padded data
+
+. Memory Access Patterns
+
+    * 1 byte: Single byte access, likely cache-friendly
+    * 64 bytes: Sequential access to 64 bytes, potentially different memory access patterns
+    * May trigger different CPU optimizations or cache behavior
+
+. Bit Length Processing
+
+    * 1 byte: The SHA256 algorithm needs to set the bit length field (8 bits)
+    * 64 bytes: The bit length field is 512 bits
+    * Different bit length values may cause different code paths in the SHA256 implementation
+
+. Loop Unrolling and Optimization
+
+    * 1 byte: Compiler might optimize the single-block case differently
+    * 64 bytes: May use different loop structures or optimization strategies
+    * The SHA256 implementation might have specialized code paths for different input sizes
+
+. Witness Stack Operations
+
+    * 1 byte: Small witness element, minimal stack manipulation
+    * 64 bytes: Larger witness element, more complex stack operations
+    * The Bitcoin script interpreter has to handle larger data on the stack
+
+The increase from 8,736 to 11,107 instructions (~27% increase) suggests that even without padding overhead, the additional data movement and processing of "real" data vs padded data adds significant instruction count.
+This is a good example of how seemingly small changes in input size can affect the underlying implementation's code paths and optimization strategies.
+
+==== Stack Element Size = 65 Bytes
+
+1 byte more than the SHA256 _block_ size
+
+|== 
+|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
+|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
+|              831.95 |        1,201,996.30 |    0.5% |       11,144.00 |        1,698.26 |  6.562 |         841.00 |    0.0% |      5.53 | `VerifyP2WSHBench`
+|== 
+
+==== Stack Element Size = 7500 Bytes
+
+|==
+|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
+|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
+|           19,172.67 |           52,157.58 |    0.5% |      285,220.02 |       40,203.63 |  7.094 |       1,636.02 |    0.4% |      5.49 | `VerifyP2WSHBench`
+|==
+
+
+=== Procedure
+
+== Failure Analysis
+
+Goals:
+
+* Measure stack memory usage to detect overflows or excessive stack growth.
+* Monitor heap memory usage to identify increased allocations or leaks caused by larger elements.
+* Detect memory errors (e.g., invalid reads/writes, use-after-free) that might arise from modified stack handling.
+* Assess performance impacts (e.g., memory allocation overhead) in critical paths like transaction validation.
+
+== Test Environment
+
+*  Fedora 42 
+*  8 cores (Intel(R) Core(TM) i7-8665U CPU @ 1.90GHz)
+*  32 GB RAM
+
+* OS settings:
++
+-----
+$ ulimit -a
+real-time non-blocking time  (microseconds, -R) unlimited
+core file size              (blocks, -c) unlimited
+data seg size               (kbytes, -d) unlimited
+scheduling priority                 (-e) 0
+file size                   (blocks, -f) unlimited
+pending signals                     (-i) 126896
+max locked memory           (kbytes, -l) 8192
+max memory size             (kbytes, -m) unlimited
+open files                          (-n) 1024
+pipe size                (512 bytes, -p) 8
+POSIX message queues         (bytes, -q) 819200
+real-time priority                  (-r) 0
+stack size                  (kbytes, -s) 8192
+cpu time                   (seconds, -t) unlimited
+max user processes                  (-u) 126896
+virtual memory              (kbytes, -v) unlimited
+file locks                          (-x) unlimited
+-----
+
+== Notes
+
+. test with different thread stack sizes (ie: ulimit -s xxxx )
