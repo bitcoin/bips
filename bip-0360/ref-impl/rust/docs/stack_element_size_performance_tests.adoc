@@ -1,3 +1,9 @@
+:scrollbar:
+:data-uri:
+:toc2:
+:linkattrs:
+
+= Stack Element Size Performance Tests
 
 :numbered:
 
@@ -9,7 +15,7 @@ Subsequently, there is a need to determine the performance and stability related
 
 == Regression Tests
 
-The following regression tests failed with `MAX_SCRIPT_ELEMENT_SIZE` set to 8000
+The following regression tests failed with `MAX_SCRIPT_ELEMENT_SIZE` set to 8000 .
 
 [cols="1,1,2"]
 |===
@@ -19,28 +25,63 @@ The following regression tests failed with `MAX_SCRIPT_ELEMENT_SIZE` set to 8000
 |rpc_createmultisig.py    | lines 75-75     | No exception raised: redeemScript exceeds size limit: 684 > 520"
 |===
 
-== Performance Analysis
+**Analysis**
+
+These 4 tests explicitly test for a stack element size of 520 and are expected to fail with a stack element size of 8Kb.
+Subsequently, no further action needed.
 
 
+== Performance Tests
+
+=== OP_SHA256
+
+The following Bitcoin script is used to conduct this performance test:
+
+-----
+<pre-image array> OP_SHA256 OP_DROP OP_1
+-----
+
+When executed, this script adds the pre-image array of arbitrary data to the stack.
+Immediately after, a SHA256 hash function pops the pre-image array off the stack, executes a hash and adds the result to the top of the stack.
+The `OP_DROP` operation removes the hash result from the stack.
 
 
-=== Results Summary
+==== Results Summary
 
+[cols="3,1,1,1,1,1,1,1,1,1", options="header"]
 |===
-| Preimage Bytes | ns/op | op/s | err% | ins/op | cyc/op | IPC | bra/op | miss% | total|
-| 1 | 637.28 | 1,569,165.30 | 0.3% | 8,736.00 | 1,338.55 | 6.526 | 832.00 | 0.0% | 5.53 |
-| 64 | 794.85 | 1,258,098.46 | 0.4% | 11,107.00 | 1,666.92 | 6.663 | 827.00 | 0.0% | 5.61 |
-| 65 | 831.95 | 1,201,996.30 | 0.5% | 11,144.00 | 1,698.26 | 6.562 | 841.00 | 0.0% | 5.53 |
-| 7500 | 19,172.67 | 52,157.58 | 0.5% | 285,220.02 | 40,203.63 | 7.094 | 1,636.02 | 0.4% | 5.49 |
+| Stack Element Size (Bytes) | ns/op | op/s | err% | ins/op | cyc/op | IPC | bra/op |miss% | total
+| 1 | 637.28 | 1,569,165.30 | 0.3% | 8,736.00 | 1,338.55 | 6.526 | 832.00 | 0.0% | 5.53
+| 64 | 794.85 | 1,258,098.46 | 0.4% | 11,107.00 | 1,666.92 | 6.663 | 827.00 | 0.0% | 5.61
+| 65 | 831.95 | 1,201,996.30 | 0.5% | 11,144.00 | 1,698.26 | 6.562 | 841.00 | 0.0% | 5.53
+| 100 | 794.82 | 1,258,139.86 | 0.2% | 11,139.00 | 1,673.89 | 6.655 | 837.00 | 0.0% | 5.50
+| 520 | 1,946.67 | 513,697.88 | 0.2% | 27,681.00 | 4,095.57 | 6.759 | 885.00 | 0.0% | 5.50
+| 8000 | 20,958.63 | 47,713.05 | 2.7% | 304,137.02 | 43,789.86 | 6.945 | 1,689.02 | 0.4% | 5.63
 |===
 
-==== key
+**Analysis**
 
-[cols="1,6"]
+The following observations are made from the performance test:
+
+. **Performance Scaling**: The increase from 520 bytes to 8000 bytes (15.4x size increase) results in approximately 9.8x performance degradation (19,173 ns/op vs 1,947 ns/op).
+This represents sub-linear scaling, which suggests the implementation handles large data efficiently.
+
+. **Instruction Count Scaling**: Instructions per operation increase from 27,681 to 285,220 (10.3x increase), closely matching the performance degradation, indicating the bottleneck is primarily computational rather than memory bandwidth.
+
+. **Throughput Impact**: Operations per second decrease from 513,698 op/s to 52,158 op/s, representing a 9.8x reduction in throughput.
+
+. **Cache Efficiency**: The IPC (Instructions Per Cycle) remains relatively stable (6.759 to 7.094), suggesting good CPU pipeline utilization despite the increased data size.
+
+. **Memory Access Patterns**: The branch mis-prediction rate increases slightly (0.0% to 0.4%), indicating minimal impact on branch prediction accuracy.
+
+
+**key**
+
+[cols="1,6", options="header"]
 |===
 | Metric | Description
-| ns/op  | Nanoseconds per operation - the average time it takes to complete one benchmark iteration, measured in billionths of a second
-| op/s   | Operations per second - the throughput rate showing how many benchmark iterations can be completed per second
+| ns/op  | Nanoseconds per operation - average time it takes to complete one benchmark iteration
+| op/s   | Operations per second - throughput rate showing how many benchmark iterations can be completed per second
 | err%   | Error percentage - statistical margin of error in the measurement, indicating the reliability of the benchmark results
 | ins/op | Instructions per operation - the number of CPU instructions executed for each benchmark iteration
 | cyc/op | CPU cycles per operation - the number of CPU clock cycles consumed for each benchmark iteration
@@ -50,25 +91,25 @@ The following regression tests failed with `MAX_SCRIPT_ELEMENT_SIZE` set to 8000
 | total  | Total benchmark time - the total wall-clock time spent running the entire benchmark in seconds
 |===
 
-=== Detailed Results
+==== Detailed Results
 
-==== Stack Element Size = 1 Byte
+===== Stack Element Size = 1 Byte
 
-|==
-|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
-|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
-|              637.28 |        1,569,165.30 |    0.3% |        8,736.00 |        1,338.55 |  6.526 |         832.00 |    0.0% |      5.53 | `VerifyP2WSHBench`
-|==
+[cols="2,1,1,1,1,1,1,1,1", options="header"]
+|===
+|ns/op |op/s |err% |ins/op |cyc/op |IPC |bra/op |miss% |total
+|637.28 |1,569,165.30 |0.3% |8,736.00 |1,338.55 |6.526 |832.00 |0.0% |5.53
+|===
 
-==== Stack Element Size = 64 Bytes
+===== Stack Element Size = 64 Bytes
 
-|==
-|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
-|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
-|              794.85 |        1,258,098.46 |    0.4% |       11,107.00 |        1,666.92 |  6.663 |         827.00 |    0.0% |      5.61 | `VerifyP2WSHBench`
-|==
+[cols="2,1,1,1,1,1,1,1,1", options="header"]
+|===
+|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total
+|              794.85 |        1,258,098.46 |    0.4% |       11,107.00 |        1,666.92 |  6.663 |         827.00 |    0.0% |      5.61
+|===
 
-===== Explanation
+====== Explanation
 
 Even though 64 bytes doesn't require padding (it's exactly one SHA256 block), the ins/op still increases from 8,736 to 11,107 instructions. Here's why:
 
@@ -111,26 +152,115 @@ Even though 64 bytes doesn't require padding (it's exactly one SHA256 block), th
 The increase from 8,736 to 11,107 instructions (~27% increase) suggests that even without padding overhead, the additional data movement and processing of "real" data vs padded data adds significant instruction count.
 This is a good example of how seemingly small changes in input size can affect the underlying implementation's code paths and optimization strategies.
 
-==== Stack Element Size = 65 Bytes
+===== Stack Element Size = 65 Bytes
 
 1 byte more than the SHA256 _block_ size
 
-|== 
-|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
-|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
-|              831.95 |        1,201,996.30 |    0.5% |       11,144.00 |        1,698.26 |  6.562 |         841.00 |    0.0% |      5.53 | `VerifyP2WSHBench`
-|== 
+[cols="2,1,1,1,1,1,1,1,1", options="header"]
+|=== 
+|ns/op |op/s |err% |ins/op |cyc/op |IPC |bra/op |   miss% |     total
+| 831.95 | 1,201,996.30 |0.5% |11,144.00 |1,698.26 |  6.562 |841.00 | 0.0% | 5.53
+|===
 
-==== Stack Element Size = 7500 Bytes
+===== Stack Element Size = 100 Bytes
 
-|==
-|               ns/op |                op/s |    err% |          ins/op |          cyc/op |    IPC |         bra/op |   miss% |     total | benchmark
-|--------------------:|--------------------:|--------:|----------------:|----------------:|-------:|---------------:|--------:|----------:|:----------
-|           19,172.67 |           52,157.58 |    0.5% |      285,220.02 |       40,203.63 |  7.094 |       1,636.02 |    0.4% |      5.49 | `VerifyP2WSHBench`
-|==
+[cols="2,1,1,1,1,1,1,1,1", options="header"]
+|=== 
+|ns/op |op/s |err% |ins/op |cyc/op |IPC |bra/op |   miss% |     total
+|              794.82 |        1,258,139.86 |    0.2% |       11,139.00 |        1,673.89 |  6.655 |         837.00 |    0.0% |      5.50
+|===
 
+===== Stack Element Size = 520 Bytes
+
+[cols="2,1,1,1,1,1,1,1,1", options="header"]
+|=== 
+|ns/op |op/s |err% |ins/op |cyc/op |IPC |bra/op |   miss% |     total
+|            1,946.67 |          513,697.88 |    0.2% |       27,681.00 |        4,095.57 |  6.759 |         885.00 |    0.0% |      5.50
+|===
+
+===== Stack Element Size = 8000 Bytes
+
+[cols="2,1,1,1,1,1,1,1,1", options="header"]
+|===
+|ns/op |op/s |err% |ins/op |cyc/op |IPC |bra/op |   miss% |     total
+|           20,958.63 |           47,713.05 |    2.7% |      304,137.02 |       43,789.86 |  6.945 |       1,689.02 |    0.4% |      5.63
+|===
+
+=== OP_DUP OP_SHA256
+
+NOTE:  This test is likely irrelevant as per latest BIP-0360: _To prevent OP_DUP from creating an 8 MB stack by duplicating stack elements larger than 520 bytes we define OP_DUP to fail on stack elements larger than 520 bytes_.
+
+This test builds off the previous (involving the hashing of large stack element data) by duplicating that stack element data.
+
+The following Bitcoin script is used to conduct this performance test:
+
+-----
+<pre-image array> OP_DUP OP_SHA256 OP_DROP OP_1
+-----
+
+When executed, this script adds the pre-image array of arbitrary data to the stack.
+Immediately after, a `OP_DUP` operation duplicates the pre-image array on the stack.
+Then, a SHA256 hash function pops the pre-image array off the stack, executes a hash and adds the result to the top of the stack.
+The `OP_DROP` operation removes the hash result from the stack.
+
+==== Results Summary
+
+[cols="3,1,1,1,1,1,1,1,1,1", options="header"]
+|===
+| Stack Element Size (Bytes) | ns/op | op/s | err% | ins/op | cyc/op | IPC | bra/op |miss% | total
+| 1 | 714.83 | 1,398,937.33 | 0.7% | 9,548.00 | 1,488.22 | 6.416 | 1,012.00 | 0.0% | 5.57
+| 64 | 858.44 | 1,164,905.19 | 0.4% | 11,911.00 | 1,800.87 | 6.614 | 999.00 | 0.0% | 5.11
+| 65 | 868.40 | 1,151,539.31 | 0.8% | 11,968.00 | 1,814.31 | 6.596 | 1,019.00 | 0.0% | 5.56
+| 100 | 864.33 | 1,156,966.91 | 0.4% | 11,963.00 | 1,809.16 | 6.612 | 1,015.00 | 0.0% | 5.49
+| 520 | 2,036.64 | 491,005.94 | 0.7% | 28,615.00 | 4,266.27 | 6.707 | 1,073.00 | 0.0% | 5.52
+| 8000 | 20,883.10 | 47,885.61 | 0.2% | 306,887.04 | 43,782.35 | 7.009 | 2,089.02 | 0.3% | 5.53
+|===
+
+==== Analysis
+
+The following observations are made from the performance test (in comparison to the `OP_SHA256` test):
+
+. OP_DUP Overhead: The OP_DUP operation adds overhead by duplicating the stack element, which requires:
+    * Memory allocation for the duplicate
+    * Data copying from the original to the duplicate
+    * Additional stack manipulation
+
+. Size-Dependent Impact on ns/op:
+    * For small elements (1-100 bytes): Significant overhead (4.4% to 12.2%)
+    * For medium elements (520 bytes): Moderate overhead (4.6%)
+    * For large elements (8000 bytes): Negligible difference (-0.4%)
+
+. Instruction Count Impact:
+    * 8000 bytes: 304,137 → 306,887 instructions (+2,750 instructions)
+    * The additional instructions for OP_DUP are relatively small compared to the SHA256 computation
+
+. Memory Operations:
++
+The OP_DUP operation primarily affects memory operations rather than computational complexity.
+This explains why the impact diminishes with larger data sizes where SHA256 computation dominates the performance.
+
+This analysis shows that the OP_DUP operation has a measurable but manageable performance impact, especially for larger stack elements where the computational overhead of SHA256 dominates the overall execution time.
 
 === Procedure
+
+* Testing is done using functionality found in the link:https://github.com/jbride/bitcoin/tree/p2qrh[p2qrh branch] of Bitcoin Core.
+
+* Compilation of Bitcoin Core is done using the following `cmake` flags:
++
+-----
+$ cmake \
+    -B build \
+    -DWITH_ZMQ=ON \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DBUILD_BENCH=ON
+-----
+
+* Bench tests are conducted similar to the following :
++
+-----
+$ export PREIMAGE_SIZE_BYTES=8000
+$ ./build/bin/bench_bitcoin --filter=VerifyP2WSHBench -min-time=5000
+-----
 
 == Failure Analysis
 
@@ -140,6 +270,57 @@ Goals:
 * Monitor heap memory usage to identify increased allocations or leaks caused by larger elements.
 * Detect memory errors (e.g., invalid reads/writes, use-after-free) that might arise from modified stack handling.
 * Assess performance impacts (e.g., memory allocation overhead) in critical paths like transaction validation.
+
+=== Memory Errors
+
+AddressSanitizer is a fast, compiler-based tool (available in GCC/Clang) for detecting memory errors with lower overhead than Valgrind.
+
+==== Results
+
+No memory errors or leaks were revealed by AddressSanetizer when running the `OP_SHA256` bench test for 30 minutes.
+
+==== Procedure
+
+AddressSanitizer is included with Clang/LLVM
+
+. Compilation of Bitcoin Core is done using the following `cmake` flags:
++
+----- 
+$ cmake -B build \
+    -DWITH_ZMQ=ON \
+    -DBUILD_BENCH=ON \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -DSANITIZERS=address,undefined
+
+$ cmake --build build -j$(nproc) 
+-----
+
+. Check that ASan is statically linked to the _bench_bitcoin_ exeutable:
++
+-----
+$ nm build/bin/bench_bitcoin | grep asan | more
+0000000000148240 T __asan_address_is_poisoned
+00000000000a2fe6 t __asan_check_load_add_16_R13
+
+...
+
+000000000316c828 b _ZZN6__asanL18GlobalsByIndicatorEmE20globals_by_indicator
+0000000003170ccc b _ZZN6__asanL7AsanDieEvE9num_calls
+-----
+
+. Set the following environment variable:
++
+-----
+$ export ASAN_OPTIONS="halt_on_error=0:detect_leaks=1:log_path=/tmp/asan_logs/asan"
+-----
++
+Doing so ensures that _address sanitizer_ :
+
+.. avoids halting on the first error
+.. is enable memory leak detection
+.. writes ASAN related logs to a specified directory
 
 == Test Environment
 
