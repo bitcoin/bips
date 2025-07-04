@@ -136,7 +136,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
                 debug!("traverse_with_depth: leaf_count: {}, depth: {}, modified_depth: {}, direction: {}, tv_leaf_script: {}", 
                     tv_leaf_count, depth, modified_depth, direction, tv_leaf.script);
                 
-                // NOTE: Some of the the test vectors in this project specify leaves with non-standardversions (ie: 250 / 0xfa)
+                // NOTE: Some of the the test vectors in this project specify leaves with non-standard versions (ie: 250 / 0xfa)
                 p2qrh_builder = p2qrh_builder.clone().add_leaf_with_ver(depth, tv_leaf_script_buf.clone(), tv_leaf_version)
                     .unwrap_or_else(|e| {
                         panic!("Failed to add leaf: {:?}", e);
