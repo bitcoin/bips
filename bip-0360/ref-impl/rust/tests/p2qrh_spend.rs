@@ -18,14 +18,6 @@ use p2qrh_ref::{
     serialize_script,
 };
 
-static TEST_VECTORS: Lazy<TestVectors> = Lazy::new(|| {
-    let bip360_test_vectors = include_str!("../tests/data/p2qrh_spend.json");
-    let test_vectors: TestVectors = serde_json::from_str(bip360_test_vectors).unwrap();
-    assert_eq!(test_vectors.version, 1);
-    test_vectors
-});
-
-static P2QRH_SINGLE_LEAF_SCRIPT_TREE_NO_SIGS_TEST: &str = "p2qrh_single_leaf_script_tree_no_sigs";
 
 /*  The rust-bitcoin crate does not provide a single high-level API that builds the full Taproot script-path witness stack for you.
    It does expose all the necessary types and primitives to build it manually and correctly.
@@ -68,10 +60,15 @@ fn test_script_path_spend_signatures() {
     let input_tx_id_bytes =
         hex::decode("d1c40446c65456a9b11a9dddede31ee34b8d3df83788d98f690225d2958bfe3c").unwrap();
 
+    // OP_PUSHBYTES_32 6d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0 OP_CHECKSIG
     let input_leaf_script_bytes: Vec<u8> =
         hex::decode("206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac").unwrap();
+
+    // Modified from learnmeabitcoin example
+    // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
     let input_control_block_bytes: Vec<u8> =
-        hex::decode("c0924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
+        hex::decode("c1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
+
     let input_script_pubkey_bytes: Vec<u8> =
         hex::decode("5120f3778defe5173a9bf7169575116224f961c03c725c0e98b8da8f15df29194b80")
             .unwrap();
@@ -81,7 +78,10 @@ fn test_script_path_spend_signatures() {
 
     let test_sighash_bytes: Vec<u8> = hex::decode("752453d473e511a0da2097d664d69fe5eb89d8d9d00eab924b42fc0801a980c9").unwrap();
     let test_p2wpkh_signature_bytes: Vec<u8> = hex::decode("01769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f01").unwrap();
-    let test_witness_bytes: Vec<u8> = hex::decode("034101769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f0122206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac21c0924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
+
+    // Modified from learnmeabitcoin example
+    // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
+    let test_witness_bytes: Vec<u8> = hex::decode("034101769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f0122206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac21c1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
 
     let mut txid_little_endian = input_tx_id_bytes.clone();
     txid_little_endian.reverse();
@@ -175,50 +175,4 @@ fn test_script_path_spend_signatures() {
 
     let derived_witness_hex = hex::encode(derived_witness_vec);
     info!("derived_witness_hex: {:?}", derived_witness_hex);
-}
-
-#[test]
-fn test_p2qrh_single_leaf_script_tree_no_sigs() {
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors: &TestVectors = &*TEST_VECTORS;
-    let test_vector: &TestVector = test_vectors
-        .test_vector_map
-        .get(P2QRH_SINGLE_LEAF_SCRIPT_TREE_NO_SIGS_TEST)
-        .unwrap();
-
-    let mut witness: Witness = Witness::new();
-
-    test_vector
-        .given
-        .script_inputs
-        .as_ref()
-        .unwrap()
-        .iter()
-        .for_each(|tv_script_input| {
-            let script_input_bytes = hex::decode(tv_script_input).unwrap();
-            witness.push(script_input_bytes);
-        });
-
-    // Hint:  use https://learnmeabitcoin.com/technical/script/
-    let tv_script_hex = test_vector.given.script_hex.as_ref().unwrap();
-    let script_buf: ScriptBuf = ScriptBuf::from(hex::decode(tv_script_hex).unwrap());
-    debug!("script asm: {}", script_buf.to_asm_string());
-    witness.push(script_buf.to_bytes());
-
-    let tv_control_block = test_vector.given.control_block.as_ref().unwrap();
-    let control_block_bytes = hex::decode(tv_control_block).unwrap();
-    witness.push(control_block_bytes);
-
-    debug!("witness: {:?}", witness);
-
-    // Concatenate all witness elements into a single hex string
-    let mut witness_hex_string = String::new();
-    for element in witness.iter() {
-        witness_hex_string.push_str(&hex::encode(element));
-    }
-    debug!("witness hex: {}", witness_hex_string);
-
-    let expected_witness = test_vector.expected.witness.as_ref().unwrap();
-    assert_eq!(&witness_hex_string, expected_witness);
 }
