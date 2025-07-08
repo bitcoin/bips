@@ -11,16 +11,6 @@ pub struct TestVectors {
     pub test_vector_map: HashMap<String, TestVector>,
 }
 
-impl TestVectors {
-    fn new() -> Self {
-        Self {
-            version: 0,
-            test_vectors: Vec::new(),
-            test_vector_map: HashMap::new(),
-        }
-    }
-}
-
 impl<'de> Deserialize<'de> for TestVectors {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -77,8 +67,8 @@ pub struct TestVectorIntermediary {
     #[serde(default)]
     #[serde(rename = "leafHashes")]
     pub leaf_hashes: Vec<String>,
-    #[serde(rename = "merkleRoot")]
-    pub merkle_root: Option<String>
+    #[serde(rename = "quantumRoot")]
+    pub quantum_root: Option<String>
 }
 
 
@@ -231,5 +221,100 @@ impl ScriptTreeHashCache {
 
     pub fn set_branch_hash(&mut self, branch_id: u8, hash: String) {
         self.branch_hashes.insert(branch_id, hash);
+    }
+}
+
+fn serialize_hex<S>(bytes: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(&hex::encode(bytes))
+}
+
+fn deserialize_hex<'de, D>(d: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    hex::decode(s).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpendDetails {
+    pub tx_hex: String,
+    #[serde(serialize_with = "serialize_hex")]
+    #[serde(deserialize_with = "deserialize_hex")]
+    pub sighash: Vec<u8>,
+    #[serde(serialize_with = "serialize_hex")]
+    #[serde(deserialize_with = "deserialize_hex")]
+    pub sig_bytes: Vec<u8>,
+    #[serde(serialize_with = "serialize_hex")]
+    #[serde(deserialize_with = "deserialize_hex")]
+    pub derived_witness_vec: Vec<u8>,
+}
+
+impl std::process::Termination for SpendDetails {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UtxoReturn {
+
+    pub script_pubkey_hex: String,
+    pub bech32m_address: String,
+    pub bitcoin_network: bitcoin::Network,
+}
+
+impl std::process::Termination for UtxoReturn {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaptreeReturn {
+    pub leaf_script_priv_key_hex: String,
+    pub leaf_script_hex: String,
+    pub tree_root_hex: String,
+    pub control_block_hex: String,
+}
+
+impl std::process::Termination for TaptreeReturn {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstructionReturn {
+    pub taptree_return: TaptreeReturn,
+    pub utxo_return: UtxoReturn,
+}
+
+impl std::process::Termination for ConstructionReturn {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
     }
 }
