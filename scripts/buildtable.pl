@@ -37,6 +37,9 @@ my %MiscField = (
 	'Requires' => undef,
 	'Superseded-By' => undef,
 );
+my %VersionField = (
+	'Version' => undef,
+);
 
 my %ValidLayer = (
 	'Consensus (soft fork)' => undef,
@@ -178,6 +181,8 @@ while (++$bipnum <= $topbip) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
 			$val =~ m/^(\S[^<@>]*\S) \<[^@>]*\@[\w.]+\.\w+\>$/ or die "Malformed $field line in $fn";
+		} elsif (exists $VersionField{$field}) {
+			$val =~ m/^(\d+\.\d+\.\d+)$/ or die "Malformed $field line in $fn";
 		} elsif (not exists $MiscField{$field}) {
 			die "Unknown field $field in $fn";
 		}
