@@ -1,23 +1,9 @@
-use log::{debug, info};
-use once_cell::sync::Lazy;
+use log::info;
+use bitcoin::blockdata::witness::Witness;
 
-use bitcoin::sighash::{EcdsaSighashType, Prevouts, TapSighash};
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{Message, Secp256k1, SecretKey};
-use bitcoin::ecdsa::Signature;
-use bitcoin::{ Amount, TxOut, sighash::TapSighashType, transaction, ScriptBuf, WPubkeyHash,
-    OutPoint,
-    blockdata::witness::Witness,
-    sighash::SighashCache,
-    taproot::{LeafVersion, TapLeafHash},
-    transaction::Transaction,
-};
+use p2qrh_ref::{ p2qrh_to_p2wpkh_tx, serialize_script };
 
-use p2qrh_ref::{
-    data_structures::{TestVector, TestVectors},
-    serialize_script,
-};
-
+use p2qrh_ref::data_structures::P2qrhReturnDetails;
 
 /*  The rust-bitcoin crate does not provide a single high-level API that builds the full Taproot script-path witness stack for you.
    It does expose all the necessary types and primitives to build it manually and correctly.
@@ -52,13 +38,17 @@ fn test_script_path_spend_simple() {
 }
 
 
-// https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature
+// Inspired by:  https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature
+// Spends from a p2qrh UTXO to a p2wpk UTXO
 #[test]
 fn test_script_path_spend_signatures() {
     let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
 
-    let input_tx_id_bytes =
+    let input_tx_id_bytes: Vec<u8> =
         hex::decode("d1c40446c65456a9b11a9dddede31ee34b8d3df83788d98f690225d2958bfe3c").unwrap();
+
+    // The input index of the funding tx
+    let input_tx_index: u32 = 0;
 
     // OP_PUSHBYTES_32 6d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0 OP_CHECKSIG
     let input_leaf_script_bytes: Vec<u8> =
@@ -83,96 +73,18 @@ fn test_script_path_spend_signatures() {
     // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
     let test_witness_bytes: Vec<u8> = hex::decode("034101769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f0122206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac21c1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
 
-    let mut txid_little_endian = input_tx_id_bytes.clone();
-    txid_little_endian.reverse();
-
-    
-    // vin: Create TxIn from the input utxo
-    // Details of this input tx are not known at this point
-    let input_tx_in = bitcoin::TxIn {
-        previous_output: OutPoint {
-            txid: bitcoin::Txid::from_slice(&txid_little_endian).unwrap(), // bitcoin::Txid expects the bytes in little-endian format
-            vout: 0,
-        },
-        script_sig: ScriptBuf::new(), // Empty for segwit transactions - script goes in witness
-        sequence: transaction::Sequence::MAX, // Default sequence, allows immediate spending (no RBF or timelock)
-        witness: bitcoin::Witness::new(), // Empty for now, will be filled with signature and pubkey after signing
-    };
-
-    let spend_wpubkey_hash = WPubkeyHash::from_byte_array(spend_pubkey_hash_bytes.try_into().unwrap());
-    let spend_output: TxOut = TxOut {
-        value: Amount::from_sat(15000),
-        script_pubkey: ScriptBuf::new_p2wpkh(&spend_wpubkey_hash),
-    };
-
-    // The spend tx to eventually be signed and broadcast
-    let mut unsigned_spend_tx = Transaction {
-        version: bitcoin::transaction::Version::TWO,
-        lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
-        input: vec![input_tx_in],
-        output: vec![spend_output],
-    };
-
-    // Create SighashCache
-    // At this point, sighash_cache does not know the values and type of input UTXO
-    let mut tapscript_sighash_cache = SighashCache::new(&mut unsigned_spend_tx);
-
-    // Create the leaf hash
-    let leaf_version = LeafVersion::TapScript;
-    let leaf_script = ScriptBuf::from_bytes(input_leaf_script_bytes.clone());
-    let leaf_hash: TapLeafHash = TapLeafHash::from_script(&leaf_script, leaf_version);
-
-    /*  prevouts parameter tells the sighash algorithm:
-            1. The value of each input being spent (needed for fee calculation and sighash computation)
-            2. The scriptPubKey of each input being spent (ie: type of output & how to validate the spend)
-     */
-    let prevouts = vec![TxOut {
-        value: Amount::from_sat(20000),
-        script_pubkey: ScriptBuf::from_bytes(input_script_pubkey_bytes.clone()),
-    }];
-    info!("prevouts: {:?}", prevouts);
-
-    // Compute the sighash
-    let tapscript_sighash: TapSighash = tapscript_sighash_cache.taproot_script_spend_signature_hash(
-        0, // input_index
-        &Prevouts::All(&prevouts),
-        leaf_hash,
-        TapSighashType::All
-    ).unwrap();
-
-    assert_eq!(tapscript_sighash.as_byte_array().as_slice(), test_sighash_bytes.as_slice(), "sighash mismatch");
-    info!("sighash: {:?}", tapscript_sighash);
-
-    let spend_msg = Message::from(tapscript_sighash);
-
-    // Signing: Sign the sighash using the secp256k1 library (re-exported by rust-bitcoin).
-    let secp = Secp256k1::new();
-    let secret_key = SecretKey::from_slice(&input_script_priv_key_bytes).unwrap();
-
-    // Spending a p2tr UTXO thus using Schnorr signature
-    // The aux_rand parameter ensures that signing the same message with the same key produces the same signature
-    let p2wpkh_signature: bitcoin::secp256k1::schnorr::Signature = secp.sign_schnorr_with_aux_rand(
-        &spend_msg, 
-        &secret_key.keypair(&secp), 
-        &[0u8; 32] // 32 zero bytes of auxiliary random data
+    let result: P2qrhReturnDetails = p2qrh_to_p2wpkh_tx(input_tx_id_bytes,
+        input_tx_index,
+        input_script_pubkey_bytes,
+        input_control_block_bytes,
+        spend_pubkey_hash_bytes,
+        input_leaf_script_bytes,
+        input_script_priv_key_bytes
     );
-    let mut p2wpkh_sig_bytes: Vec<u8> = p2wpkh_signature.serialize().to_vec();
-    p2wpkh_sig_bytes.push(EcdsaSighashType::All as u8);
 
-    assert_eq!(p2wpkh_sig_bytes, test_p2wpkh_signature_bytes, "p2wpkh_signature mismatch");
-    let p2wpkh_sig_hex = hex::encode(p2wpkh_sig_bytes.clone());
-    info!("p2wpkh_signature: {:?}", p2wpkh_sig_hex);
+    assert_eq!(result.tapscript_sighash.as_slice(), test_sighash_bytes.as_slice(), "sighash mismatch");
+    assert_eq!(result.p2wpkh_sig_bytes, test_p2wpkh_signature_bytes, "p2wpkh_signature mismatch");
+    assert_eq!(result.derived_witness_vec, test_witness_bytes, "derived_witness mismatch");
 
-    let mut derived_witness: Witness = Witness::new();
-    derived_witness.push(hex::decode("03").unwrap());
-    derived_witness.push(serialize_script(&p2wpkh_sig_bytes));
-    derived_witness.push(serialize_script(&input_leaf_script_bytes));
-    derived_witness.push(serialize_script(&input_control_block_bytes));
-
-    let derived_witness_vec: Vec<u8> = derived_witness.iter().flatten().cloned().collect();
-
-    assert_eq!(derived_witness_vec, test_witness_bytes, "derived_witness mismatch");
-
-    let derived_witness_hex = hex::encode(derived_witness_vec);
-    info!("derived_witness_hex: {:?}", derived_witness_hex);
 }
+

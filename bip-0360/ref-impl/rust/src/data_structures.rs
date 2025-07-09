@@ -11,16 +11,6 @@ pub struct TestVectors {
     pub test_vector_map: HashMap<String, TestVector>,
 }
 
-impl TestVectors {
-    fn new() -> Self {
-        Self {
-            version: 0,
-            test_vectors: Vec::new(),
-            test_vector_map: HashMap::new(),
-        }
-    }
-}
-
 impl<'de> Deserialize<'de> for TestVectors {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -232,4 +222,12 @@ impl ScriptTreeHashCache {
     pub fn set_branch_hash(&mut self, branch_id: u8, hash: String) {
         self.branch_hashes.insert(branch_id, hash);
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct P2qrhReturnDetails {
+    pub tx_hex: String,
+    pub tapscript_sighash: Vec<u8>,
+    pub p2wpkh_sig_bytes: Vec<u8>,
+    pub derived_witness_vec: Vec<u8>,
 }
