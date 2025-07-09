@@ -3,7 +3,7 @@ use bitcoin::blockdata::witness::Witness;
 
 use p2qrh_ref::{ p2qrh_to_p2wpkh_tx, serialize_script };
 
-use p2qrh_ref::data_structures::P2qrhReturnDetails;
+use p2qrh_ref::data_structures::P2qrhSpendDetails;
 
 /*  The rust-bitcoin crate does not provide a single high-level API that builds the full Taproot script-path witness stack for you.
    It does expose all the necessary types and primitives to build it manually and correctly.
@@ -73,7 +73,7 @@ fn test_script_path_spend_signatures() {
     // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
     let test_witness_bytes: Vec<u8> = hex::decode("034101769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f0122206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac21c1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
 
-    let result: P2qrhReturnDetails = p2qrh_to_p2wpkh_tx(input_tx_id_bytes,
+    let result: P2qrhSpendDetails = p2qrh_to_p2wpkh_tx(input_tx_id_bytes,
         input_tx_index,
         input_script_pubkey_bytes,
         input_control_block_bytes,

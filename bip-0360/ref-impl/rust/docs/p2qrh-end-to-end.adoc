@@ -1,0 +1,45 @@
+
+= P2QRH End-to-End Scenario
+
+== Fund P2QRH UTXO
+
+-----
+$ export BITCOIN_NETWORK=regtest \
+  && export P2QRH_ADDR=$( cargo run --example p2qrh_construction | jq -r '.bech32m_address' ) \
+  && echo $P2QRH_ADDR
+
+$ b-reg -named generatetoaddress 1 $P2QRH_ADDR 1
+$ b-reg -generate 110
+
+$ export P2QRH_DESC=$( b-reg getdescriptorinfo "addr($P2QRH_ADDR)" | jq -r '.descriptor' ) \
+    && echo $P2QRH_DESC
+$ b-reg scantxoutset start '[{"desc": "'''$P2QRH_DESC'''"}]'
+-----
+
+== Spend P2QRH UTXO
+
+-----
+$ export RAW_P2QRH_SPEND_TX=$( cargo run --example p2qrh_spend | jq -r '.tx_hex' ) \
+    && echo $RAW_P2QRH_SPEND_TX
+$ b-reg testmempoolaccept '["'''$RAW_P2QRH_SPEND_TX'''"]'
+-----
+
+
+== Import P2QRH address into bitcoin core wallet
+
+NOTE:  currently fails with:   "message": "Cannot import descriptor without private keys to a wallet with private keys enabled"
+
+-----
+$ b-reg -rpcwallet=$W_NAME walletpassphrase $WPASS 120
+$ echo $P2QRH_ADDR
+$ export P2QRH_DESC=$( b-reg getdescriptorinfo "addr($P2QRH_ADDR)" | jq -r '.descriptor' ) \
+    && echo $P2QRH_DESC
+
+# Set as non-active address (because can't generate subsequent p2qrh addresses yet)
+$ b-reg importdescriptors '[{
+  "desc": "'''$P2QRH_DESC'''",
+  "timestamp": "now",
+  "active": false,
+  "label": "p2qrh"
+}]'
+-----

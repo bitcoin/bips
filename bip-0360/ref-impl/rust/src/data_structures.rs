@@ -224,10 +224,60 @@ impl ScriptTreeHashCache {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct P2qrhReturnDetails {
+fn serialize_hex<S>(bytes: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(&hex::encode(bytes))
+}
+
+fn deserialize_hex<'de, D>(d: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    hex::decode(s).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2qrhSpendDetails {
     pub tx_hex: String,
+    #[serde(serialize_with = "serialize_hex")]
+    #[serde(deserialize_with = "deserialize_hex")]
     pub tapscript_sighash: Vec<u8>,
+    #[serde(serialize_with = "serialize_hex")]
+    #[serde(deserialize_with = "deserialize_hex")]
     pub p2wpkh_sig_bytes: Vec<u8>,
+    #[serde(serialize_with = "serialize_hex")]
+    #[serde(deserialize_with = "deserialize_hex")]
     pub derived_witness_vec: Vec<u8>,
+}
+
+impl std::process::Termination for P2qrhSpendDetails {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2qrhUtxoReturn {
+    pub script_pubkey: String,
+    pub bech32m_address: String,
+    pub bitcoin_network: bitcoin::Network,
+}
+
+impl std::process::Termination for P2qrhUtxoReturn {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
 }

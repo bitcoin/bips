@@ -1,15 +1,16 @@
 use std::collections::HashSet;
-use bitcoin::{Address, Network, ScriptBuf, Script};
-use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch};
-use bitcoin::p2qrh::{P2qrhBuilder, P2qrhScriptBuf, P2qrhControlBlock, P2qrhSpendInfo };
+use bitcoin::{Address, Network, ScriptBuf};
+use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch, TapNodeHash};
+use bitcoin::p2qrh::{P2qrhBuilder, P2qrhControlBlock, P2qrhSpendInfo };
 use bitcoin::hashes::Hash;
 
 use hex;
 use log::debug;
 use once_cell::sync::Lazy;
 
-use p2qrh_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors};
+use p2qrh_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, P2qrhUtxoReturn};
 use p2qrh_ref::error::P2QRHError;
+use p2qrh_ref::create_p2qrh_utxo;
 
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
@@ -160,7 +161,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
             panic!("finalize failed: {:?}", e);
         });
 
-    let derived_merkle_root = spend_info.merkle_root.unwrap();
+    let derived_merkle_root: TapNodeHash= spend_info.merkle_root.unwrap();
 
     // 2)  verify derived merkle root against test vector
     let test_vector_merkle_root = test_vector.intermediary.merkle_root.as_ref().unwrap();
@@ -180,7 +181,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
 
     // TO-DO:  Investigate why the ordering of script leaves seems to be reverse of test vectors.
     // 3) Iterate through leaves of derived script tree and verify both script leaf hashes and control blocks
-    for (i, derived_leaf) in script_leaves.enumerate() {
+    for derived_leaf in script_leaves {
 
         let version = derived_leaf.version();
         let script = derived_leaf.script();
@@ -220,42 +221,20 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
 
     }
 
-    /* commit (in scriptPubKey) to the merkle root of all the script path leaves. ie:
-        This output key is what gets committed to in the final Taproot address (ie: scriptPubKey)
-    */
-    let script_buf: P2qrhScriptBuf = P2qrhScriptBuf::new_p2qrh(derived_merkle_root);
-    let script: &Script = script_buf.as_script();
-    let script_pubkey = script.to_hex_string();
+    let p2qrh_utxo_return: P2qrhUtxoReturn = create_p2qrh_utxo(derived_merkle_root);
+
     assert_eq!( 
-        script_pubkey,
+        p2qrh_utxo_return.script_pubkey,
         *test_vector.expected.script_pubkey.as_ref().unwrap(),
         "Script pubkey mismatch"
     );
-    debug!("just passed script_pubkey validation. script_pubkey = {}", script_pubkey);
+    debug!("just passed script_pubkey validation. script_pubkey = {}", p2qrh_utxo_return.script_pubkey);
 
-    let mut bitcoin_network: Network = Network::Bitcoin;
+    let bech32m_address: String = p2qrh_utxo_return.bech32m_address;
+    debug!("derived bech32m address for bitcoin_network: {} : {}", p2qrh_utxo_return.bitcoin_network, bech32m_address);
 
-    // Check for BITCOIN_NETWORK environment variable and override if set
-    if let Ok(network_str) = std::env::var("BITCOIN_NETWORK") {
-        bitcoin_network = match network_str.to_lowercase().as_str() {
-            "regtest" => Network::Regtest,
-            "testnet" => Network::Testnet,
-            "signet" => Network::Signet,
-            _ => {
-                debug!("Invalid BITCOIN_NETWORK value '{}', using default Bitcoin network", network_str);
-                Network::Bitcoin
-            }
-        };
-    }
-
-    
-    // 4)  derive bech32m address and verify against test vector
-    //     p2qrh address is comprised of network HRP + WitnessProgram (version + program)
-    let bech32m_address = Address::p2qrh(Some(derived_merkle_root), bitcoin_network);
-    debug!("derived bech32m address for bitcoin_network: {} : {}", bitcoin_network, bech32m_address.to_string());
-
-    if bitcoin_network == Network::Bitcoin {
-        assert_eq!(bech32m_address.to_string(), *test_vector.expected.bip350_address.as_ref().unwrap(), "Bech32m address mismatch.");
+    if p2qrh_utxo_return.bitcoin_network == Network::Bitcoin {
+        assert_eq!(bech32m_address, *test_vector.expected.bip350_address.as_ref().unwrap(), "Bech32m address mismatch.");
     }
 
     Ok(())

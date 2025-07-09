@@ -1,20 +1,59 @@
 pub mod data_structures;
 pub mod error;
 
-use log::info;
+use log::{debug, info};
 use std::io::Write;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::sighash::{EcdsaSighashType, Prevouts, TapSighash};
 use bitcoin::secp256k1::{Message, Secp256k1, SecretKey};
-use bitcoin::{ Amount, TxOut, sighash::TapSighashType, transaction, ScriptBuf, WPubkeyHash, Txid,
-    OutPoint,
+use bitcoin::{ Amount, TxOut, WPubkeyHash, Txid,
+    Address, Network, OutPoint,
     blockdata::witness::Witness,
-    sighash::SighashCache,
-    taproot::{LeafVersion, TapLeafHash},
-    transaction::Transaction,
+    Script, ScriptBuf,
+    sighash::{SighashCache, TapSighashType}, 
+    taproot::{LeafVersion, TapLeafHash, TapNodeHash},
+    transaction::{Transaction, Sequence}
 };
+use bitcoin::p2qrh::P2qrhScriptBuf;
 
-use data_structures::P2qrhReturnDetails;
+use data_structures::{P2qrhSpendDetails, P2qrhUtxoReturn};
+
+pub fn create_p2qrh_utxo(derived_merkle_root: TapNodeHash) -> P2qrhUtxoReturn {
+
+    /* commit (in scriptPubKey) to the merkle root of all the script path leaves. ie:
+        This output key is what gets committed to in the final P2QRH address (ie: scriptPubKey)
+    */
+    let script_buf: P2qrhScriptBuf = P2qrhScriptBuf::new_p2qrh(derived_merkle_root);
+    let script: &Script = script_buf.as_script();
+    let script_pubkey = script.to_hex_string();
+
+    let mut bitcoin_network: Network = Network::Bitcoin;
+
+    // Check for BITCOIN_NETWORK environment variable and override if set
+    if let Ok(network_str) = std::env::var("BITCOIN_NETWORK") {
+        bitcoin_network = match network_str.to_lowercase().as_str() {
+            "regtest" => Network::Regtest,
+            "testnet" => Network::Testnet,
+            "signet" => Network::Signet,
+            _ => {
+                debug!("Invalid BITCOIN_NETWORK value '{}', using default Bitcoin network", network_str);
+                Network::Bitcoin
+            }
+        };
+    }
+
+    
+    // 4)  derive bech32m address and verify against test vector
+    //     p2qrh address is comprised of network HRP + WitnessProgram (version + program)
+    let bech32m_address = Address::p2qrh(Some(derived_merkle_root), bitcoin_network);
+
+    return P2qrhUtxoReturn {
+        script_pubkey,
+        bech32m_address: bech32m_address.to_string(),
+        bitcoin_network,
+    };
+
+}
 
 // Given a p2qrh UTXO, spend to p2wpkh
 pub fn p2qrh_to_p2wpkh_tx(
@@ -25,7 +64,7 @@ pub fn p2qrh_to_p2wpkh_tx(
     spend_pubkey_hash_bytes: Vec<u8>,
     input_leaf_script_bytes: Vec<u8>,
     input_script_priv_key_bytes: Vec<u8>
-) -> P2qrhReturnDetails {
+) -> P2qrhSpendDetails {
 
     let mut txid_little_endian = input_tx_id_bytes.clone();
     txid_little_endian.reverse();
@@ -38,7 +77,7 @@ pub fn p2qrh_to_p2wpkh_tx(
             vout: input_tx_index,
         },
         script_sig: ScriptBuf::new(), // Empty for segwit transactions - script goes in witness
-        sequence: transaction::Sequence::MAX, // Default sequence, allows immediate spending (no RBF or timelock)
+        sequence: Sequence::MAX, // Default sequence, allows immediate spending (no RBF or timelock)
         witness: bitcoin::Witness::new(), // Empty for now, will be filled with signature and pubkey after signing
     };
 
@@ -128,7 +167,7 @@ pub fn p2qrh_to_p2wpkh_tx(
     let tx_hex = bitcoin::consensus::encode::serialize_hex(&signed_tx_obj);
     info!("tx_hex: {:?}", tx_hex);
 
-    return P2qrhReturnDetails {
+    return P2qrhSpendDetails {
         tx_hex,
         tapscript_sighash: tapscript_sighash.as_byte_array().to_vec(),
         p2wpkh_sig_bytes,
