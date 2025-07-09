@@ -37,6 +37,30 @@ my %MiscField = (
 	'Requires' => undef,
 	'Superseded-By' => undef,
 );
+my @FieldOrder = qw(
+	BIP
+	Layer
+	Title
+	Author
+	Authors
+	Editor
+	Deputies
+	Discussions-To
+	Comments-Summary
+	Comments-URI
+	Status
+	Type
+	Created
+	License
+	License-Code
+	Discussion
+	Post-History
+	Version
+	Requires
+	Replaces
+	Proposed-Replacement
+	Superseded-By
+);
 
 my %ValidLayer = (
 	'Consensus (soft fork)' => undef,
@@ -114,7 +138,7 @@ while (++$bipnum <= $topbip) {
 	}
 	my %found;
 	my ($title, $author, $status, $type, $layer);
-	my ($field, $val);
+	my ($field, $val, @field_order);
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
 		last if (!$is_markdown && m[^</pre>$]);
@@ -182,12 +206,17 @@ while (++$bipnum <= $topbip) {
 			die "Unknown field $field in $fn";
 		}
 		++$found{$field};
+		push @field_order, $field if $field_order[-1] ne $field;
 	}
 	if (not $found{License}) {
 		die "Missing License in $fn" unless exists $TolerateMissingLicense{$bipnum};
 	}
 	for my $field (keys %RequiredFields) {
 		die "Missing $field in $fn" unless $found{$field};
+	}
+	my @expected_field_order = grep { exists $found{$_} } @FieldOrder;
+	if ("@expected_field_order" ne "@field_order") {
+		die "Field order is incorrect in $fn, should be:\n\t" . join(", ", @expected_field_order) . "\nbut contains:\n\t" . join(", ", @field_order);
 	}
 	print "|-";
 	if (defined $ValidStatus{$status}) {
