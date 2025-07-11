@@ -57,16 +57,18 @@ pub fn create_p2qrh_utxo(derived_merkle_root: TapNodeHash) -> P2qrhUtxoReturn {
 
 // Given a p2qrh UTXO, spend to p2wpkh
 pub fn p2qrh_to_p2wpkh_tx(
-    input_tx_id_bytes: Vec<u8>,
-    input_tx_index: u32,
-    input_script_pubkey_bytes: Vec<u8>,
-    input_control_block_bytes: Vec<u8>,
-    spend_pubkey_hash_bytes: Vec<u8>,
-    input_leaf_script_bytes: Vec<u8>,
-    input_script_priv_key_bytes: Vec<u8>
+    funding_tx_id_bytes: Vec<u8>,
+    funding_utxo_index: u32,
+    funding_utxo_amount_sats: u64,
+    funding_script_pubkey_bytes: Vec<u8>,
+    p2qrh_control_block_bytes: Vec<u8>,
+    leaf_script_pubkey_hash_bytes: Vec<u8>,
+    leaf_script_bytes: Vec<u8>,
+    leaf_script_priv_key_bytes: Vec<u8>,
+    output_amount_sats: u64,
 ) -> P2qrhSpendDetails {
 
-    let mut txid_little_endian = input_tx_id_bytes.clone();
+    let mut txid_little_endian = funding_tx_id_bytes.clone();
     txid_little_endian.reverse();
 
     // vin: Create TxIn from the input utxo
@@ -74,16 +76,16 @@ pub fn p2qrh_to_p2wpkh_tx(
     let input_tx_in = bitcoin::TxIn {
         previous_output: OutPoint {
             txid: bitcoin::Txid::from_slice(&txid_little_endian).unwrap(), // bitcoin::Txid expects the bytes in little-endian format
-            vout: input_tx_index,
+            vout: funding_utxo_index,
         },
         script_sig: ScriptBuf::new(), // Empty for segwit transactions - script goes in witness
         sequence: Sequence::MAX, // Default sequence, allows immediate spending (no RBF or timelock)
         witness: bitcoin::Witness::new(), // Empty for now, will be filled with signature and pubkey after signing
     };
 
-    let spend_wpubkey_hash = WPubkeyHash::from_byte_array(spend_pubkey_hash_bytes.try_into().unwrap());
+    let spend_wpubkey_hash = WPubkeyHash::from_byte_array(leaf_script_pubkey_hash_bytes.try_into().unwrap());
     let spend_output: TxOut = TxOut {
-        value: Amount::from_sat(15000),
+        value: Amount::from_sat(output_amount_sats),
         script_pubkey: ScriptBuf::new_p2wpkh(&spend_wpubkey_hash),
     };
 
@@ -95,13 +97,9 @@ pub fn p2qrh_to_p2wpkh_tx(
         output: vec![spend_output],
     };
 
-    // Create SighashCache
-    // At this point, sighash_cache does not know the values and type of input UTXO
-    let mut tapscript_sighash_cache = SighashCache::new(&mut unsigned_spend_tx);
-
     // Create the leaf hash
     let leaf_version = LeafVersion::TapScript;
-    let leaf_script = ScriptBuf::from_bytes(input_leaf_script_bytes.clone());
+    let leaf_script = ScriptBuf::from_bytes(leaf_script_bytes.clone());
     let leaf_hash: TapLeafHash = TapLeafHash::from_script(&leaf_script, leaf_version);
 
     /*  prevouts parameter tells the sighash algorithm:
@@ -109,12 +107,16 @@ pub fn p2qrh_to_p2wpkh_tx(
             2. The scriptPubKey of each input being spent (ie: type of output & how to validate the spend)
      */
     let prevouts = vec![TxOut {
-        value: Amount::from_sat(20000),
-        script_pubkey: ScriptBuf::from_bytes(input_script_pubkey_bytes.clone()),
+        value: Amount::from_sat(funding_utxo_amount_sats),
+        script_pubkey: ScriptBuf::from_bytes(funding_script_pubkey_bytes.clone()),
     }];
     info!("prevouts: {:?}", prevouts);
 
     let spending_tx_input_index = 0;
+
+    // Create SighashCache
+    // At this point, sighash_cache does not know the values and type of input UTXO
+    let mut tapscript_sighash_cache = SighashCache::new(&mut unsigned_spend_tx);
 
     // Compute the sighash
     let tapscript_sighash: TapSighash = tapscript_sighash_cache.taproot_script_spend_signature_hash(
@@ -130,31 +132,30 @@ pub fn p2qrh_to_p2wpkh_tx(
 
     // Signing: Sign the sighash using the secp256k1 library (re-exported by rust-bitcoin).
     let secp = Secp256k1::new();
-    let secret_key = SecretKey::from_slice(&input_script_priv_key_bytes).unwrap();
+    let secret_key = SecretKey::from_slice(&leaf_script_priv_key_bytes).unwrap();
 
     // Spending a p2tr UTXO thus using Schnorr signature
     // The aux_rand parameter ensures that signing the same message with the same key produces the same signature
-    let p2wpkh_signature: bitcoin::secp256k1::schnorr::Signature = secp.sign_schnorr_with_aux_rand(
+    let signature: bitcoin::secp256k1::schnorr::Signature = secp.sign_schnorr_with_aux_rand(
         &spend_msg,
         &secret_key.keypair(&secp),
         &[0u8; 32] // 32 zero bytes of auxiliary random data
     );
-    let mut p2wpkh_sig_bytes: Vec<u8> = p2wpkh_signature.serialize().to_vec();
-    p2wpkh_sig_bytes.push(EcdsaSighashType::All as u8);
+    let mut sig_bytes: Vec<u8> = signature.serialize().to_vec();
+    sig_bytes.push(EcdsaSighashType::All as u8);
 
-    let p2wpkh_sig_hex = hex::encode(p2wpkh_sig_bytes.clone());
-    info!("p2wpkh_signature: {:?}", p2wpkh_sig_hex);
+    let p2wpkh_sig_hex = hex::encode(sig_bytes.clone());
+    info!("signature: {:?}", p2wpkh_sig_hex);
 
     let mut derived_witness: Witness = Witness::new();
-    derived_witness.push(hex::decode("03").unwrap());
-    derived_witness.push(serialize_script(&p2wpkh_sig_bytes));
-    derived_witness.push(serialize_script(&input_leaf_script_bytes));
-    derived_witness.push(serialize_script(&input_control_block_bytes));
+    derived_witness.push(serialize_script(&sig_bytes));
+    derived_witness.push(serialize_script(&leaf_script_bytes));
+    derived_witness.push(serialize_script(&p2qrh_control_block_bytes));
 
     let derived_witness_vec: Vec<u8> = derived_witness.iter().flatten().cloned().collect();
 
     let derived_witness_hex = hex::encode(derived_witness_vec.clone());
-    info!("derived_witness_hex: {:?}", derived_witness_hex.clone());
+    info!("derived_witness_hex ( <script inputs> <script> <control block> ): \n{:?}", derived_witness_hex.clone());
 
     // Update the witness data for the tx's first input (index 0)
     *tapscript_sighash_cache.witness_mut(spending_tx_input_index).unwrap() = derived_witness;
@@ -165,12 +166,12 @@ pub fn p2qrh_to_p2wpkh_tx(
     // Reserialize without witness data and double-SHA256 to get the txid
     let signed_txid_obj: Txid = signed_tx_obj.compute_txid();
     let tx_hex = bitcoin::consensus::encode::serialize_hex(&signed_tx_obj);
-    info!("tx_hex: {:?}", tx_hex);
+    //info!("tx_hex: {:?}", tx_hex);
 
     return P2qrhSpendDetails {
         tx_hex,
         tapscript_sighash: tapscript_sighash.as_byte_array().to_vec(),
-        p2wpkh_sig_bytes,
+        p2wpkh_sig_bytes: sig_bytes,
         derived_witness_vec: derived_witness_vec,
     };
 }

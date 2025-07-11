@@ -19,4 +19,3 @@ fn p2qrh_script_path_utxo_construction() -> P2qrhUtxoReturn {
 
     return p2qrh_utxo_return;
 }
-
