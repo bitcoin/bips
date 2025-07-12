@@ -47,13 +47,10 @@ fn main() -> SpendDetails {
             std::process::exit(1);
         });
 
-    // P2QRH control block does not include internal pubkey.
-    // (P2TR internal pubkey is used to verify that the pub key and merkle root can be combined to match the tweaked pub key in ScriptPubKey).
-    // P2QRH leaf version will always be c1: The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
-    // In this tutorial, there is only a single leaf in the taptree; thus no script path.
-    let p2qrh_control_block_bytes: Vec<u8> =
-        hex::decode("c1").unwrap();
-    info!("P2QRH control block size: {}", p2qrh_control_block_bytes.len());
+    // In this tutorial, there is only a single leaf in the taptree; thus no script path.    
+    let control_block_bytes: Vec<u8> =
+        hex::decode("c0924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
+    info!("control block size: {}", control_block_bytes.len());
 
     let leaf_script_priv_key_bytes: Vec<u8> = hex::decode("9b8de5d7f20a8ebb026a82babac3aa47a008debbfde5348962b2c46520bd5189").unwrap();
 
@@ -76,7 +73,7 @@ fn main() -> SpendDetails {
         funding_utxo_index,
         funding_utxo_amount_sats,
         funding_script_pubkey_bytes,
-        p2qrh_control_block_bytes,
+        control_block_bytes,
         leaf_script_bytes,
         leaf_script_priv_key_bytes,
         spend_output_pubkey_bytes,

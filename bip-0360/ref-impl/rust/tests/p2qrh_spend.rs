@@ -1,9 +1,9 @@
 use log::info;
 use bitcoin::blockdata::witness::Witness;
 
-use p2qrh_ref::{ p2qrh_to_p2wpkh_tx, serialize_script };
+use p2qrh_ref::{ pay_to_p2wpkh_tx, serialize_script };
 
-use p2qrh_ref::data_structures::P2qrhSpendDetails;
+use p2qrh_ref::data_structures::SpendDetails;
 
 /*  The rust-bitcoin crate does not provide a single high-level API that builds the full Taproot script-path witness stack for you.
    It does expose all the necessary types and primitives to build it manually and correctly.
@@ -66,26 +66,28 @@ fn test_script_path_spend_signatures() {
             .unwrap();
     let input_script_priv_key_bytes: Vec<u8> = hex::decode("9b8de5d7f20a8ebb026a82babac3aa47a008debbfde5348962b2c46520bd5189").unwrap();
 
-    let leaf_script_pubkey_hash_bytes: Vec<u8> = hex::decode("0de745dc58d8e62e6f47bde30cd5804a82016f9e").unwrap();
 
-    let output_amount_sats: u64 = 15000;
+    // https://learnmeabitcoin.com/explorer/tx/797505b104b5fb840931c115ea35d445eb1f64c9279bf23aa5bb4c3d779da0c2#outputs
+    let spend_output_pubkey_bytes: Vec<u8> = hex::decode("0de745dc58d8e62e6f47bde30cd5804a82016f9e").unwrap();
+
+    let spend_output_amount_sats: u64 = 15000;
 
     let test_sighash_bytes: Vec<u8> = hex::decode("752453d473e511a0da2097d664d69fe5eb89d8d9d00eab924b42fc0801a980c9").unwrap();
     let test_signature_bytes: Vec<u8> = hex::decode("01769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f01").unwrap();
 
     // Modified from learnmeabitcoin example
     // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
-    let test_witness_bytes: Vec<u8> = hex::decode("034101769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f0122206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac21c1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
+    let test_witness_bytes: Vec<u8> = hex::decode("01769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f01206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0acc1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
 
-    let result: P2qrhSpendDetails = p2qrh_to_p2wpkh_tx(funding_tx_id_bytes,
+    let result: SpendDetails = pay_to_p2wpkh_tx(funding_tx_id_bytes,
         funding_tx_index,
         funding_utxo_amount_sats,
         input_script_pubkey_bytes,
         input_control_block_bytes,
-        leaf_script_pubkey_hash_bytes,
         input_leaf_script_bytes,
         input_script_priv_key_bytes,
-        output_amount_sats
+        spend_output_pubkey_bytes,
+        spend_output_amount_sats
     );
 
     assert_eq!(result.tapscript_sighash.as_slice(), test_sighash_bytes.as_slice(), "sighash mismatch");

@@ -3,13 +3,11 @@
 :toc2:
 :linkattrs:
 
-= P2QRH End-to-End Tutorial
+= P2TR End-to-End Tutorial
 
 :numbered:
 
-This tutorial is inspired from the link:https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature[script-path-spend-signature] example of the _learnmeabitcoin_ tutorial for p2tr.
-
-The tutorial is customized to create, fund and spend from a P2QRH UTXO (consisting of a single leaf taptree) to a P2WPKH address.
+This tutorial is inspired from the link:https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature[script-path-spend-signature] example of the _learnmeabitcoin_ tutorial.
 
 Execute in Bitcoin Core `regtest` mode.
 
@@ -43,7 +41,7 @@ $ b-reg -named createwallet \
     load_on_startup=true
 -----
 
-== Fund P2QRH UTXO
+== Fund P2TR UTXO
 
 . View (hard-coded) tapscript used in single leaf taptree:
 +
@@ -55,45 +53,45 @@ $ b-reg decodescript 206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6
 +
 NOTE:  This script includes a 32-byte x-only public key.
 Subsequently, it is not of standard type P2PK.
-As a standalone script, this script would be considered _non-standard_.
+As a standalone script, this script would be considered _non-standard_.  
 However, as a tapleaf script, it is considered _standard_.
 Tapscript relaxes many script standardness rules.
 
-. Generate a P2QRH scripPubKey and address given a taptree as defined in link:https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature[learnmeabitcoin tutorial] :
+. Generate a P2TR scripPubKey and address given a taptree as defined in link:https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature[learnmeabitcoin tutorial] :
 +
 -----
-$ export BITCOIN_ADDRESS_INFO=$( cargo run --example p2qrh_construction ) \
+$ export BITCOIN_ADDRESS_INFO=$( cargo run --example p2tr_construction ) \
     && echo $BITCOIN_ADDRESS_INFO | jq -r .
 
 $ export BITCOIN_NETWORK=regtest \
-  && export P2QRH_ADDR=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.bech32m_address' ) \
+  && export P2TR_ADDR=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.bech32m_address' ) \
   && export FUNDING_SCRIPT_PUBKEY=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.script_pubkey_hex' ) \
-  && echo -en "$P2QRH_ADDR\n$FUNDING_SCRIPT_PUBKEY\n"
+  && echo -en "$P2TR_ADDR\n$FUNDING_SCRIPT_PUBKEY\n"
 -----
 +
-NOTE:  In `regtest`, you can expect a P2QRH address that starts with: `bcrt1r` .
+NOTE: In `regtest`, you can expect a P2TR address that starts with: `bcrt1q` .
 
-. fund this P2QRH address with the coinbase reward of a newly generated block:
+. fund this P2TR address with the coinbase reward of a newly generated block:
 +
 -----
-$ export COINBASE_REWARD_TX_ID=$( b-reg -named generatetoaddress 1 $P2QRH_ADDR 1 | jq -r '.[]' ) \
+$ export COINBASE_REWARD_TX_ID=$( b-reg -named generatetoaddress 1 $P2TR_ADDR 1 | jq -r '.[]' ) \
     && echo $COINBASE_REWARD_TX_ID
 -----
 +
 NOTE:  Sometimes Bitcoin Core does not immediately respond.  If so, wait a few seconds and try the above command again.
 
-. view summary of all txs that have funded P2QRH address
+. view summary of all txs that have funded P2TR address
 +
 -----
-$ export P2QRH_DESC=$( b-reg getdescriptorinfo "addr($P2QRH_ADDR)" | jq -r '.descriptor' ) \
-    && echo $P2QRH_DESC
-$ b-reg scantxoutset start '[{"desc": "'''$P2QRH_DESC'''"}]'
+$ export P2TR_DESC=$( b-reg getdescriptorinfo "addr($P2TR_ADDR)" | jq -r '.descriptor' ) \
+    && echo $P2TR_DESC
+$ b-reg scantxoutset start '[{"desc": "'''$P2TR_DESC'''"}]'
 -----
 
 . grab txid of first tx with unspent funds:
 +
 -----
-$ export FUNDING_TX_ID=$( b-reg scantxoutset start '[{"desc": "'''$P2QRH_DESC'''"}]' | jq -r '.unspents[0].txid' ) \
+$ export FUNDING_TX_ID=$( b-reg scantxoutset start '[{"desc": "'''$P2TR_DESC'''"}]' | jq -r '.unspents[0].txid' ) \
     && echo $FUNDING_TX_ID
 -----
 
@@ -103,14 +101,14 @@ $ export FUNDING_TX_ID=$( b-reg scantxoutset start '[{"desc": "'''$P2QRH_DESC'''
 $ export FUNDING_UTXO_INDEX=0
 -----
 
-. view details of funding UTXO to the P2QRH address:
+. view details of funding UTXO to the P2TR address:
 +
 -----
 $ export FUNDING_UTXO=$( b-reg getrawtransaction $FUNDING_TX_ID 1 | jq -r '.vout['''$FUNDING_UTXO_INDEX''']' ) \
     && echo $FUNDING_UTXO | jq -r .
 -----
 
-== Spend P2QRH UTXO
+== Spend P2TR UTXO
 
 
 . Determine value (in sats) of funding utxo:
@@ -123,21 +121,21 @@ $ export FUNDING_UTXO_AMOUNT_SATS=$(echo $FUNDING_UTXO | jq -r '.value' | awk '{
 . Referencing the funding tx (via $FUNDING_TX_ID and $FUNDING_UTXO_INDEX), create the spending tx:
 +
 -----
-$ export RAW_P2QRH_SPEND_TX=$( cargo run --example p2qrh_spend | jq -r '.tx_hex' ) \
-    && echo $RAW_P2QRH_SPEND_TX
+$ export RAW_P2TR_SPEND_TX=$( cargo run --example p2tr_spend | jq -r '.tx_hex' ) \
+    && echo $RAW_P2TR_SPEND_TX
 -----
 
 . Inspect the spending tx:
 +
 -----
-$ b-reg decoderawtransaction $RAW_P2QRH_SPEND_TX
+$ b-reg decoderawtransaction $RAW_P2TR_SPEND_TX
 -----
 
-. Test standardness of the spending tx by sending to local mempool of p2qrh enabled Bitcoin Core:
+. Test standardness of the spending tx by sending to local mempool of p2tr enabled Bitcoin Core:
 
 .. Generate additional blocks.
 +
-This is necessary if you have only previously generated 1 block.
+This is necessary if you have only previously generated 1 block in your bitcoin core.
 +
 -----
 $ b-reg -generate 110
@@ -150,24 +148,24 @@ _bad-txns-premature-spend-of-coinbase, tried to spend coinbase at depth 1_
 .. Execute:
 +
 -----
-$ b-reg testmempoolaccept '["'''$RAW_P2QRH_SPEND_TX'''"]'
+$ b-reg testmempoolaccept '["'''$RAW_P2TR_SPEND_TX'''"]'
 -----
 
 . Submit tx:
 +
 -----
-$ export P2QRH_SPENDING_TX_ID=$( b-reg sendrawtransaction $RAW_P2QRH_SPEND_TX ) \
-    && echo $P2QRH_SPENDING_TX_ID
+$ export P2TR_SPENDING_TX_ID=$( b-reg sendrawtransaction $RAW_P2TR_SPEND_TX ) \
+    && echo $P2TR_SPENDING_TX_ID
 -----
 +
-NOTE:  Should return same tx id as was included in $RAW_P2QRH_SPEND_TX
+NOTE:  Should return same tx id as was included in $RAW_P2TR_SPEND_TX
 
-== Mine P2QRH Spend TX
+== Mine P2TR Spend TX
 
 . View tx in mempool:
 +
 -----
-$ b-reg getrawtransaction $P2QRH_SPENDING_TX_ID 1
+$ b-reg getrawtransaction $P2TR_SPENDING_TX_ID 1
 -----
 +
 NOTE:  There will not yet be a field `blockhash` in the response.
@@ -181,7 +179,7 @@ $ b-reg -generate 1
 . Obtain `blockhash` field of mined tx:
 +
 -----
-$ export BLOCK_HASH=$( b-reg getrawtransaction $P2QRH_SPENDING_TX_ID 1 | jq -r '.blockhash' ) \
+$ export BLOCK_HASH=$( b-reg getrawtransaction $P2TR_SPENDING_TX_ID 1 | jq -r '.blockhash' ) \
     && echo $BLOCK_HASH
 -----
 
@@ -192,22 +190,3 @@ $ b-reg getblock $BLOCK_HASH | jq -r .tx
 -----
 
 == TO-DO
-
-=== Import P2QRH address into wallet
-
-NOTE:  currently fails with:   "message": "Cannot import descriptor without private keys to a wallet with private keys enabled"
-
------
-$ b-reg -rpcwallet=$W_NAME walletpassphrase $WPASS 120
-$ echo $P2QRH_ADDR
-$ export P2QRH_DESC=$( b-reg getdescriptorinfo "addr($P2QRH_ADDR)" | jq -r '.descriptor' ) \
-    && echo $P2QRH_DESC
-
-# Set as non-active address (because can't generate subsequent p2qrh addresses yet)
-$ b-reg importdescriptors '[{
-  "desc": "'''$P2QRH_DESC'''",
-  "timestamp": "now",
-  "active": false,
-  "label": "p2qrh"
-}]'
------

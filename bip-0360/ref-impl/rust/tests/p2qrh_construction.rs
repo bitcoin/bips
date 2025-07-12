@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use bitcoin::{Address, Network, ScriptBuf};
+use bitcoin::{Network, ScriptBuf};
 use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch, TapNodeHash};
 use bitcoin::p2qrh::{P2qrhBuilder, P2qrhControlBlock, P2qrhSpendInfo };
 use bitcoin::hashes::Hash;
@@ -8,7 +8,7 @@ use hex;
 use log::debug;
 use once_cell::sync::Lazy;
 
-use p2qrh_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, P2qrhUtxoReturn};
+use p2qrh_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, UtxoReturn};
 use p2qrh_ref::error::P2QRHError;
 use p2qrh_ref::create_p2qrh_utxo;
 
@@ -221,14 +221,14 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
 
     }
 
-    let p2qrh_utxo_return: P2qrhUtxoReturn = create_p2qrh_utxo(derived_merkle_root);
+    let p2qrh_utxo_return: UtxoReturn = create_p2qrh_utxo(derived_merkle_root.to_string());
 
     assert_eq!( 
-        p2qrh_utxo_return.script_pubkey,
+        p2qrh_utxo_return.script_pubkey_hex,
         *test_vector.expected.script_pubkey.as_ref().unwrap(),
         "Script pubkey mismatch"
     );
-    debug!("just passed script_pubkey validation. script_pubkey = {}", p2qrh_utxo_return.script_pubkey);
+    debug!("just passed script_pubkey validation. script_pubkey = {}", p2qrh_utxo_return.script_pubkey_hex);
 
     let bech32m_address: String = p2qrh_utxo_return.bech32m_address;
     debug!("derived bech32m address for bitcoin_network: {} : {}", p2qrh_utxo_return.bitcoin_network, bech32m_address);

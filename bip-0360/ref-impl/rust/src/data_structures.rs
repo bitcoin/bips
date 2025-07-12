@@ -240,7 +240,7 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct P2qrhSpendDetails {
+pub struct SpendDetails {
     pub tx_hex: String,
     #[serde(serialize_with = "serialize_hex")]
     #[serde(deserialize_with = "deserialize_hex")]
@@ -253,7 +253,7 @@ pub struct P2qrhSpendDetails {
     pub derived_witness_vec: Vec<u8>,
 }
 
-impl std::process::Termination for P2qrhSpendDetails {
+impl std::process::Termination for SpendDetails {
     fn report(self) -> std::process::ExitCode {
         if let Ok(json) = serde_json::to_string_pretty(&self) {
             println!("{}", json);
@@ -265,13 +265,13 @@ impl std::process::Termination for P2qrhSpendDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct P2qrhUtxoReturn {
-    pub script_pubkey: String,
+pub struct UtxoReturn {
+    pub script_pubkey_hex: String,
     pub bech32m_address: String,
     pub bitcoin_network: bitcoin::Network,
 }
 
-impl std::process::Termination for P2qrhUtxoReturn {
+impl std::process::Termination for UtxoReturn {
     fn report(self) -> std::process::ExitCode {
         if let Ok(json) = serde_json::to_string_pretty(&self) {
             println!("{}", json);
