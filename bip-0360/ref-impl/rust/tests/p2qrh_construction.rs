@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 
 use p2qrh_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, UtxoReturn};
 use p2qrh_ref::error::P2QRHError;
-use p2qrh_ref::create_p2qrh_utxo;
+use p2qrh_ref::{create_p2qrh_utxo, tagged_hash};
 
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
@@ -28,6 +28,17 @@ static P2QRH_TWO_LEAF_SAME_VERSION_TEST: &str = "p2qrh_two_leaf_same_version";
 static P2QRH_THREE_LEAF_COMPLEX_TEST: &str = "p2qrh_three_leaf_complex";
 static P2QRH_THREE_LEAF_ALTERNATIVE_TEST: &str = "p2qrh_three_leaf_alternative";
 static P2QRH_SIMPLE_LIGHTNING_CONTRACT_TEST: &str = "p2qrh_simple_lightning_contract";
+
+#[test]
+fn test_p2qrh_quantum_root() {
+
+    let _ = env_logger::try_init();
+
+    let taproot_merkle_root: String = "c525714a7f49c28aedbbba78c005931a81c234b2f6c99a73e4d06082adc8bf2b".to_string();
+    let expected_quantum_root: String = "27e8a6af1f05d3dbfebfc4073a8391cf8db28746767c2b34d606900ad721127b".to_string();
+    let quantum_root = tagged_hash("QuantumRoot", &hex::decode(&taproot_merkle_root).unwrap());
+    assert_eq!(quantum_root.to_string(), expected_quantum_root);
+}
 
 // https://learnmeabitcoin.com/technical/upgrades/taproot/#example-2-script-path-spend-simple
 #[test]
