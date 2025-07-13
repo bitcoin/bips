@@ -172,16 +172,16 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
             panic!("finalize failed: {:?}", e);
         });
 
-    let derived_merkle_root: TapNodeHash= spend_info.merkle_root.unwrap();
+    let derived_quantum_root: TapNodeHash= spend_info.quantum_root.unwrap();
 
-    // 2)  verify derived merkle root against test vector
-    let test_vector_merkle_root = test_vector.intermediary.merkle_root.as_ref().unwrap();
+    // 2)  verify derived quantum root against test vector
+    let test_vector_quantum_root = test_vector.intermediary.quantum_root.as_ref().unwrap();
     assert_eq!( 
-        derived_merkle_root.to_string(),
-        *test_vector_merkle_root, 
-        "Merkle root mismatch"
+        derived_quantum_root.to_string(),
+        *test_vector_quantum_root, 
+        "Quantum root mismatch"
     );
-    debug!("just passed merkle root validation: {}", test_vector_merkle_root);
+    debug!("just passed quantum root validation: {}", test_vector_quantum_root);
 
     let test_vector_leaf_hashes_vec: Vec<String> = test_vector.intermediary.leaf_hashes.clone();
     let test_vector_leaf_hash_set: HashSet<String> = test_vector_leaf_hashes_vec.iter().cloned().collect();
@@ -232,7 +232,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
 
     }
 
-    let p2qrh_utxo_return: UtxoReturn = create_p2qrh_utxo(derived_merkle_root.to_string());
+    let p2qrh_utxo_return: UtxoReturn = create_p2qrh_utxo(derived_quantum_root.to_string());
 
     assert_eq!( 
         p2qrh_utxo_return.script_pubkey_hex,

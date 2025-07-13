@@ -30,15 +30,15 @@ use data_structures::{SpendDetails, UtxoReturn};
 static SECP: Lazy<Secp256k1<bitcoin::secp256k1::All>> = Lazy::new(Secp256k1::new);
 
 
-pub fn create_p2qrh_utxo(merkle_root_hex: String) -> UtxoReturn {
+pub fn create_p2qrh_utxo(quantum_root_hex: String) -> UtxoReturn {
 
-    let merkle_root_bytes= hex::decode(merkle_root_hex).unwrap();
-    let merkle_root: TapNodeHash = TapNodeHash::from_byte_array(merkle_root_bytes.try_into().unwrap());
+    let quantum_root_bytes= hex::decode(quantum_root_hex.clone()).unwrap();
+    let quantum_root: TapNodeHash = TapNodeHash::from_byte_array(quantum_root_bytes.try_into().unwrap());
     
     /* commit (in scriptPubKey) to the merkle root of all the script path leaves. ie:
         This output key is what gets committed to in the final P2QRH address (ie: scriptPubKey)
     */
-    let script_buf: P2qrhScriptBuf = P2qrhScriptBuf::new_p2qrh(merkle_root);
+    let script_buf: P2qrhScriptBuf = P2qrhScriptBuf::new_p2qrh(quantum_root);
     let script: &Script = script_buf.as_script();
     let script_pubkey = script.to_hex_string();
 
@@ -60,9 +60,10 @@ pub fn create_p2qrh_utxo(merkle_root_hex: String) -> UtxoReturn {
     
     // 4)  derive bech32m address and verify against test vector
     //     p2qrh address is comprised of network HRP + WitnessProgram (version + program)
-    let bech32m_address = Address::p2qrh(Some(merkle_root), bitcoin_network);
+    let bech32m_address = Address::p2qrh(Some(quantum_root), bitcoin_network);
 
     return UtxoReturn {
+        tree_root_hex: quantum_root_hex,
         script_pubkey_hex: script_pubkey,
         bech32m_address: bech32m_address.to_string(),
         bitcoin_network,
@@ -194,7 +195,7 @@ pub fn pay_to_p2wpkh_tx(
 
 pub fn create_p2tr_utxo(merkle_root_hex: String, internal_pubkey_hex: String) -> UtxoReturn {
 
-    let merkle_root_bytes= hex::decode(merkle_root_hex).unwrap();
+    let merkle_root_bytes= hex::decode(merkle_root_hex.clone()).unwrap();
     let merkle_root: TapNodeHash = TapNodeHash::from_byte_array(merkle_root_bytes.try_into().unwrap());
 
     let pub_key_string = format!("02{}", internal_pubkey_hex);
@@ -231,6 +232,7 @@ pub fn create_p2tr_utxo(merkle_root_hex: String, internal_pubkey_hex: String) ->
     );
 
     return UtxoReturn {
+        tree_root_hex: merkle_root_hex,
         script_pubkey_hex: script_pubkey,
         bech32m_address: bech32m_address.to_string(),
         bitcoin_network,

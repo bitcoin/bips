@@ -67,8 +67,8 @@ pub struct TestVectorIntermediary {
     #[serde(default)]
     #[serde(rename = "leafHashes")]
     pub leaf_hashes: Vec<String>,
-    #[serde(rename = "merkleRoot")]
-    pub merkle_root: Option<String>
+    #[serde(rename = "quantumRoot")]
+    pub quantum_root: Option<String>
 }
 
 
@@ -266,6 +266,7 @@ impl std::process::Termination for SpendDetails {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UtxoReturn {
+    pub tree_root_hex: String,
     pub script_pubkey_hex: String,
     pub bech32m_address: String,
     pub bitcoin_network: bitcoin::Network,
