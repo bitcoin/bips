@@ -45,17 +45,16 @@ $ b-reg -named createwallet \
 
 == Fund P2QRH UTXO
 
-. View (hard-coded) tapscript used in single leaf taptree:
+. OPTIONAL: Define number of leaves in tap tree as well as the tap leaf to later use as the unlocking script:
 +
 -----
-$ b-reg decodescript 206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac | jq -r '.asm'
-
-6d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0 OP_CHECKSIG
+$ export TOTAL_LEAF_COUNT=5 \
+    && export LEAF_OF_INTEREST=4
 -----
 +
-NOTE:  Notice that this script commits to a Schnorr 32-byte x-only public key.
+NOTE: Defaults are 4 leaves with the first leaf (leaf 0 ) as the script to later use as the unlocking script. 
 
-. Generate a P2QRH scripPubKey and address given a taptree as defined in link:https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature[learnmeabitcoin tutorial] :
+. Generate a P2QRH scripPubKey with multi-leaf taptree:
 +
 -----
 $ export BITCOIN_NETWORK=regtest \
@@ -67,13 +66,25 @@ NOTE:  In `regtest`, you can expect a P2QRH address that starts with: `bcrt1r` .
 +
 NOTE: In the context of P2QRH, the _tree_root_hex_ from the response is in reference to the _quantum_root_ used in this tutorial.
 
-. Set some env vars (for use in later steps in this tutorial)  based on previous result:
+. Set some env vars (for use in later steps in this tutorial) based on previous result:
 +
 -----
-$ export QUANTUM_ROOT=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.tree_root_hex' ) \
-    && export FUNDING_SCRIPT_PUBKEY=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.script_pubkey_hex' ) \
-    && export P2QRH_ADDR=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.bech32m_address' )
+$ export QUANTUM_ROOT=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.taptree_return.tree_root_hex' ) \
+    && export LEAF_SCRIPT_PRIV_KEY_HEX=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.taptree_return.leaf_script_priv_key_hex' ) \
+    && export LEAF_SCRIPT_HEX=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.taptree_return.leaf_script_hex' ) \
+    && export CONTROL_BLOCK_HEX=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.taptree_return.control_block_hex' ) \
+    && export FUNDING_SCRIPT_PUBKEY=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.utxo_return.script_pubkey_hex' ) \
+    && export P2QRH_ADDR=$( echo $BITCOIN_ADDRESS_INFO | jq -r '.utxo_return.bech32m_address' )
 -----
+
+. View tapscript used in target leaf of taptree:
++
+-----
+$ b-reg decodescript $LEAF_SCRIPT_HEX | jq -r '.asm'
+-----
++
+NOTE:  Notice that this script commits to a Schnorr 32-byte x-only public key.
+
 
 . fund this P2QRH address with the coinbase reward of a newly generated block:
 +
@@ -122,11 +133,30 @@ $ export FUNDING_UTXO_AMOUNT_SATS=$(echo $FUNDING_UTXO | jq -r '.value' | awk '{
     && echo $FUNDING_UTXO_AMOUNT_SATS
 -----
 
+. Generate additional blocks.
++
+This is necessary if you have only previously generated less than 100 blocks.
++
+-----
+$ b-reg -generate 110
+-----
++
+Otherwise, you may see an error from bitcoin core such as the following when attempting to spend:
++
+_bad-txns-premature-spend-of-coinbase, tried to spend coinbase at depth 1_
+
+
 . Referencing the funding tx (via $FUNDING_TX_ID and $FUNDING_UTXO_INDEX), create the spending tx:
 +
 -----
-$ export RAW_P2QRH_SPEND_TX=$( cargo run --example p2qrh_spend | jq -r '.tx_hex' ) \
-    && echo $RAW_P2QRH_SPEND_TX
+$ export SPEND_DETAILS=$( cargo run --example p2qrh_spend )
+
+$ export RAW_P2QRH_SPEND_TX=$( echo $SPEND_DETAILS | jq -r '.tx_hex' ) \
+        && echo "RAW_P2QRH_SPEND_TX = $RAW_P2QRH_SPEND_TX" \
+    && export SIG_HASH=$( echo $SPEND_DETAILS | jq -r '.sighash' ) \
+        && echo "SIG_HASH = $SIG_HASH" \
+    && export SIG_BYTES=$( echo $SPEND_DETAILS | jq -r '.sig_bytes' ) \
+        && echo "SIG_BYTES = $SIG_BYTES"
 -----
 
 . Inspect the spending tx:
@@ -134,22 +164,12 @@ $ export RAW_P2QRH_SPEND_TX=$( cargo run --example p2qrh_spend | jq -r '.tx_hex'
 -----
 $ b-reg decoderawtransaction $RAW_P2QRH_SPEND_TX
 -----
++
+Pay particular attention to the `vin.txinwitness` field.
+Do the three elements (script input, script and control block) of the witness stack for this script path spend make sense ?
+What do you observe as the first byte of the `control block` element ?
 
 . Test standardness of the spending tx by sending to local mempool of p2qrh enabled Bitcoin Core:
-
-.. Generate additional blocks.
-+
-This is necessary if you have only previously generated 1 block.
-+
------
-$ b-reg -generate 110
------
-+
-Otherwise, you may see an error from bitcoin core such as the following:
-+
-_bad-txns-premature-spend-of-coinbase, tried to spend coinbase at depth 1_
-
-.. Execute:
 +
 -----
 $ b-reg testmempoolaccept '["'''$RAW_P2QRH_SPEND_TX'''"]'

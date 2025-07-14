@@ -90,8 +90,8 @@ fn test_script_path_spend_signatures() {
         spend_output_amount_sats
     );
 
-    assert_eq!(result.tapscript_sighash.as_slice(), test_sighash_bytes.as_slice(), "sighash mismatch");
-    assert_eq!(result.p2wpkh_sig_bytes, test_signature_bytes, "signature mismatch");
+    assert_eq!(result.sighash.as_slice(), test_sighash_bytes.as_slice(), "sighash mismatch");
+    assert_eq!(result.sig_bytes, test_signature_bytes, "signature mismatch");
     assert_eq!(result.derived_witness_vec, test_witness_bytes, "derived_witness mismatch");
 
 }

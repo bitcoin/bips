@@ -140,6 +140,8 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
                 let tv_leaf_script_buf = ScriptBuf::from_bytes(tv_leaf_script_bytes.clone());
                 let tv_leaf_version = LeafVersion::from_consensus(tv_leaf.leaf_version).unwrap();
                 control_block_data.push((tv_leaf_script_buf.clone(), tv_leaf_version));
+
+                LeafVersion::TapScript;
                 
                 let mut modified_depth = depth + 1;
                 if direction == Direction::Root {
@@ -214,7 +216,6 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
         // NOTE:  Control blocks could have also been obtained from spend_info.control_block(..) using the data in control_block_data
         debug!("merkle_branch nodes: {:?}", merkle_branch);
         let derived_control_block: P2qrhControlBlock = P2qrhControlBlock{
-            leaf_version: derived_leaf.version(),
             merkle_branch: merkle_branch.clone(),
         };
         let serialized_control_block = derived_control_block.serialize();

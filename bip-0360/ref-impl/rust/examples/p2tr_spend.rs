@@ -1,4 +1,4 @@
-use p2qrh_ref::{ pay_to_p2wpkh_tx };
+use p2qrh_ref::{ pay_to_p2wpkh_tx , verify_schnorr_signature_via_bytes};
 
 use p2qrh_ref::data_structures::SpendDetails;
 use std::env;
@@ -76,9 +76,15 @@ fn main() -> SpendDetails {
         control_block_bytes,
         leaf_script_bytes,
         leaf_script_priv_key_bytes,
-        spend_output_pubkey_bytes,
+        spend_output_pubkey_bytes.clone(),
         spend_output_amount_sats
     );
+
+    let is_valid: bool = verify_schnorr_signature_via_bytes(
+            &result.sig_bytes,
+            &result.sighash,
+            &spend_output_pubkey_bytes);
+    info!("is_valid: {}", is_valid);
 
     return result;
 }

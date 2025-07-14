@@ -244,10 +244,10 @@ pub struct SpendDetails {
     pub tx_hex: String,
     #[serde(serialize_with = "serialize_hex")]
     #[serde(deserialize_with = "deserialize_hex")]
-    pub tapscript_sighash: Vec<u8>,
+    pub sighash: Vec<u8>,
     #[serde(serialize_with = "serialize_hex")]
     #[serde(deserialize_with = "deserialize_hex")]
-    pub p2wpkh_sig_bytes: Vec<u8>,
+    pub sig_bytes: Vec<u8>,
     #[serde(serialize_with = "serialize_hex")]
     #[serde(deserialize_with = "deserialize_hex")]
     pub derived_witness_vec: Vec<u8>,
@@ -266,13 +266,49 @@ impl std::process::Termination for SpendDetails {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UtxoReturn {
-    pub tree_root_hex: String,
+
     pub script_pubkey_hex: String,
     pub bech32m_address: String,
     pub bitcoin_network: bitcoin::Network,
 }
 
 impl std::process::Termination for UtxoReturn {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaptreeReturn {
+    pub leaf_script_priv_key_hex: String,
+    pub leaf_script_hex: String,
+    pub tree_root_hex: String,
+    pub control_block_hex: String,
+}
+
+impl std::process::Termination for TaptreeReturn {
+    fn report(self) -> std::process::ExitCode {
+        if let Ok(json) = serde_json::to_string_pretty(&self) {
+            println!("{}", json);
+        } else {
+            println!("{:?}", self);
+        }
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstructionReturn {
+    pub taptree_return: TaptreeReturn,
+    pub utxo_return: UtxoReturn,
+}
+
+impl std::process::Termination for ConstructionReturn {
     fn report(self) -> std::process::ExitCode {
         if let Ok(json) = serde_json::to_string_pretty(&self) {
             println!("{}", json);

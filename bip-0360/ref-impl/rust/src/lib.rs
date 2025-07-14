@@ -1,25 +1,24 @@
 pub mod data_structures;
 pub mod error;
 
-use log::{debug, info};
+use log::{debug, info, error};
 use std::io::Write;
 use once_cell::sync::Lazy;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::key::{Secp256k1, Parity};
-use bitcoin::sighash::{EcdsaSighashType, Prevouts, TapSighash};
-use bitcoin::secp256k1::{Message, SecretKey};
+use bitcoin::secp256k1::{Message, SecretKey, Keypair, rand::rngs::OsRng, rand::thread_rng, rand::Rng, schnorr::Signature};
 use bitcoin::{ Amount, TxOut, WPubkeyHash, Txid,
     Address, Network, OutPoint,
     blockdata::witness::Witness,
     Script, ScriptBuf, XOnlyPublicKey, PublicKey,
-    sighash::{SighashCache, TapSighashType}, 
-    taproot::{LeafVersion, TapLeafHash, TapNodeHash},
+    sighash::{SighashCache, TapSighashType, Prevouts, TapSighash}, 
+    taproot::{LeafVersion, TapLeafHash, TapNodeHash, TapTree, ScriptLeaves, TaprootMerkleBranch},
     transaction::{Transaction, Sequence}
 };
 
-use bitcoin::p2qrh::P2qrhScriptBuf;
+use bitcoin::p2qrh::{P2qrhScriptBuf, P2qrhBuilder, P2qrhSpendInfo, P2qrhControlBlock};
 
-use data_structures::{SpendDetails, UtxoReturn};
+use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn};
 
 /* Secp256k1 implements the Signing trait when it's initialized in signing mode.
    It's important to note that Secp256k1 has different capabilities depending on how it's constructed:
@@ -29,6 +28,73 @@ use data_structures::{SpendDetails, UtxoReturn};
 */
 static SECP: Lazy<Secp256k1<bitcoin::secp256k1::All>> = Lazy::new(Secp256k1::new);
 
+pub fn create_multi_leaf_taptree(total_leaf_count: u32, leaf_of_interest: u32) -> TaptreeReturn {
+
+    if(total_leaf_count < 1) {
+        panic!("total_leaf_count must be greater than 0");
+    }
+    if leaf_of_interest >= total_leaf_count {
+        panic!("leaf_of_interest must be less than total_leaf_count and greater than 0");
+    }
+
+    debug!("Creating multi-leaf taptree with total_leaf_count: {}, leaf_of_interest: {}", total_leaf_count, leaf_of_interest);
+    
+    let mut huffman_entries: Vec<(u32, ScriptBuf)> = vec![];
+    let mut keypair_of_interest: Option<(SecretKey, XOnlyPublicKey)> = None;
+    let mut script_buf_of_interest: Option<ScriptBuf> = None;
+    for leaf_index in 0..total_leaf_count {
+        
+        let keypair: (SecretKey, XOnlyPublicKey) = acquire_schnorr_keypair();
+        let pubkey_bytes = keypair.1.serialize();
+        
+        // OP_PUSHBYTES_32 <32-byte xonly pubkey> OP_CHECKSIG
+        let mut script_buf_bytes = vec![0x20];
+        script_buf_bytes.extend_from_slice(&pubkey_bytes);
+        script_buf_bytes.push(0xac);
+        let script_buf: ScriptBuf = ScriptBuf::from_bytes(script_buf_bytes.clone());
+        
+        let random_weight = thread_rng().gen_range(0..total_leaf_count);
+        
+        let huffman_entry = (random_weight, script_buf.clone());
+        huffman_entries.push(huffman_entry);
+        if leaf_index == leaf_of_interest {
+            keypair_of_interest = Some(keypair);
+            script_buf_of_interest = Some(script_buf.clone());
+            debug!("Selected leaf:  weight: {}, script: {:?}", random_weight, script_buf);
+        }
+    };
+    let p2qrh_builder: P2qrhBuilder = P2qrhBuilder::with_huffman_tree(huffman_entries).unwrap();
+
+    let p2qrh_spend_info: P2qrhSpendInfo = p2qrh_builder.clone().finalize().unwrap();
+    let quantum_root: TapNodeHash = p2qrh_spend_info.quantum_root.unwrap();
+    info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {} \n\tQuantum root: {}",
+        hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),  // secret_bytes returns big endian
+        hex::encode(keypair_of_interest.unwrap().1.serialize()),  // serialize returns little endian
+        quantum_root);
+
+    let tap_tree: TapTree = p2qrh_builder.clone().into_inner().try_into_taptree().unwrap();
+    let mut script_leaves: ScriptLeaves = tap_tree.script_leaves();
+    let script_leaf = script_leaves
+        .find(|leaf| leaf.script() == script_buf_of_interest.as_ref().unwrap().as_script())
+        .expect("Script leaf not found");
+    let leaf_script = script_leaf.script();
+    let merkle_branch: &TaprootMerkleBranch = script_leaf.merkle_branch();
+    info!("Leaf script: {}, merkle branch: {:?}", leaf_script, merkle_branch);
+
+    let control_block: P2qrhControlBlock = P2qrhControlBlock{
+        merkle_branch: merkle_branch.clone(),
+    };
+    let control_block_hex: String = hex::encode(control_block.serialize());
+
+    return TaptreeReturn {
+        leaf_script_priv_key_hex: hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),
+        leaf_script_hex: leaf_script.to_hex_string(),
+
+        tree_root_hex: hex::encode(quantum_root.to_byte_array()),
+        control_block_hex: control_block_hex,
+    };
+
+}
 
 pub fn create_p2qrh_utxo(quantum_root_hex: String) -> UtxoReturn {
 
@@ -56,14 +122,12 @@ pub fn create_p2qrh_utxo(quantum_root_hex: String) -> UtxoReturn {
             }
         };
     }
-
     
     // 4)  derive bech32m address and verify against test vector
     //     p2qrh address is comprised of network HRP + WitnessProgram (version + program)
     let bech32m_address = Address::p2qrh(Some(quantum_root), bitcoin_network);
 
     return UtxoReturn {
-        tree_root_hex: quantum_root_hex,
         script_pubkey_hex: script_pubkey,
         bech32m_address: bech32m_address.to_string(),
         bitcoin_network,
@@ -80,12 +144,12 @@ pub fn pay_to_p2wpkh_tx(
     control_block_bytes: Vec<u8>,
     leaf_script_bytes: Vec<u8>,
     leaf_script_priv_key_bytes: Vec<u8>,
-    spend_output_pubkey_bytes: Vec<u8>,
+    spend_output_pubkey_hash_bytes: Vec<u8>,
     spend_output_amount_sats: u64,
 ) -> SpendDetails {
 
-    let mut txid_little_endian = funding_tx_id_bytes.clone();
-    txid_little_endian.reverse();
+    let mut txid_little_endian = funding_tx_id_bytes.clone();  // initially in big endian format
+    txid_little_endian.reverse();  // convert to little endian format
 
     // vin: Create TxIn from the input utxo
     // Details of this input tx are not known at this point
@@ -99,7 +163,7 @@ pub fn pay_to_p2wpkh_tx(
         witness: bitcoin::Witness::new(), // Empty for now, will be filled with signature and pubkey after signing
     };
 
-    let spend_wpubkey_hash = WPubkeyHash::from_byte_array(spend_output_pubkey_bytes.try_into().unwrap());
+    let spend_wpubkey_hash = WPubkeyHash::from_byte_array(spend_output_pubkey_hash_bytes.try_into().unwrap());
     let spend_output: TxOut = TxOut {
         value: Amount::from_sat(spend_output_amount_sats),
         script_pubkey: ScriptBuf::new_p2wpkh(&spend_wpubkey_hash),
@@ -114,9 +178,8 @@ pub fn pay_to_p2wpkh_tx(
     };
 
     // Create the leaf hash
-    let leaf_version = LeafVersion::TapScript;
     let leaf_script = ScriptBuf::from_bytes(leaf_script_bytes.clone());
-    let leaf_hash: TapLeafHash = TapLeafHash::from_script(&leaf_script, leaf_version);
+    let leaf_hash: TapLeafHash = TapLeafHash::from_script(&leaf_script, LeafVersion::TapScript);
 
     /*  prevouts parameter tells the sighash algorithm:
             1. The value of each input being spent (needed for fee calculation and sighash computation)
@@ -146,22 +209,18 @@ pub fn pay_to_p2wpkh_tx(
 
     let spend_msg = Message::from(tapscript_sighash);
 
-    // Signing: Sign the sighash using the secp256k1 library (re-exported by rust-bitcoin).
-    let secp = Secp256k1::new();
+    // assumes bytes are in big endian format
     let secret_key = SecretKey::from_slice(&leaf_script_priv_key_bytes).unwrap();
 
     // Spending a p2tr UTXO thus using Schnorr signature
     // The aux_rand parameter ensures that signing the same message with the same key produces the same signature
-    let signature: bitcoin::secp256k1::schnorr::Signature = secp.sign_schnorr_with_aux_rand(
+    let signature: bitcoin::secp256k1::schnorr::Signature = SECP.sign_schnorr_with_aux_rand(
         &spend_msg,
-        &secret_key.keypair(&secp),
+        &secret_key.keypair(&SECP),
         &[0u8; 32] // 32 zero bytes of auxiliary random data
     );
     let mut sig_bytes: Vec<u8> = signature.serialize().to_vec();
-    sig_bytes.push(EcdsaSighashType::All as u8);
-
-    let p2wpkh_sig_hex = hex::encode(sig_bytes.clone());
-    info!("signature: {:?}", p2wpkh_sig_hex);
+    sig_bytes.push(TapSighashType::All as u8);
 
     let mut derived_witness: Witness = Witness::new();
     derived_witness.push(&sig_bytes);
@@ -170,24 +229,18 @@ pub fn pay_to_p2wpkh_tx(
 
     let derived_witness_vec: Vec<u8> = derived_witness.iter().flatten().cloned().collect();
 
-    let derived_witness_hex = hex::encode(derived_witness_vec.clone());
-    info!("derived_witness_hex ( <script inputs> <script> <control block> ): \n{:?}", derived_witness_hex.clone());
-
     // Update the witness data for the tx's first input (index 0)
     *tapscript_sighash_cache.witness_mut(spending_tx_input_index).unwrap() = derived_witness;
 
     // Get the signed transaction.
     let signed_tx_obj: &mut Transaction = tapscript_sighash_cache.into_transaction();
 
-    // Reserialize without witness data and double-SHA256 to get the txid
-    let signed_txid_obj: Txid = signed_tx_obj.compute_txid();
     let tx_hex = bitcoin::consensus::encode::serialize_hex(&signed_tx_obj);
-    //info!("tx_hex: {:?}", tx_hex);
 
     return SpendDetails {
         tx_hex,
-        tapscript_sighash: tapscript_sighash.as_byte_array().to_vec(),
-        p2wpkh_sig_bytes: sig_bytes,
+        sighash: tapscript_sighash.as_byte_array().to_vec(),
+        sig_bytes,
         derived_witness_vec: derived_witness_vec,
     };
 }
@@ -232,7 +285,6 @@ pub fn create_p2tr_utxo(merkle_root_hex: String, internal_pubkey_hex: String) ->
     );
 
     return UtxoReturn {
-        tree_root_hex: merkle_root_hex,
         script_pubkey_hex: script_pubkey,
         bech32m_address: bech32m_address.to_string(),
         bitcoin_network,
@@ -285,4 +337,43 @@ fn compact_size(n: u64) -> Vec<u8> {
         result.extend_from_slice(&n.to_le_bytes());
         result
     }
+}
+
+pub fn acquire_schnorr_keypair() -> (SecretKey, XOnlyPublicKey) {
+
+        let keypair = Keypair::new(&SECP, &mut OsRng);
+        let privkey: SecretKey = keypair.secret_key();
+        let pubkey: (XOnlyPublicKey, Parity) = XOnlyPublicKey::from_keypair(&keypair);
+    (privkey, pubkey.0)
+}
+
+pub fn verify_schnorr_signature_via_bytes(signature: &[u8], message: &[u8], pubkey_bytes: &[u8]) -> bool {
+
+    // schnorr is 64 bytes so remove possible trailing Sighash Type byte if present
+    let mut sig_bytes = signature.to_vec();
+    if sig_bytes.len() == 65 {
+        sig_bytes.pop(); // Remove the last byte
+    }
+    let signature = bitcoin::secp256k1::schnorr::Signature::from_slice(&sig_bytes).unwrap();
+    let message = Message::from_digest_slice(message).unwrap();
+    let pubkey = XOnlyPublicKey::from_slice(pubkey_bytes).unwrap();
+    verify_schnorr_signature(signature, message, pubkey)
+}
+
+pub fn verify_schnorr_signature(mut signature: Signature, message: Message, pubkey: XOnlyPublicKey) -> bool {
+
+    // schnorr is 64 bytes so remove possible trailing Sighash Type byte if present
+    if signature.serialize().to_vec().len() == 65 {
+        let mut sig_bytes = signature.serialize().to_vec();
+        sig_bytes.pop(); // Remove the last byte
+        signature = bitcoin::secp256k1::schnorr::Signature::from_slice(&sig_bytes).unwrap();
+    }
+    let is_valid: bool = SECP.verify_schnorr(&signature, &message, &pubkey).is_ok();
+    if !is_valid {
+        error!("verify schnorr failed:\n\tsignature: {:?}\n\tmessage: {:?}\n\tpubkey: {:?}", 
+          signature, 
+          message, 
+          hex::encode(pubkey.serialize()));
+    }
+    is_valid
 }

@@ -1,4 +1,4 @@
-use p2qrh_ref::{ pay_to_p2wpkh_tx };
+use p2qrh_ref::{ pay_to_p2wpkh_tx, verify_schnorr_signature_via_bytes };
 
 use p2qrh_ref::data_structures::SpendDetails;
 use std::env;
@@ -15,6 +15,7 @@ fn main() -> SpendDetails {
             error!("FUNDING_TX_ID environment variable is required but not set");
             std::process::exit(1);
         });
+    let funding_tx_id_bytes: Vec<u8> = hex::decode(funding_tx_id.clone()).unwrap();
     
     // FUNDING_UTXO_AMOUNT_SATS environment variable is required
     let funding_utxo_amount_sats: u64 = env::var("FUNDING_UTXO_AMOUNT_SATS")
@@ -28,7 +29,6 @@ fn main() -> SpendDetails {
             std::process::exit(1);
         });
 
-    let funding_tx_id_bytes: Vec<u8> = hex::decode(funding_tx_id.clone()).unwrap();
 
     // The input index of the funding tx
     // Allow override via FUNDING_UTXO_INDEX environment variable
@@ -47,22 +47,31 @@ fn main() -> SpendDetails {
             std::process::exit(1);
         });
 
-    // P2QRH control block does not include internal pubkey.
-    // (P2TR internal pubkey is used to verify that the pub key and merkle root can be combined to match the tweaked pub key in ScriptPubKey).
-    // P2QRH leaf version will always be c1: The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
-    // In this tutorial, there is only a single leaf in the taptree; thus no script path.
-    let p2qrh_control_block_bytes: Vec<u8> =
-        hex::decode("c1").unwrap();
+    let p2qrh_control_block_bytes: Vec<u8> = env::var("CONTROL_BLOCK_HEX")
+        .map(|s| hex::decode(s).unwrap())
+        .unwrap_or_else(|_| {
+            error!("CONTROL_BLOCK_HEX environment variable is required but not set");
+            std::process::exit(1);
+        });
     info!("P2QRH control block size: {}", p2qrh_control_block_bytes.len());
 
-    let leaf_script_priv_key_bytes: Vec<u8> = hex::decode("9b8de5d7f20a8ebb026a82babac3aa47a008debbfde5348962b2c46520bd5189").unwrap();
+    let leaf_script_priv_key_bytes: Vec<u8> = env::var("LEAF_SCRIPT_PRIV_KEY_HEX")
+        .map(|s| hex::decode(s).unwrap())
+        .unwrap_or_else(|_| {
+            error!("LEAF_SCRIPT_PRIV_KEY_HEX environment variable is required but not set");
+            std::process::exit(1);
+        });
 
-    // OP_PUSHBYTES_32 6d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0 OP_CHECKSIG
-    let leaf_script_bytes: Vec<u8> =
-        hex::decode("206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac").unwrap();
+    // ie: OP_PUSHBYTES_32 6d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0 OP_CHECKSIG
+    let leaf_script_bytes: Vec<u8> = env::var("LEAF_SCRIPT_HEX")
+        .map(|s| hex::decode(s).unwrap())
+        .unwrap_or_else(|_| {
+            error!("LEAF_SCRIPT_HEX environment variable is required but not set");
+            std::process::exit(1);
+        });
 
     // https://learnmeabitcoin.com/explorer/tx/797505b104b5fb840931c115ea35d445eb1f64c9279bf23aa5bb4c3d779da0c2#outputs
-    let spend_output_pubkey_bytes: Vec<u8> = hex::decode("0de745dc58d8e62e6f47bde30cd5804a82016f9e").unwrap();
+    let spend_output_pubkey_hash_bytes: Vec<u8> = hex::decode("0de745dc58d8e62e6f47bde30cd5804a82016f9e").unwrap();
 
     // OUTPUT_AMOUNT_SATS env var is optional. Default is FUNDING_UTXO_AMOUNT_SATS - 5000 sats
     let spend_output_amount_sats: u64 = env::var("OUTPUT_AMOUNT_SATS")
@@ -77,11 +86,20 @@ fn main() -> SpendDetails {
         funding_utxo_amount_sats,
         funding_script_pubkey_bytes,
         p2qrh_control_block_bytes,
-        leaf_script_bytes,
+        leaf_script_bytes.clone(),
         leaf_script_priv_key_bytes,
-        spend_output_pubkey_bytes,
+        spend_output_pubkey_hash_bytes,
         spend_output_amount_sats
     );
+
+    // Remove first and last byte from leaf_script_bytes to get tapleaf_pubkey_bytes
+    let tapleaf_pubkey_bytes: Vec<u8> = leaf_script_bytes[1..leaf_script_bytes.len()-1].to_vec();
+    
+    let is_valid: bool = verify_schnorr_signature_via_bytes(
+        &result.sig_bytes,
+        &result.sighash,
+        &tapleaf_pubkey_bytes);
+    info!("is_valid: {}", is_valid);
 
     return result;
 }
