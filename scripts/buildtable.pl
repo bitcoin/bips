@@ -139,7 +139,7 @@ while (++$bipnum <= $topbip) {
 			my $title_len = length($title);
 			die "$fn has too-long Title ($title_len > 44 char max)" if $title_len > 44 and not exists $TolerateTitleTooLong{$bipnum};
 		} elsif ($field eq 'Author') {
-			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Author line in $fn";
+			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+(?:\.[\w-]+)+)\>$/ or die "Malformed Author line in $fn";
 			my ($authorname, $authoremail) = ($1, $2);
 			$authoremail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
 			$emails{$authorname}->{$authoremail} = undef;
@@ -177,7 +177,7 @@ while (++$bipnum <= $topbip) {
 		} elsif (exists $DateField{$field}) {
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
-			$val =~ m/^(\S[^<@>]*\S) \<[^@>]*\@[\w.]+\.\w+\>$/ or die "Malformed $field line in $fn";
+			$val =~ m/^(\S[^<@>]*\S) \<[^@>]*\@[\w.-]+(?:\.[\w-]+)+\>$/ or die "Malformed $field line in $fn";
 		} elsif (not exists $MiscField{$field}) {
 			die "Unknown field $field in $fn";
 		}
