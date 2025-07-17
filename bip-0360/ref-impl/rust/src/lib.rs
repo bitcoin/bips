@@ -13,11 +13,11 @@ use bitcoin::{ Amount, TxOut, WPubkeyHash,
     blockdata::witness::Witness,
     Script, ScriptBuf, XOnlyPublicKey, PublicKey,
     sighash::{SighashCache, TapSighashType, Prevouts, TapSighash}, 
-    taproot::{LeafVersion, TapLeafHash, TapNodeHash, TapTree, ScriptLeaves, TaprootMerkleBranch, TaprootBuilder, TaprootSpendInfo, ControlBlock},
+    taproot::{LeafVersion, NodeInfo, TapLeafHash, TapNodeHash, TapTree, ScriptLeaves, TaprootMerkleBranch, TaprootBuilder, TaprootSpendInfo, ControlBlock},
     transaction::{Transaction, Sequence}
 };
 
-use bitcoin::p2qrh::{P2qrhScriptBuf, P2qrhBuilder, P2qrhSpendInfo, P2qrhControlBlock};
+use bitcoin::p2qrh::{P2qrhScriptBuf, P2qrhBuilder, P2qrhSpendInfo, P2qrhControlBlock, QuantumRootHash, P2QRH_LEAF_VERSION};
 
 use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn};
 
@@ -86,24 +86,44 @@ pub fn create_p2qrh_multi_leaf_taptree() -> TaptreeReturn {
     let p2qrh_builder: P2qrhBuilder = P2qrhBuilder::with_huffman_tree(huffman_entries).unwrap();
 
     let p2qrh_spend_info: P2qrhSpendInfo = p2qrh_builder.clone().finalize().unwrap();
-    let quantum_root: TapNodeHash = p2qrh_spend_info.quantum_root.unwrap();
-    info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {} \n\tquantum_root: {}",
+    let quantum_root: QuantumRootHash = p2qrh_spend_info.quantum_root.unwrap();
+    info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {}",
         hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),  // secret_bytes returns big endian
         hex::encode(keypair_of_interest.unwrap().1.serialize()),  // serialize returns little endian
-        quantum_root);
-
+        );
+    
     let tap_tree: TapTree = p2qrh_builder.clone().into_inner().try_into_taptree().unwrap();
     let mut script_leaves: ScriptLeaves = tap_tree.script_leaves();
     let script_leaf = script_leaves
         .find(|leaf| leaf.script() == script_buf_of_interest.as_ref().unwrap().as_script())
         .expect("Script leaf not found");
+
+    let merkle_root_node_info: NodeInfo = p2qrh_builder.clone().into_inner().try_into_node_info().unwrap();
+    let merkle_root: TapNodeHash = merkle_root_node_info.node_hash();
+
+    let leaf_hash: TapLeafHash = TapLeafHash::from_script(script_leaf.script(), LeafVersion::from_consensus(P2QRH_LEAF_VERSION).unwrap());
+
+    // Convert leaf hash to big-endian for display (like Bitcoin Core)
+    let mut leaf_hash_bytes = leaf_hash.as_raw_hash().to_byte_array().to_vec();
+    leaf_hash_bytes.reverse();
+
+    info!("leaf_hash: {}, merkle_root: {}, quantum_root: {}",
+        hex::encode(leaf_hash_bytes),
+        merkle_root,
+        quantum_root);
+
     let leaf_script = script_leaf.script();
     let merkle_branch: &TaprootMerkleBranch = script_leaf.merkle_branch();
+
     info!("Leaf script: {}, merkle branch: {:?}", leaf_script, merkle_branch);
 
     let control_block: P2qrhControlBlock = P2qrhControlBlock{
         merkle_branch: merkle_branch.clone(),
     };
+
+    // Not a requirement but useful to demonstrate what Bitcoin Core does as the verifier when spending from a p2qrh UTXO
+    control_block.verify_script_in_quantum_root_path(leaf_script, quantum_root);
+
     let control_block_hex: String = hex::encode(control_block.serialize());
 
     return TaptreeReturn {
@@ -132,6 +152,7 @@ pub fn create_p2tr_multi_leaf_taptree(p2tr_internal_pubkey_hex: String) -> Taptr
     // When spending via script path, the verifier needs to know whether the output key has an even or odd Y-coordinate to properly reconstruct & verify the internal key.
     // The internal key can be recovered from the output key using the parity bit and the merkle root.
     let output_key_parity: Parity = p2tr_spend_info.output_key_parity();
+    let output_key: XOnlyPublicKey = p2tr_spend_info.output_key().into();
 
     info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {} \n\tmerkle_root: {}",
         hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),  // secret_bytes returns big endian
@@ -145,6 +166,8 @@ pub fn create_p2tr_multi_leaf_taptree(p2tr_internal_pubkey_hex: String) -> Taptr
         .expect("Script leaf not found");
     let leaf_script = script_leaf.script().to_hex_string();
     let merkle_branch: &TaprootMerkleBranch = script_leaf.merkle_branch();
+    debug!("Leaf script: {}, merkle branch: {:?}", leaf_script, merkle_branch);
+
     let control_block: ControlBlock = ControlBlock{
         leaf_version: LeafVersion::TapScript,
         output_key_parity: output_key_parity,
@@ -152,7 +175,10 @@ pub fn create_p2tr_multi_leaf_taptree(p2tr_internal_pubkey_hex: String) -> Taptr
         merkle_branch: merkle_branch.clone(),
     };
     let control_block_hex: String = hex::encode(control_block.serialize());
-    debug!("Leaf script: {}, merkle branch: {:?}", leaf_script, merkle_branch);
+
+    // Not a requirement but useful to demonstrate what Bitcoin Core does as the verifier when spending from a p2tr UTXO
+    let verify: bool = verify_taproot_commitment(control_block_hex.clone(), output_key, script_leaf.script());
+    info!("verify_taproot_commitment: {}", verify);
 
     return TaptreeReturn {
         leaf_script_priv_key_hex: hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),
@@ -442,4 +468,21 @@ pub fn verify_schnorr_signature(mut signature: Signature, message: Message, pubk
           hex::encode(pubkey.serialize()));
     }
     is_valid
+}
+
+/*  1. Re-constructs merkle_root from merkle_path (found in control_block) and provided script.
+    2. Determines the parity of the output key via the control byte (found in the control block).
+        - the parity bit indicates whether the output key has an even or odd Y-coordinate
+    3. Computes the tap tweak hash using the internal key and reconstructed merkle root.
+        - tap_tweak_hash = tagged_hash("TapTweak", internal_key || merkle_root)
+    4. Verifies that the provided output key can be derived from the internal key using the tweak.
+        - tap_tweak_hash = tagged_hash("TapTweak", internal_key || merkle_root)
+    5. This proves the script is committed to in the taptree described by the output key.
+ */
+pub fn verify_taproot_commitment(control_block_hex: String, output_key: XOnlyPublicKey, script: &Script) -> bool {
+
+    let control_block_bytes = hex::decode(control_block_hex).unwrap();
+    let control_block: ControlBlock = ControlBlock::decode(&control_block_bytes).unwrap();
+
+    return control_block.verify_taproot_commitment(&SECP, output_key, script);
 }

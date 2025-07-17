@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use bitcoin::{Network, ScriptBuf};
-use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch, TapNodeHash};
-use bitcoin::p2qrh::{P2qrhBuilder, P2qrhControlBlock, P2qrhSpendInfo };
+use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch};
+use bitcoin::p2qrh::{P2qrhBuilder, P2qrhControlBlock, P2qrhSpendInfo, QuantumRootHash};
 use bitcoin::hashes::Hash;
 
 use hex;
@@ -140,8 +140,6 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
                 let tv_leaf_script_buf = ScriptBuf::from_bytes(tv_leaf_script_bytes.clone());
                 let tv_leaf_version = LeafVersion::from_consensus(tv_leaf.leaf_version).unwrap();
                 control_block_data.push((tv_leaf_script_buf.clone(), tv_leaf_version));
-
-                LeafVersion::TapScript;
                 
                 let mut modified_depth = depth + 1;
                 if direction == Direction::Root {
@@ -174,7 +172,7 @@ fn process_test_vector_p2qrh(test_vector: &TestVector) -> anyhow::Result<()> {
             panic!("finalize failed: {:?}", e);
         });
 
-    let derived_quantum_root: TapNodeHash= spend_info.quantum_root.unwrap();
+    let derived_quantum_root: QuantumRootHash = spend_info.quantum_root.unwrap();
 
     // 2)  verify derived quantum root against test vector
     let test_vector_quantum_root = test_vector.intermediary.quantum_root.as_ref().unwrap();
