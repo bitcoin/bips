@@ -29,7 +29,6 @@ fn main() -> SpendDetails {
             std::process::exit(1);
         });
 
-
     // The input index of the funding tx
     // Allow override via FUNDING_UTXO_INDEX environment variable
     let funding_utxo_index: u32 = env::var("FUNDING_UTXO_INDEX")
@@ -47,13 +46,13 @@ fn main() -> SpendDetails {
             std::process::exit(1);
         });
 
-    let p2qrh_control_block_bytes: Vec<u8> = env::var("CONTROL_BLOCK_HEX")
+    let control_block_bytes: Vec<u8> = env::var("CONTROL_BLOCK_HEX")
         .map(|s| hex::decode(s).unwrap())
         .unwrap_or_else(|_| {
             error!("CONTROL_BLOCK_HEX environment variable is required but not set");
             std::process::exit(1);
         });
-    info!("P2QRH control block size: {}", p2qrh_control_block_bytes.len());
+    info!("P2QRH control block size: {}", control_block_bytes.len());
 
     let leaf_script_priv_key_bytes: Vec<u8> = env::var("LEAF_SCRIPT_PRIV_KEY_HEX")
         .map(|s| hex::decode(s).unwrap())
@@ -85,7 +84,7 @@ fn main() -> SpendDetails {
         funding_utxo_index,
         funding_utxo_amount_sats,
         funding_script_pubkey_bytes,
-        p2qrh_control_block_bytes,
+        control_block_bytes,
         leaf_script_bytes.clone(),
         leaf_script_priv_key_bytes,
         spend_output_pubkey_hash_bytes,

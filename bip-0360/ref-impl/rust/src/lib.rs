@@ -2,17 +2,18 @@ pub mod data_structures;
 pub mod error;
 
 use log::{debug, info, error};
+use std::env;
 use std::io::Write;
 use once_cell::sync::Lazy;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::key::{Secp256k1, Parity};
 use bitcoin::secp256k1::{Message, SecretKey, Keypair, rand::rngs::OsRng, rand::thread_rng, rand::Rng, schnorr::Signature};
-use bitcoin::{ Amount, TxOut, WPubkeyHash, Txid,
+use bitcoin::{ Amount, TxOut, WPubkeyHash,
     Address, Network, OutPoint,
     blockdata::witness::Witness,
     Script, ScriptBuf, XOnlyPublicKey, PublicKey,
     sighash::{SighashCache, TapSighashType, Prevouts, TapSighash}, 
-    taproot::{LeafVersion, TapLeafHash, TapNodeHash, TapTree, ScriptLeaves, TaprootMerkleBranch},
+    taproot::{LeafVersion, TapLeafHash, TapNodeHash, TapTree, ScriptLeaves, TaprootMerkleBranch, TaprootBuilder, TaprootSpendInfo, ControlBlock},
     transaction::{Transaction, Sequence}
 };
 
@@ -28,9 +29,23 @@ use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn};
 */
 static SECP: Lazy<Secp256k1<bitcoin::secp256k1::All>> = Lazy::new(Secp256k1::new);
 
-pub fn create_multi_leaf_taptree(total_leaf_count: u32, leaf_of_interest: u32) -> TaptreeReturn {
+fn create_huffman_tree() -> (Vec<(u32, ScriptBuf)>, Option<(SecretKey, XOnlyPublicKey)>, Option<ScriptBuf>) {
 
-    if(total_leaf_count < 1) {
+    let mut total_leaf_count: u32 = 1;
+    if let Ok(env_value) = env::var("TOTAL_LEAF_COUNT") {
+        if let Ok(parsed_value) = env_value.parse::<u32>() {
+            total_leaf_count = parsed_value;
+        }
+    }
+    
+    let mut leaf_of_interest: u32 = 0;
+    if let Ok(env_value) = env::var("LEAF_OF_INTEREST") {
+        if let Ok(parsed_value) = env_value.parse::<u32>() {
+            leaf_of_interest = parsed_value;
+        }
+    }
+
+    if total_leaf_count < 1 {
         panic!("total_leaf_count must be greater than 0");
     }
     if leaf_of_interest >= total_leaf_count {
@@ -38,7 +53,6 @@ pub fn create_multi_leaf_taptree(total_leaf_count: u32, leaf_of_interest: u32) -
     }
 
     debug!("Creating multi-leaf taptree with total_leaf_count: {}, leaf_of_interest: {}", total_leaf_count, leaf_of_interest);
-    
     let mut huffman_entries: Vec<(u32, ScriptBuf)> = vec![];
     let mut keypair_of_interest: Option<(SecretKey, XOnlyPublicKey)> = None;
     let mut script_buf_of_interest: Option<ScriptBuf> = None;
@@ -63,11 +77,17 @@ pub fn create_multi_leaf_taptree(total_leaf_count: u32, leaf_of_interest: u32) -
             debug!("Selected leaf:  weight: {}, script: {:?}", random_weight, script_buf);
         }
     };
+    return (huffman_entries, keypair_of_interest, script_buf_of_interest);
+}
+
+pub fn create_p2qrh_multi_leaf_taptree() -> TaptreeReturn {
+    
+    let (huffman_entries, keypair_of_interest, script_buf_of_interest) = create_huffman_tree();
     let p2qrh_builder: P2qrhBuilder = P2qrhBuilder::with_huffman_tree(huffman_entries).unwrap();
 
     let p2qrh_spend_info: P2qrhSpendInfo = p2qrh_builder.clone().finalize().unwrap();
     let quantum_root: TapNodeHash = p2qrh_spend_info.quantum_root.unwrap();
-    info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {} \n\tQuantum root: {}",
+    info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {} \n\tquantum_root: {}",
         hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),  // secret_bytes returns big endian
         hex::encode(keypair_of_interest.unwrap().1.serialize()),  // serialize returns little endian
         quantum_root);
@@ -93,7 +113,53 @@ pub fn create_multi_leaf_taptree(total_leaf_count: u32, leaf_of_interest: u32) -
         tree_root_hex: hex::encode(quantum_root.to_byte_array()),
         control_block_hex: control_block_hex,
     };
+}
 
+pub fn create_p2tr_multi_leaf_taptree(p2tr_internal_pubkey_hex: String) -> TaptreeReturn {
+
+    let (huffman_entries, keypair_of_interest, script_buf_of_interest) = create_huffman_tree();
+
+    let pub_key_string = format!("02{}", p2tr_internal_pubkey_hex);
+    let internal_pubkey: PublicKey = pub_key_string.parse::<PublicKey>().unwrap();
+    let internal_xonly_pubkey: XOnlyPublicKey = internal_pubkey.inner.into();
+    
+    let p2tr_builder: TaprootBuilder = TaprootBuilder::with_huffman_tree(huffman_entries).unwrap();
+    let p2tr_spend_info: TaprootSpendInfo = p2tr_builder.clone().finalize(&SECP, internal_xonly_pubkey).unwrap();
+    let merkle_root: TapNodeHash = p2tr_spend_info.merkle_root().unwrap();
+
+    // During taproot construction, the internal key is "tweaked" by adding a scalar (the tap tweak hash) to it.
+    // If this tweaking operation results in a public key w/ an odd Y-coordinate, the parity bit is set to 1.
+    // When spending via script path, the verifier needs to know whether the output key has an even or odd Y-coordinate to properly reconstruct & verify the internal key.
+    // The internal key can be recovered from the output key using the parity bit and the merkle root.
+    let output_key_parity: Parity = p2tr_spend_info.output_key_parity();
+
+    info!("keypair_of_interest: \n\tsecret_bytes: {} \n\tpubkey: {} \n\tmerkle_root: {}",
+        hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),  // secret_bytes returns big endian
+        hex::encode(keypair_of_interest.unwrap().1.serialize()),  // serialize returns little endian
+        merkle_root);
+
+    let tap_tree: TapTree = p2tr_builder.clone().try_into_taptree().unwrap();
+    let mut script_leaves: ScriptLeaves = tap_tree.script_leaves();
+    let script_leaf = script_leaves
+        .find(|leaf| leaf.script() == script_buf_of_interest.as_ref().unwrap().as_script())
+        .expect("Script leaf not found");
+    let leaf_script = script_leaf.script().to_hex_string();
+    let merkle_branch: &TaprootMerkleBranch = script_leaf.merkle_branch();
+    let control_block: ControlBlock = ControlBlock{
+        leaf_version: LeafVersion::TapScript,
+        output_key_parity: output_key_parity,
+        internal_key: internal_xonly_pubkey,
+        merkle_branch: merkle_branch.clone(),
+    };
+    let control_block_hex: String = hex::encode(control_block.serialize());
+    debug!("Leaf script: {}, merkle branch: {:?}", leaf_script, merkle_branch);
+
+    return TaptreeReturn {
+        leaf_script_priv_key_hex: hex::encode(keypair_of_interest.unwrap().0.secret_bytes()),
+        leaf_script_hex: leaf_script,
+        tree_root_hex: hex::encode(merkle_root.to_byte_array()),
+        control_block_hex: control_block_hex,
+    };
 }
 
 pub fn create_p2qrh_utxo(quantum_root_hex: String) -> UtxoReturn {
