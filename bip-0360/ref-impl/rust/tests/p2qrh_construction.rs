@@ -15,7 +15,7 @@ use p2qrh_ref::{create_p2qrh_utxo, tagged_hash};
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
 static TEST_VECTORS: Lazy<TestVectors> = Lazy::new(|| {
-    let bip360_test_vectors = include_str!("../tests/data/p2qrh_construction.json");
+    let bip360_test_vectors = include_str!("../../common/tests/data/p2qrh_construction.json");
     let test_vectors: TestVectors = serde_json::from_str(bip360_test_vectors).unwrap();
     assert_eq!(test_vectors.version, 1);
     test_vectors
