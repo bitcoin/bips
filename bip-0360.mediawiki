@@ -213,10 +213,10 @@ control block = [control byte, 32 * m byte Merkle path] # m is the depth of the 
 </source>
 
 The initial stack elements provide the same functionality as they do in P2TR. That is, they place elements on the stack to
-be evaluated by the tapleaf script, a.k.a. the redeem script.
+be evaluated by the script, a.k.a. the redeem script.
 
 The control block is a 1 + 32 * m byte array, where the first byte is the control byte and the next 32*m bytes are the
-Merkle path to the tapleaf script. The control byte is the same as the control byte in a P2TR control block, 
+Merkle path to the script. The control byte is the same as the control byte in a P2TR control block, 
 including the 7 bits are used to specify the tapleaf version. The parity bit of the control byte is always 1
 since P2QRH does not have a key path spend. We omit the public key from the control block as it is not needed in P2QRH.
 We maintain support for the optional annex in the witness (see specification for more details).
@@ -273,7 +273,7 @@ is the most plausible and convenient upgrade path to full quantum resistance.
 By separating P2QRH from the introduction of PQ signatures, relying parties can move from P2TR to P2QRH 
 without simultaneously having to change from Schnorr signatures to PQ signatures. Simply moving coins from 
 P2TR to P2QRH protects those coins from long-exposure quantum attacks. Then to gain full quantum resistance, 
-verification of PQ signatures can be added as an additional tapleaf alongside Schnorr signatures<ref name="mattleaf">Matt Corallo, [https://groups.google.com/g/bitcoindev/c/8O857bRSVV8/m/rTrpeFjWDAAJ Trivial QC signatures with clean upgrade path], (2024)</ref>. 
+verification of PQ signatures can be added as an additional leaf alongside Schnorr signatures<ref name="mattleaf">Matt Corallo, [https://groups.google.com/g/bitcoindev/c/8O857bRSVV8/m/rTrpeFjWDAAJ Trivial QC signatures with clean upgrade path], (2024)</ref>. 
 When quantum attacks become practical, users would then be fully protected as the P2QRH output would allow
 them to switch to sending their coins using the PQ signature algorithms. This allows the upgrade to quantum 
 resistance to be largely invisible to users.
@@ -388,12 +388,12 @@ impossible and would only matter if the stack element size limit was raised.
 
 Turning our attention to public keys larger than 520 bytes. This is not needed for SLH-DSA as its public key is only 32 bytes. 
 This is a different problem than signatures as public keys are typically pushed onto
-the stack by the tapleaf script (redeem script) to commit to public keys in output. The OP_PUSHDATA opcode in tapscript fails if asked to push
+the stack by the script (redeem script) to commit to public keys in output. The OP_PUSHDATA opcode in tapscript fails if asked to push
 more than 520 bytes onto the stack. 
 
-To solve this issue, for signature schemes with public keys greater than 520 bytes, we use the hash of the public key in the tapleaf script.
-We then package the public key and signature together as the same stack element on the input stack. Since the hash of the public key is 
-only 32 bytes, the tapleaf script can push it on the stack as it does today. Consider the following example with a 
+To solve this issue, for signature schemes with public keys greater than 520 bytes, we use the hash of the public key in the script.
+We then package the public key and signature together as the same stack element on the input stack. Since the hash of the public key is
+only 32 bytes, the script can push it on the stack as it does today. Consider the following example with a
 OP_CHECKMLSIG opcode for ML-DSA:
 
 <source>
@@ -504,7 +504,7 @@ their equivalent P2TR inputs. Let's consider the cases:
 
 '''P2TR key path spend''' P2QRH inputs will be larger than P2TR inputs when the P2TR output would have been spent via the key path spend.
 P2QRH quantum resistance comes from removing the P2TR key path spend. Consequently it cannot make use of taproot's optimization
-where P2TR key path spends do not require including a merkle path in the P2TR input. If the Merkle tree only has a single tapleaf,
+where P2TR key path spends do not require including a merkle path in the P2TR input. If the Merkle tree only has a single leaf script,
 no Merkle path is needed in the control block giving us a 1-byte control block.
 
 P2QRH witness (103 bytes):
@@ -523,7 +523,7 @@ P2TR key-spend witness (66 bytes):
 
 Thus, the P2QRH input would be 103 - 66 = 37 bytes larger than a P2TR key path spend input.
 
-If the Merkle tree has more than a single tapleaf, then the Merkle path must be included in
+If the Merkle tree has more than a single leaf, then the Merkle path must be included in
 the control block.
 P2QRH witness (103+32*m bytes)
 <source>
@@ -536,12 +536,12 @@ control block = [size] [control byte, 32 * m byte Merkle path]  (1 + 1 + 32 * m 
 For a Merkle path of length m, it would add an additional ~32 * m bytes to the P2QRH input. This would
 make it 37 + 32 * m bytes larger than a P2TR key path spend input<ref>If m >= 8, then the compact size will use 3 bytes rather than 1 byte</ref>.
 
-Considering a P2QRH output that has a PQ signature tapleaf and a Schnorr tapleaf. The P2QRH witness to spend the Schnorr path
+Considering a P2QRH output that has a PQ signature leaf and a Schnorr leaf. The P2QRH witness to spend the Schnorr path
 would be 103 + 32 * 1 = 135 bytes. It is unfortunate that we can not use the key path spend optimization for P2QRH inputs, but the key path spend optimization is
 exactly what makes P2TR vulnerable to quantum attacks. If key path spend was quantum resistant we wouldn't need P2QRH at all.
 
 '''P2TR script path spend''' P2QRH inputs will be smaller than equivalent script path spend P2TR inputs. This is because P2QRH inputs
-do not require that the input includes a public key in the witness control block to open the commitment to the tapleaf merkle root.
+do not require that the input includes a public key in the witness control block to open the commitment to the merkle root.
 An equivalent P2QRH input will be 32 bytes smaller than a P2TR script path spend input.
 
 === Performance Impact ===
