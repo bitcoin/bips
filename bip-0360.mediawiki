@@ -18,7 +18,7 @@
 
 This document proposes the introduction of a new output type, Pay to Quantum Resistant Hash (P2QRH), via a soft fork.
 P2QRH provides the same tapscript functionality as Pay to TapRoot (P2TR) but removes the quantum-vulnerable
-key-spend path in P2TR. By itself, P2QRH provides protection against long-exposure quantum attacks, 
+key path spend in P2TR. By itself, P2QRH provides protection against long-exposure quantum attacks, 
 but requires PQ signatures to provide full security against Cryptanalytically-Relevant Quantum Computing (CRQCs).
 P2QRH is designed to provide the foundation necessary for a future soft fork activating PQ signature verification 
 in tapscript.
@@ -184,7 +184,7 @@ remember that these are quantum (r)esistant addresses. This is referencing the l
 [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32 BIP-173].
 
 P2QRH (Pay to Quantum Resistant Hash) is a new output type that commits to the root of a tapleaf merkle tree. It is functionally
-the same as a P2TR (Pay to Taproot) output with the quantum vulnerable key-spend path removed. Since P2QRH has no key-spend path, P2QRH omits the
+the same as a P2TR (Pay to Taproot) output with the quantum vulnerable key path spend removed. Since P2QRH has no key path spend, P2QRH omits the
 taproot internal key as it is not needed. Instead a P2QRH output is just the 32 byte root of the tapleaf merkle tree as defined
 in [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341] and hashed with the tag "QuantumRoot" as shown below.
 
@@ -218,7 +218,7 @@ be evaluated by the tapleaf script, a.k.a. the redeem script.
 The control block is a 1 + 32 * m byte array, where the first byte is the control byte and the next 32*m bytes are the
 Merkle path to the tapleaf script. The control byte is the same as the control byte in a P2TR control block, 
 including the 7 bits are used to specify the tapleaf version. The parity bit of the control byte is always 1
-since P2QRH does not have a key-spend path. We omit the public key from the control block as it is not needed in P2QRH.
+since P2QRH does not have a key path spend. We omit the public key from the control block as it is not needed in P2QRH.
 We maintain support for the optional annex in the witness (see specification for more details).
 
 === Rationale ===
@@ -253,7 +253,7 @@ be designed to support the addition of these PQ signature algorithms. The full d
 
 ==== P2QRH ====
 
-P2QRH is simply P2TR with the quantum vulnerable key-spend path removed so that it commits to the root of 
+P2QRH is simply P2TR with the quantum vulnerable key path spend removed so that it commits to the root of 
 the tapleaf merkle tree in the output. This allows P2QRH to reuse the mature and battle tested P2TR, tapleaf 
 and tapscript code already in Bitcoin. This reduces the implementation burden on wallets, exchanges, and 
 libraries since they can reuse code they already have.
@@ -469,7 +469,7 @@ language verbatim from the [[bip-0341.mediawiki|BIP341]] script validation secti
 ** If ''q &ne; r'', fail.
 ** Execute the script, according to the applicable script rules, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack. This implies that for the future leaf versions (non-''0xC0'') the execution must succeed.
 
-The steps above follow the script path spending logic from [[bip-0341.mediawiki|BIP-341]] with the following changes:
+The steps above follow the script path spend logic from [[bip-0341.mediawiki|BIP-341]] with the following changes:
 * The witness program is the tapleaf merkle root and not a public key. This means that we skip directly to BIP-341 spend path tapleaf merkle tree validation.
 * We compute the tagged tapleaf merkle root r and compare it directly to the witness program q.
 * The control block is 1 + 32*m bytes, instead of 33 + 32*m bytes.
@@ -502,9 +502,9 @@ processing rules. Nodes that do not recognize SegWit version 3 will treat these 
 Equivalent P2QRH and P2TR outputs are always the same size. P2QRH inputs can be slightly larger or smaller than
 their equivalent P2TR inputs. Let's consider the cases:
 
-'''P2TR key-spend''' P2QRH inputs will be larger than P2TR inputs when the P2TR output would have been spent via the key-spend path.
-P2QRH quantum resistance comes from removing the P2TR key-spend path. Consequently it cannot make use of taproot's optimization
-where P2TR key-spends do not require including a merkle path in the P2TR input. If the Merkle tree only has a single tapleaf, 
+'''P2TR key path spend''' P2QRH inputs will be larger than P2TR inputs when the P2TR output would have been spent via the key path spend.
+P2QRH quantum resistance comes from removing the P2TR key path spend. Consequently it cannot make use of taproot's optimization
+where P2TR key path spends do not require including a merkle path in the P2TR input. If the Merkle tree only has a single tapleaf,
 no Merkle path is needed in the control block giving us a 1 byte control block.
 
 P2QRH witness (103 bytes):
@@ -521,7 +521,7 @@ P2TR key-spend witness (66 bytes):
 [size] signature (1 + 64 bytes = 65 bytes)
 </source>
 
-Thus, the P2QRH input would be 103 - 66 = 37 bytes larger than a P2TR key-spend input.
+Thus, the P2QRH input would be 103 - 66 = 37 bytes larger than a P2TR key path spend input.
 
 If the Merkle tree has more than a single tapleaf, then the Merkle path must be included in
 the control block.
@@ -534,15 +534,15 @@ control block = [size] [control byte, 32 * m byte Merkle path]  (1 + 1 + 32 * m 
 </source>
 
 For a Merkle path of length m, it would add an additional ~32 * m bytes to the P2QRH input. This would
-make it 37 + 32 * m bytes larger than a P2TR key-spend input<ref>If m >= 8, then the compact size will use 3 bytes rather than 1 byte</ref>.
+make it 37 + 32 * m bytes larger than a P2TR key path spend input<ref>If m >= 8, then the compact size will use 3 bytes rather than 1 byte</ref>.
 
 Considering a P2QRH output that has a PQ signature tapleaf and a Schnorr tapleaf. The P2QRH witness to spend the Schnorr path
-would be 103 + 32 * 1 = 135 bytes. It is unfortunate that we can not use the key-spend optimization for P2QRH inputs, but the key-spend optimization is
-exactly what makes P2TR vulnerable to quantum attacks. If spend-key was quantum resistant we wouldn't need P2QRH at all.
+would be 103 + 32 * 1 = 135 bytes. It is unfortunate that we can not use the key path spend optimization for P2QRH inputs, but the key path spend optimization is
+exactly what makes P2TR vulnerable to quantum attacks. If key path spend was quantum resistant we wouldn't need P2QRH at all.
 
-'''P2TR script-spend''' P2QRH inputs will be smaller than equivalent script-spend path P2TR inputs. This is because P2QRH inputs
+'''P2TR script path spend''' P2QRH inputs will be smaller than equivalent script path spend P2TR inputs. This is because P2QRH inputs
 do not require that the input includes a public key in the witness control block to open the commitment to the tapleaf merkle root.
-An equivalent P2QRH input will be 32 bytes smaller than a P2TR script-spend input.
+An equivalent P2QRH input will be 32 bytes smaller than a P2TR script path spend input.
 
 === Performance Impact ===
 
@@ -559,8 +559,8 @@ P2QRH is fully compatible with tapscript and existing tapscript programs can be 
 
 == Security ==
 
-P2QRH outputs provide the same tapscript functionality as P2TR outputs, but without the quantum-vulnerable key-spend
-path. This enables users, exchanges and other hodlers to easily move their coins from taproot outputs to P2QRH outputs
+P2QRH outputs provide the same tapscript functionality as P2TR outputs, but without the quantum-vulnerable key path spend.
+This enables users, exchanges and other hodlers to easily move their coins from taproot outputs to P2QRH outputs
 and thereby protect their coins from long-exposure quantum attacks. The protection from long-exposure quantum attacks
 does not depend on the activation of post-quantum signatures in Bitcoin but does require that users do not expose their
 quantum vulnerable public keys to attackers via address reuse or other unsafe practices.
@@ -657,22 +657,22 @@ P2QRH and MAST (Merkelized Abstract Syntax Tree) [https://github.com/bitcoin/bip
 and related BIPs [https://github.com/bitcoin/bips/blob/master/bip-0116.mediawiki BIP-116], [https://github.com/bitcoin/bips/blob/master/bip-0117.mediawiki BIP-117],
 share the idea of committing to a Merkle tree of scripts. While MAST was never activated, taproot
 [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP-341] incorporated this idea of a Merkle tree of
-scripts into its design. P2QRH inherits this capability from taproot because P2QRH is simply taproot with the key-spend
-path removed. As a result, P2QRH does have the taproot internal key or tweak key, instead P2QRH commits directly to the
+scripts into its design. P2QRH inherits this capability from taproot because P2QRH is simply taproot with the key path 
+spend removed. As a result, P2QRH does have the taproot internal key or tweak key, instead P2QRH commits directly to the
 Merkle tree of scripts.
 
 Below we attempt to summarize some of the ideas discussed on the Bitcoin Bitcoin-Dev that relate to P2QRH.
 
-The idea of a taproot but with the key-spend path removed has been discussed a number of times in the Bitcoin community.
+The idea of a taproot but with the key path spend removed has been discussed a number of times in the Bitcoin community.
 [https://gnusha.org/pi/bitcoindev/CAD5xwhgzR8e5r1e4H-5EH2mSsE1V39dd06+TgYniFnXFSBqLxw@mail.gmail.com/ OP_CAT Makes Bitcoin Quantum Secure]
-notes that if we disable the key-spend in taproot and activated CAT [https://github.com/bitcoin/bips/blob/master/bip-0347.mediawik BIP-347],
+notes that if we disable the key path spend in taproot and activated CAT [https://github.com/bitcoin/bips/blob/master/bip-0347.mediawik BIP-347],
 we could achieve quantum resistance by using Lamport signatures with CAT. Lamport and WOTS (Winternitz One-Time Signatures) built from CAT
 are quantum resistant but are one-time signatures. This means that if you sign twice for the same public key, you leak your secret key.
 This would require major changes to wallet behavior and would represent a significant security downgrade.
 [https://groups.google.com/g/bitcoindev/c/8O857bRSVV8/m/rTrpeFjWDAAJ Trivial QC signatures with clean upgrade path] and 
 [https://groups.google.com/g/bitcoindev/c/oQKezDOc4us/m/T1vSMkZNAAAJ Re: P2QRH / BIP-360 Update] discusses the idea of 
-taproot but with the future ability to disable the key-spend path.
-The design of P2QRH is partly inspired by these discussions as P2QRH can be understood as P2TR without the key-spend path.
+taproot but with the future ability to disable the key path spend.
+The design of P2QRH is partly inspired by these discussions as P2QRH can be understood as P2TR without the key path spend.
 
 Commit-reveal schemes such as
 [https://gnusha.org/pi/bitcoindev/1518710367.3550.111.camel@mmci.uni-saarland.de/  Re: Transition to post-quantum (2018)] 
@@ -685,8 +685,8 @@ to spend to. Then, in reveal, the user sign and reveals their public key. While 
 a commitment to the user's public key earlier than the user's commitment as it does not learn it until the reveal step.
 
 Commit-reveal schemes can only be spent from and to outputs that are not vulnerable to long-exposure quantum attacks, such as 
-P2PKH, P2SK, P2WPKH, etc... To use tapscript outputs with this system either a soft fork could disable the key-spend path of P2TR outputs
-or P2QRH could be used here as it does not have a key-spend path and thus is not vulnerable to long-exposure quantum attacks.
+P2PKH, P2SK, P2WPKH, etc... To use tapscript outputs with this system either a soft fork could disable the key path spend of P2TR outputs
+or P2QRH could be used here as it does not have a key path spend and thus is not vulnerable to long-exposure quantum attacks.
 
 == References ==
 
@@ -703,7 +703,7 @@ or P2QRH could be used here as it does not have a key-spend path and thus is not
 
 To help implementors understand updates to this BIP, we keep a list of substantial changes.
 
-* 2025-07-07 - P2QRH is now a P2TR with the vulnerable key-spend path disabled. Number of PQ signature algorithms supported reduced from three to two. PQ signature algorithm support is now added via opcodes or tapleaf version.
+* 2025-07-07 - P2QRH is now a P2TR with the vulnerable key path spend disabled. Number of PQ signature algorithms supported reduced from three to two. PQ signature algorithm support is now added via opcodes or tapleaf version.
 * 2025-03-18 - Correct inconsistencies in commitment and attestation structure. Switch from merkle tree commitment to sorted vector hash commitment. Update descriptor format.
 * 2025-03-12 - Add verification times for each algorithm. 256 -> 128 (NIST V -> NIST I). Add key type bitmask. Clarify multisig semantics.
 * 2025-02-23 - More points of clarification from review. Update dead link.
