@@ -206,7 +206,7 @@ while (++$bipnum <= $topbip) {
 			die "Unknown field $field in $fn";
 		}
 		++$found{$field};
-		push @field_order, $field if $field_order[-1] ne $field;
+		push @field_order, $field unless @field_order and $field_order[-1] eq $field;
 	}
 	if (not $found{License}) {
 		die "Missing License in $fn" unless exists $TolerateMissingLicense{$bipnum};
