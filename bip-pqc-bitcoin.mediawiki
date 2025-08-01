@@ -1,74 +1,159 @@
-BIP: Unassigned
-Title: pqcBitcoin Post-Quantum Cryptography for Bitcoin
+<pre>
+BIP: ?
+Title: pqcBitcoin – Post-Quantum Cryptography for Bitcoin
 Author: Eid Al Subaie <ceo@qbitsest.com>
+Discussions-To: https://delvingbitcoin.org/t/implemented-post-quantum-cryptography-pqc-feature-into-bitcoin-core/1320
+Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-?
 Status: Draft
 Type: Standards Track
-Created: 2025-04-22
+Created: 2024-11-04
 License: BSD-2-Clause
+</pre>
 
 == Abstract ==
-This proposal introduces post-quantum cryptography (PQC) to Bitcoin, aiming to future-proof the Bitcoin protocol against quantum computing threats. As quantum computers advance, existing cryptographic primitives like ECDSA (Elliptic Curve Digital Signature Algorithm) will become vulnerable to attacks. The pqcBitcoin proposal explores the integration of PQC algorithms to provide quantum-resilient security for Bitcoin transactions and addresses the potential risk to Bitcoin’s security model posed by quantum computers.
+
+This BIP introduces post-quantum cryptography (PQC) into Bitcoin to protect
+against future quantum computers that could break ECDSA/Schnorr signatures.
+It specifies hybrid signature and key-exchange schemes that combine classical
+and PQC algorithms, allowing an incremental, **soft-fork** upgrade path that is
+fully backward-compatible with existing nodes.
 
 == Motivation ==
-Quantum computers have the potential to break many of the cryptographic systems on which Bitcoin and other blockchain technologies rely. Specifically, they can efficiently solve the discrete logarithm problem, which underpins the security of ECDSA used for transaction signatures in Bitcoin. By adopting post-quantum cryptographic methods, Bitcoin can mitigate the risk posed by quantum computing and ensure its long-term viability.
 
-This proposal aims to:
-- Protect Bitcoin from quantum-enabled attacks by integrating post-quantum cryptographic algorithms.
-- Provide a roadmap for transitioning to quantum-safe cryptographic techniques while maintaining Bitcoin's decentralization and security.
-- Ensure Bitcoin’s resilience in the face of future technological advancements, maintaining trust in its decentralized model.
+Quantum computers threaten the discrete-log security of ECDSA and Schnorr,
+enabling private-key extraction and counterfeit transactions.  
+Integrating PQC now:
+
+* future-proofs the chain before large-scale quantum hardware arrives,  
+* avoids a disruptive “flag-day” migration, and  
+* keeps Bitcoin competitive with other PQ-ready payment networks.
 
 == Specification ==
-The proposed solution introduces the use of post-quantum cryptography to Bitcoin's transaction signing process. It integrates cryptographic primitives that are resistant to quantum computing-based attacks.
 
-### Proposed Algorithm
-- **Algorithm Choice**: The proposal suggests utilizing lattice-based algorithms such as **Kyber** for key exchange and **NTRU** for signatures as post-quantum alternatives to the traditional ECDSA and ECDH (Elliptic Curve Diffie-Hellman).
-- **Integration with Bitcoin**: This proposal does not aim to replace Bitcoin’s existing cryptography but to introduce hybrid solutions, where PQC algorithms are used alongside traditional ones, offering a gradual transition period.
-- **Quantum-Safe Key Management**: The proposal suggests leveraging a hybrid approach where users can generate Bitcoin addresses using PQC methods, alongside existing methods for backward compatibility during the transition period.
+=== 1. Key Format and Management ===
 
-### Implementation in Bitcoin
-- **Key Changes to Bitcoin**: 
-  - Replace existing signature verification with the PQC signature scheme.
-  - Introduce a flag to indicate whether a transaction is using the post-quantum secure method.
-  - Ensure backward compatibility by maintaining ECDSA signatures for users who don’t implement the PQC methods.
+* **PQC_KEY** – byte array (256–2048 bytes) plus algorithm ID metadata.  
+* **HYBRID_KEY** – concatenation of classical ECDSA public key and PQC public key.  
+* Wallets tag keys with algorithm identifiers and derivation paths (e.g., `m/86'/…/pqctype`).
 
-### Transition Plan
-- **Phased Rollout**: The implementation of PQC can be rolled out in phases, with soft forks to accommodate the transition.
-- **Backward Compatibility**: Bitcoin will continue to accept ECDSA signatures while supporting the new PQC signatures. This ensures that the network can maintain functionality while gradually migrating towards quantum-resistant cryptographic techniques.
+=== 2. Signature Scheme Support ===
+
+Supported PQC signature algorithms (Group 1):
+
+* SPHINCS+ (stateless hash-based)  
+* CRYSTALS-Dilithium (lattice-based)  
+* FALCON (compact lattice-based)  
+* SQIsign (experimental isogeny-based)
+
+**Hybrid signature** format is defined as:
+
+HYBRID_SIG = <length_of_ECDSA_signature (1 byte)> || <ECDSA_signature> || <PQC_signature> || <algorithm_id (1 byte)>
+
+
+Validation of hybrid signatures requires both classical and PQC signature verification to succeed independently.
+
+=== 3. Key Encapsulation Mechanisms (KEM) ===
+
+To enable quantum-resistant secure channel establishment (e.g., for encrypted wallet backups, P2P communication), this proposal integrates KEMs:
+
+* Kyber (lattice-based)  
+* FrodoKEM (LWE-based)  
+* NTRU (lattice-based)
+
+Shared secrets are derived via:
+
+SHARED_SECRET = HKDF(ECDH_SECRET || PQC_KEM_SECRET)
+
+
+An optional non-consensus opcode `OP_KEMNEGOTIATE` is introduced for use in scripts, enabling experimental KEM-based protocols without affecting consensus.
+
+=== 4. Backward Compatibility ===
+
+Backward compatibility is ensured through:
+
+* New SegWit output types (e.g., `p2pqcsig`, `p2hybridsig`) for PQC and hybrid scripts.  
+* Legacy nodes will ignore unknown scripts safely or treat PQC-only outputs as anyone-can-spend/unspendable.  
+* Hybrid keys/signatures allow transactions to be validated by both classical and PQC-aware nodes during the transition.
+
+=== 5. Node and Wallet Configuration Flags ===
+
+Nodes and wallets can enable and configure PQC features using the following command-line flags:
+
+-pqc=0|1 # Enable or disable all PQC features (default: 1)
+-pqcalgo=kyber,ntru,... # Specify enabled KEM algorithms
+-pqcsig=sphincs,dilithium,... # Specify enabled PQC signature algorithms
+-pqchybridkeys=0|1 # Enable hybrid key generation (default: 1)
+-pqchybridsig=0|1 # Enable hybrid signature verification (default: 1)
+
+
+=== 6. Fork Status ===
+
+This BIP is designed to be implemented as a **soft fork**, utilizing:
+
+* New SegWit output types to introduce PQC-enabled outputs without invalidating existing ones.  
+* Optional `OP_RETURN`-based script extensions for experimental features.  
+
+Activation mechanisms (e.g., BIP-8 or BIP-9 version bits signaling) will be proposed following testnet deployment and community consensus.
+
+=== 7. Test Vectors and Validation ===
+
+Test vectors are included covering:
+
+* PQC key generation across all supported algorithms.  
+* Creation and verification of PQC-only and hybrid signatures.  
+* Script-level validation of PQC signatures and hybrid transaction processing.  
+* Key encapsulation shared secret derivation and secure communication handshake.
+
+These are integrated into the Bitcoin Core test framework and located in `doc/pqc.md` and `test/pqc_*`.
 
 == Reference Implementation ==
-The reference implementation of pqcBitcoin can be found at the following GitHub repository: [pqcBitcoin Reference Implementation](https://github.com/QBlockQ/pqc-bitcoin).
 
-The implementation includes the following:
-- A **PQC-enabled wallet** that supports generating quantum-safe addresses and signing transactions using NTRU-based signatures.
-- A **modified Bitcoin node** that validates both ECDSA and PQC signatures, ensuring compatibility with both old and new addresses during the transition period.
-- **Test vectors** that demonstrate the functionality and security of the proposed cryptographic methods when applied to Bitcoin transactions.
+Reference implementation repository:  
+https://github.com/QBlockQ/pqc-bitcoin
+
+Features include:
+
+* PQC-enabled wallet and key management supporting quantum-safe address generation.  
+* Modified Bitcoin node with support for validating both ECDSA and PQC signatures.  
+* Test vectors and unit/integration tests validating PQC functionality.  
+* Implementation of hybrid signature schemes and KEM-based secure communication.
 
 == Rationale ==
-Post-quantum cryptography is an essential component in future-proofing Bitcoin against the rapidly advancing field of quantum computing. As the world moves closer to the development of practical quantum computers, Bitcoin must evolve to remain secure. The pqcBitcoin proposal strikes a balance between security and scalability, offering a gradual path to integrate quantum-safe techniques without disrupting Bitcoin's current network or ecosystem.
 
-The choice of lattice-based algorithms like Kyber and NTRU is rooted in their theoretical resistance to quantum attacks and their efficiency compared to other post-quantum alternatives. These algorithms are also widely studied and have been considered for standardization by NIST (National Institute of Standards and Technology).
+The transition to post-quantum cryptography is critical for Bitcoin’s long-term security. This proposal:
+
+* Uses hybrid signatures to enable incremental adoption without disrupting the existing network.  
+* Selects NIST finalist algorithms (Kyber, Dilithium) and mature PQC candidates for strong security and efficiency.  
+* Provides cryptographic agility for future algorithm upgrades as PQC research evolves.  
+* Ensures backward compatibility to avoid network forks or invalidation of legacy wallets.
 
 == Backward Compatibility ==
-The pqcBitcoin proposal is designed with backward compatibility in mind. The primary aim is not to replace Bitcoin's existing cryptographic methods but to enhance them with quantum-resistant options, ensuring a smooth transition to a more secure model. The hybrid approach allows for:
-- **Continued operation with existing ECDSA keys**: Bitcoin users will still be able to transact using traditional ECDSA signatures while new users can adopt PQC-based signatures.
-- **Gradual adoption**: This solution allows the Bitcoin network to adopt post-quantum security without requiring a complete overhaul or breaking existing user wallets.
 
-Bitcoin’s protocol will support both legacy and post-quantum cryptographic methods, ensuring minimal disruption to the user experience and allowing Bitcoin to remain secure both now and in the quantum future.
+The hybrid approach allows:
+
+* Existing ECDSA keys and signatures to remain valid.  
+* Gradual PQC adoption with simultaneous support for classical and quantum-resistant schemes.  
+* Legacy clients to safely ignore PQC-only scripts or treat them as anyone-can-spend/unspendable, while upgraded nodes enforce PQC validation.
 
 == Security Considerations ==
-While the introduction of post-quantum cryptographic methods strengthens Bitcoin against future quantum attacks, there are still some security considerations:
-- **Transition Period Risk**: During the transition, the hybrid approach could lead to vulnerabilities if not carefully implemented. Special attention must be paid to the use of mixed signatures (ECDSA + PQC) to prevent attacks on weak links in the system.
-- **Algorithm Selection**: While Kyber and NTRU are strong candidates for PQC, they are not immune to future attacks. Continuous review of PQC algorithms is needed as new quantum attacks emerge.
-- **Implementation Bugs**: As with any new cryptographic system, the initial implementation must undergo extensive review and testing to ensure there are no vulnerabilities introduced.
 
-These considerations must be addressed as part of the implementation to ensure the security of the Bitcoin network remains uncompromised.
+Potential risks include:
+
+* **Downgrade attacks** if hybrid signatures are improperly verified — both classical and PQC parts must be validated.  
+* **Increased transaction size and blockspace usage** due to larger PQC signatures (notably SPHINCS+).  
+* **Cryptographic agility necessity** — algorithms must be reviewed and replaceable as PQC research matures.  
+* **Implementation complexity and bugs** require rigorous testing, peer review, and audits prior to mainnet deployment.
 
 == Test Vectors ==
-Test vectors have been provided in the reference implementation repository. These vectors demonstrate the signing and verification of Bitcoin transactions using both traditional ECDSA and post-quantum NTRU signatures. They also validate the correctness and interoperability of both signature schemes during the transition period.
 
-Test vectors cover:
-- **Key generation**: How keys are generated for both ECDSA and PQC signatures.
-- **Transaction signing**: How transactions are signed using both methods.
-- **Transaction verification**: How nodes validate transactions using either ECDSA or PQC signatures.
+Comprehensive test vectors cover:
 
-These vectors ensure that the implementation adheres to the expected cryptographic standards and operates securely on the Bitcoin network.
+* Generation and validation of keys for all PQC algorithms and hybrid keys.  
+* Signing and verification of transactions using PQC-only and hybrid signatures.  
+* Derivation of shared secrets for secure communication using KEMs.
+
+Vectors ensure cryptographic conformance and interoperability across node configurations.
+
+== License ==
+
+MIT
