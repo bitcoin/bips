@@ -9,7 +9,7 @@
 ECODE=0
 FILES=""
 for fname in *.mediawiki; do
-    GRES=$(grep -n '](http' $fname)
+    GRES=$(grep -n '](http' "$fname")
     if [ "$GRES" != "" ]; then
         if [ $ECODE -eq 0 ]; then
             >&2 echo "Github Mediawiki format writes link as [URL text], not as [text](url):"
