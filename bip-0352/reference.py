@@ -4,7 +4,7 @@
 
 import hashlib
 import json
-from typing import List, Tuple, Dict, cast
+from typing import List, Tuple, Dict, cast, Optional
 from sys import argv, exit
 from functools import reduce
 from itertools import permutations
@@ -152,7 +152,9 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
     return list(set(outputs))
 
 
-def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: bytes, outputs_to_check: List[ECPubKey], labels: Dict[str, str] = {}) -> List[Dict[str, str]]:
+def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: bytes, outputs_to_check: List[ECPubKey], labels: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
+    if labels is None:
+        labels = {}
     G = ECKey().set(1).get_pubkey()
     ecdh_shared_secret = input_hash * b_scan * A_sum
     k = 0
