@@ -7,7 +7,6 @@
 # Check wrong mediawiki link format
 
 ECODE=0
-FILES=""
 for fname in *.mediawiki; do
     GRES=$(grep -n '](http' $fname)
     if [ "$GRES" != "" ]; then
