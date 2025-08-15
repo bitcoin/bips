@@ -7,7 +7,6 @@ import json
 from typing import List, Tuple, Dict, cast
 from sys import argv, exit
 from functools import reduce
-from itertools import permutations
 
 # local files
 from bech32m import convertbits, bech32_encode, decode, Encoding
