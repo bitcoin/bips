@@ -225,6 +225,237 @@ OUTPUT:
 * DERIVED ENTROPY=ae131e2312cdc61331542efe0d1077bac5ea803adf24b313a4f0e48e9c51f37f
 * DERIVED BIP39 MNEMONIC=puppy ocean match cereal symbol another shed magic wrap hammer bulb intact gadget divorce twin tonight reason outdoor destroy simple truth cigar social volcano
 
+===BIP93 (codex32)===
+Application Number: 93'
+
+The derivation path format is: <code>m/83696968'/93'/{hrp}'/{threshold}'/{n}'/{byte_length}'/{id0}'/{id1}'/{id2}'/{id3}'/{index}'</code>
+
+Use this application to generate fresh codex32 strings (as defined in BIP-0093) for Shamir's Secret Sharing backups of BIP-0032 HD master seeds. Each codex32 string encodes a share or secret with a human-readable prefix (hrp), and a data part consisting of a threshold, identifier, share index, payload, and checksum.
+
+Create a BIP85 DRNG whose seed is the derived entropy. Read 1 byte from the DRNG and trim to the 5 most significant bits to obtain an integer (0–31), representing a bech32 character.
+
+Pseudocode: <code>character_value = int.from_bytes(drng.read(1), "big") >> 3</code>
+
+Repeat until all required data characters are validly chosen.
+
+Example: a codex32 secret with <code>hrp = "ms"</code> (first index), <code>threshold = "0"</code>, <code>n = 1</code>, <code>byte_length = 16</code>, identifier <code>"c0??"</code> would have the path <code>m/83696968'/93'/0'/0'/1'/16'/24'/15'/32'/32'/0'</code>, the next secret would be <code>m/83696968'/93'/0'/0'/1'/16'/24'/15'/32'/32'/1'</code> (identifier <code>"c0zc"</code>) etc.
+
+Human-readable Prefix Table
+
+{|
+!hrp
+!Code
+|-
+| "ms"
+| 0'
+|-
+| "cl"
+| 1'
+|-
+|}
+
+Threshold Table
+
+{|
+!Threshold
+!Code
+|-
+| "0"
+| 0'
+|-
+| "2"
+| 2'
+|-
+| "3"
+| 3'
+|-
+| "4"
+| 4'
+|-
+| "5"
+| 5'
+|-
+| "6"
+| 6'
+|-
+| "7"
+| 7'
+|-
+| "8"
+| 8'
+|-
+| "9"
+| 9'
+|-
+|}
+
+Share Count Table
+
+{|
+!Threshold code
+!Number of Shares
+!Code
+|-
+| 0'
+| n = 1
+| 1'
+|-
+| not 0'
+| n (from 1 to 31)
+| n'
+|}
+
+Bytes Length Table
+
+{|
+! Bytes
+! Data Length (Characters)
+!Code
+|-
+| 16
+| 45
+| 16'
+|-
+| 32
+| 71
+| 32'
+|-
+| 64
+| 124
+| 64'
+|}
+Note: Other lengths between 16 and 64 are valid but not recommended, using corresponding hardened indices.
+
+Identifier Table
+
+{|
+! Identifier
+!Code
+|-
+| id0, id1, id2, id3
+| id0'/id1'/id2'/id3'
+|-
+| Default (BIP-0032 fingerprint)
+| 32'/32'/32'/32'
+|}
+The identifier is four bech32 characters converted to four integers using the character table from BIP-0173. Each identifier hardened index (idX) used in the derivation path affects the derived entropy; if idX = 32 then the character emitted at that position in the encoded identifier MUST be the bech32 character for the corresponding 5-bit chunk of the 20 most significant bits of the relevant seed's BIP-0032 fingerprint (master seed, else seed recovered at t = n, else share "a" if n = 1).
+
+Rationale: This default assists users in locating the correct codex32 backup for their wallets, should be distinct for hundreds of backups users may need to disambiguate and, as it is widely stored, improves overall error correction.
+
+====Unshared Secret====
+
+When <code>threshold == "0"</code>, <code>n</code> MUST be ''1'' and the output is a codex32 secret. The payload in a codex32 secret is a direct encoding of a BIP-0032 HD master seed.
+
+Examples:
+
+Generate a "ms" prefixed codex32 secret, 16-byte payload, with identifier <code>"c0??"</code>.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/0'/0'/1'/16'/24'/15'/32'/32'/0'
+OUTPUT:
+* DERIVED ENTROPY=bf89dc8a7caeba703bbba213cd092800c4dd42b3efa55dc50f52f17e4000057e727512c05cdc3856d8def0eaf0d877714e18c1d74364911e8a438bcc0373e8a3
+* DERIVED BIP93 identifier=c0ny
+* DERIVED BIP93 codex32=ms10c0nys4xklclp0lneyfjmyp9uhlfdzqfwwengqaduatsw
+
+Generate a "cl" prefixed Core Lightning HSM secret, 32-bytes with default identifier.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/1'/0'/1'/32'/32'/32'/32'/32'/0'
+OUTPUT:
+* DERIVED ENTROPY=d5d81425b6352225c002cc31002e721e93c08dbc742eefbf480d14ca788c544df912ef67f8927b3456a56dd7f6285c7642f17370154524dad3bfe294cb507242
+* DERIVED BIP93 identifier=wwak
+* DERIVED BIP93 codex32=cl10wwakss63h2vh43mjdk9sjjendkyy2mvt2n6frt83sly7afjh85xl3l9qlp63pyuukcyqyf
+
+====Share Generation====
+
+If we already have a valid set of ''t'' initial codex32 strings, use BIP-0093 to derive ''n'' shares. The BIP85 dice application may be used to randomly select ''n'' share indices.
+
+Otherwise, for each initial share needed:
+
+1. Take the next available letter from the bech32 alphabet, in alphabetical order, as <code>a</code>, <code>c</code>, <code>d</code>, ..., to be the share index.
+* Valid share-index characters: "acdefghjklmnpqrtuvwxyz023456789"
+2. Generate ceil(''<code>byte_length</code> * 8 / 5'') random payload characters using the BIP85 DRNG.
+* Recover secret at "s", if needed, for the default identifier.
+3. Prepend the <code>threshold</code> and identifier.
+
+4. Compute and append the codex32 checksum.
+
+5. Translate the data part to characters using the table from BIP-0173 and prepend <code>hrp</code>1.
+{|
+! Fresh master seeds
+!Existing master seeds
+|-
+| ''n'' >= ''t''
+| ''n'' < ''t''
+|}
+There are two ways to create an initial set of ''t'' valid codex32 strings, depending on whether the user is creating a fresh master seed or using an existing master seed.
+The following steps outline the process for each case.
+
+=====For a fresh master seed=====
+
+Generate ''t'' initial random shares as above, then:
+* Derive the remaining 31 - ''t'' possible shares by interpolating from these initial ''t'' shares.
+* Use the DRNG to deterministically select ''n'' unique indices (excluding "s").
+* Output the shares with these indices.
+* The secret can be recovered by interpolating any ''t'' shares at index "s".
+
+Examples:
+
+Generate 3 codex32 shares with a threshold of 2 for a 16-byte seed, identifier <code>"c00l"</code>.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/0'/2'/3'/16'/24'/15'/15'/31'/0'
+OUTPUT:
+* DERIVED ENTROPY=08d7bfdb5bb43e00046af47b31063def05ea70afed5e8c3ab88a80213efe548da0171c8ba30501844ea2cee9e830138306f8a9c429acdba6e1d050b2b50fad3f
+* DERIVED BIP93 identifier=c00l
+* DERIVED BIP93 codex32=ms12c00ln4kx8hawgstmrky88szf0qc7p9snrryzwl06tay6, ms12c00lpc9sddr6j0kl48m8j7n9sfg4p39ajmq4xx40xwvt, ms12c00lyj8fjetdxqhrvt58zalgllrdpx477puthmplvva8
+
+Generate 9 codex32 shares for a 16-byte seed, threshold 3, default identifier.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/0'/3'/9'/16'/32'/32'/32'/32'/0'
+OUTPUT:
+* DERIVED ENTROPY= c18b7dd81fb08b55b3cd16070fa625a0436db43186ab5f7d636b58e73decc5539b59ab93d65e932448933637241e17933d97f37c541a3319148a25e8e306cf10
+* DERIVED BIP93 identifier=ms8t
+* DERIVED BIP93 codex32=ms13ms8tu5dtz5c6d7lfg7l48mmewvhdu0z6q6eav29umjhl, ms13ms8tneyjzext4y7cd0s6c2gwn92smyldywhfrzc2xmhq, ms13ms8tz6nt2nvekkjyqn2lqdszm8pfydmmttfytvg28fcv, ms13ms8tdh6j27jgwvn49z9slur4xwu5rxxv0l8syy4u6qcn, ms13ms8tp85zuyk2ct2msvjjtvwxljg52fza02ln8plkfegf, ms13ms8tcfk9nlh8e6uhaqrxrk9pa8djsquk4xhs4zv87jnv, ms13ms8tenrpvzdmjtxkuputf72p4xy422s8n2dryeva3yk2, ms13ms8tjr3kayuh74yevw0hjz8wmyrhpwnuzzd6jecsfdjx, ms13ms8tf2pum4a46gstsuerm3ad49xt0fcq6rfaavu8lquq
+
+=====For an existing master seed=====
+
+Generate ''n'' = ''t'' - 1 initial random shares as above, then:
+* Output these shares with the alphabetized indices.
+* The existing master seed is treated as the ''t''-th share (encoded as codex32 secret with index "s").
+* To generate additional shares, interpolate using the ''t'' points (''t''-1 generated shares + secret).
+
+Examples:
+
+Generate 2 codex32 shares, 16-byte existing master seed, threshold 3, identifier <code>"g0??"</code>.
+
+Note: The share indices are alphabetized. The default identifier is the fingerprint of payload bytes of "s" had the <code>threshold</code been <code>n</code> (2 in this example).
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/0'/3'/2'/16'/8'/15'/32'/32'/0'
+OUTPUT:
+* DERIVED ENTROPY=c23f717c2d3f124ea5596aa23449ba91a9b189953aaa925f33dfd16f35b6ca86000a1c11e6080f20ae6470019ee8f585a11af483a59b15b2827b5605ad61772b
+* DERIVED BIP93 identifier=g0fy
+* DERIVED BIP93 codex32=ms13g0fyarrwyawuktl8qptwqy3np7jx3xfv992ytz5kcq8h, ms13g0fyc4e379zymy6tzdhgzwfeq6ymwlr36qext53v2vp4
+
+Generate 1 codex32 share for a 64-byte existing master seed, threshold 2, identifier <code>"?ann"</code>.
+
+Note: Indices will be alphabetical. The default identifier is the fingerprint of payload bytes of share "a".
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/0'/2'/1'/64'/32'/29'/19'/19'/0'
+OUTPUT:
+* DERIVED ENTROPY=bb4fb0e144930d545836177820d173cc250b9084ac50ce3aa6816efaed2dc750cc687b71c9c95a372009427ced155e78622a81defed03321aea49f4d4fdb688b
+* DERIVED BIP93 identifier=mann
+* DERIVED BIP93 codex32=ms12mannaczq4kkph3gtppqu5ehjes6fvsyh09m0tk3ag5z3tkq5p5menyjpukyy2dvddk4yu979949g08jlfdt4w946we8dynamcu22c0tr6s2rndpnrmqac6z23nd
+
 ===HD-Seed WIF===
 Application number: 2'
 
@@ -429,19 +660,26 @@ OUTPUT
 
 This specification is not backwards compatible with any other existing specification.
 
-This specification relies on BIP32 but is agnostic to how the BIP32 root key is derived. As such, this standard is able to derive wallets with initialization schemes like BIP39 or Electrum wallet style mnemonics.
+This specification relies on BIP32 but is agnostic to how the BIP32 root key is derived. As such, this standard is able to derive wallets with initialization schemes like BIP39, codex32 or Electrum wallet style mnemonics.
 
 ==References==
 
-BIP32, BIP39
+BIP32, BIP39, BIP93
 
 ==Reference Implementations==
 
+* 1.4.0 Python 3.x library implementation: [https://github.com/benwestgate/bip85]
 * 1.3.0 Python 3.x library implementation: [https://github.com/akarve/bipsea]
 * 1.1.0 Python 2.x library implementation: [https://github.com/ethankosakovsky/bip85]
 * 1.0.0 JavaScript library implementation: [https://github.com/hoganri/bip85-js]
 
 ==Changelog==
+
+===1.4.0 (2025-9-01)===
+
+====Added====
+
+* Codex32 application 93'
 
 ===1.3.0 (2024-10-22)===
 
