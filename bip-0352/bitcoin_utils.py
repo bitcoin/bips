@@ -32,13 +32,11 @@ def deser_txid(txid: str):
 
 
 def deser_compact_size(f: BytesIO):
-    view = f.getbuffer()
-    nbytes = view.nbytes;
-    view.release()
-    if (nbytes == 0):
-        return 0 # end of stream
+    b = f.read(1)
+    if not b:
+        return 0  # end of stream
 
-    nit = struct.unpack("<B", f.read(1))[0]
+    nit = struct.unpack("<B", b)[0]
     if nit == 253:
         nit = struct.unpack("<H", f.read(2))[0]
     elif nit == 254:
