@@ -144,5 +144,5 @@ class DLEQTests(unittest.TestCase):
                 proof_damaged[random.randrange(len(proof))] ^= 1 << (
                     random.randrange(8)
                 )
-                success = dleq_verify_proof(A, B, C, bytes(proof_damaged))
+                success = dleq_verify_proof(A, B, C, bytes(proof_damaged), m=message)
                 self.assertFalse(success)
