@@ -34,18 +34,18 @@ Input (top last):
 
 ```
 
-... \[pubkey32] \[h32] OP\_TWEAKADD  ->  ... \[pubkey32\_out]
+... \[h32] \[pubkey32] OP\_TWEAKADD  ->  ... \[pubkey32\_out]
 
 ````
 
-- `pubkey32`: 32-byte x-only public key (big-endian x coordinate).
 - `h32`: 32-byte big-endian unsigned integer `t`.
+- `pubkey32`: 32-byte x-only public key (big-endian x coordinate).
 
 Output:
 
 - `pubkey32_out`: 32-byte x-only public key for `Q = P + t*G`.
 
-### Operation and failure conditions
+#### Operation and failure conditions
 
 Let `n` be the secp256k1 curve order.
 
@@ -55,6 +55,16 @@ Let `n` be the secp256k1 curve order.
    - Otherwise, obtain `P` with even Y.
 3. Compute `Q = P + t*G`. If `Q` is the point at infinity, fail.
 4. Push `x(Q)` as a 32-byte big-endian value.
+
+Note: `t = 0` may fail if `pubkey32` is not valid.
+
+#### Script evaluation rules
+
+0. If less than 2 stack elements, fail.
+1. Pop `pubkey32` and then `h32`
+2. If either length is not 32, fail.
+3. Run `tweak_add` as above.
+4. Push the 32-byte x-only result.
 
 ### Conventions
 
@@ -73,6 +83,7 @@ Let `n` be the secp256k1 curve order.
 - Infinity outputs are rejected to avoid invalid keys.
 - Functionality is narrowly scoped to Taproot-style tweaks, avoiding arbitrary EC arithmetic.
 - Push opcode rather than verification opcode for script compactness.
+- Argument order to permit tweak from witness onto fixed key without OP_SWAP.
 
 ## Backwards compatibility
 
@@ -114,15 +125,10 @@ def tweak_add(pubkey32: bytes, h32: bytes) -> bytes:
     return Q.x.to_bytes(32, 'big')
 ````
 
-## Script evaluation rules
 
-0. If less than 2 stack elements, fail.
-1. Pop `h32`, then `pubkey32`.
-2. If either length is not 32, fail.
-3. Run `tweak_add` as above.
-4. Push the 32-byte x-only result.
+## Test vectors (Generated)
 
-## Test vectors (numeric, hex)
+
 Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
 
 
@@ -134,7 +140,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000000
   expect      =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000000> OP_TWEAKADD <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000000> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_EQUAL
 ```
 2) Increment by 1
 ```
@@ -142,7 +148,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000001
   expect      =  c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000001> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5> OP_EQUAL
 ```
 3) Increment by 2
 ```
@@ -150,7 +156,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000002
   expect      =  f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000002> OP_TWEAKADD <f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000002> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9> OP_EQUAL
 ```
 4) Increment by 5
 ```
@@ -158,7 +164,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000005
   expect      =  fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000005> OP_TWEAKADD <fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000005> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556> OP_EQUAL
 ```
 5) Input x(2G), t = 3
 ```
@@ -166,7 +172,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000003
   expect      =  2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4
 
-  script      =  <c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5> <0000000000000000000000000000000000000000000000000000000000000003> OP_TWEAKADD <2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000003> <c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5> OP_TWEAKADD <2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4> OP_EQUAL
 ```
 6) Input x(7G), t = 9
 ```
@@ -174,7 +180,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000009
   expect      =  e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a
 
-  script      =  <5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc> <0000000000000000000000000000000000000000000000000000000000000009> OP_TWEAKADD <e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000009> <5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc> OP_TWEAKADD <e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a> OP_EQUAL
 ```
 7) Input x(h(1) G), t = 1
 ```
@@ -182,7 +188,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000001
   expect      =  c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74
 
-  script      =  <d415b187c6e7ce9da46ac888d20df20737d6f16a41639e68ea055311e1535dd9> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000001> <d415b187c6e7ce9da46ac888d20df20737d6f16a41639e68ea055311e1535dd9> OP_TWEAKADD <c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74> OP_EQUAL
 ```
 8) Input x(h(2) G), t = 1
 ```
@@ -190,7 +196,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000001
   expect      =  136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785
 
-  script      =  <d27cd27dbff481bc6fc4aa39dd19405eb6010237784ecba13bab130a4a62df5d> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000001> <d27cd27dbff481bc6fc4aa39dd19405eb6010237784ecba13bab130a4a62df5d> OP_TWEAKADD <136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785> OP_EQUAL
 ```
 9) Input x(h(7) G), t = 1
 ```
@@ -198,7 +204,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  0000000000000000000000000000000000000000000000000000000000000001
   expect      =  0e27b02714b3f2344f2bfa6d821654f2bd9f0ef497ec541b653b8dcb3a915faf
 
-  script      =  <ddc399701a78edd5ea56429b2b7b6cd11f7d1e4015e7830b4f5e07eb25058768> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <0e27b02714b3f2344f2bfa6d821654f2bd9f0ef497ec541b653b8dcb3a915faf> OP_EQUAL
+  script      =  <0000000000000000000000000000000000000000000000000000000000000001> <ddc399701a78edd5ea56429b2b7b6cd11f7d1e4015e7830b4f5e07eb25058768> OP_TWEAKADD <0e27b02714b3f2344f2bfa6d821654f2bd9f0ef497ec541b653b8dcb3a915faf> OP_EQUAL
 ```
 10) Input x(G), t = 1
 ```
@@ -206,7 +212,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a
   expect      =  c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a> OP_TWEAKADD <c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74> OP_EQUAL
+  script      =  <4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74> OP_EQUAL
 ```
 11) Input x(G), t = h(2)
 ```
@@ -214,7 +220,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986
   expect      =  136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986> OP_TWEAKADD <136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785> OP_EQUAL
+  script      =  <dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785> OP_EQUAL
 ```
 12) Input x(G), t = h(7) (Note: differs from 9)
 ```
@@ -222,7 +228,7 @@ Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   h32         =  ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879
   expect      =  00b152fb17d249541e3b2f51455269e02d76507ad7857aaa98e3c51ee5da5b1d
 
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879> OP_TWEAKADD <00b152fb17d249541e3b2f51455269e02d76507ad7857aaa98e3c51ee5da5b1d> OP_EQUAL
+  script      =  <ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD <00b152fb17d249541e3b2f51455269e02d76507ad7857aaa98e3c51ee5da5b1d> OP_EQUAL
 ```
 
 ### Failing cases
@@ -232,21 +238,21 @@ A) Scalar out of range (t = n)
   pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
   h32         =  fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
   expect      =  fail
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141> OP_TWEAKADD OP_DROP OP_1
+  script      =  <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD OP_DROP OP_1
 ```
 B) Invalid x (x = 0), t = 1
 ```
   pubkey32    =  0000000000000000000000000000000000000000000000000000000000000000
   h32         =  0000000000000000000000000000000000000000000000000000000000000001
   expect      =  fail
-  script      =  <0000000000000000000000000000000000000000000000000000000000000000> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD OP_DROP OP_1
+  script      =  <0000000000000000000000000000000000000000000000000000000000000001> <0000000000000000000000000000000000000000000000000000000000000000> OP_TWEAKADD OP_DROP OP_1
 ```
 C) Infinity result (x(G), t = n-1)
 ```
   pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
   h32         =  fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140
   expect      =  fail
-  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140> OP_TWEAKADD OP_DROP OP_1
+  script      =  <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD OP_DROP OP_1
 ```
 
 ## Reference implementation notes
