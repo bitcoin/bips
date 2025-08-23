@@ -313,3 +313,5 @@ This proposal extends the Taproot tweak mechanism (BIP340/341) into script, insp
 - [Re: [bitcoin-dev] Unlimited covenants, was Re: CHECKSIGFROMSTACK/{Verify} BIP for Bitcoin](https://gnusha.org/pi/bitcoindev/CAMZUoKnVLRLgL1rcq8DYHRjM--8VEUC5kjUbzbY5S860QSbk5w@mail.gmail.com/)
 - [Re: [bitcoin-dev] Unlimited covenants, was Re: CHECKSIGFROMSTACK/{Verify} BIP for Bitcoin](https://gnusha.org/pi/bitcoindev/CAMZUoKkAUodCT+2aQG71xwHYD8KXeTAdQq4NmXZ4GBe0pcD=9A@mail.gmail.com/)
 - [ElementsProject: Tapscript opcodes documentation](https://github.com/ElementsProject/elements/blob/master/doc/tapscript_opcodes.md#new-opcodes-for-additional-functionality)
+- [[bitcoin-dev] Merkleize All The Things](https://gnusha.org/pi/bitcoindev/CAMhCMoH9uZPeAE_2tWH6rf0RndqV+ypjbNzazpFwFnLUpPsZ7g@mail.gmail.com/)
+- [Alpen Labs Technical-Whitepaper](https://github.com/alpenlabs/Technical-Whitepaper/tree/76d5279e62fe3f157ae94ffc0514ad2a95c6dbcf)
