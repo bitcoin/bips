@@ -31,12 +31,12 @@ fn case(name: &str, pubkey_hex: &str, t_hex: &str, check_res: Option<&str>) {
                 assert_eq!(out_hex, check);
             }
 
-            let script = format!("<{pubkey_hex}> <{t_hex}> OP_TWEAKADD <{out_hex}> OP_EQUAL");
+            let script = format!("<{t_hex}> <{pubkey_hex}> OP_TWEAKADD <{out_hex}> OP_EQUAL");
 
             println!("{name}\n```\n  pubkey32    =  {pubkey_hex}\n  h32         =  {t_hex}\n  expect      =  {out_hex}\n\n  script      =  {script}\n```")
         }
         None => {
-            let script = format!("<{pubkey_hex}> <{t_hex}> OP_TWEAKADD OP_DROP OP_1");
+            let script = format!("<{t_hex}> <{pubkey_hex}> OP_TWEAKADD OP_DROP OP_1");
             println!("{name}\n```\n  pubkey32    =  {pubkey_hex}\n  h32         =  {t_hex}\n  expect      =  fail\n  script      =  {script}\n```")
         }
     }
