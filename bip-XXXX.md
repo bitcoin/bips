@@ -123,104 +123,131 @@ def tweak_add(pubkey32: bytes, h32: bytes) -> bytes:
 4. Push the 32-byte x-only result.
 
 ## Test vectors (numeric, hex)
+Curve order n = fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
 
-All values are 32-byte hex, big-endian. Curve is secp256k1 with generator G. Order `n`:
-
-```
-n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141 
-```
-
-The following vectors assume BIP340 even-Y lifting of input x-only keys.
-
-TODO: these test vectors will be actually computed and checked...
-
-### Known inputs
-
-```
-x(G)   = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-x(2G)  = c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5
-x(3G)  = f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9
-x(5G)  = 2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4
-x(6G)  = fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556
-x(7G)  = 5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc
-```
 
 ### Passing cases
 
-1. Identity tweak (t = 0):
-
+1) Identity tweak (t = 0)
 ```
-pubkey32 = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-h32      = 0000000000000000000000000000000000000000000000000000000000000000
-result   = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  0000000000000000000000000000000000000000000000000000000000000000
+  expect      =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 
-2. Increment by 1:
-
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000000> OP_TWEAKADD <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_EQUAL
 ```
-pubkey32 = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-h32      = 0000000000000000000000000000000000000000000000000000000000000001
-result   = c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5
+2) Increment by 1
 ```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  0000000000000000000000000000000000000000000000000000000000000001
+  expect      =  c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5
 
-3. Increment by 2:
-
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5> OP_EQUAL
 ```
-pubkey32 = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-h32      = 0000000000000000000000000000000000000000000000000000000000000002
-result   = f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9
+3) Increment by 2
 ```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  0000000000000000000000000000000000000000000000000000000000000002
+  expect      =  f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9
 
-4. Increment by 5:
-
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000002> OP_TWEAKADD <f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9> OP_EQUAL
 ```
-pubkey32 = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-h32      = 0000000000000000000000000000000000000000000000000000000000000005
-result   = fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556
+4) Increment by 5
 ```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  0000000000000000000000000000000000000000000000000000000000000005
+  expect      =  fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556
 
-5. Different input x (using x(2G)) with t = 3:
-
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <0000000000000000000000000000000000000000000000000000000000000005> OP_TWEAKADD <fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556> OP_EQUAL
 ```
-pubkey32 = c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5
-h32      = 0000000000000000000000000000000000000000000000000000000000000003
-result   = 2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4
+5) Input x(2G), t = 3
 ```
+  pubkey32    =  c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5
+  h32         =  0000000000000000000000000000000000000000000000000000000000000003
+  expect      =  2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4
 
-6. Larger values: input x(7G) with t = 9:
-
+  script      =  <c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5> <0000000000000000000000000000000000000000000000000000000000000003> OP_TWEAKADD <2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4> OP_EQUAL
 ```
-pubkey32 = 5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc
-h32      = 0000000000000000000000000000000000000000000000000000000000000009
-result   = e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a
+6) Input x(7G), t = 9
+```
+  pubkey32    =  5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc
+  h32         =  0000000000000000000000000000000000000000000000000000000000000009
+  expect      =  e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a
+
+  script      =  <5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc> <0000000000000000000000000000000000000000000000000000000000000009> OP_TWEAKADD <e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a> OP_EQUAL
+```
+7) Input x(h(1) G), t = 1
+```
+  pubkey32    =  d415b187c6e7ce9da46ac888d20df20737d6f16a41639e68ea055311e1535dd9
+  h32         =  0000000000000000000000000000000000000000000000000000000000000001
+  expect      =  c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74
+
+  script      =  <d415b187c6e7ce9da46ac888d20df20737d6f16a41639e68ea055311e1535dd9> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74> OP_EQUAL
+```
+8) Input x(h(2) G), t = 1
+```
+  pubkey32    =  d27cd27dbff481bc6fc4aa39dd19405eb6010237784ecba13bab130a4a62df5d
+  h32         =  0000000000000000000000000000000000000000000000000000000000000001
+  expect      =  136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785
+
+  script      =  <d27cd27dbff481bc6fc4aa39dd19405eb6010237784ecba13bab130a4a62df5d> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785> OP_EQUAL
+```
+9) Input x(h(7) G), t = 1
+```
+  pubkey32    =  ddc399701a78edd5ea56429b2b7b6cd11f7d1e4015e7830b4f5e07eb25058768
+  h32         =  0000000000000000000000000000000000000000000000000000000000000001
+  expect      =  0e27b02714b3f2344f2bfa6d821654f2bd9f0ef497ec541b653b8dcb3a915faf
+
+  script      =  <ddc399701a78edd5ea56429b2b7b6cd11f7d1e4015e7830b4f5e07eb25058768> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD <0e27b02714b3f2344f2bfa6d821654f2bd9f0ef497ec541b653b8dcb3a915faf> OP_EQUAL
+```
+10) Input x(G), t = 1
+```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a
+  expect      =  c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74
+
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a> OP_TWEAKADD <c6713b2ac2495d1a879dc136abc06129a7bf355da486cd25f757e0a5f6f40f74> OP_EQUAL
+```
+11) Input x(G), t = h(2)
+```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986
+  expect      =  136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785
+
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986> OP_TWEAKADD <136f23e6c2efcaa13b37f0c22cd6cfb0d4e6e9eddccefe17e747f5cf440bb785> OP_EQUAL
+```
+12) Input x(G), t = h(7) (Note: differs from 9)
+```
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879
+  expect      =  00b152fb17d249541e3b2f51455269e02d76507ad7857aaa98e3c51ee5da5b1d
+
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879> OP_TWEAKADD <00b152fb17d249541e3b2f51455269e02d76507ad7857aaa98e3c51ee5da5b1d> OP_EQUAL
 ```
 
 ### Failing cases
 
-A) Scalar out of range (t = n):
-
+A) Scalar out of range (t = n)
 ```
-pubkey32 = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-h32      = ffffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
-expect   = fail
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+  expect      =  fail
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141> OP_TWEAKADD OP_DROP OP_1
 ```
-
-B) Invalid x (no lift possible), example x = 0:
-
+B) Invalid x (x = 0), t = 1
 ```
-pubkey32 = 0000000000000000000000000000000000000000000000000000000000000000
-h32      = 0000000000000000000000000000000000000000000000000000000000000001
-expect   = fail
+  pubkey32    =  0000000000000000000000000000000000000000000000000000000000000000
+  h32         =  0000000000000000000000000000000000000000000000000000000000000001
+  expect      =  fail
+  script      =  <0000000000000000000000000000000000000000000000000000000000000000> <0000000000000000000000000000000000000000000000000000000000000001> OP_TWEAKADD OP_DROP OP_1
 ```
-
-C) Infinity result: choose input x(G), t = n - 1 (so P + t*G = n*G = infinity):
-
+C) Infinity result (x(G), t = n-1)
 ```
-pubkey32 = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-h32      = ffffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140
-expect   = fail
+  pubkey32    =  79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  h32         =  fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140
+  expect      =  fail
+  script      =  <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140> OP_TWEAKADD OP_DROP OP_1
 ```
-
 
 ## Reference implementation notes
 
@@ -228,6 +255,42 @@ expect   = fail
 * Implement `t*G` via fixed-base multiplication, then combine with `P` using point addition.
 * Serialize the result as 32-byte x-only.
 * Charge EC op budget as 50, like `OP_CHECKSIGADD`.
+
+
+## Protocol Design Note: Scalar Adjustment
+
+When working with x-only keys, it is important to remember that each 32-byte value encodes the equivalence class `{P, −P}`.
+BIP340 defines the canonical lift as **the point with even Y**. As a result:
+
+- If an off-chain protocol describes an x-only key as "the point `s·G`," then in consensus terms the actual key is `adj(s)·G`, where:
+
+```
+
+adj(s) = s        if y(s·G) is even
+       = n − s    if y(s·G) is odd
+
+```
+
+- Consequently, `OP_TWEAKADD(x(s·G), t)` always computes:
+
+```
+
+result = x(adj(s)·G + t·G)
+
+```
+
+not simply `x(s·G + t·G)`.
+
+This distinction is invisible when signing or verifying against BIP340 keys, because both `s` and `n − s` yield the same x-only key.
+But it matters when a protocol tries to relate "a tweak applied at the base" (`x(G), t = s`) to "a tweak applied at a derived key" (`x(s·G), t = 1`). In general those will differ unless the original point already had even Y.
+
+
+- If you want consistent algebraic relations across different ways of composing tweaks, **normalize scalars off-chain** before pushing them into script.
+- That is: replace every candidate tweak `s` with `adj(s)`, so that `adj(s)·G` has even Y.
+- A simple library function can perform this parity check and adjustment using libsecp256k1; it does require a consensus modification or opcode.
+
+If the tweak is derived from inflexible state, such as a transaction hash or a signature, it may be infeasible to depend on commutativity of tweaking.
+
 
 
 ## Acknowledgements
