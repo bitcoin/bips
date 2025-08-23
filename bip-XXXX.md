@@ -293,9 +293,10 @@ But it matters when a protocol tries to relate "a tweak applied at the base" (`x
 
 - If you want consistent algebraic relations across different ways of composing tweaks, **normalize scalars off-chain** before pushing them into script.
 - That is: replace every candidate tweak `s` with `adj(s)`, so that `adj(s)·G` has even Y.
-- A simple library function can perform this parity check and adjustment using libsecp256k1; it does require a consensus modification or opcode.
+- A simple library function can perform this parity check and adjustment using libsecp256k1 without a consensus modification or opcode.
 
 If the tweak is derived from inflexible state, such as a transaction hash or a signature, it may be infeasible to depend on commutativity of tweaking.
+Protocols such as LN-Symmetry may simply grind the tx if even-y of tweak is required.
 
 
 
