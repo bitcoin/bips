@@ -306,8 +306,9 @@ This proposal extends the Taproot tweak mechanism (BIP340/341) into script, insp
 
 ## References
 
+- [Bitcoin Dev Mailing List Discussion](https://groups.google.com/g/bitcoindev/c/-_geIB25zrg)
 - [CATT: Thoughts about an alternative covenant softfork proposal](https://delvingbitcoin.org/t/catt-thoughts-about-an-alternative-covenant-softfork-proposal/125)
-- [Bitcoindev mailing list discussion](https://gnusha.org/pi/bitcoindev/e98d76f2-6f2c-9c3a-6a31-bccb34578c31@roose.io/)
+- [Draft BIP: OP_TXHASH and OP_CHECKTXHASHVERIFY](https://gnusha.org/pi/bitcoindev/e98d76f2-6f2c-9c3a-6a31-bccb34578c31@roose.io/)
 - [Advent 8: Scriptless Scripts and Key Tweaks](https://rubin.io/bitcoin/2021/12/05/advent-8/)
 - [Re: [bitcoin-dev] Unlimited covenants, was Re: CHECKSIGFROMSTACK/{Verify} BIP for Bitcoin](https://gnusha.org/pi/bitcoindev/CAMZUoKnVLRLgL1rcq8DYHRjM--8VEUC5kjUbzbY5S860QSbk5w@mail.gmail.com/)
 - [Re: [bitcoin-dev] Unlimited covenants, was Re: CHECKSIGFROMSTACK/{Verify} BIP for Bitcoin](https://gnusha.org/pi/bitcoindev/CAMZUoKkAUodCT+2aQG71xwHYD8KXeTAdQq4NmXZ4GBe0pcD=9A@mail.gmail.com/)
