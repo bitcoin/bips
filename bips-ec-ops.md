@@ -61,6 +61,70 @@ adapter signature operations, JIT DLC computations, and generically a large
 class of Sigma Protocol based on Elliptic Curves.
 
 
+# Preliminaries
+
+## Notation and Definitions
+
+The following conventions are used throughout this specification:
+
+### Field and Curve Parameters
+* The constant `p` refers to the field size: `0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F`
+* The constant `n` refers to the curve order: `0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141`
+* The curve equation is `y² = x³ + 7` over the integers modulo `p`
+
+### Points
+* The generator point `G` has coordinates:
+  * `x(G) = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798`
+  * `y(G) = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8`
+* The point at infinity `O` is the identity element of the elliptic curve group
+* An empty vector (0 bytes) on the stack represents the point at infinity
+
+## Point Encoding and Decoding
+
+All elliptic curve points in this specification use 33-byte compressed encoding:
+
+### Compressed Point Format (33 bytes)
+* First byte: `0x02` if y-coordinate is even, `0x03` if y-coordinate is odd
+* Next 32 bytes: x-coordinate in big-endian format
+
+### Point Decoding
+To decode a 33-byte compressed point:
+1. Verify the first byte is `0x02` or `0x03`
+2. Extract x-coordinate from bytes 1-32
+3. Verify `x < p`
+4. Compute `y² = x³ + 7 mod p`
+5. Compute `y = (y²)^((p+1)/4) mod p`
+6. Verify `y² = x³ + 7 mod p` (point is on curve)
+7. If prefix byte parity doesn't match y parity, set `y = p - y`
+
+```python
+def decode_compressed_point(data: bytes) -> Optional[Point]:
+    """Decode a 33-byte compressed point."""
+    if len(data) != 33:
+        raise ValueError(f"Invalid compressed point length: {len(data)}")
+    
+    prefix = data[0]
+    if prefix not in [0x02, 0x03]:
+        raise ValueError(f"Invalid compression prefix: {prefix:02x}")
+    
+    x = int.from_bytes(data[1:33], byteorder='big')
+    if x >= p:
+        raise ValueError("X coordinate >= field prime")
+    
+    # Compute y² = x³ + 7 mod p
+    y_sq = (pow(x, 3, p) + 7) % p
+    y = pow(y_sq, (p + 1) // 4, p)
+    
+    if pow(y, 2, p) != y_sq:
+        raise ValueError("Invalid point: not on curve")
+    
+    # Select y coordinate based on prefix parity
+    if (y & 1) != (prefix & 1):
+        y = p - y
+    
+    return (x, y)
+```
+
 # Design
 
 Only 33-byte public keys are accepted by the set of defined op codes. All op
@@ -115,6 +179,42 @@ the result back onto the stack in 33-byte compressed format.
    - Encode the result in 33-byte compressed format.
    - Push the encoded result onto the stack.
 
+### Reference Implementation
+
+```python
+def op_ec_point_add(point1_bytes: bytes, point2_bytes: bytes) -> bytes:
+    """
+    Implements OP_EC_POINT_ADD.
+    Returns 33-byte compressed result or empty vector for infinity.
+    """
+    # Decode points
+    P1 = decode_compressed_point(point1_bytes)
+    P2 = decode_compressed_point(point2_bytes)
+    
+    # Handle identity element
+    if P1 is None:
+        return point2_bytes
+    if P2 is None:
+        return point1_bytes
+    
+    # Point addition
+    if P1[0] == P2[0]:
+        if P1[1] != P2[1]:
+            return b''  # P + (-P) = O
+        # Point doubling: λ = (3x₁²)/(2y₁)
+        lam = (3 * P1[0] * P1[0] * pow(2 * P1[1], p - 2, p)) % p
+    else:
+        # Point addition: λ = (y₂ - y₁)/(x₂ - x₁)  
+        lam = ((P2[1] - P1[1]) * pow(P2[0] - P1[0], p - 2, p)) % p
+    
+    # Compute result: x₃ = λ² - x₁ - x₂
+    x3 = (lam * lam - P1[0] - P2[0]) % p
+    # y₃ = λ(x₁ - x₃) - y₁
+    y3 = (lam * (P1[0] - x3) - P1[1]) % p
+    
+    return encode_compressed_point((x3, y3))
+```
+
 ## `OP_EC_POINT_MUL`
 
 **Stack Input**: `[scalar] [point]`
@@ -140,6 +240,43 @@ multiplication, and pushes the result in 33-byte compressed format.
    - Encode the result in 33-byte compressed format.
    - Push the encoded result onto the stack.
 
+### Reference Implementation
+
+```python
+def op_ec_point_mul(scalar_bytes: bytes, point_bytes: bytes) -> bytes:
+    """
+    Implements OP_EC_POINT_MUL.
+    Special case: empty point_bytes uses generator G.
+    """
+    # Parse and validate scalar
+    if len(scalar_bytes) != 32:
+        raise ValueError(f"Invalid scalar length: {len(scalar_bytes)}")
+    
+    k = int.from_bytes(scalar_bytes, byteorder='big')
+    if k >= n:
+        raise ValueError("Scalar >= curve order")
+    
+    # Handle generator point special case
+    if len(point_bytes) == 0:
+        P = G  # Use secp256k1 generator
+    elif len(point_bytes) == 33:
+        P = decode_compressed_point(point_bytes)
+    else:
+        raise ValueError(f"Invalid point length: {len(point_bytes)}")
+    
+    # Double-and-add algorithm (constant-time in production)
+    R = None  # Start at infinity
+    for i in range(256):
+        if (k >> i) & 1:
+            R = point_add(R, P)
+        P = point_add(P, P)
+    
+    # Encode result
+    if R is None:
+        return b''  # Point at infinity
+    return encode_compressed_point(R)
+```
+
 ## `OP_EC_POINT_NEGATE`
 
 **Stack Input**: `[point]` (top element)
@@ -161,6 +298,28 @@ the result in 33-byte compressed format.
 7. Encode the result in 33-byte compressed format
 8. Push the encoded result onto the stack
 
+### Reference Implementation
+
+```python
+def op_ec_point_negate(point_bytes: bytes) -> bytes:
+    """
+    Implements OP_EC_POINT_NEGATE.
+    For point (x, y), returns (x, p - y).
+    """
+    if len(point_bytes) == 0:
+        return b''  # -O = O
+    
+    if len(point_bytes) != 33:
+        raise ValueError(f"Invalid point length: {len(point_bytes)}")
+    
+    P = decode_compressed_point(point_bytes)
+    
+    # Negate y-coordinate
+    neg_P = (P[0], (p - P[1]) % p)
+    
+    return encode_compressed_point(neg_P)
+```
+
 ## `OP_EC_POINT_X_COORD`
 
 **Stack Input**: `[point]` (top element)
@@ -178,6 +337,27 @@ Pops an elliptic curve point from the stack and pushes its x-coordinate.
    - Script execution MUST fail (cannot extract x-coordinate from infinity).
 6. Extract the x-coordinate from the point.
 7. Push the x-coordinate as a 32-byte big-endian value onto the stack.
+
+### Reference Implementation
+
+```python
+def op_ec_point_x_coord(point_bytes: bytes) -> bytes:
+    """
+    Implements OP_EC_POINT_X_COORD.
+    Extracts 32-byte x-coordinate from 33-byte compressed point.
+    """
+    if len(point_bytes) == 0:
+        raise ValueError("Cannot extract x from infinity")
+    
+    if len(point_bytes) != 33:
+        raise ValueError(f"Invalid point length: {len(point_bytes)}")
+    
+    # Validate point is on curve
+    P = decode_compressed_point(point_bytes)
+    
+    # Extract x-coordinate  
+    return P[0].to_bytes(32, byteorder='big')
+```
 
 ## Resource Limits
 
