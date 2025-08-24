@@ -348,6 +348,613 @@ OP_EQUAL                        # Stack: [message] [r] [bool]
 
 # Backwards Compatibility
 
+# Test Vectors
+
+All test vectors are available in the `bip-ec-ops/test-vectors/` directory of this repository. The test vectors follow the taproot-ref JSON format used by Bitcoin Core.
+
+## Test Vector Format
+
+Each test vector contains:
+- `tx`: The spending transaction in hex
+- `prevouts`: Array of previous outputs being spent  
+- `index`: Input index being validated
+- `flags`: Script verification flags
+- `comment`: Description of what the test validates
+- `success` or `failure`: Expected witness stack for passing or failing tests
+
+## OP_EC_POINT_ADD Test Vectors
+
+### Valid: Add two 33-byte points
+This test verifies basic point addition with two compressed public keys.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002682103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da61221038d1eadc80f1d0bbf345f3c5202946a0b72e2c217242f5d8c3c8bc5d5467ff0acbb210284df99cc50d1ec93e9bc32c666325a389dd69a7f42777b8f1670ad66d2e622c98721c1f1dd3079589438fb556253fa5b1d685518fe0dcda0cfd1dd28b11608b0651b6500000000",
+  "prevouts": [
+    "a086010000000000225120bdccf1fb4466b26d66d764c61d1cabe8fcbb6598748b62fd64deb9260dde7f04"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "add two 33-byte points",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da61221038d1eadc80f1d0bbf345f3c5202946a0b72e2c217242f5d8c3c8bc5d5467ff0acbb210284df99cc50d1ec93e9bc32c666325a389dd69a7f42777b8f1670ad66d2e622c987",
+      "c1f1dd3079589438fb556253fa5b1d685518fe0dcda0cfd1dd28b11608b0651b65"
+    ]
+  }
+}
+```
+
+### Invalid: Insufficient stack items
+Tests that the opcode fails when there are not enough items on the stack.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000201bb21c1a328913bce52f1ed4a17cf00680f6c0f066a4a5c9f576db183ec422aa6a14f9900000000",
+  "prevouts": [
+    "a0860100000000002251205d11cca3ec3eab91d709ea18b2de550b82e3240ae0daad6c13c17037c6a3d09f"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "insufficient stack items",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "bb",
+      "c1a328913bce52f1ed4a17cf00680f6c0f066a4a5c9f576db183ec422aa6a14f99"
+    ]
+  }
+}
+```
+
+## OP_EC_POINT_MUL Test Vectors
+
+### Valid: Multiply generator by scalar (empty point)
+Tests scalar multiplication with the generator point G (represented as empty vector).
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a08601000000000000024620000000000000000000000000000000000000000000000000000000000000000200bc2102c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee58721c04e5d0761dac697652bc9e660749f9a56cbc8dc6eb7f5fcf4efef44ee960b976200000000",
+  "prevouts": [
+    "a086010000000000225120c534c653b0c46394875c8a377537a7fdd258d818ee1331e9ed804163d1dd8920"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "multiply generator by scalar (empty point)",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "20000000000000000000000000000000000000000000000000000000000000000200bc2102c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee587",
+      "c04e5d0761dac697652bc9e660749f9a56cbc8dc6eb7f5fcf4efef44ee960b9762"
+    ]
+  }
+}
+```
+
+## Complex Operations Test Vectors
+
+### Valid: Computing a Taproot Tweak (P + tweak*G)
+Tests the complete workflow of computing a taproot tweak, demonstrating practical usage of multiple EC opcodes together.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a08601000000000000026920000000000000000000000000000000000000000000000000000000000000000500bc210326c4dd2b3ed6cb114ac7981d958391f58f1d435a6800e4ba5fc4ec973d64c854bb21027e41f3468b33d03e76ed78f346c66644a7a31575dda359fe898520b9ed8245868721c19e76b08c79a7e0bb6ca20f7763ece21cf98e72efc326d26d1bf8d34c78b2c1f200000000",
+  "prevouts": [
+    "a08601000000000022512011209b083c36057f641cc93419015e0cb44c08b0b499fd54b26c4eaad0d3afc5"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "Computing a Taproot Tweak (P + tweak*G)",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "20000000000000000000000000000000000000000000000000000000000000000500bc210326c4dd2b3ed6cb114ac7981d958391f58f1d435a6800e4ba5fc4ec973d64c854bb21027e41f3468b33d03e76ed78f346c66644a7a31575dda359fe898520b9ed82458687",
+      "c19e76b08c79a7e0bb6ca20f7763ece21cf98e72efc326d26d1bf8d34c78b2c1f2"
+    ]
+  }
+}
+```
+
+### Valid: Point doubling
+Tests adding a point to itself (P + P = 2P).
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002682103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da6122103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da612bb210365c08a6b61c8a225760df455512496a3cce0d74f597ad8d5338ca1688aa53bc88721c1b841414474a073f8baf79d1e724081b765ea3a3f87a8780bdc69483a0a7c75c400000000",
+  "prevouts": [
+    "a086010000000000225120329376f19233d37860e6988a4ba29ebcdccd5813a97b16a85b59ab87069446a4"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "add point to itself (point doubling)",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da6122103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da612bb210365c08a6b61c8a225760df455512496a3cce0d74f597ad8d5338ca1688aa53bc887",
+      "c1b841414474a073f8baf79d1e724081b765ea3a3f87a8780bdc69483a0a7c75c4"
+    ]
+  }
+}
+```
+
+### Valid: Point at infinity
+Tests adding a point and its negation (P + (-P) = 0).
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002472103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da6122102d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da612bb008721c0f53d4ee246500cbd5bc5010fcd5955f91040d658a2761f1700d477cfd3dae4cd00000000",
+  "prevouts": [
+    "a086010000000000225120b213126b12c0c5bc9fea81869d4c98d8aeec2962bd79abccaf19cd8c9c5af6e7"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "add point and its negation (infinity)",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2103d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da6122102d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da612bb0087",
+      "c0f53d4ee246500cbd5bc5010fcd5955f91040d658a2761f1700d477cfd3dae4cd"
+    ]
+  }
+}
+```
+
+### Invalid: Invalid point coordinates
+Tests handling of points with x-coordinate > field prime.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002452102ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff21038d1eadc80f1d0bbf345f3c5202946a0b72e2c217242f5d8c3c8bc5d5467ff0acbb21c034f5f2a7ea908584632aba9320336fc99072c7d6d3c4ff3b4833849264cb2d4600000000",
+  "prevouts": [
+    "a086010000000000225120d16722acd2e0bcb47c83adc068d7d1988c0c9cd22fe60410a38acf6d720fda72"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "invalid point - x coordinate too large",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "2102ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff21038d1eadc80f1d0bbf345f3c5202946a0b72e2c217242f5d8c3c8bc5d5467ff0acbb",
+      "c034f5f2a7ea908584632aba9320336fc99072c7d6d3c4ff3b4833849264cb2d46"
+    ]
+  }
+}
+```
+
+### Invalid: Reject 32-byte x-only input
+Tests that 32-byte x-only points are rejected by ADD operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a08601000000000000024420d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da61221038d1eadc80f1d0bbf345f3c5202946a0b72e2c217242f5d8c3c8bc5d5467ff0acbb21c110945c301563e2c6cda22d73c860cb83dbba2856cf6a2f9eb2200a83b953d89c00000000",
+  "prevouts": [
+    "a086010000000000225120a287509e2698cfe262fa839890f7a513228dffbc8e156d0a65a9e7f48d685dfb"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "reject 32-byte x-only input",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "20d5a5c6797a56d30378dba0484493302b5d8dc02dff2f550568641036796da61221038d1eadc80f1d0bbf345f3c5202946a0b72e2c217242f5d8c3c8bc5d5467ff0acbb",
+      "c110945c301563e2c6cda22d73c860cb83dbba2856cf6a2f9eb2200a83b953d89c"
+    ]
+  }
+}
+```
+
+### Invalid: ADD budget exceeded
+Tests sigops budget enforcement for ADD operations.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002fdcb032102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa072102e2bb24c22b6c9cc29f9a54e7258735eb3f1ab2dab698fb69d75483349180058c6ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb75bb755121c19e0877d4fa6432093b3aca5f501129c1a87e9404b44cb489824b3c6e7f488fc200000000",
+  "prevouts": [
+    "a086010000000000225120595b5ed2b203b66290d4979a03af50060065777f1d4d3ab321a9ab9656a4ea2b"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "ADD: budget exceeded",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "2102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa072102e2bb24c22b6c9cc29f9a54e7258735eb3f1ab2dab698fb69d75483349180058c6ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb756ebb75bb7551",
+      "c19e0877d4fa6432093b3aca5f501129c1a87e9404b44cb489824b3c6e7f488fc2"
+    ]
+  }
+}
+```
+
+## OP_EC_POINT_MUL Test Vectors
+
+### Valid: Multiply by zero (infinity)
+Tests scalar multiplication by zero, resulting in the point at infinity.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002462000000000000000000000000000000000000000000000000000000000000000002102a95d0d38d0d6519fe5c7a77b07bf6c367099d2d3a9b6a8da36251bcc2863e20fbc008721c0bc1bcd8620ab6eaee4bd999a33d287d907ea8a3aa00fb7f58dfabd2afb54485700000000",
+  "prevouts": [
+    "a08601000000000022512016c4722fac664bad20699b1b2673ea5898878d14fdd975adb052205c72ce898b"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "multiply by zero (infinity)",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2000000000000000000000000000000000000000000000000000000000000000002102a95d0d38d0d6519fe5c7a77b07bf6c367099d2d3a9b6a8da36251bcc2863e20fbc0087",
+      "c0bc1bcd8620ab6eaee4bd999a33d287d907ea8a3aa00fb7f58dfabd2afb544857"
+    ]
+  }
+}
+```
+
+### Valid: Multiply point by 2
+Tests scalar multiplication (2*P).
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002672000000000000000000000000000000000000000000000000000000000000000022102a95d0d38d0d6519fe5c7a77b07bf6c367099d2d3a9b6a8da36251bcc2863e20fbc2103519a934fadfca15c7fbb8b6bfb03464ee22bc594cecc6d842ce8089d99fe53718721c1e2d35660811d01bfe552a92937240da8420a1cbbb676a3df35a88686681e7fad00000000",
+  "prevouts": [
+    "a086010000000000225120982c493d24ce8a74e509b863a1a59926dbc7f438f0925da9122aaff17846871a"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "multiply point by 2",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2000000000000000000000000000000000000000000000000000000000000000022102a95d0d38d0d6519fe5c7a77b07bf6c367099d2d3a9b6a8da36251bcc2863e20fbc2103519a934fadfca15c7fbb8b6bfb03464ee22bc594cecc6d842ce8089d99fe537187",
+      "c1e2d35660811d01bfe552a92937240da8420a1cbbb676a3df35a88686681e7fad"
+    ]
+  }
+}
+```
+
+### Invalid: MUL insufficient stack
+Tests handling of insufficient stack items for MUL operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000222200000000000000000000000000000000000000000000000000000000000000000bc21c0659db62321d339abc8c6105bd4e410e7902d018767a23b889140af7055c3175600000000",
+  "prevouts": [
+    "a0860100000000002251206dd3ba59a75cf0874457fbd7c7c355933cb9a74f8341a89c80d7f5d410c4ed7e"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "MUL: insufficient stack",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "200000000000000000000000000000000000000000000000000000000000000000bc",
+      "c0659db62321d339abc8c6105bd4e410e7902d018767a23b889140af7055c31756"
+    ]
+  }
+}
+```
+
+### Invalid: MUL invalid scalar length
+Tests handling of invalid scalar length for MUL operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000227030102032102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa07bc21c1b9bad3201fdf6daa0a226bbd4bbf46580c50a46437c2ec43cd73620c08b7289400000000",
+  "prevouts": [
+    "a0860100000000002251201e0b312ef7af7256bf3ad9f2cad29323464473d44145d46c503140ddca0c5663"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "MUL: invalid scalar length",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "030102032102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa07bc",
+      "c1b9bad3201fdf6daa0a226bbd4bbf46580c50a46437c2ec43cd73620c08b72894"
+    ]
+  }
+}
+```
+
+### Invalid: MUL budget exceeded
+Tests sigops budget enforcement for MUL operations.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002fd72012000000000000000000000000000000000000000000000000000000000000000022102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa076ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc75bc755121c03784b72912cce22aba765b3aa4713b732f7f96e08a294c1169b1c2f8adf05d2800000000",
+  "prevouts": [
+    "a0860100000000002251202fc3d1ac4749696f46815849941ca248b679f4b6a0563d6baf921ef68b97adbf"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "MUL: budget exceeded",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "2000000000000000000000000000000000000000000000000000000000000000022102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa076ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc756ebc75bc7551",
+      "c03784b72912cce22aba765b3aa4713b732f7f96e08a294c1169b1c2f8adf05d28"
+    ]
+  }
+}
+```
+
+## OP_EC_POINT_NEGATE Test Vectors
+
+### Valid: Negate point
+Tests point negation operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002462102c45ad60752c449497980924aa8f602fad3ce0414fbff83b4d7e48f3d2b1e82d5bd2103c45ad60752c449497980924aa8f602fad3ce0414fbff83b4d7e48f3d2b1e82d58721c1501665cef6fec900f205abd7261eef0151bf6f6708f0720afd93b43d70f9fa5d00000000",
+  "prevouts": [
+    "a08601000000000022512048b2286b148876cba70b6e3efd0998b8ef8220362c926c6b5d74bec0e4d72add"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "negate point",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2102c45ad60752c449497980924aa8f602fad3ce0414fbff83b4d7e48f3d2b1e82d5bd2103c45ad60752c449497980924aa8f602fad3ce0414fbff83b4d7e48f3d2b1e82d587",
+      "c1501665cef6fec900f205abd7261eef0151bf6f6708f0720afd93b43d70f9fa5d"
+    ]
+  }
+}
+```
+
+### Invalid: Negate infinity
+Tests that negating the point at infinity fails.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000201bd21c110c090416c08837952647beb78b735e2ea9757ed396daac0ba14a0bd3661b5bb00000000",
+  "prevouts": [
+    "a086010000000000225120a59ef4c3e0653f3f9d28b866457f8f533b7fe047e645744b7b3466cc234d4aca"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "negate infinity",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "bd",
+      "c110c090416c08837952647beb78b735e2ea9757ed396daac0ba14a0bd3661b5bb"
+    ]
+  }
+}
+```
+
+### Invalid: NEGATE insufficient stack
+Tests handling of insufficient stack items for NEGATE operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000201bd21c00d1c97f90e0e927ffef5fd6cd8366a477be707b17a66d63d8ab5faf9c80df78800000000",
+  "prevouts": [
+    "a0860100000000002251209f48c70f375a1ab5ae6e1a4f42c3e0229dd7292d69dfa1d648619c83986083e1"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "NEGATE: insufficient stack",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "bd",
+      "c00d1c97f90e0e927ffef5fd6cd8366a477be707b17a66d63d8ab5faf9c80df788"
+    ]
+  }
+}
+```
+
+### Invalid: NEGATE budget exceeded
+Tests sigops budget enforcement for NEGATE operations.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002fd16022102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa07bdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbd21c1618959f75103468eb65821c0f199f5f8cd3beb3c9979378eb6603a491d9afb7a00000000",
+  "prevouts": [
+    "a086010000000000225120cf35dfccc3e4382452fa3b58dbc108d2fb88192359799107105b8283371f430a"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "NEGATE: budget exceeded",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "2102a1eaff599957c9061e19d828eb20aa91ac021ace6bc4a9d2056401b5c964aa07bdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdbd",
+      "c1618959f75103468eb65821c0f199f5f8cd3beb3c9979378eb6603a491d9afb7a"
+    ]
+  }
+}
+```
+
+## OP_EC_POINT_X_COORD Test Vectors
+
+### Valid: Extract x from 33-byte point
+Tests extracting x-coordinate from a 33-byte compressed point.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002452103a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e13be20a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e138721c1e0c9660dc7ac5cfcdd53d7963cc7e278136398ec9a151a563ff2928ecb8f9c0500000000",
+  "prevouts": [
+    "a086010000000000225120f8b034227c5cde4357d50a45c2c62329475a5c2fb4b14b4002fc0f9c17b87d0f"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "extract x from 33-byte point",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2103a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e13be20a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e1387",
+      "c1e0c9660dc7ac5cfcdd53d7963cc7e278136398ec9a151a563ff2928ecb8f9c05"
+    ]
+  }
+}
+```
+
+### Invalid: Extract x from 32-byte point
+Tests that extracting x-coordinate from 32-byte x-only point fails.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a08601000000000000024420a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e13be20a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e138721c1d7c5c3f0ebdad5a1f1c785b8be132051541c68716b01bfb73e182bed0df0015500000000",
+  "prevouts": [
+    "a0860100000000002251201405d112d7a8a582327ac8647deb8b1aa3345538e200075d767eea88e3bbd6df"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "extract x from 32-byte point",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "20a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e13be20a8d2660f97eb8b320b3951a7adc1a32c54119bdb779287f2c87825459ce43e1387",
+      "c1d7c5c3f0ebdad5a1f1c785b8be132051541c68716b01bfb73e182bed0df00155"
+    ]
+  }
+}
+```
+
+### Invalid: X_COORD insufficient stack
+Tests handling of insufficient stack items for X_COORD operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000201be21c1e3b45dcd5b44dbad88ebcb4fbc80c8ac47b1a22fcfeda87557e3dbd60838460f00000000",
+  "prevouts": [
+    "a08601000000000022512017f2e29eca6ddd0b56d8ca75dc5ff3db8c401c37dcd330fad11e85cb7295ea73"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "X_COORD: insufficient stack",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "be",
+      "c1e3b45dcd5b44dbad88ebcb4fbc80c8ac47b1a22fcfeda87557e3dbd60838460f"
+    ]
+  }
+}
+```
+
+### Invalid: X_COORD point at infinity
+Tests that extracting x-coordinate from the point at infinity fails.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a08601000000000000020200be21c09bf7d51d7b83593bc6b5b118e9d389f304f3b82a0ca5cfacf9f142236942d80500000000",
+  "prevouts": [
+    "a086010000000000225120691dfa3b2fdb8b0c32d8de04dfd6720dce6a2c48fbf93de7f7b1b028090c84ae"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "X_COORD: point at infinity",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "00be",
+      "c09bf7d51d7b83593bc6b5b118e9d389f304f3b82a0ca5cfacf9f142236942d805"
+    ]
+  }
+}
+```
+
+### Invalid: X_COORD extract x from infinity fails
+Tests that extracting x-coordinate from computed infinity fails.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a086010000000000000201be21c02c284a0fcd7c89fae0165d5dbe502ad504d29d396bf62fb366dd79feb0abb72800000000",
+  "prevouts": [
+    "a086010000000000225120be514e05bec6d4da7f6a35f165e32bad0c2b5d432ffd8c2ac3d3c28544c3f094"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "extract x from infinity fails",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "be",
+      "c02c284a0fcd7c89fae0165d5dbe502ad504d29d396bf62fb366dd79feb0abb728"
+    ]
+  }
+}
+```
+
+### Invalid: X_COORD invalid point
+Tests handling of invalid point coordinates for X_COORD operation.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a08601000000000000020254be21c18547ec06c7e4a7190ceda28bfa9d567a66c597bcaadbf8ffeb88e92b059dc85900000000",
+  "prevouts": [
+    "a086010000000000225120938771942788be4939998169ee5b961ce1d175a46f7836f1f0352deec8a9f5b0"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "X_COORD: invalid point",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "54be",
+      "c18547ec06c7e4a7190ceda28bfa9d567a66c597bcaadbf8ffeb88e92b059dc859"
+    ]
+  }
+}
+```
+
+## Budget Testing Test Vectors
+
+### Valid: OP_EC_POINT_ADD consumes 10 units
+Tests that ADD operation correctly consumes 10 sigops units.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002472102585ef07fe51f6e81afe974b497e10b295e349c8229ec6ace9afc6c06876c75ae2102585ef07fe51f6e81afe974b497e10b295e349c8229ec6ace9afc6c06876c75aebb755121c156a774f1b7cac5e176e65c8b00567054cfaf95ca64d3ac7235e518aacc08ba6500000000",
+  "prevouts": [
+    "a08601000000000022512008834fd2db8dc5e2ba6c4e38482b56409a1560bb2e663e740d9023dcc049d814"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "OP_EC_POINT_ADD consumes 10 units",
+  "success": {
+    "scriptSig": "",
+    "witness": [
+      "2102585ef07fe51f6e81afe974b497e10b295e349c8229ec6ace9afc6c06876c75ae2102585ef07fe51f6e81afe974b497e10b295e349c8229ec6ace9afc6c06876c75aebb7551",
+      "c156a774f1b7cac5e176e65c8b00567054cfaf95ca64d3ac7235e518aacc08ba65"
+    ]
+  }
+}
+```
+
+## Additional Invalid Encoding Test Vectors
+
+### Invalid: ADD invalid point encoding length
+Tests handling of invalid point encoding length.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002260202032102e2bb24c22b6c9cc29f9a54e7258735eb3f1ab2dab698fb69d75483349180058cbb21c0b775583e9cb1bb101da3740ec70e11680877f1e2bca699365216076e28b14b1000000000",
+  "prevouts": [
+    "a0860100000000002251201d8282cc92f08b535493d3207abe78d91aa3bee261ffdcab8a77c0a9fb91a3ae"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "ADD: invalid point encoding length",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "0202032102e2bb24c22b6c9cc29f9a54e7258735eb3f1ab2dab698fb69d75483349180058cbb",
+      "c0b775583e9cb1bb101da3740ec70e11680877f1e2bca699365216076e28b14b10"
+    ]
+  }
+}
+```
+
+### Invalid: Invalid point - x too large
+Tests handling of invalid point with x-coordinate = 0xffff...ffff.
+```json
+{
+  "tx": "02000000000101000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0860100000000000002232102ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffbe21c1e5d3fbe9f737014a4092769380f8e1edf3bf3fc75804ecfe247bbb211ebef78700000000",
+  "prevouts": [
+    "a086010000000000225120bd088a352386d4c7020bf37a02964228a1a7220725ef997fd291686c9f6e99d3"
+  ],
+  "index": 0,
+  "flags": "P2SH,WITNESS,TAPROOT,EC_OPS",
+  "comment": "invalid point",
+  "failure": {
+    "scriptSig": "",
+    "witness": [
+      "2102ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffbe",
+      "c1e5d3fbe9f737014a4092769380f8e1edf3bf3fc75804ecfe247bbb211ebef787"
+    ]
+  }
+}
+```
+
+## Additional Test Vectors
+
+All test vectors are available in the `bip-ec-ops/test-vectors/` directory with comprehensive coverage of:
+- Valid operations for all opcodes
+- Invalid encodings and edge cases
+- Budget enforcement tests
+- Stack error conditions
+- Point at infinity handling
+- Invalid point coordinates
+
 # Reference Implementation
 
 https://github.com/roasbeef/btcd/tree/ec-op-codes
