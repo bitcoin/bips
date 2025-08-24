@@ -348,6 +348,10 @@ OP_EQUAL                        # Stack: [message] [r] [bool]
 
 # Backwards Compatibility
 
+# Reference Implementation
+
+https://github.com/roasbeef/btcd/tree/ec-op-codes
+
 # Test Vectors
 
 All test vectors are available in the `bip-ec-ops/test-vectors/` directory of this repository. The test vectors follow the taproot-ref JSON format used by Bitcoin Core.
@@ -954,10 +958,6 @@ All test vectors are available in the `bip-ec-ops/test-vectors/` directory with 
 - Stack error conditions
 - Point at infinity handling
 - Invalid point coordinates
-
-# Reference Implementation
-
-https://github.com/roasbeef/btcd/tree/ec-op-codes
 
 # Changelog
 
