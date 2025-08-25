@@ -154,13 +154,13 @@ these opcodes, than via the dedicated `OP_CHECKSIG` opcode
 
 # Specification
 
-Depictions of the stack below are always represented from to to bottom. Given
+Depictions of the stack below are always represented from top to bottom. Given
 a stack of `[x] [y]`, the first element to be popped off is `[x]`.
 
-## `OP_SUCESS` Assignment
+## `OP_SUCCESS` Assignment
 
-The following existing `OP_SUCESS` reserved op codes are re-allocated to create
-our new elliptic curve op codes: 
+The following existing `OP_SUCCESS` reserved opcodes are re-allocated to create
+our new elliptic curve opcodes: 
   * `OP_EC_POINT_ADD` (`187`/ `0xbb`): Replaces `OP_SUCCESS187`
   * `OP_EC_POINT_MUL` (`188` / `0xbc`): Replaces `OP_SUCCESS188`
   * `OP_EC_POINT_NEGATE` (`189` / `0xbd`): Replaces `OP_SUCCESS189`
@@ -176,39 +176,51 @@ Pops two elliptic curve points from the stack, computes their sum, and pushes
 the result back onto the stack in 33-byte compressed format.
 
 ### Execution Rules
-1. If at least two elements aren't on the stack, then execution MUST fail.
+
+1. Fail if the stack contains fewer than two elements.
 2. Pop the top two stack elements.
-3. Validate both point elements as valid elliptic curve points.
-4. Compute the elliptic curve point addition: `result = point1 + point2`.
-5. If either validation fails, script execution MUST fail immediately.
-6. If the result is the point at infinity:
-   - Push an empty vector (0 bytes) onto the stack.
-7. Otherwise:
-   - Encode the result in 33-byte compressed format.
-   - Push the encoded result onto the stack.
+3. For each popped element, validate that it is a valid elliptic curve point:
+   a. MUST be exactly 33 bytes in length
+   b. First byte MUST be 0x02 or 0x03
+   c. The x-coordinate (bytes 1-32) MUST be less than field prime p
+   d. The point MUST be on the secp256k1 curve
+   e. If any validation fails, script execution MUST fail immediately
+4. Compute the elliptic curve point addition: `result = point1 + point2`
+5. If the result is the point at infinity:
+   a. Push an empty vector (0 bytes) onto the stack
+6. Otherwise:
+   a. Encode the result in 33-byte compressed format
+   b. Push the encoded result onto the stack
 
 ### Reference Implementation
 
 ```python
-def op_ec_point_add(point1_bytes: bytes, point2_bytes: bytes) -> bytes:
+def op_ec_point_add(stack: list) -> None:
     """
     Implements OP_EC_POINT_ADD.
-    Returns 33-byte compressed result or empty vector for infinity.
+    Stack: [point2] [point1] -> [point1 + point2]
     """
-    # Decode points
+    # Check stack depth
+    if len(stack) < 2:
+        raise ValueError("OP_EC_POINT_ADD requires 2 stack elements")
+    
+    # Pop elements (top first)
+    point2_bytes = stack.pop()
+    point1_bytes = stack.pop()
+    
+    # Validate and decode points
+    if len(point1_bytes) != 33 or len(point2_bytes) != 33:
+        raise ValueError("Points must be 33 bytes")
+    
     P1 = decode_compressed_point(point1_bytes)
     P2 = decode_compressed_point(point2_bytes)
-    
-    # Handle identity element
-    if P1 is None:
-        return point2_bytes
-    if P2 is None:
-        return point1_bytes
     
     # Point addition
     if P1[0] == P2[0]:
         if P1[1] != P2[1]:
-            return b''  # P + (-P) = O
+            # P + (-P) = O
+            stack.append(b'')
+            return
         # Point doubling: λ = (3x₁²)/(2y₁)
         lam = (3 * P1[0] * P1[0] * pow(2 * P1[1], p - 2, p)) % p
     else:
@@ -220,7 +232,8 @@ def op_ec_point_add(point1_bytes: bytes, point2_bytes: bytes) -> bytes:
     # y₃ = λ(x₁ - x₃) - y₁
     y3 = (lam * (P1[0] - x3) - P1[1]) % p
     
-    return encode_compressed_point((x3, y3))
+    # Push result
+    stack.append(encode_compressed_point((x3, y3)))
 ```
 
 ## `OP_EC_POINT_MUL`
@@ -233,40 +246,58 @@ Pops a scalar value and an elliptic curve point from the stack, computes scalar
 multiplication, and pushes the result in 33-byte compressed format.
 
 ### Execution Rules
-1. If at least two elements aren't on the stack, then execution MUST fail.
-2. Pop the top two stack elements.
-3. Validate the point as a valid elliptic curve point.
-4. Validate the scalar as a valid scalar value.
-5. If either validation fails, script execution MUST fail immediately.
-6. Special case: If point is an empty vector (0 bytes):
-   - Interpret as the secp256k1 generator point G.
-   - This enables efficient computation of `scalar * G`.
-7. Compute the scalar multiplication: `result = scalar * point`.
-8. If the result is the point at infinity:
-   - Push an empty vector (0 bytes) onto the stack.
-9. Otherwise:
-   - Encode the result in 33-byte compressed format.
-   - Push the encoded result onto the stack.
+
+1. Fail if the stack contains fewer than two elements.
+2. Pop the top two stack elements (scalar on top, then point).
+3. Validate the scalar:
+   a. MUST be exactly 32 bytes in length
+   b. If the scalar value is greater than or equal to the curve order n, it is automatically reduced modulo n
+   c. If the length validation fails, script execution MUST fail immediately
+4. Validate the point:
+   a. If the point is an empty vector (0 bytes):
+      i. Interpret as the secp256k1 generator point G
+      ii. This enables efficient computation of `scalar * G`
+   b. Otherwise, the point MUST be a valid 33-byte compressed point:
+      i. Length MUST be exactly 33 bytes
+      ii. First byte MUST be 0x02 or 0x03
+      iii. The x-coordinate MUST be less than field prime p
+      iv. The point MUST be on the secp256k1 curve
+   c. If validation fails, script execution MUST fail immediately
+5. Compute the scalar multiplication: `result = scalar * point`
+6. If the result is the point at infinity:
+   a. Push an empty vector (0 bytes) onto the stack
+7. Otherwise:
+   a. Encode the result in 33-byte compressed format
+   b. Push the encoded result onto the stack
 
 ### Reference Implementation
 
 ```python
-def op_ec_point_mul(scalar_bytes: bytes, point_bytes: bytes) -> bytes:
+def op_ec_point_mul(stack: list) -> None:
     """
     Implements OP_EC_POINT_MUL.
-    Special case: empty point_bytes uses generator G.
+    Stack: [scalar] [point] -> [scalar * point]
     """
-    # Parse and validate scalar
+    # Check stack depth
+    if len(stack) < 2:
+        raise ValueError("OP_EC_POINT_MUL requires 2 stack elements")
+    
+    # Pop elements (top first)
+    scalar_bytes = stack.pop()
+    point_bytes = stack.pop()
+    
+    # Validate scalar
     if len(scalar_bytes) != 32:
         raise ValueError(f"Invalid scalar length: {len(scalar_bytes)}")
     
     k = int.from_bytes(scalar_bytes, byteorder='big')
-    if k >= n:
-        raise ValueError("Scalar >= curve order")
+    # Reduce modulo n if needed
+    k = k % n
     
-    # Handle generator point special case
+    # Handle point
     if len(point_bytes) == 0:
-        P = G  # Use secp256k1 generator
+        # Empty vector means generator point G
+        P = G
     elif len(point_bytes) == 33:
         P = decode_compressed_point(point_bytes)
     else:
@@ -279,10 +310,11 @@ def op_ec_point_mul(scalar_bytes: bytes, point_bytes: bytes) -> bytes:
             R = point_add(R, P)
         P = point_add(P, P)
     
-    # Encode result
+    # Push result
     if R is None:
-        return b''  # Point at infinity
-    return encode_compressed_point(R)
+        stack.append(b'')  # Point at infinity
+    else:
+        stack.append(encode_compressed_point(R))
 ```
 
 ## `OP_EC_POINT_NEGATE`
@@ -295,28 +327,45 @@ Pops an elliptic curve point from the stack, computes its negation, and pushes
 the result in 33-byte compressed format.
 
 ### Execution Rules
-1. If at least a single item isn't on top of the stack, then execution MUST fail.
-2. Pop the top stack element
-3. Validate the point as a valid elliptic curve point
-4. If validation fails, script execution MUST fail immediately
-5. Special case: If point is an empty vector (0 bytes):
-   - Push an empty vector back (negation of infinity is infinity)
-6. Compute the point negation: `result = -point`
-   - For point (x, y), the negation is (x, p - y)
-7. Encode the result in 33-byte compressed format
-8. Push the encoded result onto the stack
+
+1. Fail if the stack is empty.
+2. Pop the top stack element.
+3. Validate the point:
+   a. If the point is an empty vector (0 bytes):
+      i. Push an empty vector back onto the stack (negation of infinity is infinity)
+      ii. Execution succeeds and terminates here
+   b. Otherwise, validate as a 33-byte compressed point:
+      i. Length MUST be exactly 33 bytes
+      ii. First byte MUST be 0x02 or 0x03
+      iii. The x-coordinate MUST be less than field prime p
+      iv. The point MUST be on the secp256k1 curve
+   c. If validation fails, script execution MUST fail immediately
+4. Compute the point negation: `result = -point`
+   a. For point (x, y), the negation is (x, p - y)
+5. Encode the result in 33-byte compressed format
+6. Push the encoded result onto the stack
 
 ### Reference Implementation
 
 ```python
-def op_ec_point_negate(point_bytes: bytes) -> bytes:
+def op_ec_point_negate(stack: list) -> None:
     """
     Implements OP_EC_POINT_NEGATE.
-    For point (x, y), returns (x, p - y).
+    Stack: [point] -> [-point]
     """
-    if len(point_bytes) == 0:
-        return b''  # -O = O
+    # Check stack depth
+    if len(stack) < 1:
+        raise ValueError("OP_EC_POINT_NEGATE requires 1 stack element")
     
+    # Pop element
+    point_bytes = stack.pop()
+    
+    # Handle infinity
+    if len(point_bytes) == 0:
+        stack.append(b'')  # -O = O
+        return
+    
+    # Validate point
     if len(point_bytes) != 33:
         raise ValueError(f"Invalid point length: {len(point_bytes)}")
     
@@ -325,7 +374,8 @@ def op_ec_point_negate(point_bytes: bytes) -> bytes:
     # Negate y-coordinate
     neg_P = (P[0], (p - P[1]) % p)
     
-    return encode_compressed_point(neg_P)
+    # Push result
+    stack.append(encode_compressed_point(neg_P))
 ```
 
 ## `OP_EC_POINT_X_COORD`
@@ -337,43 +387,58 @@ def op_ec_point_negate(point_bytes: bytes) -> bytes:
 Pops an elliptic curve point from the stack and pushes its x-coordinate.
 
 ### Execution Rules
-1. If at least a single item isn't on top of the stack, then execution MUST fail.
+
+1. Fail if the stack is empty.
 2. Pop the top stack element.
-3. Validate the element as a valid elliptic curve point.
-4. If validation fails, script execution MUST fail immediately.
-5. Special case: If point is an empty vector (0 bytes):
-   - Script execution MUST fail (cannot extract x-coordinate from infinity).
-6. Extract the x-coordinate from the point.
-7. Push the x-coordinate as a 32-byte big-endian value onto the stack.
+3. Validate the point:
+   a. If the point is an empty vector (0 bytes):
+      i. Script execution MUST fail (cannot extract x-coordinate from infinity)
+   b. Otherwise, validate as a 33-byte compressed point:
+      i. Length MUST be exactly 33 bytes
+      ii. First byte MUST be 0x02 or 0x03
+      iii. The x-coordinate MUST be less than field prime p
+      iv. The point MUST be on the secp256k1 curve
+   c. If validation fails, script execution MUST fail immediately
+4. Extract the x-coordinate from the point
+5. Push the x-coordinate as a 32-byte big-endian value onto the stack
 
 ### Reference Implementation
 
 ```python
-def op_ec_point_x_coord(point_bytes: bytes) -> bytes:
+def op_ec_point_x_coord(stack: list) -> None:
     """
     Implements OP_EC_POINT_X_COORD.
-    Extracts 32-byte x-coordinate from 33-byte compressed point.
+    Stack: [point] -> [x_coordinate]
     """
+    # Check stack depth
+    if len(stack) < 1:
+        raise ValueError("OP_EC_POINT_X_COORD requires 1 stack element")
+    
+    # Pop element
+    point_bytes = stack.pop()
+    
+    # Cannot extract x from infinity
     if len(point_bytes) == 0:
         raise ValueError("Cannot extract x from infinity")
     
+    # Validate point
     if len(point_bytes) != 33:
         raise ValueError(f"Invalid point length: {len(point_bytes)}")
     
     # Validate point is on curve
     P = decode_compressed_point(point_bytes)
     
-    # Extract x-coordinate  
-    return P[0].to_bytes(32, byteorder='big')
+    # Push x-coordinate  
+    stack.append(P[0].to_bytes(32, byteorder='big'))
 ```
 
 ## Resource Limits
 
-As mentioned above, each op code will consume from the per-input sig op budget:
-- `OP_EC_POINT_ADD`: Consumes 10 units from the sigops budget.
-- `OP_EC_POINT_MUL`: Consumes 30 units from the sigops budget.
-- `OP_EC_POINT_NEGATE`: Consumes 5 units from the sigops budget.
-- `OP_EC_POINT_X_COORD`: Consumes 1 unit from the sigops budget.
+As mentioned above, each opcode will consume from the per-input sigops budget:
+- `OP_EC_POINT_ADD`: Consumes 10 units from the sigops budget
+- `OP_EC_POINT_MUL`: Consumes 30 units from the sigops budget
+- `OP_EC_POINT_NEGATE`: Consumes 5 units from the sigops budget
+- `OP_EC_POINT_X_COORD`: Consumes 1 unit from the sigops budget
 
 # Rationale
 
@@ -398,7 +463,7 @@ If we sum up all the cost units, we arrive at 76 units minimum vs 50 units for
 `OP_CHECKSIG`.
 
 All in all, we arrive at a 52% premium for manual derivation vs just using
-`OP_CEHCKSIG`. This ensures that it requires more resources to use the op codes
+`OP_CHECKSIG`. This ensures that it requires more resources to use the opcodes
 for this purpose than normally.
 
 This 52% premium provides strong economic incentive to use the optimized
@@ -406,11 +471,11 @@ OP_CHECKSIG for signature verification rather than reimplementing it manually.
 
 ## Why Are Only 33-byte Points Accepted?
 
-Accepting only 33-byte points simplified usage of these op codes. Otherwise,
+Accepting only 33-byte points simplifies usage of these opcodes. Otherwise,
 chained operations may require the tracking/offset of the parity bit.
 Additionally since the advent of 32-byte public keys for Taproot, many
 developer hours have been spent tracking down bugs related to the information
-lost of converting from 33 byte to 32 byte public keys.
+lost when converting from 33-byte to 32-byte public keys.
 
 An op code to convert to a 32-byte public key `OP_EC_POINT_X_COORD` has been
 provided to facilitate checks against an expected Taproot public key. This is
@@ -433,10 +498,10 @@ scalar.
 ## Why Add Point Negation?
 
 Originally this was omitted. It's possible to compute the negation of a point
-by scalar multiplication by `(n-1) mod p`, however this BIP doesn't defined
+by scalar multiplication by `(n-1) mod n`, however this BIP doesn't define
 scalar operations. 
 
-In addition, the BIP 340 schnorr verification can only be computed by negating
+In addition, the BIP 340 Schnorr verification can only be computed by negating
 the point of the challenge times the public key. Therefore the addition of a
 point negation operation completes this suite.
 
