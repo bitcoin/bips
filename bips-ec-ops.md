@@ -1,13 +1,15 @@
 ```
-  BIP: ????
+  BIP: ???
   Layer: Consensus (soft fork)
-  Title: Elliptic Curve Opcodes
+  Title: Elliptic Curve Operations for Bitcoin Script
   Author: Olaoluwa Osuntokun <laolu32@gmail.com>
-  Comments-URI: ???
+  Comments-Summary: X
+  Comments-URI: X
   Status: Draft
   Type: Standards Track
   Created: 2025-08-22
   License: BSD-3-Clause
+  Requires: 340, 341, 342
 ```
 
 
