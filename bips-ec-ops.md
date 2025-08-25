@@ -13,17 +13,23 @@
 ```
 
 
-# Abstract
+# Introduction
+
+## Abstract
 
 This document specifies a series of Elliptic Curve opcodes for secp256k1. These
-op codes permit Bitcoin Script to carry out the individual Elliptic Curve
+opcodes permit Bitcoin Script to carry out the individual Elliptic Curve
 operations that are used in routine signature generation and validation. When
-combined with op codes such as `OP_CAT` this suite of op code enables a higher
-degree of expressively via composition, as they enable to creation of on-chain
+combined with opcodes such as `OP_CAT` this suite of opcodes enables a higher
+degree of expressivity via composition, as they enable the creation of on-chain
 state machines, by enabling Bitcoin Script programs to recompute a Tapscript
 output public key, from an internal key and a tweak.
 
-# Motivation
+## Copyright
+
+This document is licensed under the 3-clause BSD license.
+
+## Motivation
 
 Taproot was introduced via BIP 341. One of Taproot's major improvements was the
 introduction of the Tapscript tree, which enabled a greater degree of privacy
@@ -50,7 +56,7 @@ With the addition of the `OP_EC_POINT_ADD`, `OP_EC_POINT_MUL`, and
 program gains the ability to recompute the top-level Tapscript output public
 key, and use that in assertions for an on-chain state machine. This creates a
 natural programming pattern wherein state is committed to in the left sub-tree
-of a Taspcript tree, while the actual program being executed is committed to in
+of a Tapscript tree, while the actual program being executed is committed to in
 the right sub-tree. State can be verified via inclusion proofs passed into the
 witness, which can then be executed against the program portion in the right
 sub-tree.
@@ -58,9 +64,9 @@ sub-tree.
 Aside from enabling this on-chain state machine paradigm, the addition of
 routine Elliptic Curve op codes into Bitcoin Script enables dynamic computation
 related to Elliptic Curves. Example use cases include: native blinded signature
-verification, musig key aggregation, partial musig2 signature verification,
-adapter signature operations, JIT DLC computations, and generically a large
-class of Sigma Protocol based on Elliptic Curves.
+verification, partial musig2 signature verification, adapter signature
+operations, JIT DLC computations, and generically a large class of Sigma
+Protocol based on Elliptic Curves.
 
 
 # Preliminaries
@@ -137,13 +143,13 @@ The point-at-infinity is represented by an empty byte slice.
 Points can be converted into their 32-byte x-only counterpart via a dedicated
 op code.
 
-All scalars are encoded as a 32-byte big-endian integer. All scalar values are
-required to be less than the `secp256k1` curve order.
+All scalars are encoded as a 32-byte big-endian integer. Scalar values greater
+than or equal to the curve order n are automatically reduced modulo n.
 
 The existing sig op cost model introduced by BIP 342 is maintained. Each
 introduced op code is assigned a cost designed to ensure that it's more
 expensive to re-create common operations (such as signature verification) using
-these op codes, than via the dedicated `OP_CEHCKSIG` op code
+these opcodes, than via the dedicated `OP_CHECKSIG` opcode
 
 
 # Specification
