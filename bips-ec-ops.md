@@ -505,6 +505,19 @@ In addition, the BIP 340 Schnorr verification can only be computed by negating
 the point of the challenge times the public key. Therefore the addition of a
 point negation operation completes this suite.
 
+## Why Not a Dedicated Taproot Tweak Opcode?
+
+A dedicated `OP_TAPTWEAK` opcode that simply computes `t*G + P` would be more
+limited than our general elliptic curve operations. The proposed opcodes are
+more flexible and enable a broader range of use cases beyond just taproot
+tweaks.
+
+This flexibility comes at minimal additional complexity while greatly expanding
+the design space for future Bitcoin Script innovations.
+
+Importantly, all op codes return the full 33-byte EC point, enabling chained
+operations without needing to account for parity tracking.
+
 # Example Programs
 
 ## Computing a Taproot Tweak
@@ -569,7 +582,7 @@ OP_ROT                          # Stack: [message] [r] [pubkey] [r] [s]
 OP_ROT                          # Stack: [message] [r] [s] [pubkey] [r]
 
 # Compute e = hash(r || pubkey || message) mod n
-# Note: This requires additional op codes to concat the args to hash
+# Note: This requires additional opcodes to concat the args to hash
 # For this example, assume we have e on stack
 <e>                             # Stack: [message] [r] [s] [pubkey] [r] [e]
 
@@ -601,9 +614,49 @@ OP_EQUAL                        # Stack: [message] [r] [bool]
 
 # Backwards Compatibility
 
+As a soft fork using repurposed `OP_SUCCESS` opcodes, this proposal maintains
+full backwards compatibility. Old nodes that have not upgraded will consider any
+script containing these opcodes as automatically valid, preserving consensus.
+New nodes will enforce the rules specified in this document.
+
+No changes to transaction structure, witness format, or existing P2WPKH/P2WSH
+outputs are required. The opcodes are only available in Tapscript (leaf version
+0xc0) and are not valid in legacy Script or Segwit v0 witness programs.
+
+# Deployment
+
+This proposal is deployed as a soft fork using the version bits BIP9/BIP8
+activation mechanism.
+
+### Activation Parameters
+
+TBD
+
+
+# Security Considerations
+
+All validation rules specified in this document are consensus-critical and MUST
+be implemented exactly as specified to prevent chain splits. This includes the
+strict validation of point encodings, scalar ranges, and the handling of edge
+cases like the point at infinity. Any deviation in validation logic between
+implementations could lead to consensus failures.
+
+The resource pricing model has been carefully designed to prevent denial of
+service attacks while remaining practical for legitimate use cases. The sigops
+budget ensures that computationally expensive operations cannot be used to
+create blocks that are slow to validate. The specific costs assigned to each
+opcode reflect their computational complexity and ensure that manual
+implementation of existing operations like signature verification remains more
+expensive than using dedicated opcodes.
+
+Point validation is essential for security. All input points MUST be validated
+to be on the secp256k1 curve before any operations are performed. Accepting
+invalid points could lead to vulnerabilities in protocols built on top of these
+opcodes. 
+
 # Reference Implementation
 
-https://github.com/roasbeef/btcd/tree/ec-op-codes
+https://github.com/roasbeef/btcd/tree/bip-ec-op
 
 # Test Vectors
 
@@ -1204,14 +1257,12 @@ Tests handling of invalid point with x-coordinate = 0xffff...ffff.
 
 ## Additional Test Vectors
 
-All test vectors are available in the `bip-ec-ops/test-vectors/` directory with comprehensive coverage of:
-- Valid operations for all opcodes
-- Invalid encodings and edge cases
-- Budget enforcement tests
-- Stack error conditions
-- Point at infinity handling
-- Invalid point coordinates
+All test vectors are available in the `bip-ec-ops/test-vectors/` directory.
 
 # Changelog
 
+# Acknowledgments
+
 # Copyright
+
+This document is licensed under the 3-clause BSD license.
