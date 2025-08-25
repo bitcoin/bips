@@ -137,8 +137,8 @@ def op_ec_point_mul(stack: list) -> None:
         raise ValueError(f"Invalid scalar length: {len(scalar_bytes)}")
     
     scalar = int.from_bytes(scalar_bytes, byteorder='big')
-    if scalar >= n:
-        raise ValueError(f"Scalar >= curve order")
+    # Reduce modulo n if needed (matches implementation behavior)
+    scalar = scalar % n
     
     # Handle point
     if len(point_bytes) == 0:
