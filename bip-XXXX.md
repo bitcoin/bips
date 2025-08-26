@@ -30,16 +30,16 @@ Bitcoin already leverages x-only key tweaking (for example, Taproot internal to 
 
 ### Stack semantics
 
-Input (top last):
 
 ```
 
-... \[h32] \[pubkey32] OP\_TWEAKADD  ->  ... \[pubkey32\_out]
+... [h32] [pubkey32] OP_TWEAKADD  -> ... [pubkey32_out]
 
-````
+```
+Input:
 
-- `h32`: 32-byte big-endian unsigned integer `t`.
 - `pubkey32`: 32-byte x-only public key (big-endian x coordinate).
+- `h32`: 32-byte big-endian unsigned integer `t`.
 
 Output:
 
@@ -315,3 +315,7 @@ This proposal extends the Taproot tweak mechanism (BIP340/341) into script, insp
 - [ElementsProject: Tapscript opcodes documentation](https://github.com/ElementsProject/elements/blob/master/doc/tapscript_opcodes.md#new-opcodes-for-additional-functionality)
 - [[bitcoin-dev] Merkleize All The Things](https://gnusha.org/pi/bitcoindev/CAMhCMoH9uZPeAE_2tWH6rf0RndqV+ypjbNzazpFwFnLUpPsZ7g@mail.gmail.com/)
 - [Alpen Labs Technical-Whitepaper](https://github.com/alpenlabs/Technical-Whitepaper/tree/76d5279e62fe3f157ae94ffc0514ad2a95c6dbcf)
+
+## Copyright
+
+This BIP is licensed under the [BSD-3-Clause License](https://opensource.org/licenses/BSD-3-Clause).
