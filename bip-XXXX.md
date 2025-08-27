@@ -80,14 +80,13 @@ Note: `t = 0` may fail if `pubkey32` is not valid.
 - Push opcode rather than verification opcode for script compactness.
 - Argument order to permit tweak from witness onto fixed key without OP_SWAP.
 
-## Backwards compatibility
+## Compatibility
 
-- Old nodes: treat unknown tapscript opcode as OP_SUCCESSx.
-- This is a soft-fork change, tapscript-only.
+This is a soft-fork change which is tapscript-only. Un-upgraded nodes will continue
+to treat unknown tapscript opcode as OP_SUCCESSx.
 
-## Future compatibility
-
-- A future OP_CAT or OP_TAPTREE opcode can prepare a tweak for a taproot output key correctly
+A future upgrade, such as an OP_CAT or OP_TAPTREE opcode, can prepare a tweak for a
+taproot output key correctly, if it is needed to create BIP-341 compatible outputs.
 
 ## Deployment
 
