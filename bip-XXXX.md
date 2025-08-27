@@ -118,7 +118,7 @@ def tweak_add(pubkey32: bytes, h32: bytes) -> bytes:
     if Q is None:  # point at infinity
         raise ValueError
     return Q.x.to_bytes(32, 'big')
-````
+```
 
 
 ## Test vectors (Generated)
