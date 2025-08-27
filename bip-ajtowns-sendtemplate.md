@@ -9,6 +9,8 @@
   Type: Standards Track
   Created: 2025-08-08
   License: BSD-3-Clause
+  Post-History: https://gnusha.org/pi/bitcoindev/aJvZwR_bPeT4LaH6@erisian.com.au/T/#u
+                https://delvingbitcoin.org/t/sharing-block-templates/1906
 ```
 
 ## Abstract
@@ -85,6 +87,44 @@ payload as the `template` message. It should be able to provide such
 transactions for a moderate amount of time after sending a template
 (eg, five minutes). If it cannot provide a correct `blocktxns` response,
 it should ignore the request.
+
+## Rationale
+
+### Protocol design
+
+This design closely follows the "low-bandwidth mode" specified in
+[BIP-152][BIP-152], providing a negotiation message, the ability for
+a peer to request data, and a response encoding the data via shortids.
+This is designed to be relatively low bandwidth, but importantly also
+to be simple to implement and deploy in any software that has already
+implemented compact block relay.
+
+### Template size
+
+This BIP specifies a maximum template size equivalent to two blocks'
+worth of transactions. This is chosen so that even if two blocks are
+mined in quick succession, prior templates that were shared using this
+protocol are likely to have included the transactions from both blocks.
+
+If blocks are found randomly, it is expected that 5% of blocks will
+be found within 30 seconds of the previous block, which is about 7 per
+day; so this seems frequent enough to address explicitly. In contrast,
+the chances of finding two blocks within 30 seconds of a block is only
+0.12%, so even in ideal circumstances, is only expected to occur about
+once per week, and thus further optimisation does not seem warranted.
+
+### Forward compatibility
+
+It is likely that improvements can be made to this design, particularly
+to further reduce the bandwidth needed for updating templates. This
+could be achieved by:
+
+  * defining a new payload for the `template` message with a new, more
+    efficient encoding of (changes to) the template data
+  * adding a payload to the `gettemplate` message so that peers can
+    indicate they will accept a new encoding of the template
+  * adding a payload to the `sendtemplate` message to indicate that the
+    `gettemplate` payload will be accepted
 
 ## Recommendations
 
