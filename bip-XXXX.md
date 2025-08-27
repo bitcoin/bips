@@ -121,6 +121,51 @@ def tweak_add(pubkey32: bytes, h32: bytes) -> bytes:
 ```
 
 
+
+## Reference implementation notes
+
+* Reuse BIP340 lift/encode helpers from Taproot verification.
+* Implement `t*G` via fixed-base multiplication, then combine with `P` using point addition.
+* Serialize the result as 32-byte x-only.
+* Charge EC op budget as 50, like `OP_CHECKSIGADD`.
+
+
+## Protocol Design Note: Scalar Adjustment
+
+When working with x-only keys, it is important to remember that each 32-byte value encodes the equivalence class `{P, −P}`.
+BIP340 defines the canonical lift as **the point with even Y**. As a result:
+
+- If an off-chain protocol describes an x-only key as "the point `s·G`," then in consensus terms the actual key is `adj(s)·G`, where:
+
+```
+
+adj(s) = s        if y(s·G) is even
+       = n − s    if y(s·G) is odd
+
+```
+
+- Consequently, `OP_TWEAKADD(x(s·G), t)` always computes:
+
+```
+
+result = x(adj(s)·G + t·G)
+
+```
+
+not simply `x(s·G + t·G)`.
+
+This distinction is invisible when signing or verifying against BIP340 keys, because both `s` and `n − s` yield the same x-only key.
+But it matters when a protocol tries to relate "a tweak applied at the base" (`x(G), t = s`) to "a tweak applied at a derived key" (`x(s·G), t = 1`). In general those will differ unless the original point already had even Y.
+
+
+- If you want consistent algebraic relations across different ways of composing tweaks, **normalize scalars off-chain** before pushing them into script.
+- That is: replace every candidate tweak `s` with `adj(s)`, so that `adj(s)·G` has even Y.
+- A simple library function can perform this parity check and adjustment using libsecp256k1 without a consensus modification or opcode.
+
+If the tweak is derived from inflexible state, such as a transaction hash or a signature, it may be infeasible to depend on commutativity of tweaking.
+Protocols such as LN-Symmetry may simply grind the tx if even-y of tweak is required.
+
+
 ## Test vectors (Generated)
 
 
@@ -249,51 +294,6 @@ C) Infinity result (x(G), t = n-1)
   expect      =  fail
   script      =  <fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140> <79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798> OP_TWEAKADD OP_DROP OP_1
 ```
-
-## Reference implementation notes
-
-* Reuse BIP340 lift/encode helpers from Taproot verification.
-* Implement `t*G` via fixed-base multiplication, then combine with `P` using point addition.
-* Serialize the result as 32-byte x-only.
-* Charge EC op budget as 50, like `OP_CHECKSIGADD`.
-
-
-## Protocol Design Note: Scalar Adjustment
-
-When working with x-only keys, it is important to remember that each 32-byte value encodes the equivalence class `{P, −P}`.
-BIP340 defines the canonical lift as **the point with even Y**. As a result:
-
-- If an off-chain protocol describes an x-only key as "the point `s·G`," then in consensus terms the actual key is `adj(s)·G`, where:
-
-```
-
-adj(s) = s        if y(s·G) is even
-       = n − s    if y(s·G) is odd
-
-```
-
-- Consequently, `OP_TWEAKADD(x(s·G), t)` always computes:
-
-```
-
-result = x(adj(s)·G + t·G)
-
-```
-
-not simply `x(s·G + t·G)`.
-
-This distinction is invisible when signing or verifying against BIP340 keys, because both `s` and `n − s` yield the same x-only key.
-But it matters when a protocol tries to relate "a tweak applied at the base" (`x(G), t = s`) to "a tweak applied at a derived key" (`x(s·G), t = 1`). In general those will differ unless the original point already had even Y.
-
-
-- If you want consistent algebraic relations across different ways of composing tweaks, **normalize scalars off-chain** before pushing them into script.
-- That is: replace every candidate tweak `s` with `adj(s)`, so that `adj(s)·G` has even Y.
-- A simple library function can perform this parity check and adjustment using libsecp256k1 without a consensus modification or opcode.
-
-If the tweak is derived from inflexible state, such as a transaction hash or a signature, it may be infeasible to depend on commutativity of tweaking.
-Protocols such as LN-Symmetry may simply grind the tx if even-y of tweak is required.
-
-
 
 ## Acknowledgements
 
