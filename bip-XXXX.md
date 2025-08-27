@@ -49,28 +49,23 @@ Output:
 
 Let `n` be the secp256k1 curve order.
 
-1. Parse `h32` as big-endian integer `t`. If `t >= n`, fail.
-2. Interpret `pubkey32` as an x-coordinate and attempt the BIP340 even-Y lift:
+1. If `h32` or `pubkey32` are not 32 bytes, fail.
+2. Parse `h32` as big-endian integer `t`. If `t >= n`, fail.
+3. Interpret `pubkey32` as an x-coordinate and attempt the BIP340 even-Y lift:
    - If no curve point exists with that x, fail.
    - Otherwise, obtain `P` with even Y.
-3. Compute `Q = P + t*G`. If `Q` is the point at infinity, fail.
-4. Push `x(Q)` as a 32-byte big-endian value.
+4. Compute `Q = P + t*G`. If `Q` is the point at infinity, fail.
+5. Push `x(Q)` as a 32-byte big-endian value.
 
 Note: `t = 0` may fail if `pubkey32` is not valid.
 
 #### Script evaluation rules
 
-0. If less than 2 stack elements, fail.
-1. Pop `pubkey32` and then `h32`
-2. If either length is not 32, fail.
-3. Run `tweak_add` as above.
-4. Push the 32-byte x-only result.
-
-### Conventions
-
-- X-only keys follow BIP340 conventions (even-Y).
-- Scalars must be exactly 32 bytes, big-endian, and less than `n`.
-- Non-32-byte inputs fail (consensus). Minimal push rules apply (policy).
+1. If less than 2 stack elements, fail.
+2. Pop `pubkey32` and then `h32`
+3. If either length is not 32, fail.
+4. Run `tweak_add` as above.
+5. Push the 32-byte x-only result.
 
 ### Resource usage
 
