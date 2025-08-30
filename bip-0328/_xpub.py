@@ -83,8 +83,8 @@ def deserialize_point(b: bytes) -> Point:
 def bytes_to_point(point_bytes: bytes) -> Point:
     header = point_bytes[0]
     if header == 4:
-        x = point_bytes = point_bytes[1:33]
-        y = point_bytes = point_bytes[33:65]
+        x = point_bytes[1:33]
+        y = point_bytes[33:65]
         return (int(binascii.hexlify(x), 16), int(binascii.hexlify(y), 16))
     return deserialize_point(point_bytes)
 
