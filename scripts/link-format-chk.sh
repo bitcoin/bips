@@ -7,9 +7,10 @@
 # Check wrong mediawiki link format
 
 ECODE=0
+shopt -s nullglob
 for fname in *.mediawiki; do
-    GRES=$(grep -n '](http' $fname)
-    if [ "$GRES" != "" ]; then
+    GRES=$(grep -n '](http' "$fname")
+    if [ -n "$GRES" ]; then
         if [ $ECODE -eq 0 ]; then
             >&2 echo "Github Mediawiki format writes link as [URL text], not as [text](url):"
         fi
