@@ -138,7 +138,7 @@ class WalletPolicy(object):
             for op_pos_start in find_all(descriptor, op + "("):
 
                 # ignore if not a whole word (otherwise "sortedmulti" would be found inside "multi")
-                if op_pos_start > 0 and 'a' <= desc[op_pos_start - 1] <= 'z':
+                if op_pos_start > 0 and 'a' <= descriptor[op_pos_start - 1] <= 'z':
                     continue
 
                 if op in operators_key_all_but_first:
