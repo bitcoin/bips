@@ -130,7 +130,6 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
         # Input privkeys sum is zero -> fail
         return []
     assert ECKey().set(bytes.fromhex(expected.get("input_private_key_sum"))) == a_sum, "a_sum did not match expected input_private_key_sum"
-
     input_hash = get_input_hash(outpoints, a_sum * G)
     silent_payment_groups: Dict[ECPubKey, List[ECPubKey]] = {}
     for recipient in recipients:
@@ -148,7 +147,6 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
     outputs = []
     for B_scan, B_m_values in silent_payment_groups.items():
         ecdh_shared_secret = input_hash * a_sum * B_scan
-        
         expected_shared_secrets = expected.get("shared_secrets", {})
         # Find the recipient address that corresponds to this B_scan and get its index
         for recipient_idx, recipient in enumerate(recipients):
@@ -157,7 +155,6 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
                 expected_shared_secret_hex = expected_shared_secrets[recipient_idx]
                 assert ecdh_shared_secret.get_bytes(False).hex() == expected_shared_secret_hex, f"ecdh_shared_secret did not match expected, recipient {recipient_idx} ({recipient['address']}): expected={expected_shared_secret_hex}"
                 break
-
         k = 0
         for B_m in B_m_values:
             t_k = TaggedHash("BIP0352/SharedSecret", ecdh_shared_secret.get_bytes(False) + ser_uint32(k))
@@ -173,10 +170,8 @@ def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: byte
     input_hash_key = ECKey().set(input_hash)
     computed_tweak_point = input_hash_key * A_sum
     assert computed_tweak_point.get_bytes(False).hex() == expected.get("tweak"), "tweak did not match expected"
-    
     ecdh_shared_secret = input_hash * b_scan * A_sum
     assert ecdh_shared_secret.get_bytes(False).hex() == expected.get("shared_secret"), "ecdh_shared_secret did not match expected shared_secret"
-    
     k = 0
     wallet = []
     while True:
