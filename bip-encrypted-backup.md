@@ -92,7 +92,7 @@ Note: in the followings sections, the operator ⊕  refers to the bitwise XOR op
 ### Secret generation
 
 - Let $p_1, p_2, \dots, p_n$, be the public keys in the descriptor/wallet policy, in increasing lexicographical order
-- Let $s = \textrm{sha256("BEB_DECRYPTION_SECRET"} \| p_1 \| p_2 \| \dots \| p_n\textrm{)}$
+- Let $s = sha256(`"BE_DECRYPTION_SECRET"` \| p_1 \| p_2 \| \dots \| p_n)$
 - Let $s_i = \operatorname{sha256}(``\textrm{BEB_INDIVIDUAL_SECRET}" \| p_i)$
 - Let $c_i = s \oplus s_i $
 
