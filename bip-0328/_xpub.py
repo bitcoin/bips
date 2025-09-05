@@ -134,7 +134,7 @@ class ExtendedKey(object):
         :param xpub: The Base58 check encoded xpub
         """
         data = base58.decode_check(xpub)
-        if len(data) != 78:
+        if len(data) != 78:  # BIP32 Serialization Format defines a 78-byte structure.
             raise ValueError("Invalid extended key length")
         return cls.from_bytes(data)
 
