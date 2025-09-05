@@ -92,8 +92,8 @@ Note: in the followings sections, the operator ⊕  refers to the bitwise XOR op
 ### Secret generation
 
 - Let $p_1, p_2, \dots, p_n$, be the public keys in the descriptor/wallet policy, in increasing lexicographical order
-- Let $s =$ sha256("BEB_DECRYPTION_SECRET" $\| p_1 \| p_2 \| \dots \| p_n)$
-- Let $s_i =$ sha256("BEB_INDIVIDUAL_SECRET" $\| p_i)$
+- Let $s = sha256($ "BEB_DECRYPTION_SECRET" $\| p_1 \| p_2 \| \dots \| p_n)$
+- Let $s_i = sha256($ "BEB_INDIVIDUAL_SECRET" $\| p_i)$
 - Let $c_i = s \oplus s_i $
 
 ### AES-GCM Encryption
