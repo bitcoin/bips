@@ -1,4 +1,5 @@
 import binascii
+from functools import cmp_to_key
 
 #returns -1 if barr1 is less, 1 if barr1 is greater, and 0 if equal
 def bytearr_cmp(barr1, barr2):
@@ -32,7 +33,7 @@ def input_cmp(input_tuple1, input_tuple2):
 		raise ValueError('Matching previous transaction hash and previous transaction output index for two distinct inputs. Invalid!')
 
 def sort_inputs(input_tuples):
-	return sorted(input_tuples, cmp=input_cmp)
+	return sorted(input_tuples, key=cmp_to_key(input_cmp))
 
 def print_inputs(ordered_input_tuples):
 	index = 0
@@ -52,7 +53,7 @@ def output_cmp(output_tuple1, output_tuple2):
 	return bytearr_cmp(output_tuple1[1], output_tuple2[1])
 
 def sort_outputs(output_tuples):
-	return sorted(output_tuples, cmp=output_cmp)
+	return sorted(output_tuples, key=cmp_to_key(output_cmp))
 
 def print_outputs(ordered_output_tuples):
 	index = 0
