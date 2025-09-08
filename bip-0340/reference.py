@@ -148,7 +148,7 @@ def test_vectors() -> bool:
     all_passed = True
     with open(os.path.join(sys.path[0], 'test-vectors.csv'), newline='') as csvfile:
         reader = csv.reader(csvfile)
-        reader.__next__()
+        next(reader)
         for row in reader:
             (index, seckey_hex, pubkey_hex, aux_rand_hex, msg_hex, sig_hex, result_str, comment) = row
             pubkey = bytes.fromhex(pubkey_hex)
