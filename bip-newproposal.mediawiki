@@ -1,118 +1,139 @@
-# BIP: TBD
-# Title: PQ-Derived Schnorr: Hybrid Post-Quantum and Schnorr Signatures
-# Author: [Caleb Lee] director@j1729labs.online, [Justin Park] justin7361@j1729labs.online, [Eunice Lee] cuspro0103@j1729labs.online, [Sophia Shim] zypo1015@j1729labs.online
-# Status: Draft
-# Type: Standards Track
-# Created: 2025-07-02
-# License: BSD-2-Clause
+<pre>
+  BIP: TBD
+  Title: PQ-Derived Schnorr: Hybrid Post-Quantum and Schnorr Signatures
+  Author: Author: [Caleb Lee] director@j1729labs.online, [Justin Park] justin7361@j1729labs.online, [Eunice Lee] cuspro0103@j1729labs.online, [Sophia Shim] zypo1015@j1729labs.online
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-07-02
+  License: BSD-2-Clause
+</pre>
 
-## Abstract
+==Abstract==
 
-This BIP proposes **PQ-Derived Schnorr**, a hybrid signature scheme combining CRYSTALS-Dilithium (post-quantum) with Schnorr signatures (BIP340). The scheme enables **post-quantum secure transactions** while maintaining **compatibility with existing Bitcoin infrastructure**. Verification on-chain uses only a 64-byte Schnorr segment, while full Dilithium verification can be enforced by Tier-2/archive nodes. The proposal introduces a new Taproot leaf version and optional `OP_CHECKSIG_QES2` opcode to support hybrid verification.
+This BIP proposes '''PQ-Derived Schnorr''', a hybrid signature scheme that cryptographically binds a post-quantum signature (CRYSTALS-Dilithium) with Schnorr signatures (BIP340).  
+The scheme enables post-quantum secure transactions while maintaining compatibility with existing Bitcoin infrastructure.  
 
-## Motivation
+Verification on-chain uses only a 64-byte Schnorr segment, while full Dilithium verification can be enforced by Tier-2/archive nodes.  
+The proposal introduces a new Taproot leaf version and an optional <code>OP_CHECKSIG_QES2</code> opcode to support hybrid verification.
 
-Quantum computing poses an existential threat to elliptic curve cryptography. Shor’s algorithm renders discrete logarithm-based signatures (ECDSA, Schnorr) insecure. While NIST has standardized post-quantum signatures (e.g., CRYSTALS-Dilithium), direct integration into Bitcoin faces challenges:
+==Motivation==
 
-- Large signature sizes (2–5 KB vs. 64 bytes for Schnorr).
-- Different verification algorithms requiring new operations.
-- Compatibility issues with Taproot and existing infrastructure.
+Quantum computing poses a fundamental threat to elliptic curve cryptography.  
+Shor’s algorithm renders discrete logarithm-based signatures (ECDSA, Schnorr) insecure.  
 
-**PQ-Derived Schnorr** addresses these by:
+NIST has standardized post-quantum signatures such as CRYSTALS-Dilithium, but direct integration into Bitcoin faces obstacles:
+* Large signature sizes (2–5 KB vs. 64 bytes for Schnorr).
+* Different verification algorithms requiring new opcodes.
+* Compatibility issues with Taproot and existing Bitcoin consensus.
 
-- Using **Dilithium off-chain** for quantum resistance.
-- Using **Schnorr on-chain** for compatibility.
-- Binding both components cryptographically, preventing mix-and-match attacks.
+'''PQ-Derived Schnorr''' addresses these by:
+* Using Dilithium off-chain for quantum resistance.
+* Using Schnorr on-chain for efficiency and compatibility.
+* Binding both signature components cryptographically to prevent mix-and-match attacks.
 
-## Specification
+==Specification==
 
-### 1. Key Generation
+===1. Key Generation===
+* Generate Dilithium key pair: <code>(pk_dil, sk_dil)</code>.
+* Generate Schnorr key pair: <code>(pk_sch, sk_sch)</code>.
+* Hybrid key: <code>pk = (pk_dil, pk_sch)</code>.
 
-- Generate Dilithium key pair: `(pk_dil, sk_dil)`.
-- Generate Schnorr key pair: `(pk_sch, sk_sch)`.
-- Hybrid key: `pk = (pk_dil, pk_sch)`.
+===2. Signing===
+# Compute Dilithium signature <code>(c, z)</code> on message <code>m</code>.
+# Compute binding hash <code>h = H2(c || m)</code>.
+# Generate Schnorr signature <code>(R, s)</code> on <code>h</code>.
+# Hybrid signature: <code>σ = ((c, z), (R, s))</code>.
 
-### 2. Signing
+===3. Verification===
+; Classical Mode (default)
+: Compute <code>h = H2(c || m)</code>.  
+: Verify <code>(R, s)</code> with <code>pk_sch</code>.  
+: Ensures lightweight on-chain validation (BIP340-compatible).  
 
-1. Compute Dilithium signature `(c, z)` on message `m`.
-2. Compute binding hash `h = H2(c || m)`.
-3. Generate Schnorr signature `(R, s)` on `h`.
-4. Hybrid signature: `σ = ((c, z), (R, s))`.
+; Full Hybrid Mode (Tier-2)
+: Verify Dilithium <code>(c, z)</code> with <code>pk_dil</code>.  
+: Verify Schnorr <code>(R, s)</code> with <code>pk_sch</code>.  
+: Provides full post-quantum security.
 
-### 3. Verification
+===4. Bitcoin Script Integration===
+* '''Taproot Leaf Extension'''  
+<syntaxhighlight lang="text">
+OP_1 <pubkey_combined> OP_CHECKSIG_HYBRID
+</syntaxhighlight>
 
-- **Classical Mode (default)**  
-  - Compute `h = H2(c || m)`.
-  - Verify `(R, s)` with `pk_sch`.  
-  - Ensures lightweight on-chain validation (BIP340-compatible).
+: <code>pubkey_combined = (pk_dil, pk_sch)</code>  
+: <code>OP_CHECKSIG_HYBRID</code>: verifies Schnorr on-chain, binds Dilithium off-chain.
 
-- **Full Hybrid Mode (Tier-2)**  
-  - Verify Dilithium `(c, z)` with `pk_dil`.  
-  - Verify Schnorr `(R, s)` with `pk_sch`.  
-  - Provides full post-quantum security.
+* '''Soft Fork Opcode'''  
+Introduce <code>OP_CHECKSIG_QES2</code>:  
+<syntaxhighlight lang="text">
+Stack: [signature, pubkey]
+Parse σ = ((c,z),(R,s)), pk = (pk_dil, pk_sch)
+h = H2(c||message)
+result = Schnorr.Verify(pk_sch, h, (R,s))
+Push result
+</syntaxhighlight>
 
-### 4. Bitcoin Script Integration
+===5. Transaction Format===
+* Public key: 33 bytes (unchanged).  
+* Schnorr signature: 64 bytes (unchanged).  
+* Witness: includes Dilithium challenge vector <code>c</code>.  
+* Off-chain storage: full Dilithium <code>(c, z)</code>.  
 
-- **Taproot Leaf Extension**  
+==Rationale==
 
-  ```
-  OP_1 <pubkey_combined> OP_CHECKSIG_HYBRID
-  ```
+* '''Efficiency''': Only Schnorr (64 bytes, O(λ) ops) validated on-chain.  
+* '''Security''': Dilithium ensures quantum resistance; Schnorr ensures compatibility.  
+* '''Modularity''': Full verification optional for archive/Tier-2 nodes.  
+* '''Backward compatibility''': Transactions indistinguishable from Schnorr-only.
 
-  - `pubkey_combined = (pk_dil, pk_sch)`  
-  - `OP_CHECKSIG_HYBRID`: verifies Schnorr on-chain, binds Dilithium off-chain.
+==Comparison: QES2_ECDSA vs QES2_Schnorr==
 
-- **Soft Fork Opcode**  
+Early versions of QES2 proposed a hybrid with ECDSA. However:
+* ECDSA lacks native Taproot support and adds legacy script complexity.
+* Schnorr (BIP340) integrates seamlessly with Taproot.  
+* QES2_Schnorr eliminates the need to expose public keys directly in the script path.  
+* Key-path spend is intentionally disabled to ensure that PQC guarantees are always enforced via script path commitments.
 
-  Introduce `OP_CHECKSIG_QES2`:
+Thus, QES2_Schnorr is preferred as the long-term solution.
 
-  ```
-  Stack: [signature, pubkey]
-  Parse σ = ((c,z),(R,s)), pk = (pk_dil, pk_sch)
-  h = H2(c||message)
-  result = Schnorr.Verify(pk_sch, h, (R,s))
-  Push result
-  ```
+==Taproot Script Path Considerations==
 
-### 5. Transaction Format
+* PQ-Derived Schnorr is integrated via Taproot leaves only.  
+* Key-path spend is disabled to avoid bypassing Dilithium binding.  
+* This ensures that all spends must go through the hybrid verification path, preserving post-quantum guarantees.  
 
-- Public key: 33 bytes (unchanged).  
-- Schnorr signature: 64 bytes (unchanged).  
-- Witness: includes Dilithium challenge vector `c`.  
-- Off-chain storage: full Dilithium `(c, z)`.
+==Relation to P2QRH==
 
-## Rationale
+P2QRH (Pay-to-Quantum-Resistant-Hash) has been proposed as a generic quantum-safe output format.  
+PQ-Derived Schnorr is compatible and potentially complementary:
+* P2QRH provides quantum-safe key commitment.  
+* PQ-Derived Schnorr provides quantum-safe transaction signatures.  
+* Together, they can form a layered defense against quantum adversaries.  
 
-- **Efficiency**: Only Schnorr (64 bytes, O(λ) operations) is validated on-chain.  
-- **Security**: Dilithium ensures quantum resistance; Schnorr ensures compatibility.  
-- **Modularity**: Full verification is optional (archive/Tier-2 nodes).  
-- **Backward compatibility**: Transactions look identical to Schnorr-only transactions on-chain.
+==Backward Compatibility==
 
-## Backward Compatibility
+* Legacy nodes interpret PQ-Derived Schnorr transactions as standard Schnorr.  
+* Dilithium verification is optional off-chain and does not affect consensus.  
+* New opcode <code>OP_CHECKSIG_QES2</code> can be activated via soft fork.  
 
-- Nodes that do not upgrade see PQ-Derived Schnorr transactions as **standard Schnorr**.  
-- Off-chain Dilithium verification is optional and does not break consensus.  
-- New opcode (`OP_CHECKSIG_QES2`) can be introduced via **soft fork**.
+==Security Considerations==
 
-## Security Considerations
+* Schnorr-only reliance collapses under quantum adversaries.  
+* Full Dilithium verification is necessary for PQC security.  
+* Binding <code>h = H2(c || m)</code> prevents mixing Schnorr and Dilithium signatures.  
+* Off-chain storage redundancy (e.g., IPFS, Arweave) is required for Dilithium proofs.  
 
-- If Schnorr alone is relied upon, security collapses under quantum adversaries.  
-- Full security requires Dilithium verification (Tier-2 nodes or optional validation).  
-- Binding `h = H2(c || m)` prevents mixing Dilithium and Schnorr components.  
-- Off-chain storage availability is required; redundancy mechanisms (IPFS, Arweave, etc.) are recommended.
+==Reference Implementation==
 
-## Reference Implementation
+* CRYSTALS-Dilithium v3 (NIST PQC Standard).  
+* BIP340 Schnorr (secp256k1).  
+* Prototype implementation in C/Python: [link if applicable].  
 
-- CRYSTALS-Dilithium v3 (NIST PQC Standard).  
-- BIP340 Schnorr (secp256k1).  
-- Prototype implementation in C/Python available at: [link if applicable].
+==References==
+* BIP 340: Schnorr Signatures for secp256k1  
+* CRYSTALS-Dilithium, NIST PQC Standard  
+* J1729 Research Team, ''QES2_final.pdf'' (2025)  
+* [QES2 Research Paper (J1729Labs)](https://j1729labs.site/assets/QES2%20(2)_1756078951635-DfQQ4Pp_.pdf)  
+* [QES2 Schnorr Whitepaper](https://pqc-function.xyz/assets/QES2_Schnorr__Algorithm_1751460046783.pdf)  
 
-## References
-
-- BIP 340: Schnorr Signatures for secp256k1  
-- CRYSTALS-Dilithium, NIST PQC Standard  
-- QES2_final.pdf (J1729 Research Team, 2025)  
-
-7. Grover, L.K. "A Fast Quantum Mechanical Algorithm for Database Search." Proceedings of the 28th Annual ACM Symposium on Theory of Computing, 1996.
-8. Bindel, N., et al. "Hybrid Key Encapsulation Mechanisms and Authenticated Key Exchange." Post-Quantum Cryptography, 2019.
-9. Crockett, E., et al. "A Note on the Dual-Signature Approach to Key Confirmation." Cryptology ePrint Archive, Report 2021.
