@@ -119,7 +119,7 @@ descriptor/wallet policy.
 
 The encrypted backup must be encoded as follows:
 
-`MAGIC` `VERSION` `DERIVATION_PATHS` `INDIVIDUAL_SECRETS` `CONTENT` `ENCRYPTION`
+`MAGIC` `VERSION` `DERIVATION_PATHS` `INDIVIDUAL_SECRETS` `ENCRYPTION`
 `ENCRYPTED_PAYLOAD`
 
 #### Magic
@@ -164,17 +164,29 @@ The `INDIVIDUAL_SECRETS` section follows this format:
 `COUNT`: 1-byte unsigned integer (1–255) indicating how many secrets are included.  
 `INDIVIDUAL_SECRET`: 32-byte serialization of the derived individual secret.
 
+#### Ciphertext
+
+`CIPHERTEXT` is the encrypted data resulting encryption of `PAYLOAD` with algorithm
+defined in `TYPE` where `PAYLOAD` is encoded following this format:
+
+`CONTENT` `PLAINTEXT`
+
 #### Content
 
-`CONTENT`: 1-byte unsigned integer identifying what has been encrypted.
+`CONTENT` is a variable length field defining the type of `PLAINTEXT` being encrypted,
+it follows this format:
 
-| Value  | Definition                             |
-|:-------|:---------------------------------------|
-| 0x00   | Undefined                              |
-| 0x01   | BIP-0380 Descriptor (string)           |
-| 0x02   | BIP-0388 Wallet policy (string)        |
-| 0x03   | BIP-0329 Labels (JSONL)                |
-| 0x04   | Wallet backup (JSON)                   |
+`LENGTH` `VARIANT`
+
+`LENGTH`: 1-byte unsigned integer representing the length of `CONTENT` content.  
+`VARIANT`: there is 3 variants:  
+ - if `LENGTH` == 0, it represent undefined content, no `VARIANT` follow.
+ - if `LENGTH` == 2, `VARIANT` is 2-byte big-endian signed integer representing
+ the related BIP number that defines the exact content category.
+ - if 2 < `LENGTH` < 0xFF, `VARIANT` is `LENGTH` additional bytes carrying opaque,
+ vendor-specific data.
+
+Note: `LENGTH` = 0xFF is reserved for futures extensions.
 
 #### Encrypted Payload
 
