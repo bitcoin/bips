@@ -1,0 +1,335 @@
+<pre>
+  BIP: TBD
+  Layer: Applications
+  Title: Guardian Address Signal Protocol (GASPv1)
+  Author: Bitcoin Guardian <bitcoinguardian@proton.me>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-?
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-09-19
+  License: BSD-3-Clause
+</pre>
+
+==Abstract==
+
+This BIP defines the Guardian Address Signal Protocol (GASPv1), an application layer standard for broadcasting emergency Lock and Unlock signals that are interpreted as a distress message by bitcoin wallets. A Guardian Address is a separate bitcoin address, controlled by the user but distinct from their spending wallet, that emits `OP_RETURN` transactions with a standardized protocol payload. Wallets configured to observe a Guardian Address enforce Lock or Unlock states based on these signals, preventing spending activity while locked.
+
+The protocol is backwards compatible with existing nodes and wallets, lightweight enough for use by mobile clients, and does not require consensus changes. Guardian signalling enables rapid coordination across self-custodial and custodial wallets during coercion, theft, or compromise events.
+
+==Motivation==
+
+Bitcoin users are increasingly the targets of physical threats including robbery and coercion[^1]. A non-exhaustive list is maintained with details of physical attacks on bitcoin users[^2], which provides some insight into the prevalence and severity of attacks. Notably the incidence of attacks is also increasing.
+
+This BIP introduces an interoperable mechanism that allows users to operate a self-sovereign "kill switch", that locks wallets when activated. Cooperating wallets prohibit the spending of UTXOs when activated.
+
+==Specification==
+
+### 1. Guardian Design
+
+This BIP uses RFC2119[^5] terminology for wallet integrators to implement the Guardian Address signalling protocol.
+
+A Guardian Address is any valid bitcoin address controlled by the user but separate from their spending wallet. Its purpose is to publish an on-chain signal indicating that the wallet(s) it guards MUST be locked. The Guardian Address is unaware of the wallet(s) it guards. It is recommended that the Guardian Address SHOULD only be used for guard function, and MUST NOT be the same as the spending wallet. The private key material for the Guardian Address must be physically separate from the user to prevent forced signalling by an attacker. An address becomes a Guardian by broadcasting an `Unlock` signal transaction. The `Unlock` signal sets `guardv1.Lock=false#nonce` and instantiates the address to act as a Guardian Address.
+
+The user sets a configuration entity within the wallet software that uses the Guardian Address controlled by the user. The wallet validates that the address provided is an instantiated Guardian Address. The wallet monitors the Guardian Address for state changes that indicate a `Lock` signal has been broadcast. In this event, the wallet prevents Guardian Address modification and the ability to spend UTXOs.
+
+BIP-158 Neutrino filters[^4] may be used by light/mobile clients to determine the latest Guardian Lock state by filtering `OP_RETURN` transactions for the Guardian Address and canonical identifier. They then evaluate the latest `Lock` state boolean operand.
+
+#### Guardian Instantiation & Wallet Setup
+
+Bob wants to enhance his security posture by using a Guardian Address to protect his wallet. Using a fresh (i.e. previously unused) address with separate key material from his spending wallet, he signs and broadcasts a Guardian `Unlock`. A common pattern is to set `nonce=1` to clearly view the instantiated address. The Guardian Address is now instantiated for use and is unlocked.
+
+To protect Bob's wallet, he must enter the Guardian Address public key into the wallet configuration. The wallet software validates that the Guardian Address is instantiated and unlocked, and the wallet will monitor the address for Guardian signals.
+
+Bob spends UTXOs from his wallet. The wallet software checks the latest Guardian state, including pending transactions in the mempool, and as the Guardian is unlocked the wallet permits the transaction.
+
+![Guardian Setup](bip-XXXX/guardian-setup.png)
+
+#### Guardian Lock
+
+Bob has signed a Guardian Lock transaction with the private key of the Guardian Address. He has this pre-signed available to him ready to use when required. The design intentionally removes the requirement to carry the Guardian Address private key material with him.
+
+Bob is under duress and wishes to lock his Bitcoin wallets. He broadcasts his pre-signed Lock signal from the Guardian. As soon as it is visible in the mempool, wallets prevent spending any UTXOs.
+
+![Guardian Lock](bip-XXXX/guardian-lock.png)
+
+
+#### Guardian Unlock
+
+The attack on Bob is over and the threat has been mitigated. Bob wishes to regain access to his wallets and does so by broadcasting a Guardian Unlock transaction with the private key of the Guardian Address.
+
+The unlock signal with a incremented monotonic nonce signals to his self-hosted and centralized wallets that UTXOs may be spent and changes can be made. Guardian Addresses are reusable.
+
+![Guardian Unlock](bip-XXXX/guardian-unlock.png)
+
+### 2. Guardian Signal Grammar
+
+Guardian signals MUST conform to the following ABNF[^6] grammar:
+
+```abnf
+; Guardian v1 protocol message
+signal   = prefix "." lockkey "=" lockval "#" nonce
+
+prefix   = "guardv1"
+lockkey  = "Lock"
+lockval  = "true" / "false"
+nonce    = nonzero / "0"
+
+; Decimal integer without leading zeros
+nonzero  = %x31-39 *DIGIT
+DIGIT    = %x30-39
+```
+
+#### Parsing Rules
+
+Wallets MUST treat the payload as case sensitive.
+Wallets MUST only accept signals that exactly match the above grammar.
+Wallets MUST reject malformed payloads even if the transaction is otherwise valid.
+Wallets MUST ignore (not act upon) invalid signals but SHOULD log them for audit.
+The nonce is an unsigned 32 bit integer. Wallets MUST reject values outside 0 ≤ nonce ≤ 2^32−1.
+Wallets MUST reject nonces with leading zeros (e.g., "003") unless the value is exactly "0".
+Wallets MUST reject payloads longer than 40 bytes.
+
+Examples of Valid Signals:
+* guardv1.Lock=true#1
+* guardv1.Lock=false#42
+
+Examples of Invalid Signals (REJECT)
+
+* guardv1.Lockfalse#3 (missing =)
+* guardv1.lock=true#1 (case mismatch in key)
+* guardv1.Lock=true#0003 (leading zeros not allowed)
+* guardv1.Lock=true#abc (nonce not decimal)
+* guardv1.Lock=true (missing #<nonce>)
+* guardv1.Lock=true#4294967296 (nonce exceeds 2^32−1)
+
+Lock and Unlock signals are both instances of this grammar.
+
+### 3. Signal Format
+
+A Guardian Unlock transaction includes a standard Bitcoin `OP_RETURN` output used to signal an `Unlock` event to compatible wallets. The transaction MUST be broadcast to the Bitcoin blockchain and SHOULD be visible in the mempool.
+
+#### OP_RETURN Format
+
+`OP_RETURN <data>`
+
+Where `<data>` is a UTF-8 encoded ASCII string using the following structure:
+
+`guardv1.Lock=false#1`
+
+* `Prefix`: guardv1 is the canonical identifier for version 1 of the Guardian signalling protocol.
+* `Key`: `Lock` is the operation type.
+* `value`: `Lock=true` MUST be interpreted as “wallet locked” and `Lock=false` MUST be interpreted as “wallet unlocked.”
+* `nonce`: Monotonic nonce used to prevent replay attacks. Value is a decimal ASCII encoded 32 bit unsigned integer.
+
+This string is embedded in the `OP_RETURN` output as raw ASCII bytes, prefixed by its length.
+
+#### Unlock Example
+
+`OP_RETURN` output in hex:
+
+`6a14677561726476312e4c6f636b3d66616c73652331`
+
+* `6a` is the `OP_RETURN` opcode
+* `14` is the pushdata length (20 bytes)
+* `677561726476312e4c6f636b3d66616c73652331` is ASCII bytes for `guardv1.Lock=false#1`
+
+#### Lock Example
+
+`OP_RETURN` output in hex:
+
+`6a13677561726476312e4c6f636b3d747275652332`
+
+* `6a` is the `OP_RETURN` opcode
+* `13` is the pushdata length (19 bytes)
+* `677561726476312e4c6f636b3d747275652332` is ASCII bytes for `guardv1.Lock=true#2`
+
+Clients MUST parse the `OP_RETURN` data and verify it matches the expected prefix and key to respond accordingly.
+
+### 4. Protocol Transaction Structure
+
+A Guardian protocol message is a standard Bitcoin transaction constructed to carry a `Lock` or `Unlock` signal.
+
+**Transaction Structure**
+
+The transaction MUST be signed with `SIGHASH_ALL` to prevent post signature modifications.
+
+Both pre-signed `Lock` and `Unlock` transactions MUST set `nSequence = 0xffffffff` to disable RBF, preserving protocol signal integrity.
+
+The following inputs and outputs MUST be used:
+
+**Inputs**
+
+* One standard `P2WPKH` input.
+* The input MUST be sourced from an unspent output controlled by the Guardian Address.
+* Users MUST reserve a dedicated UTXO in the Guardian Address for signalling purposes to ensure availability of funds and pre-signed transaction validity.
+
+**Outputs**
+
+* One `OP_RETURN` output containing the signal payload as defined in this BIP.
+* One `P2WPKH` change output returning the remaining funds (input minus fee) to the same Guardian Address.
+
+**Fees**
+
+The transaction MUST pay a fee rate sufficient for prompt relay and inclusion.
+
+Users SHOULD pre-sign `Lock` transactions at or above the prevailing long term median fee rate to ensure validity at the time of use.
+
+**Transaction Weight**
+
+A canonical Guardian signal transaction with one input, one `OP_RETURN`, and one `P2WPKH` change output is approximately 141 vBytes.
+
+The exact size depends on the length of the nonce in the signal string, with a larger nonce requiring a larger fee.
+
+**Broadcasting**
+
+A Guardian signal transaction MUST be valid under Bitcoin consensus rules and MUST be broadcast to the Bitcoin network.
+
+Wallets and services implementing this BIP MUST treat a Guardian signal as effective once the transaction is visible in the mempool, and MUST NOT require block confirmation before enforcing lock state.
+
+### 5. Signal Boxes
+
+A single Guardian signal transaction may fail to confirm promptly if the pre-signed fee rate is below prevailing mempool conditions. It is also fragile, since the dedicated signal UTXO may be accidentally spent in a non-signal transaction.
+
+A Signal Box mitigates these risks by allowing a user to pre-sign multiple transactions with the same Guardian protocol payload and nonce, each spending from a distinct Guardian UTXO. These transactions may differ in fee rate or broadcasting method, but they all represent the same state transition.
+
+Signal Boxes provide two benefits:
+
+* Fee Band Coverage: Users MAY prepare several signals with varied fee rates to increase the chance of fast block inclusion.
+* Redundancy: Users MAY hold or distribute different transactions from the same Signal Box across devices or trusted channels, ensuring that at least one signal can be broadcast in an emergency.
+
+A Signal Box is a set of N ≥ 1 pre-signed transactions using the same Guardian Address and the same nonce, but differing in fee rates and/or activation mechanism.
+
+**Construction Guidelines**
+
+Each Signal UTXO SHOULD be sized to cover dust and a fee rate sufficient for the intended priority.
+
+Users SHOULD reserve these UTXOs exclusively for signalling and SHOULD label them to prevent accidental spending.
+
+Users MAY create multiple Signal Boxes with strictly increasing nonces for layered redundancy.
+
+![Signal Box](bip-XXXX/signal-box.png)
+
+==Guardian Signalling Costs==
+
+Non-RBF prevents fee bumping, which may lead to the transaction becoming stuck in the mempool if network fees rise above the estimated rate. A conservative minimum estimate recommendation for the fee to use when pre-signing the `Lock` signal transaction SHOULD be at least 20 sat/vB. This figure is based on historical data of transaction fees paid and allows for fast block inclusion for `Lock` signals. At this fee each signal will cost the user 2,820 satoshis. Future fees paid by users will vary, so users SHOULD verify that the transaction fee is at a high enough level to ensure prompt signal finality.
+
+`Unlock` signals MAY take advantage of the prevailing transaction fee price at the time of use.
+
+==Compatibility==
+
+The proposal is backwards compatible with existing wallets and Bitcoin nodes as it uses standard address formats and `OP_RETURN`. Non-cooperative wallets will ignore the signalling mechanism. This BIP does not attempt to cryptographically restrict spending conditions at the consensus layer.
+
+Vault and covenant constructions (e.g., pre-signed vaults, deleted key covenants, or future consensus changes such as `OP_VAULT` or `OP_CHECKTEMPLATEVERIFY`) provide enforceable spending constraints that protect coins even if signing keys are compromised. These tools are powerful for self custody, but they apply only to UTXOs that have been intentionally placed under covenant rules, and they cannot directly influence how centralized custodians manage user balances.
+
+The Guardian Address standard is intended to be complementary to spending rule mechanisms. It can operate across both self-hosted and custodial wallets, providing a uniform way to trigger emergency responses. This BIP requires no changes to Bitcoin consensus and can be deployed immediately by cooperating wallet software and service providers. It can be combined with vault implementations. For example, a Guardian Lock signal could trigger a watchtower or co-signer to broadcast a pre-signed re-vault transaction, or could instruct a custodian to freeze withdrawals pending further verification.
+
+In this layered model, spending rules provide strong technical enforcement, while the Guardian Address provides operational coordination and rapid signalling across diverse custody wallets. Spending rules and Guardian Addresses are synergistic in this respect.
+
+The minimum protocol signalling payload in an `OP_RETURN` output is 19 vBytes for a `Lock` and 20 vBytes for an `Unlock` in version 1 of the protocol. The transaction is built with 20 vBytes for the canonical identifier and operation, and 20 vBytes for the monotonic nonce. The protocol is lightweight enough to ensure Guardian signalling transactions will be relayed by nodes with a default maximum `OP_RETURN` transaction limit of 40 vBytes, such as some Bitcoin Knots deployments.
+
+==Security Considerations==
+
+This signalling mechanism is an application layer security feature and does not change consensus rules or script enforcement.
+
+A griefing vector exists where an unauthorized third party broadcasts a `Lock` signal from the Guardian Address. This could happen if the griefing attacker gains access to the pre-signed `Lock` signal transaction and broadcasts it to the mempool. However, this lockout is temporary, recoverable, and fully under the user’s control. A monotonic nonce is included in each protocol signal so that even if a pre-signed transaction is obtained and used by an attacker, it may only be used once, limiting the impact of this to a single occurrence. This griefing vector is further mitigated by user education of secure pre-signed transaction storage. The trade off favors wide usability and deployment over strict tamper resistance hardware requirments, since key material is not required to be carried by the user.
+
+Wallets will always retain the ability to reset their Guardian state by creating a new transaction with `Lock=false` signed by the same Guardian private key and the incrementing monotonic nonce.
+
+Users MUST ensure their pre-signed Lock transactions reference a stable UTXO. Wallets SHOULD warn users if the UTXO required for a pre-signed `Lock` transaction is no longer available.
+
+Non-RBF eliminates the ability to replace pre-signed `Lock` transactions with a tampered `OP_RETURN`, which is crucial for the signal integrity and nonce based replay protection.
+
+This design intentionally avoids requiring secure enclaves or hardware protected state. Instead, the device that triggers the lock stores only a pre-signed transaction and not signing material, reducing the risk of key material compromise while still enabling `Lock` activation.
+
+Users MAY use hardware for managing Guardian key signing with secure storage.
+
+A forced signalling attack occurs when an attacker coerces the victim to send an undesired signal. The key material for the Guardian Address must be physically unavailable to the user in a secure location to prevent this scenario.
+
+To reduce forced Unlock risks, wallets MAY implement a configurable delay (e.g., 24 hours) before processing Unlock signals, allowing time for external responders to act.
+
+The choice of mining pool by the user can affect the response time of the wallets implementing the standard. Private mining pools are sometimes used for transaction privacy so that transactions are only visible on-chain once they are included in a block. If a user broadcasts the pre-signed signal transaction to a such a pool, the wallet lock time could be 10 minutes, or even longer depending on the transaction inclusion interval. For this reason users SHOULD broadcast signals to public mining pools so that wallets are able to view and act on the unconfirmed signal before block inclusion.
+
+State changes of the Guardian Address are limited to `10^21 − 1` transitions, making nonce exhaustion an unlikely event given the infrequent nature of signalling transactions.
+
+==Privacy Considerations==
+
+This BIP avoids any on-chain link between a user's spending wallet and their Guardian Address. Because the Guardian Address appears as an independent address posting infrequent signalling transactions with `OP_RETURN`, it is indistinguishable from any other transaction format.
+
+No PII or linking information is included on-chain. Furthermore, wallets that monitor a Guardian Address do so locally. No external observer can deduce which wallets are watching a given Guardian status.
+
+Users MAY also periodically rotate their Guardian Address if additional unlinkability is desired.
+
+Guardian Address transactions are infrequent and non-financial in nature. The presence of a Guardian signal in `OP_RETURN` does not expose anything about balances, identity, IP addresses, physical location or wallet associations.
+
+No on-chain link between the Guardian and the spending wallets exists. However, wallets implementing the BIP will periodically poll nodes for the latest Guardian state, which could expose a link between the wallet and the Guardian Address. Wallet users on untrusted networks may elect to use a local or private node in environments where the interception of network traffic is a concern.
+
+Polling follows a similar IP exposure model to transaction broadcast but risks address interest leaks in naive implementations. Use Neutrino (BIP-158) or delegated private nodes to avoid direct queries.
+
+Users SHOULD NOT make transactions on-chain between their Guardian Address and their spending wallet to prevent an association that connects the two entities.
+
+==Rationale==
+
+**UTXO Fragility vs. Key Fragility**
+
+Users face a trade off between carrying Guardian key material and relying on pre-signed transactions. Carrying the key increases coercion risk, since an attacker could force the user to sign a transaction under duress. Pre-signed transactions avoid this risk but introduce UTXO fragility: if the referenced UTXO is spent or becomes invalid, the pre-signed transaction cannot be used.
+
+This proposal favors pre-signed transactions as the safer approach under coercion scenarios. They minimize the risk of key compromise, enable rapid signalling, and allow users to keep Guardian keys physically separate from everyday devices.
+
+**Single vs. Multiple Guardians**
+
+Managing multiple Guardians introduces significant complexity. Each Guardian requires its own key, increasing operational overhead. Because this is a signalling protocol, conflicting messages are possible. For example, one Guardian may broadcast a Lock while another broadcasts an Unlock. Resolving such conflicts would require an arbitration mechanism, adding ambiguity and complexity to wallet behavior.
+
+To avoid these issues, this proposal specifies support for a single Guardian Address. This ensures deterministic state evaluation, simplifies implementation, and reduces the risk of misconfiguration.
+
+**Nonce Encoding**
+
+The nonce is encoded as a decimal ASCII integer for human readability and ease of debugging. While binary encodings were considered, they provide minimal space savings (10 bytes vs. 4) at the cost of greater implementation complexity.
+
+**Justification of OP_RETURN Usage**
+
+Guardian signals must be effective as soon as they are broadcast to the mempool, not after block inclusion. Taproot leaf commitments or covenants are invisible until mined, which makes them unsuitable for realtime coercion response.
+
+`OP_RETURN` of ≤83 bytes is standard and supported in Bitcoin Core. The protocol payload is ≤40 bytes, well under relay limits. This ensures protocol transactions will be relayed irrespective of node configuration for this opcode.
+
+Using `OP_RETURN` does not consume a spendable UTXO and does not pollute the UTXO set. Alternatives like “dust” marker outputs would bloat UTXO sets.
+
+Parsing `OP_RETURN` is trivial for wallets. Using Taproot annexes or witness data would complicate light client parsing and prevent efficient use of BIP-158 filters.
+
+Alternatives considered and rejected:
+
+* Taproot commitments: invisible until mined.
+* PSBT/gossip extensions: off-chain, non-universal, not enforceable.
+* Dedicated covenant: requires consensus change.
+
+Therefore, `OP_RETURN` is the minimal, mempool visible, backwards compatible choice.
+
+==Reference Implementation==
+
+An implementation in Electrum demonstrates the Guardian Address signal protocol, including:
+- Configuration of a Guardian Address in wallet settings.
+- Mempool and blockchain polling for OP_RETURN signals.
+- State machine handling for Lock/Unlock transitions, preventing UTXO spends when locked.
+- Signal generation via a standalone Python tool for creating pre-signed Lock/Unlock transactions.
+
+The source code is available at https://github.com/bitcoinguardian/electrum. This serves as a model for self-custodial wallets, while custodial services may adapt the protocol to their infrastructure.
+
+Guardian Signal tooling is available at https://github.com/bitcoinguardian/GASPv1-draft
+
+A demo with testnet integration and Guardian integration is available at https://github.com/bitcoinguardian/electrum/tree/master/demo
+
+==Acknowledgements==
+
+With thanks to @thec00n for feedback and comments of this BIP.
+
+This BIP has been possible due to diligent prior and ongoing work by Jameson Lopp into physical attacks in the Bitcoin ecosystem.
+
+==References==
+
+[^1]: Investigating Wrench Attacks: Physical Attacks
+Targeting Cryptocurrency Users DOI: 10.4230/LIPIcs.AFT.2024.24
+[^2]: https://github.com/jlopp/physical-bitcoin-attacks
+[^3]: https://river.com/learn/how-many-people-use-bitcoin/
+[^4]: https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki
+[^5]: https://datatracker.ietf.org/doc/html/rfc2119
+[^6]: https://datatracker.ietf.org/doc/html/rfc5234
