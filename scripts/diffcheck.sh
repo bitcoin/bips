@@ -7,6 +7,11 @@ before_diff="$(mktemp)"
 table_current="$(mktemp)"
 table_prev="$(mktemp)"
 
+# Ensure previous commit is available (CI often uses shallow clones)
+if ! git rev-parse --verify -q HEAD^ >/dev/null; then
+	git fetch --deepen=100 >/dev/null 2>&1 || git fetch --unshallow >/dev/null 2>&1 || true
+fi
+
 tmpdir="$(mktemp -d)"
 cleanup() {
 	git worktree remove --force "$tmpdir" >/dev/null 2>&1 || true
@@ -23,8 +28,8 @@ if git worktree add --detach "$tmpdir" HEAD^ >/dev/null 2>&1; then
 	(
 		cd "$tmpdir"
 		scripts/buildtable.pl >"$table_prev" 2>/dev/null
+		diff README.mediawiki "$table_prev" | grep '^[<>] |' >"$before_diff" || true
 	)
-	diff README.mediawiki "$table_prev" | grep '^[<>] |' >"$before_diff" || true
 	newdiff=$(diff -s "$before_diff" "$after_diff" -u | grep '^\+')
 	if [ -n "$newdiff" ]; then
 		echo "$newdiff"
