@@ -12,6 +12,12 @@ if ! git rev-parse --verify -q HEAD^ >/dev/null; then
 	git fetch --deepen=100 >/dev/null 2>&1 || git fetch --unshallow >/dev/null 2>&1 || true
 fi
 
+# If previous commit is still unavailable, skip diff check gracefully
+if ! git rev-parse --verify -q HEAD^ >/dev/null; then
+	echo "Skipping diff check: previous commit (HEAD^) is unavailable in this environment"
+	exit 0
+fi
+
 tmpdir="$(mktemp -d)"
 cleanup() {
 	git worktree remove --force "$tmpdir" >/dev/null 2>&1 || true
