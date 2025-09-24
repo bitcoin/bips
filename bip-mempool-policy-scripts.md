@@ -25,6 +25,10 @@ At present, mempool acceptance policy is enforced solely by Bitcoin node softwar
 - Defines a standardized execution environment so scripts can be shared across different implementations.
 - Provides a safer, more modular way to test policies.
 
+## Rationale
+
+JavaScript is a very well defined and widely understood scripting language with many available runtimes. It allows scripts to be portable across platform and architecture, and runtimes are well optimized such that significant performance penalties will not be incurred. This was somewhat inspired by a similar project using Lua presented at BTC++ by @jasonfoura.
+
 ## Specification
 
 1. **Script Directory**
