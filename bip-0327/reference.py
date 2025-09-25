@@ -4,7 +4,7 @@
 # be used in production environments. The code is vulnerable to timing attacks,
 # for example.
 
-from typing import Any, List, Optional, Tuple, NewType, NamedTuple
+from typing import List, Optional, Tuple, NewType, NamedTuple
 import hashlib
 import secrets
 import time
