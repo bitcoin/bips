@@ -1,7 +1,7 @@
 ```
   BIP: ?
   Layer: Peer Services
-  Title: Mempool Validation and Relay Policies via User-Defined Scripts
+  Title: User-Defined Dynamic Relay Policy Scripts
   Author: Aiden McClelland <me+bip@drbonez.dev>
   Status: Draft
   Type: Standards Track
