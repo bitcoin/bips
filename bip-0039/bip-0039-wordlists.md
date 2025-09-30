@@ -115,3 +115,69 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind one of negative/sad/bad things.
 11. No very similar words with only 1 letter of difference.
+
+### Emoji
+
+Credits: @EmojiSeedDevTeam @ovrdos @CoperbyteLLC 
+
+The **Emoji wordlist** is a deterministic mapping of the 2048 English BIP39 words into **2048 unique emoji pairs**. This allows mnemonic phrases to be displayed and remembered visually, across languages and literacy barriers.
+
+**Rules for Emoji Mapping:**
+
+1. **Direct Match Rule**  
+   If a word has a clear, universal emoji (e.g., `dog → 🐶`), the same emoji is used twice:  
+   `dog → 🐶, 🐶`.
+
+2. **Seasonal/Calendar Words**  
+   Months map to seasonal or holiday emojis:  
+   - `october → 🎃, 🎃`  
+   - `november → 🦃, 🍂`  
+   Days of the week map to calendar/time or celebration emojis:  
+   - `friday → 🎉, 🎉`  
+   - `sunday → ☀️, ☀️`.
+
+3. **Numbers**  
+   Use keycap emojis or `💯` for “hundred”:  
+   - `one → 1️⃣, 1️⃣`  
+   - `ten → 🔟, 🔟`  
+   - `hundred → 💯, 💯`.
+
+4. **Abstract Words**  
+   For vague concepts, combine a **primary metaphor** and a **clarifier**:  
+   - `ability → 🧠, 💪`  
+   - `process → ⚙️, 📊`.
+
+5. **Action Words**  
+   For verbs and participles:  
+   - `running → 🏃, 💨`  
+   - `locked → 🔒, 🔑`.
+
+6. **Clarifier Pools**  
+   Second emojis are drawn from predefined sets:  
+   - **Action clarifiers**: 🏃, ⚙️, ✍️, 🎯, 💬  
+   - **Object clarifiers**: 📦, 📚, 🧩, 📐  
+   - **Time clarifiers**: ⏰, 📅, 🌙  
+   - **Nature clarifiers**: 🌱, 🔥, 🌊  
+   - **Place clarifiers**: 🏠, 🏛️, 🏞️.
+
+7. **Object vs Action Split**  
+   - Nouns: `object → object + clarifier`.  
+   - Verbs: `action → action + clarifier`.
+
+8. **Tightening Rules**  
+   - Duplicate emojis for strong one-to-one matches.  
+   - Add clarifiers for ambiguous terms.  
+   - Universal fallback: ✅ plus clarifier.
+
+9. **Global Duplicate Check**  
+   - All 2048 pairs must be unique.  
+   - If a collision occurs, rotate clarifier, then primary, finally fall back to `✅`.
+
+10. **Stability**  
+    - Only use **stable Unicode code points**.  
+    - No variation selectors or platform-specific glyphs.  
+    - Graphemes follow [Unicode TR51](https://unicode.org/reports/tr51/).
+
+
+
+
