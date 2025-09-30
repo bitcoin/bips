@@ -122,7 +122,7 @@ Credits: @EmojiSeedDevTeam
 
 The Emoji wordlist is a deterministic mapping of the 2048 English BIP-39 words into 2048 unique pairs of emoji. It enables mnemonic phrases to be displayed visually while remaining fully compatible with existing BIP-39 semantics (entropy, checksum, seed). 
 
-Words chosen using the following rules:
+Emojis chosen using the following rules:
 
 1. Direct Match if a word has a clear, universal emoji.
 2. Months and holidays use seasonal/holiday symbols.
