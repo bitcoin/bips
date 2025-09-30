@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Emoji](emoji.txt)
 
 ## Wordlists (Special Considerations)
 
