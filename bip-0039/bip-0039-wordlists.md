@@ -10,7 +10,6 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
-* [Emoji](emoji.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -119,18 +118,66 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 
 ### Emoji
 
-Credits: @EmojiSeedDevTeam
+Credits: @EmojiSeedDevTeam @ovrdos @CoperbyteLLC 
 
-The Emoji wordlist is a deterministic mapping of the 2048 English BIP-39 words into 2048 unique pairs of emoji. It enables mnemonic phrases to be displayed visually while remaining fully compatible with existing BIP-39 semantics (entropy, checksum, seed). 
+The **Emoji wordlist** is a deterministic mapping of the 2048 English BIP39 words into **2048 unique emoji pairs**. This allows mnemonic phrases to be displayed and remembered visually, across languages and literacy barriers.
 
-Emojis chosen using the following rules:
+**Rules for Emoji Mapping:**
 
-1. Direct Match if a word has a clear, universal emoji.
-2. Months and holidays use seasonal/holiday symbols.
-3. Numeric words map to keycap digits.
-4. Abstract and Action Words use a primary metaphor plus a clarifier emoji.
-5. Nouns: object + clarifier. Verbs/participles: action + clarifier.
-6. Duplicate only for strong iconic matches; add clarifiers for ambiguity; if unresolved, fall back deterministically.
-7. All 2048 pairs MUST be unique. If a collision occurs, rotate clarifier, then primary, and finally apply the fallback.
-8. Use only fully-qualified Unicode emoji graphemes (per Unicode TR51). Avoid variation selectors and platform-specific implementations.
+1. **Direct Match Rule**  
+   If a word has a clear, universal emoji (e.g., `dog → 🐶`), the same emoji is used twice:  
+   `dog → 🐶, 🐶`.
+
+2. **Seasonal/Calendar Words**  
+   Months map to seasonal or holiday emojis:  
+   - `october → 🎃, 🎃`  
+   - `november → 🦃, 🍂`  
+   Days of the week map to calendar/time or celebration emojis:  
+   - `friday → 🎉, 🎉`  
+   - `sunday → ☀️, ☀️`.
+
+3. **Numbers**  
+   Use keycap emojis or `💯` for “hundred”:  
+   - `one → 1️⃣, 1️⃣`  
+   - `ten → 🔟, 🔟`  
+   - `hundred → 💯, 💯`.
+
+4. **Abstract Words**  
+   For vague concepts, combine a **primary metaphor** and a **clarifier**:  
+   - `ability → 🧠, 💪`  
+   - `process → ⚙️, 📊`.
+
+5. **Action Words**  
+   For verbs and participles:  
+   - `running → 🏃, 💨`  
+   - `locked → 🔒, 🔑`.
+
+6. **Clarifier Pools**  
+   Second emojis are drawn from predefined sets:  
+   - **Action clarifiers**: 🏃, ⚙️, ✍️, 🎯, 💬  
+   - **Object clarifiers**: 📦, 📚, 🧩, 📐  
+   - **Time clarifiers**: ⏰, 📅, 🌙  
+   - **Nature clarifiers**: 🌱, 🔥, 🌊  
+   - **Place clarifiers**: 🏠, 🏛️, 🏞️.
+
+7. **Object vs Action Split**  
+   - Nouns: `object → object + clarifier`.  
+   - Verbs: `action → action + clarifier`.
+
+8. **Tightening Rules**  
+   - Duplicate emojis for strong one-to-one matches.  
+   - Add clarifiers for ambiguous terms.  
+   - Universal fallback: ✅ plus clarifier.
+
+9. **Global Duplicate Check**  
+   - All 2048 pairs must be unique.  
+   - If a collision occurs, rotate clarifier, then primary, finally fall back to `✅`.
+
+10. **Stability**  
+    - Only use **stable Unicode code points**.  
+    - No variation selectors or platform-specific glyphs.  
+    - Graphemes follow [Unicode TR51](https://unicode.org/reports/tr51/).
+
+
+
 
