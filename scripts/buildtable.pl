@@ -199,7 +199,7 @@ while (++$bipnum <= $topbip) {
 				die "First Comments-URI must be exactly \"$first_comments_uri\" in $fn" unless $val eq $first_comments_uri;
 			}
 		} elsif (exists $DateField{$field}) {
-			# Enforce valid month (01-12) and day (01-31), disallow 00
+			# Enforce date format 20XX-MM-DD, where XX is 00-99, MM is 01-12 and DD is 01-31.
 			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0[1-9]|1[0-2])\-(?:0[1-9]|[12]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
 			$val =~ m/^(\S[^<@>]*\S) \<[^@>]*\@[\w.]+\.\w+\>$/ or die "Malformed $field line in $fn";
