@@ -10,7 +10,7 @@ Credits: @EmojiSeedDevTeam
 
 The Emoji wordlist is a deterministic mapping of the 2048 special words into
 2048 unique pairs of emoji. It enables mnemonic phrases to be displayed visually
-while remaining fully compatible with existing  semantics (entropy, checksum, seed).
+while remaining fully compatible with existing semantic seeds.
 
 Emojis are chosen using the following rules:
 
