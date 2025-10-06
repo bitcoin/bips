@@ -1,6 +1,5 @@
 from typing import Tuple, Optional, Any
 import hashlib
-import binascii
 
 # Set DEBUG to True to get a detailed debug output including
 # intermediate values during key generation, signing, and
