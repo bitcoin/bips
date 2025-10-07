@@ -13,11 +13,30 @@
 
 ==Abstract==
 
-This BIP defines the wallet implementation of Guardian Addresses, an application layer signaling mechanism that allows users to remotely lock or unlock their Bitcoin wallets via on-chain OP_RETURN signals. The specification standardizes how wallets configure, monitor, and enforce Guardian signals, ensuring consistent behavior across implementations while remaining backwards compatible with existing wallets and bitcoin nodes.
+This proposal introduces the concept of a Guardian Address and defines a standard signalling mechanism that allows bitcoin wallets to become locked in response to an activation event. A single external control address triggers a security lockdown across one or more unrelated wallets without requiring any on-chain linkage between them. The goal is to prevent theft of bitcoin by enabling users to broadcast a standardized on-chain lock that causes cooperating wallets to enter a restricted mode, disabling the ability to spend UTXOs under duress.
+
+The design allows a separation of key material between the user's spending wallet and a Guardian Address; a discrete identity that signals lock state changes via a transaction embedding data in an `OP_RETURN` (~$1 at 2.31 sat/vB, ~1BTC=124K USD). This enables emergency responders, user level software, and wallet applications to recognize a distress signal without exposing user spending address(es) or balances. Rapid wallet responses with fast wallet locks (95% signal detection in <10s on testnet3) enable coordination with a physical response.
+
+Adoption requires minimal overhead for wallet developers. This approach does not alter spending rules. It is a voluntary signalling protocol that requires adoption by wallet and custodial software to be effective. BIP compliant wallets will be able to offer this security mechanism without compromising privacy or usability. This standard is intended to be optional and without breaking compatibility for existing wallets or nodes.
 
 ==Motivation==
 
-Physical coercion and theft remain persistent risks for bitcoin users. Existing protections such as multisig or vault constructions are effective against key compromise but are limited in scenarios where attackers gain direct access to unlocked devices or custodial accounts. The Guardian Address standard provides a uniform, lightweight signalling channel that wallets can use to respond in real time to distress signals. By enabling rapid wallet lock and coordinated monitoring across both self-hosted and custodial environments, Guardian Addresses add an operational security layer that complements consensus layer protections and enhances user resilience under coercion or theft.
+Bitcoin users are increasingly the targets of physical threats including robbery and coercion[^1]. A non-exhaustive list is maintained with details of physical attacks on bitcoin users[^2], which provides some insight into the prevalence and severity of attacks. Notably the incidence of attacks is also increasing. Security controls have been implemented in some self-hosted wallets as a means to prevent theft of bitcoin. One such is a decoy wallet, which presents a wallet with a smaller balance of bitcoin when a duress PIN is entered. However, this comes with two significant downsides:
+
+- An assumption is made that the attacker does not know about or understand the purpose of a decoy wallet. If a sophisticated attacker is able to link an address to the real world identity of the user, they may already know the true balance of the bitcoin holder. If the attacker does not know the balance of the user they are attacking, they may still suspect the user has unlocked a decoy wallet given the lower than anticipated balance.
+- In the case that the attacker does not know the wallet opened is a decoy wallet, the attack still results in the loss of bitcoin for the user.
+
+Current self-custody solutions do not provide a safe way to respond under physical duress without risking loss of funds. In addition, participants in the Bitcoin ecosystem commonly use both self-hosted and centralized services[^3]. There's no mechanism that currently exists that can act as a self-sovereign "kill switch" for both user scenarios of a self-hosted wallet or a user with a self-hosted and centralized wallet.
+
+In addition, existing self-custody solutions do not support integration with a privacy perserving response to physically protect users.
+
+This proposal introduces an interoperable mechanism to:
+
+- Allow users to trigger a wallet lockdown using a separate device or operation.
+- Preserve privacy by decoupling the Guardian Address from wallet addresses.
+- Enable wallet software to observe chain state and mempool to react defensively, signalling an active attack.
+- Protect a multiple wallet user (e.g., self-custodial wallet, exchange account, institutional wallet, custodian) with a single on-chain emergency trigger.
+- Allow businesses or multi-user custodial setups designating a Guardian Address to coordinate responses and align with risk management frameworks.
 
 ==Specification==
 
@@ -272,4 +291,7 @@ This BIP has been possible due to diligent prior and ongoing work by Jameson Lop
 
 ==References==
 
-[^1]: BIP-A https://github.com/bitcoin/bips/
+[^1]: Investigating Wrench Attacks, DOI: 10.4230/LIPIcs.AFT.2024.24 
+[^2]: https://github.com/jlopp/physical-bitcoin-attacks 
+[^3]: https://river.com/learn/how-many-people-use-bitcoin/
+[^4]: BIP-A https://github.com/bitcoin/bips/
