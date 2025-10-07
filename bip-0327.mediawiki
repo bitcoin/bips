@@ -130,6 +130,8 @@ For example, we can imagine a scenario where a single entity creates a MuSig2 se
 In that case, duplicates may not result from a malicious signing device copying an individual public key of another signing device but from accidental initialization of two devices with the same seed.
 Since MuSig2 key aggregation would accept the duplicate keys and not error out, which would in turn reduce the security compared to the intended key setup, applications may reject duplicate individual public keys before passing them to MuSig2 key aggregation and ask the user to investigate.
 
+Implementers should further note that in case duplicate pubkeys exist in the set, production of a partial signature by the first of 2 (or more) duplicates will allow production of the other(s) partial signature(s), and thus allow complete production of a valid Schnorr signature. Even further, the same comment applies to multiple pubkeys that are not identical, but are related via a public tweak, such as that in BIP32 unhardened derivation.<ref> Note that such usage of MuSig2 makes little sense, almost always: you do not treat two keys that are different only by a public tweak, as if they are genuinely different authorizations from a security perspective. However the situation is somewhat worse than you might imagine, if you did this. See the attack described in [https://eprint.iacr.org/2025/692 the DahLIAS paper], Appendix A.2. An attacker compromising only network connections, and not secret keys, can complete a MuSig2 session using two keys related by a public tweak, after just seeing one signature from the honest counterparty, i.e. they do not need to steal a key. Obviously this is not an attack of the normal type, and is thus not covered, nor discussed in MuSig2 itself, but in case of designing a deployment or protocol using such a construction for any reason, note that it fails to provide security against such attacks. This same comment applies to a multiplicative tweak like ''K<sub>2</sub> = c * K<sub>1</sub>'', not only to additive tweaks like ''K<sub>2</sub> = K<sub>1</sub> + t*G''.</ref>
+
 === Nonce Generation ===
 
 '''IMPORTANT''': ''NonceGen'' must have access to a high-quality random generator to draw an unbiased, uniformly random value ''rand' ''.
@@ -549,7 +551,7 @@ which have been obtained via tweaking another secret key with tweaks known to th
 then the adversary could, after having seen the ''pubnonce'',
 influence whether ''sk<sub>1</sub>'' or ''sk<sub>2</sub>'' is provided to ''Sign''.
 This degree of freedom may allow the adversary to perform a generalized birthday attack and thereby forge a signature
-(see [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-October/021000.html bitcoin-dev mailing list post] and [https://github.com/jonasnick/musig2-tweaking writeup] for details).
+(see [https://gnusha.org/pi/bitcoindev/576db60c-b05b-5b9a-75e5-9610f3e04eda@gmail.com/ bitcoin-dev mailing list post] and [https://github.com/jonasnick/musig2-tweaking writeup] for details).
 
 Checking ''pk'' against ''IndividualPubkey(sk)'' is a simple way to ensure
 that the secret key provided to ''Sign'' is fully determined already when ''NonceGen'' is invoked.
@@ -782,6 +784,8 @@ An exception to this rule is <code>MAJOR</code> version zero (0.y.z) which is fo
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.0.3''' (2025-09-22):
+** Additional notes to warn against use of input keys related by public tweaks.
 * '''1.0.2''' (2024-07-22):
 ** Fix minor bug in the specification of ''DeterministicSign'' and add small improvement to a ''PartialSigAgg'' test vector.
 * '''1.0.1''' (2024-05-14):
@@ -827,4 +831,4 @@ The <code>PATCH</code> version is incremented for other changes that are notewor
 
 == Acknowledgements ==
 
-We thank Brandon Black, Riccardo Casatta, Sivaram Dhakshinamoorthy, Lloyd Fournier, Russell O'Connor, and Pieter Wuille for their contributions to this document.
+We thank Brandon Black, Riccardo Casatta, Adam Gibson, Sivaram Dhakshinamoorthy, Lloyd Fournier, Russell O'Connor, and Pieter Wuille for their contributions to this document.
