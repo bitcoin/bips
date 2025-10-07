@@ -21,12 +21,13 @@ Adoption requires minimal overhead for wallet developers. This approach does not
 
 ==Motivation==
 
-Bitcoin users are increasingly the targets of physical threats including robbery and coercion[^1]. A non-exhaustive list is maintained with details of physical attacks on bitcoin users[^2], which provides some insight into the prevalence and severity of attacks. Notably the incidence of attacks is also increasing. Security controls have been implemented in some self-hosted wallets as a means to prevent theft of bitcoin. One such is a decoy wallet, which presents a wallet with a smaller balance of bitcoin when a duress PIN is entered. However, this comes with two significant downsides:
+Bitcoin users are increasingly the targets of physical threats including robbery and coercion.<ref>Investigating Wrench Attacks, DOI: 10.4230/LIPIcs.AFT.2024.24</ref>
+A non-exhaustive list is maintained with details of physical attacks on bitcoin users<ref>https://github.com/jlopp/physical-bitcoin-attacks</ref>, which provides some insight into the prevalence and severity of attacks. Notably the incidence of attacks is also increasing. Security controls have been implemented in some self-hosted wallets as a means to prevent theft of bitcoin. One such is a decoy wallet, which presents a wallet with a smaller balance of bitcoin when a duress PIN is entered. However, this comes with two significant downsides:
 
 - An assumption is made that the attacker does not know about or understand the purpose of a decoy wallet. If a sophisticated attacker is able to link an address to the real world identity of the user, they may already know the true balance of the bitcoin holder. If the attacker does not know the balance of the user they are attacking, they may still suspect the user has unlocked a decoy wallet given the lower than anticipated balance.
 - In the case that the attacker does not know the wallet opened is a decoy wallet, the attack still results in the loss of bitcoin for the user.
 
-Current self-custody solutions do not provide a safe way to respond under physical duress without risking loss of funds. In addition, participants in the Bitcoin ecosystem commonly use both self-hosted and centralized services[^3]. There's no mechanism that currently exists that can act as a self-sovereign "kill switch" for both user scenarios of a self-hosted wallet or a user with a self-hosted and centralized wallet.
+Current self-custody solutions do not provide a safe way to respond under physical duress without risking loss of funds. In addition, participants in the Bitcoin ecosystem commonly use both self-hosted and centralized services<ref>https://river.com/learn/how-many-people-use-bitcoin/</ref>. There's no mechanism that currently exists that can act as a self-sovereign "kill switch" for both user scenarios of a self-hosted wallet or a user with a self-hosted and centralized wallet.
 
 In addition, existing self-custody solutions do not support integration with a privacy perserving response to physically protect users.
 
@@ -40,19 +41,19 @@ This proposal introduces an interoperable mechanism to:
 
 ==Specification==
 
-### 1. Wallet Behavior
+===Wallet Behavior===
 
 The wallet Guardian lifecycle has four distinct states as visualized in this finite state machine:
 
-![Guardian FSM](bip-XXXX/guardian-fsm.png)
+[[File:bip-XXXX/guardian-fsm.png|thumb|Guardian FSM]]
 
 For each state, the order of operations MUST be adhered to as defined in this BIP.
 
-### No Guardian Configuration
+====No Guardian Configuration====
 
 This is the state of an unconfigured Guardian Address in a wallet. No Guardian Addresses are monitored for protocol signals. No action will be taken in the wallet if any Guardian Address signals a state change. This is also the behavior of non-cooperating BIP wallets that do not implement the standard, ensuring this specification is kept optional and will not affect the operation of existing wallets or nodes.
 
-### Guardian Addition
+====Guardian Addition====
 
 * Wallets MUST allow only one Guardian Address at a time. If one is already configured, wallets MUST require the user to remove it first (see Guardian Removal).
 * Wallets MUST reject any address that matches a spending address managed by the wallet, to enforce key separation and accidental spending of the Guardian signal UTXO.
@@ -65,11 +66,11 @@ This is the state of an unconfigured Guardian Address in a wallet. No Guardian A
 * If valid, store the address state and its current highest nonce locally.
 * Wallets MUST transition to Guardian Monitoring if these operations complete.
 
-### Guardian Monitoring
+====Guardian Monitoring====
 
-![Guardian Monitoring Substate](bip-XXXX/guardian-monitoring.png)
+[[File:bip-XXXX/guardian-monitoring.png|thumb|Guardian Monitoring Substate]]
 
-**Guardian Address Polling**
+====Guardian Address Polling====
 
 * If the previously checked block is not set (the wallet is polling the Guardian Address for the first time) wallets MUST poll the Guardian Address from activation block height 914021 onwards (note: placeholder block height will be updated if the BIP progresses to a future BIP assigned height). This is to prevent wallets from polling the entire chain history for the Guardian Address signals.
 * The configured Guardian Address MUST be sourced from the same storage as used in the Guardian Addition.
@@ -80,14 +81,15 @@ This is the state of an unconfigured Guardian Address in a wallet. No Guardian A
 * Signal transactions MUST be treated equally whether they are included in a block or still in the mempool.
 * Wallets MUST warn users if the Guardian balance drops to zero or UTXOs are moved without a valid signal `OP_RETURN`.
 * Wallets MUST validate the address by querying the blockchain and mempool for signals:
-    - Collect all valid signals from the Guardian Address with an `OP_RETURN` signal matching the grammar: `guardv1.Lock=(true|false)#<nonce>`, case sensitive, ASCII, ≤40 bytes. Signals MUST match the grammar defined in BIP-A[^4] (note: placeholder until BIP assignment).
+    - Collect all valid signals from the Guardian Address with an `OP_RETURN` signal matching the grammar: `guardv1.Lock=(true|false)#<nonce>`, case sensitive, ASCII, ≤40 bytes. Signals MUST match the grammar defined in BIP-A<ref>BIP-A https://github.com/bitcoin/bips/</ref>
+ (note: placeholder until BIP assignment).
     - Sort them by nonce in ascending order.
     - Reject if the highest nonce is 0 (invalid instantiation) or exceeds a practical high value (e.g., >65,535; wallets SHOULD alert users for high values to indicate potential nonce exhaustion issues).
 * Wallets MUST store the current block as the previously checked block. This optimizes for speed at wallet startup.
 * Wallets MUST transition to Guardian State Evaluation if signals present.
 * Wallets MUST wait for the polling interval before checking for new signals.
 
-### Guardian State Evaluation
+====Guardian State Evaluation====
 
 **Nonce Conflict Resolution**
 
@@ -125,7 +127,7 @@ Guardian signals use a monotonic nonce to prevent replay attacks and ensure dete
 * If there is a state delta between the received signal and local storage, wallets MUST transition with the highest nonce signal to the Guardian Lock Change substate.
 * If there are no state changes, wallets MUST transition to Guardian Address Polling substate.
 
-### Guardian Lock Change
+====Guardian Lock Change====
 
 * Wallets MUST update the Guardian lock state in local storage with the signal presented.
 * Wallets MUST update the latest used Guardian nonce in local storage with the signal presented.
@@ -134,15 +136,15 @@ Guardian signals use a monotonic nonce to prevent replay attacks and ensure dete
 * Wallets MAY provide the user a pathway to view funds and history, but MUST NOT broadcast new transactions if Guardian Locked.
 * Wallets MUST transition into the Guardian Address Polling substate after the state change.
 
-### Guardian Removal
+====Guardian Removal====
 
 * The Guardian Monitoring substate MUST currently be Guardian Address Polling.
 * Wallets MUST validate the existing configured Guardian Address in local storage is unlocked.
 * If the Guardian Address state is locked, wallets MUST NOT allow the removal of the Guardian configuration.
 
-### 2. Attack Scenarios
+===Attack Scenarios===
 
-#### Device Theft
+====Device Theft====
 
 Alice the attacker. Bob the Bitcoin user. Alice coerces Bob under duress to login to his device and applications. Bob's device contains a self-hosted wallet, a Bitcoin exchange application, access to Bob's e-mails, and a two-factor authentication application. After forcing Bob to unlock the device and provide access, Alice takes the device and begins to attempt the Bitcoin theft.
 
@@ -152,7 +154,7 @@ After the attack is over and the threat has been mitigated, Bob is able to recov
 
 If Bob regains the device, he is able to recover access to his wallet(s) by broadcasting a Guardian Unlock transaction with the private key of the Guardian Address. No UTXOs could be spent while the device was stolen since Bob locked the wallet(s). Now Bob has unlocked the wallet(s) he has the ability to spend UTXOs that were previously locked.
 
-#### Public Figure
+====Public Figure====
 
 Alice the attacker. Bob the Bitcoin public figure. Bob's public status makes him a target for threat actors. Bob wants a balance between his own personal freedom and security from physical attacks. He keeps a private security team on response near his residence, but lives in his family house with privacy.
 
@@ -160,7 +162,7 @@ Alice is an intruder that is attempting to break into the house to demand bitcoi
 
 The security team has also been alerted since they monitor the Guardian Address. They do not know which wallets belong to Bob, maintaining his privacy while keeping his bitcoin safe. His physical security has been protected with the response ensuring his family's safety.
 
-### 3. Threat Model and Limitations
+===Threat Model and Limitations===
 
 Guardian Addresses will not protect wallets that are airgapped or otherwise unable to query address state from the latest block height.
 
@@ -311,8 +313,4 @@ With thanks to @thec00n @OzMozis for feedback and comments of this BIP.
 This BIP has been possible due to diligent prior and ongoing work by Jameson Lopp into physical attacks in the Bitcoin ecosystem.
 
 ==References==
-
-[^1]: Investigating Wrench Attacks, DOI: 10.4230/LIPIcs.AFT.2024.24 
-[^2]: https://github.com/jlopp/physical-bitcoin-attacks 
-[^3]: https://river.com/learn/how-many-people-use-bitcoin/
-[^4]: BIP-A https://github.com/bitcoin/bips/
+<references />
