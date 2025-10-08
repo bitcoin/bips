@@ -58,7 +58,7 @@ To protect Bob's wallet, he must enter the Guardian Address public key into the 
 
 Bob spends UTXOs from his wallet. The wallet software checks the latest Guardian state, including pending transactions in the mempool, and as the Guardian is unlocked the wallet permits the transaction.
 
-![Guardian Setup](bip-XXXX/guardian-setup.png)
+[[File:bip-XXXX/guardian-setup.png|thumb|Guardian Setup]]
 
 ====Guardian Lock====
 
@@ -66,8 +66,7 @@ Bob has signed a Guardian Lock transaction with the private key of the Guardian 
 
 Bob is under duress and wishes to lock his Bitcoin wallets. He broadcasts his pre-signed Lock signal from the Guardian. As soon as it is visible in the mempool, wallets prevent spending any UTXOs.
 
-![Guardian Lock](bip-XXXX/guardian-lock.png)
-
+[[File:bip-XXXX/guardian-lock.png|thumb|Guardian Lock]]
 
 ====Guardian Unlock====
 
@@ -75,25 +74,24 @@ The attack on Bob is over and the threat has been mitigated. Bob wishes to regai
 
 The unlock signal with a incremented monotonic nonce signals to his self-hosted and centralized wallets that UTXOs may be spent and changes can be made. Guardian Addresses are reusable.
 
-![Guardian Unlock](bip-XXXX/guardian-unlock.png)
+[[File:bip-XXXX/guardian-unlock.png|thumb|Guardian Unlock]]
 
 ===Guardian Signal Grammar===
 
-Guardian signals MUST conform to the following ABNF[^6] grammar:
+Guardian signals MUST conform to the following ABNF<ref>https://datatracker.ietf.org/doc/html/rfc5234</ref> grammar:
 
-```abnf
-; Guardian v1 protocol message
-signal   = prefix "." lockkey "=" lockval "#" nonce
+<source lang="abnf">
+Guardian v1 protocol message
+signal = prefix "." lockkey "=" lockval "#" nonce
+prefix = "guardv1"
+lockkey = "Lock"
+lockval = "true" / "false"
+nonce = nonzero / "0"
 
-prefix   = "guardv1"
-lockkey  = "Lock"
-lockval  = "true" / "false"
-nonce    = nonzero / "0"
-
-; Decimal integer without leading zeros
-nonzero  = %x31-39 *DIGIT
-DIGIT    = %x30-39
-```
+Decimal integer without leading zeros
+nonzero = %x31-39 *DIGIT
+DIGIT = %x30-39
+</source>
 
 ====Parsing Rules====
 
@@ -126,15 +124,15 @@ A Guardian Unlock transaction includes a standard Bitcoin <code>OP_RETURN</code>
 
 ====OP_RETURN Format====
 
-<code>OP_RETURN <data></code>
+<pre>OP_RETURN <data></pre>
 
-Where <code><data></code>is a UTF-8 encoded ASCII string using the following structure:
+Where <pre><data></pre> is a UTF-8 encoded ASCII string using the following structure:
 
-<code>guardv1.Lock=false#1</code>
+<pre>guardv1.Lock=false#1</pre>
 
 * <code>Prefix</code>: guardv1 is the canonical identifier for version 1 of the Guardian signalling protocol.
 * <code>Key</code>: <code>Lock</code> is the operation type.
-* <code>value</code>: <code>Lock=true</code> MUST be interpreted as “wallet locked” and <code>Lock=false</code> MUST be interpreted as “wallet unlocked.”
+* <code>value</code>: <pre>Lock=true</pre> MUST be interpreted as “wallet locked” and <pre>Lock=false</pre> MUST be interpreted as “wallet unlocked.”
 * <code>nonce</code>: Monotonic nonce used to prevent replay attacks. Value is a decimal ASCII encoded 32 bit unsigned integer.
 
 This string is embedded in the <code>OP_RETURN</code> output as raw ASCII bytes, prefixed by its length.
@@ -147,7 +145,7 @@ This string is embedded in the <code>OP_RETURN</code> output as raw ASCII bytes,
 
 * <code>6a</code> is the <code>OP_RETURN</code> opcode
 * <code>14</code> is the pushdata length (20 bytes)
-* <code>677561726476312e4c6f636b3d66616c73652331</code> is ASCII bytes for <code>guardv1.Lock=false#1</code>
+* <code>677561726476312e4c6f636b3d66616c73652331</code> is ASCII bytes for <pre>guardv1.Lock=false#1</pre>
 
 ====Lock Example====
 
@@ -157,7 +155,7 @@ This string is embedded in the <code>OP_RETURN</code> output as raw ASCII bytes,
 
 * <code>6a</code>is the <code>OP_RETURN</code> opcode
 * <code>13</code> is the pushdata length (19 bytes)
-* <code>677561726476312e4c6f636b3d747275652332</code> is ASCII bytes for <code>guardv1.Lock=true#2</code>
+* <code>677561726476312e4c6f636b3d747275652332</code> is ASCII bytes for <pre>guardv1.Lock=true#2</pre>
 
 Clients MUST parse the <code>OP_RETURN</code> data and verify it matches the expected prefix and key to respond accordingly.
 
@@ -169,7 +167,7 @@ A Guardian protocol message is a standard Bitcoin transaction constructed to car
 
 The transaction MUST be signed with <code>SIGHASH_ALL</code> to prevent post signature modifications.
 
-Both pre-signed <code>Lock</code> and <code>Unlock</code> transactions MUST set <code>nSequence = 0xffffffff</code> to disable RBF, preserving protocol signal integrity.
+Both pre-signed <code>Lock</code> and <code>Unlock</code> transactions MUST set <pre>nSequence = 0xffffffff</pre> to disable RBF, preserving protocol signal integrity.
 
 The following inputs and outputs MUST be used:
 
@@ -223,7 +221,7 @@ Users SHOULD reserve these UTXOs exclusively for signalling and SHOULD label the
 
 Users MAY create multiple Signal Boxes with strictly increasing nonces for layered redundancy.
 
-![Signal Box](bip-XXXX/signal-box.png)
+[[File:bip-XXXX/signal-box.png|thumb|Signal Box]]
 
 ==Guardian Signalling Costs==
 
@@ -249,7 +247,7 @@ This signalling mechanism is an application layer security feature and does not 
 
 A griefing vector exists where an unauthorized third party broadcasts a <code>Lock</code> signal from the Guardian Address. This could happen if the griefing attacker gains access to the pre-signed <code>Lock</code> signal transaction and broadcasts it to the mempool. However, this lockout is temporary, recoverable, and fully under the user’s control. A monotonic nonce is included in each protocol signal so that even if a pre-signed transaction is obtained and used by an attacker, it may only be used once, limiting the impact of this to a single occurrence. This griefing vector is further mitigated by user education of secure pre-signed transaction storage. The trade off favors wide usability and deployment over strict tamper resistance hardware requirments, since key material is not required to be carried by the user.
 
-Wallets will always retain the ability to reset their Guardian state by creating a new transaction with <code>Lock=false</code> signed by the same Guardian private key and the incrementing monotonic nonce.
+Wallets will always retain the ability to reset their Guardian state by creating a new transaction with <pre>Lock=false</pre> signed by the same Guardian private key and the incrementing monotonic nonce.
 
 Users MUST ensure their pre-signed Lock transactions reference a stable UTXO. Wallets SHOULD warn users if the UTXO required for a pre-signed <code>Lock</code> transaction is no longer available.
 
