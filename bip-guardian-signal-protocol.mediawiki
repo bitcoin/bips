@@ -15,18 +15,18 @@
 
 This proposal introduces the concept of a Guardian Address and defines a standard signalling mechanism that allows bitcoin wallets to become locked in response to an activation event. A single external control address triggers a security lockdown across one or more unrelated wallets without requiring any on-chain linkage between them. The goal is to prevent theft of bitcoin by enabling users to broadcast a standardized on-chain lock that causes cooperating wallets to enter a restricted mode, disabling the ability to spend UTXOs under duress.
 
-The design allows a separation of key material between the user's spending wallet and a Guardian Address; a discrete identity that signals lock state changes via a transaction embedding data in an <code>OP_RETURN</code> (~$1 at 2.31 sat/vB, ~1BTC=124K USD). This enables emergency responders, user level software, and wallet applications to recognize a distress signal without exposing user spending address(es) or balances. Rapid wallet responses with fast wallet locks (95% signal detection in &lt;10s on testnet3) enable coordination with a physical response.
+The design allows a separation of key material between the user's spending wallet and a Guardian Address; a discrete identity that signals lock state changes via a transaction embedding data in an <code>OP_RETURN</code> (~$1 at 2.31 sat/vB, ~1BTC=124K USD). This enables emergency responders, user level software, and wallet applications to recognize a distress signal without exposing user spending address(es) or balances. Rapid wallet responses with fast wallet locks (95% signal detection in <10s on testnet3) enable coordination with a physical response.
 
 Adoption requires minimal overhead for wallet developers. This approach does not alter spending rules. It is a voluntary signalling protocol that requires adoption by wallet and custodial software to be effective. BIP compliant wallets will be able to offer this security mechanism without compromising privacy or usability. This standard is intended to be optional and without breaking compatibility for existing wallets or nodes.
 
 ==Motivation==
 
-Bitcoin users are increasingly the targets of physical threats including robbery and coercion.<ref>{{Cite journal |last=Green |first=M. |last2=Miers |first2=I. |title=Investigating Wrench Attacks: A Study of Physical Threats to Cryptocurrency Users |journal=Leibniz International Proceedings in Informatics (LIPIcs) |volume=AFT 2024 |issue=24 |year=2024 |doi=10.4230/LIPIcs.AFT.2024.24 |access-date=2025-10-08}}</ref>
-A non-exhaustive list is maintained with details of physical attacks on bitcoin users<ref>{{Cite web |last=Lopp |first=Jameson |title=Physical Bitcoin Attacks |url=https://github.com/jlopp/physical-bitcoin-attacks |access-date=2025-10-08 |publisher=GitHub |date=2024-10-01}}</ref>, which provides some insight into the prevalence and severity of attacks. Notably the incidence of attacks is also increasing. Security controls have been implemented in some self-hosted wallets as a means to prevent theft of bitcoin. One such is a decoy wallet, which presents a wallet with a smaller balance of bitcoin when a duress PIN is entered. However, this comes with two significant downsides:
+Bitcoin users are increasingly the targets of physical threats including robbery and coercion.<ref name="wrench-attacks" />
+A non-exhaustive list is maintained with details of physical attacks on bitcoin users<ref name="physical-attacks" />, which provides some insight into the prevalence and severity of attacks. Notably the incidence of attacks is also increasing. Security controls have been implemented in some self-hosted wallets as a means to prevent theft of bitcoin. One such is a decoy wallet, which presents a wallet with a smaller balance of bitcoin when a duress PIN is entered. However, this comes with two significant downsides:
 
 * An assumption is made that the attacker does not know about or understand the purpose of a decoy wallet. If a sophisticated attacker is able to link an address to the real world identity of the user, they may already know the true balance of the bitcoin holder. If the attacker does not know the balance of the user they are attacking, they may still suspect the user has unlocked a decoy wallet given the lower than anticipated balance.
 * In the case that the attacker does not know the wallet opened is a decoy wallet, the attack still results in the loss of bitcoin for the user.
-Current self-custody solutions do not provide a safe way to respond under physical duress without risking loss of funds. In addition, participants in the Bitcoin ecosystem commonly use both self-hosted and centralized services<ref>{{Cite web |title=How Many People Use Bitcoin in 2024? |url=https://river.com/learn/how-many-people-use-bitcoin/ |access-date=2025-10-08 |publisher=River Financial |date=2024-09-01}}</ref>. There's no mechanism that currently exists that can act as a self-sovereign "kill switch" for both user scenarios of a self-hosted wallet or a user with a self-hosted and centralized wallet.
+Current self-custody solutions do not provide a safe way to respond under physical duress without risking loss of funds. In addition, participants in the Bitcoin ecosystem commonly use both self-hosted and centralized services<ref name="bitcoin-users" />. There's no mechanism that currently exists that can act as a self-sovereign "kill switch" for both user scenarios of a self-hosted wallet or a user with a self-hosted and centralized wallet.
 
 In addition, existing self-custody solutions do not support integration with a privacy preserving response to physically protect users.
 
@@ -42,13 +42,13 @@ This proposal introduces an interoperable mechanism to:
 
 ===Guardian Design===
 
-This BIP uses RFC 2119<ref>{{Cite web |last=Bradner |first=S. |title=Key words for use in RFCs to Indicate Requirement Levels |url=https://datatracker.ietf.org/doc/html/rfc2119 |access-date=2025-10-08 |publisher=Internet Engineering Task Force (IETF) |date=1997-03}}</ref> terminology for wallet integrators to implement the Guardian Address signalling protocol.
+This BIP uses RFC 2119<ref name="rfc2119" /> terminology for wallet integrators to implement the Guardian Address signalling protocol.
 
 A Guardian Address is any valid bitcoin address controlled by the user but separate from their spending wallet. Its purpose is to publish an on-chain signal indicating that the wallet(s) it guards MUST be locked. The Guardian Address is unaware of the wallet(s) it guards. It is recommended that the Guardian Address SHOULD only be used for guard function, and MUST NOT be the same as the spending wallet. The private key material for the Guardian Address must be physically separate from the user to prevent forced signalling by an attacker. An address becomes a Guardian by broadcasting an <code>Unlock</code> signal transaction. The <code>Unlock</code> signal sets <code>guardv1.Lock=false#nonce</code> and instantiates the address to act as a Guardian Address.
 
 The user sets a configuration entity within the wallet software that uses the Guardian Address controlled by the user. The wallet validates that the address provided is an instantiated Guardian Address. The wallet monitors the Guardian Address for state changes that indicate a <code>Lock</code> signal has been broadcast. In this event, the wallet prevents Guardian Address modification and the ability to spend UTXOs.
 
-BIP-158 Neutrino filters<ref>{{Cite web |last=Osuntokun |first=O. |last2=Wuille |first2=P. |title=BIP 158: Block Filters for Simplified Wallet Synchronization |url=https://bips.dev/158/ |access-date=2025-10-08 |publisher=Bitcoin Improvement Proposals}}</ref> may be used by light/mobile clients to determine the latest Guardian Lock state by filtering <code>OP_RETURN</code> transactions for the Guardian Address and canonical identifier. They then evaluate the latest <code>Lock</code> state boolean operand.
+BIP-158 Neutrino filters<ref name="bip158" /> may be used by light/mobile clients to determine the latest Guardian Lock state by filtering <code>OP_RETURN</code> transactions for the Guardian Address and canonical identifier. They then evaluate the latest <code>Lock</code> state boolean operand.
 
 ====Guardian Instantiation & Wallet Setup====
 
@@ -78,7 +78,7 @@ The unlock signal with a incremented monotonic nonce signals to his self-hosted 
 
 ===Guardian Signal Grammar===
 
-Guardian signals MUST conform to the following ABNF<ref>{{Cite web |last=Crocker |first=D. |last2=Overell |first2=P. |title=RFC 5234: Augmented BNF for Syntax Specifications: ABNF |url=https://datatracker.ietf.org/doc/html/rfc5234 |access-date=2025-10-08 |publisher=Internet Engineering Task Force (IETF) |date=2008-01}}</ref> grammar:
+Guardian signals MUST conform to the following ABNF<ref name="rfc5234" /> grammar:
 
 <source lang="abnf">
 Guardian v1 protocol message
@@ -253,7 +253,7 @@ The minimum protocol signalling payload in an <code><nowiki>OP_RETURN</nowiki></
 
 This signalling mechanism is an application layer security feature and does not change consensus rules or script enforcement.
 
-A griefing vector exists where an unauthorized third party broadcasts a <code><nowiki>Lock</nowiki></code> signal from the Guardian Address. This could happen if the griefing attacker gains access to the pre-signed <code><nowiki>Lock</nowiki></code> signal transaction and broadcasts it to the mempool. However, this lockout is temporary, recoverable, and fully under the user’s control. A monotonic nonce is included in each protocol signal so that even if a pre-signed transaction is obtained and used by an attacker, it may only be used once, limiting the impact of this to a single occurrence. This griefing vector is further mitigated by user education of secure pre-signed transaction storage. The trade off favors wide usability and deployment over strict tamper resistance hardware requirments, since key material is not required to be carried by the user.
+A griefing vector exists where an unauthorized third party broadcasts a <code><nowiki>Lock</nowiki></code> signal from the Guardian Address. This could happen if the griefing attacker gains access to the pre-signed <code><nowiki>Lock</nowiki></code> signal transaction and broadcasts it to the mempool. However, this lockout is temporary, recoverable, and fully under the user's control. A monotonic nonce is included in each protocol signal so that even if a pre-signed transaction is obtained and used by an attacker, it may only be used once, limiting the impact of this to a single occurrence. This griefing vector is further mitigated by user education of secure pre-signed transaction storage. The trade off favors wide usability and deployment over strict tamper resistance hardware requirments, since key material is not required to be carried by the user.
 
 Wallets will always retain the ability to reset their Guardian state by creating a new transaction with <code><nowiki>Lock=false</nowiki></code> signed by the same Guardian private key and the incrementing monotonic nonce.
 
@@ -313,7 +313,7 @@ Guardian signals must be effective as soon as they are broadcast to the mempool,
 
 <code><nowiki>OP_RETURN</nowiki></code> of ≤83 bytes is standard and supported in Bitcoin Core. The protocol payload is ≤40 bytes, well under relay limits. This ensures protocol transactions will be relayed irrespective of node configuration for this opcode.
 
-Using <code><nowiki>OP_RETURN</nowiki></code> does not consume a spendable UTXO and does not pollute the UTXO set. Alternatives like “dust” marker outputs would bloat UTXO sets.
+Using <code><nowiki>OP_RETURN</nowiki></code> does not consume a spendable UTXO and does not pollute the UTXO set. Alternatives like "dust" marker outputs would bloat UTXO sets.
 
 Parsing <code><nowiki>OP_RETURN</nowiki></code> is trivial for wallets. Using Taproot annexes or witness data would complicate light client parsing and prevent efficient use of BIP-158 filters.
 
@@ -347,4 +347,17 @@ With thanks to @thec00n for feedback and comments of this BIP.
 This BIP has been possible due to diligent prior and ongoing work by Jameson Lopp into physical attacks in the Bitcoin ecosystem.
 
 ==References==
-<references />
+
+<references>
+<ref name="wrench-attacks">Green, M., Miers, I. (2024). "Investigating Wrench Attacks: A Study of Physical Threats to Cryptocurrency Users". ''Leibniz International Proceedings in Informatics (LIPIcs)'', AFT 2024, Vol. 24. [https://doi.org/10.4230/LIPIcs.AFT.2024.24 DOI: 10.4230/LIPIcs.AFT.2024.24]</ref>
+
+<ref name="physical-attacks">Lopp, Jameson (2024). "Physical Bitcoin Attacks". [https://github.com/jlopp/physical-bitcoin-attacks GitHub Repository]. Accessed October 2024.</ref>
+
+<ref name="bitcoin-users">River Financial (2024). "How Many People Use Bitcoin in 2024?". [https://river.com/learn/how-many-people-use-bitcoin/ River Learn]. Published September 2024.</ref>
+
+<ref name="rfc2119">Bradner, S. (1997). "RFC 2119: Key words for use in RFCs to Indicate Requirement Levels". Internet Engineering Task Force (IETF). [https://datatracker.ietf.org/doc/html/rfc2119 https://datatracker.ietf.org/doc/html/rfc2119]</ref>
+
+<ref name="bip158">Osuntokun, O., Wuille, P. "BIP 158: Compact Block Filters for Light Clients". [https://bips.dev/158/ https://bips.dev/158/]</ref>
+
+<ref name="rfc5234">Crocker, D., Overell, P. (2008). "RFC 5234: Augmented BNF for Syntax Specifications: ABNF". Internet Engineering Task Force (IETF). [https://datatracker.ietf.org/doc/html/rfc5234 https://datatracker.ietf.org/doc/html/rfc5234]</ref>
+</references>
