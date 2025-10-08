@@ -11,7 +11,7 @@ my %RequiredFields = (
 	Authors => undef,
 	Status => undef,
 	Type => undef,
-	Created => undef,
+	Assigned => undef,
 	# License => undef,   (has exceptions)
 );
 my %MayHaveMulti = (
@@ -23,7 +23,7 @@ my %MayHaveMulti = (
 	'Discussion' => undef,
 );
 my %DateField = (
-	Created => undef,
+	Assigned => undef,
 );
 my %EmailField = (
 	Authors => undef,
@@ -55,7 +55,7 @@ my @FieldOrder = qw(
 	Comments-URI
 	Status
 	Type
-	Created
+	Assigned
 	License
 	License-Code
 	Discussion
