@@ -124,73 +124,75 @@ A Guardian Unlock transaction includes a standard Bitcoin <code>OP_RETURN</code>
 
 ====OP_RETURN Format====
 
-<pre>OP_RETURN <data></pre>
+<pre>OP_RETURN &lt;data&gt;</pre>
 
-Where <pre><data></pre> is a UTF-8 encoded ASCII string using the following structure:
+Where <pre>&lt;data&gt;</pre> is a UTF-8 encoded ASCII string using the following structure:
 
-<pre>guardv1.Lock=false#1</pre>
+<pre><nowiki>
+guardv1.Lock=false#1
+</nowiki></pre>
 
-* <code>Prefix</code>: guardv1 is the canonical identifier for version 1 of the Guardian signalling protocol.
-* <code>Key</code>: <code>Lock</code> is the operation type.
-* <code>value</code>: <pre>Lock=true</pre> MUST be interpreted as “wallet locked” and <pre>Lock=false</pre> MUST be interpreted as “wallet unlocked.”
-* <code>nonce</code>: Monotonic nonce used to prevent replay attacks. Value is a decimal ASCII encoded 32 bit unsigned integer.
+* <pre>Prefix</pre>: guardv1 is the canonical identifier for version 1 of the Guardian signalling protocol.
+* <pre>Key</pre>: <pre>Lock</pre> is the operation type.
+* <pre>value</pre>: <pre>Lock=true</pre> MUST be interpreted as “wallet locked” and <pre>Lock=false</pre> MUST be interpreted as “wallet unlocked.”
+* <pre>nonce</pre>: Monotonic nonce used to prevent replay attacks. Value is a decimal ASCII encoded 32 bit unsigned integer.
 
 This string is embedded in the <code>OP_RETURN</code> output as raw ASCII bytes, prefixed by its length.
 
 ====Unlock Example====
 
-<code>OP_RETURN</code> output in hex:
+<pre>OP_RETURN</pre> output in hex:
 
-<code>6a14677561726476312e4c6f636b3d66616c73652331</code>
+<pre>6a14677561726476312e4c6f636b3d66616c73652331</pre>
 
-* <code>6a</code> is the <code>OP_RETURN</code> opcode
-* <code>14</code> is the pushdata length (20 bytes)
-* <code>677561726476312e4c6f636b3d66616c73652331</code> is ASCII bytes for <pre>guardv1.Lock=false#1</pre>
+* <pre>6a</pre> is the <pre>OP_RETURN</pre> opcode
+* <pre>14</pre> is the pushdata length (20 bytes)
+* <pre>677561726476312e4c6f636b3d66616c73652331</pre> is ASCII bytes for <pre><nowiki>guardv1.Lock=false#1</nowiki></pre>
 
 ====Lock Example====
 
-<code>OP_RETURN</code> output in hex:
+<pre>OP_RETURN</pre> output in hex:
 
-<code>6a13677561726476312e4c6f636b3d747275652332</code>
+<pre>6a13677561726476312e4c6f636b3d747275652332</pre>
 
-* <code>6a</code>is the <code>OP_RETURN</code> opcode
-* <code>13</code> is the pushdata length (19 bytes)
-* <code>677561726476312e4c6f636b3d747275652332</code> is ASCII bytes for <pre>guardv1.Lock=true#2</pre>
+* <pre>6a</pre>is the <pre>OP_RETURN</pre> opcode
+* <pre>13</pre> is the pushdata length (19 bytes)
+* <pre>677561726476312e4c6f636b3d747275652332</pre> is ASCII bytes for <pre>guardv1.Lock=true#2</pre>
 
-Clients MUST parse the <code>OP_RETURN</code> data and verify it matches the expected prefix and key to respond accordingly.
+Clients MUST parse the <pre>OP_RETURN</pre> data and verify it matches the expected prefix and key to respond accordingly.
 
 ===Protocol Transaction Structure===
 
-A Guardian protocol message is a standard Bitcoin transaction constructed to carry a <code>Lock</code> or <code>Unlock</code> signal.
+A Guardian protocol message is a standard Bitcoin transaction constructed to carry a <pre>Lock</pre> or <pre>Unlock</pre> signal.
 
 ====Transaction Structure====
 
-The transaction MUST be signed with <code>SIGHASH_ALL</code> to prevent post signature modifications.
+The transaction MUST be signed with <pre>SIGHASH_ALL</pre> to prevent post signature modifications.
 
-Both pre-signed <code>Lock</code> and <code>Unlock</code> transactions MUST set <pre>nSequence = 0xffffffff</pre> to disable RBF, preserving protocol signal integrity.
+Both pre-signed <pre>Lock</pre> and <pre>Unlock</pre> transactions MUST set <pre>nSequence = 0xffffffff</pre> to disable RBF, preserving protocol signal integrity.
 
 The following inputs and outputs MUST be used:
 
 =====Inputs=====
 
-* One standard <code>P2WPKH</code> input.
+* One standard <pre>P2WPKH</pre> input.
 * The input MUST be sourced from an unspent output controlled by the Guardian Address.
 * Users MUST reserve a dedicated UTXO in the Guardian Address for signalling purposes to ensure availability of funds and pre-signed transaction validity.
 
 =====Outputs=====
 
-* One <code>OP_RETURN</code> output containing the signal payload as defined in this BIP.
-* One <code>P2WPKH</code> change output returning the remaining funds (input minus fee) to the same Guardian Address.
+* One <pre>OP_RETURN</pre> output containing the signal payload as defined in this BIP.
+* One <pre>P2WPKH</pre> change output returning the remaining funds (input minus fee) to the same Guardian Address.
 
 =====Fees=====
 
 The transaction MUST pay a fee rate sufficient for prompt relay and inclusion.
 
-Users SHOULD pre-sign <code>Lock</code> transactions at or above the prevailing long term median fee rate to ensure validity at the time of use.
+Users SHOULD pre-sign <pre>Lock</pre> transactions at or above the prevailing long term median fee rate to ensure validity at the time of use.
 
 =====Transaction Weight=====
 
-A canonical Guardian signal transaction with one input, one <code>OP_RETURN</code>, and one <code>P2WPKH</code> change output is approximately 141 vBytes.
+A canonical Guardian signal transaction with one input, one <pre>OP_RETURN</pre>, and one <pre>P2WPKH</pre> change output is approximately 141 vBytes.
 
 The exact size depends on the length of the nonce in the signal string, with a larger nonce requiring a larger fee.
 
@@ -227,19 +229,19 @@ Users MAY create multiple Signal Boxes with strictly increasing nonces for layer
 
 Non-RBF prevents fee bumping, which may lead to the transaction becoming stuck in the mempool if network fees rise above the estimated rate. A conservative minimum estimate recommendation for the fee to use when pre-signing the <code>Lock</code> signal transaction SHOULD be at least 20 sat/vB. This figure is based on historical data of transaction fees paid and allows for fast block inclusion for <code>Lock</code> signals. At this fee each signal will cost the user 2,820 satoshis. Future fees paid by users will vary, so users SHOULD verify that the transaction fee is at a high enough level to ensure prompt signal finality.
 
-<code>Unlock</code> signals MAY take advantage of the prevailing transaction fee price at the time of use.
+<pre>Unlock</pre> signals MAY take advantage of the prevailing transaction fee price at the time of use.
 
 ==Compatibility==
 
-The proposal is backwards compatible with existing wallets and Bitcoin nodes as it uses standard address formats and <code>OP_RETURN</code>. Non-cooperative wallets will ignore the signalling mechanism. This BIP does not attempt to cryptographically restrict spending conditions at the consensus layer.
+The proposal is backwards compatible with existing wallets and Bitcoin nodes as it uses standard address formats and <pre>OP_RETURN</pre>. Non-cooperative wallets will ignore the signalling mechanism. This BIP does not attempt to cryptographically restrict spending conditions at the consensus layer.
 
-Vault and covenant constructions (e.g., pre-signed vaults, deleted key covenants, or future consensus changes such as <code>OP_VAULT</code> or <code>OP_CHECKTEMPLATEVERIFY</code>) provide enforceable spending constraints that protect coins even if signing keys are compromised. These tools are powerful for self custody, but they apply only to UTXOs that have been intentionally placed under covenant rules, and they cannot directly influence how centralized custodians manage user balances.
+Vault and covenant constructions (e.g., pre-signed vaults, deleted key covenants, or future consensus changes such as <pre>OP_VAULT</pre> or <pre>OP_CHECKTEMPLATEVERIFY</pre>) provide enforceable spending constraints that protect coins even if signing keys are compromised. These tools are powerful for self custody, but they apply only to UTXOs that have been intentionally placed under covenant rules, and they cannot directly influence how centralized custodians manage user balances.
 
 The Guardian Address standard is intended to be complementary to spending rule mechanisms. It can operate across both self-hosted and custodial wallets, providing a uniform way to trigger emergency responses. This BIP requires no changes to Bitcoin consensus and can be deployed immediately by cooperating wallet software and service providers. It can be combined with vault implementations. For example, a Guardian Lock signal could trigger a watchtower or co-signer to broadcast a pre-signed re-vault transaction, or could instruct a custodian to freeze withdrawals pending further verification.
 
 In this layered model, spending rules provide strong technical enforcement, while the Guardian Address provides operational coordination and rapid signalling across diverse custody wallets. Spending rules and Guardian Addresses are synergistic in this respect.
 
-The minimum protocol signalling payload in an <code>OP_RETURN</code> output is 19 vBytes for a <code>Lock</code> and 20 vBytes for an <code>Unlock</code> in version 1 of the protocol. The transaction is built with 20 vBytes for the canonical identifier and operation, and 20 vBytes for the monotonic nonce. The protocol is lightweight enough to ensure Guardian signalling transactions will be relayed by nodes with a default maximum <code>OP_RETURN</code> transaction limit of 40 vBytes, such as some Bitcoin Knots deployments.
+The minimum protocol signalling payload in an <pre>OP_RETURN</pre> output is 19 vBytes for a <pre>Lock</pre> and 20 vBytes for an <pre>Unlock</pre> in version 1 of the protocol. The transaction is built with 20 vBytes for the canonical identifier and operation, and 20 vBytes for the monotonic nonce. The protocol is lightweight enough to ensure Guardian signalling transactions will be relayed by nodes with a default maximum <pre>OP_RETURN</pre> transaction limit of 40 vBytes, such as some Bitcoin Knots deployments.
 
 ==Security Considerations==
 
@@ -247,7 +249,7 @@ This signalling mechanism is an application layer security feature and does not 
 
 A griefing vector exists where an unauthorized third party broadcasts a <code>Lock</code> signal from the Guardian Address. This could happen if the griefing attacker gains access to the pre-signed <code>Lock</code> signal transaction and broadcasts it to the mempool. However, this lockout is temporary, recoverable, and fully under the user’s control. A monotonic nonce is included in each protocol signal so that even if a pre-signed transaction is obtained and used by an attacker, it may only be used once, limiting the impact of this to a single occurrence. This griefing vector is further mitigated by user education of secure pre-signed transaction storage. The trade off favors wide usability and deployment over strict tamper resistance hardware requirments, since key material is not required to be carried by the user.
 
-Wallets will always retain the ability to reset their Guardian state by creating a new transaction with <pre>Lock=false</pre> signed by the same Guardian private key and the incrementing monotonic nonce.
+Wallets will always retain the ability to reset their Guardian state by creating a new transaction with <pre><nowiki>Lock=false</nowiki></pre> signed by the same Guardian private key and the incrementing monotonic nonce.
 
 Users MUST ensure their pre-signed Lock transactions reference a stable UTXO. Wallets SHOULD warn users if the UTXO required for a pre-signed <code>Lock</code> transaction is no longer available.
 
