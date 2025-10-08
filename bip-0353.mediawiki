@@ -36,7 +36,9 @@ Thus, using TXT records to store Bitcoin payment instructions allows for human-r
 Bitcoin wallets MUST NOT prefer to use DNS-based resolving when methods with explicit public keys or addresses are available. In other words, if a standard Bitcoin address or direct BIP 21 URI is available or would suffice, Bitcoin wallets MUST prefer to use that instead.
 
 === Records ===
-Payment instructions are indexed by both a user and a domain. Instructions for a given <code>user</code> and <code>domain</code> are stored at <code>user</code>.user._bitcoin-payment.<code>domain</code> in a single TXT record.
+Payment instructions are indexed by both a user and a domain. Instructions for a given <code>user</code> and <code>domain</code> are stored at <code>user</code>.user._bitcoin-payment.<code>domain</code> in a single TXT RR.
+
+The TXT RR’s RDATA <b>MUST</b> consist of one or more DNS <code>&lt;character-string&gt;</code>s (see [[https://www.rfc-editor.org/rfc/rfc1035#section-3.3.14|RFC&nbsp;1035&nbsp;§3.3.14]]), each ≤255 bytes.
 
 All payment instructions MUST be DNSSEC-signed.
 
@@ -52,7 +54,10 @@ For payment instructions that have a built-in expiry time (e.g. Lightning BOLT 1
 
 Clients resolving Bitcoin payment instructions MUST ignore any TXT records at the same label which do not begin with (ignoring case) "bitcoin:". Resolvers encountering multiple "bitcoin:"-matching TXT records at the same label MUST treat the records as invalid and refuse to use any payment instructions therein.
 
-Clients resolving Bitcoin payment instructions MUST concatenate all strings in the TXT record before processing the complete URI.<ref>TXT records are defined as "one or more character-strings" in [[https://www.rfc-editor.org/rfc/rfc1035#section-3.3.14|RFC 1035]], and a "character-string" is a single byte (with a max value of 255) followed by that many characters.</ref>
+Clients resolving Bitcoin payment instructions <b>MUST</b> reconstruct the <code>bitcoin:</code> URI by concatenating the TXT RR’s <code>&lt;character-string&gt;</code> fields in <b>RDATA order</b>, without inserting separators, before parsing.<ref>DNS TXT RDATA consists of one or more length-prefixed strings with a maximum of 255 bytes of content; see RFC&nbsp;1035&nbsp;§3.3.14.</ref>
+
+Clients <b>MUST NOT</b> concatenate across multiple TXT RRs at the same owner name.
+If more than one TXT RR beginning with (case-insensitive) <code>bitcoin:</code> is present at that owner name, clients <b>MUST</b> treat the name as invalid.
 
 Clients resolving Bitcoin payment instructions MUST fully validate DNSSEC signatures leading to the DNS root (including any relevant CNAME or DNAME records) and MUST NOT accept DNSSEC signatures which use SHA-1 or RSA with keys shorter than 1024 bits. Resolvers MAY accept SHA-1 DS records.
 
