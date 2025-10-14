@@ -4,7 +4,7 @@
 # be used in production environments. The code is vulnerable to timing attacks,
 # for example.
 
-from typing import Callable, Dict, Optional, Sequence, Tuple, NewType, NamedTuple, List, Mapping
+from typing import Dict, Optional, Sequence, Tuple, NewType, NamedTuple, List, Mapping
 from enum import Enum
 import hashlib
 import secrets
@@ -14,13 +14,14 @@ from bip32 import (
     ExtendedPublicKey,
     apply_tweak_to_public,
     apply_tweak_to_secret,
+    int_to_bytes,
     parse_extended_public_key,
     compress_point,
     decode_path,
 )
 from descriptor import SortedMultiDescriptorTemplate 
 
-from secp256k1lab.bip340 import schnorr_verify
+from secp256k1lab.bip340 import schnorr_sign, schnorr_verify
 from secp256k1lab.keys import pubkey_gen_plain
 from secp256k1lab.secp256k1 import G, GE, Scalar
 
@@ -611,20 +612,16 @@ def _verify_tweaked_descriptor(
 
     return witness_script == expected_witness_script
 
-SignatureCallback = Callable[[int, bytes], bytes]
-
 def delegator_sign(
     tweak: int,
     base_secret: int,
     message: bytes,
-    sign_message: SignatureCallback,
 ) -> bytes:
     """Derive the delegated key, sign ``message``, and return signature."""
-
-    child_secret = apply_tweak_to_secret(base_secret, tweak)
-    signature = sign_message(child_secret, message)
+    child_secret = int_to_bytes(apply_tweak_to_secret(base_secret, tweak), 32)
+    message_digest = hashlib.sha256(message).digest()
+    signature = schnorr_sign(message_digest, child_secret, bytes(32))
     return signature
-
 
 def test_compute_tweak_vectors() -> None:
     with open(os.path.join(sys.path[0], 'vectors', 'compute_bip32_tweak_vectors.json')) as f:
@@ -685,7 +682,7 @@ def test_delegator_sign_vectors() -> None:
 
         base_secret = int(base_secret_hex, 16)
         tweak = int(tweak_hex, 16)
-        message = bytes.fromhex(message_hex)
+        message = message_hex.encode('utf-8')
 
         expected = case.get("expected")
         if not isinstance(expected, Mapping):
@@ -693,15 +690,10 @@ def test_delegator_sign_vectors() -> None:
         expected_signature_hex = expected.get("signature")
         expected_signature = bytes.fromhex(expected_signature_hex)
 
-        def sign_message(child_secret: int, msg: bytes) -> bytes:
-            _ = child_secret, msg
-            return expected_signature
-
         signature = delegator_sign(
             tweak,
             base_secret,
             message,
-            sign_message,
         )
 
         if signature != expected_signature:
