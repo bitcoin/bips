@@ -1,7 +1,7 @@
 BIP: 444
-Title: Taproot Push-Only Limits to Prevent Arbitrary Inscriptions
+Title: Taproot and Script Limits to Prevent Arbitrary Inscriptions
 Author: TBD
-Comments-URI: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/
+Comments-URI: https://gnusha.org/pi/bitcoindev/CALeFGL0PDjtRt2rfbY4gTkoc+5oNQ0mn_obraE7PrtHuNYFpQw@mail.gmail.com/T/#mb71350c5dfb119efeb92c5ee738b6c8225bf15b6
 Status: Draft
 Type: Standards Track
 Layer: Consensus (soft fork), Policy
@@ -12,11 +12,12 @@ Post-History:
 
 ==Abstract==
 
-This BIP proposes a narrowly-scoped soft fork, accompanied by relay/mempool policy defaults, to prevent large arbitrary-data inscriptions via Taproot. It introduces:
-* a consensus limit on large contiguous push-only regions in Tapscript,
-* a consensus ban on large push-only conditional (IF/NOTIF) bodies,
-* a consensus cap for push-only witness stack elements in segwit v1 inputs,
-* and complementary policy limits to halt propagation of inscription-like transactions.
+This BIP proposes a soft fork, accompanied by relay/mempool policy defaults, to prevent large arbitrary-data inscriptions and reduce UTXO/script bloat. It introduces:
+* consensus limits on Tapscript structure (push-only run cap, IF/NOTIF restrictions),
+* consensus caps for script data pushes and Taproot control blocks,
+* a consensus prohibition on undefined/upgradable witness/taproot versions (including annex and OP_SUCCESS*),
+* a consensus limit on new scriptPubKey sizes, and
+* complementary policy limits to halt propagation well before activation.
 
 The changes are surgical: they preserve normal Taproot usage (key-path spends, common script-path contracts, signatures, and small constants) while disabling the well-known inscription envelopes.
 
@@ -58,7 +59,9 @@ These rules apply to all segwit v1 (Taproot) inputs. They are additional validit
 Parameters (consensus):
 * MAX_TAPSCRIPT_PUSH_RUN = 256 bytes
 * MAX_IF_PUSHONLY_BRANCH = 80 bytes
-* MAX_V1_PUSHONLY_WITNESS_ELEM = 256 bytes
+* MAX_TAPROOT_CONTROL_BLOCK = 257 bytes
+* MAX_SPK_SIZE_NON_NULLDATA = 34 bytes
+* MAX_SCRIPT_PUSH_LEN = 256 bytes (exception: BIP16 redeemScript)
 
 1. Tapscript push-run cap
 : For each revealed tapscript leaf in a segwit v1 script-path spend, parse the script and compute the maximum “push-only run” — i.e., the greatest total pushed bytes in any contiguous region consisting solely of push opcodes and their payloads. If this maximum exceeds MAX_TAPSCRIPT_PUSH_RUN, the spend is invalid.
@@ -66,45 +69,71 @@ Parameters (consensus):
 2. Push-only IF/NOTIF branch cap
 : For each OP_IF/OP_NOTIF…OP_ENDIF structure in a revealed tapscript leaf, consider each branch body separately (then and else, if present). If a branch body is push-only and its total pushed bytes exceed MAX_IF_PUSHONLY_BRANCH, the spend is invalid.
 
-3. Push-only witness element cap (v1)
-: For each segwit v1 input, for each witness stack element, if the element parses entirely as push-only and the total pushed bytes exceed MAX_V1_PUSHONLY_WITNESS_ELEM, the spend is invalid.
+3. Tapscript IF/NOTIF opcodes invalid
+: Within segwit v1 Tapscript leaves, OP_IF/OP_NOTIF MAY NOT appear. Use Taproot's structure for conditionalization; Tapscript IFs are disallowed to prevent abuse.
+
+4. Taproot control block size cap
+: Tapscript control blocks must be ≤ MAX_TAPROOT_CONTROL_BLOCK bytes. Larger control blocks are invalid.
+
+5. Script-push length cap
+: Any single push opcode payload MUST be ≤ MAX_SCRIPT_PUSH_LEN bytes across script contexts. The BIP16 redeemScript is exempted from this cap.
+
+6. New scriptPubKey size limit
+: Non-NULL_DATA `scriptPubKey` must be ≤ MAX_SPK_SIZE_NON_NULLDATA bytes. Larger locking scripts are invalid.
+
+7. Undefined witness/taproot versions invalid
+: Undefined witness program versions and undefined Taproot leaf versions are invalid. Annex usage and OP_SUCCESS* are invalid until explicitly defined by subsequent soft forks.
 
 Notes:
-* These checks do not require the branch to be taken or code to be executed; they operate on the revealed tapscript bytes.
-* Standard script malleability and tapscript semantics remain unchanged. This proposal adds new size-structure constraints only.
-* Key-path spends are unaffected (no script is revealed).
-* Non-push opcodes anywhere break push-only status and therefore are not constrained by rules (1) and (2), though other consensus rules still apply.
+* Tapscript structural checks (1–4) operate on revealed leaves; branch execution is not required for enforcement.
+* The push-length and scriptPubKey size caps are syntactic and broadly applicable; the BIP16 redeemScript exception preserves existing standard multisig/covenant patterns.
+* Key-path spends are unaffected except by undefined version restrictions.
 
 ===Relay/mempool policy (non-consensus)===
 
 Implementers SHOULD adopt the following default policy to prevent propagation of inscription-like transactions before and after activation:
 
 Parameters (policy defaults; independently configurable):
-* POLICY_MAX_PUSHONLY_WITNESS_ELEM = 80 bytes
 * POLICY_MAX_V1_PERINPUT_WITNESS = 1024 bytes
+* POLICY_MAX_SPK_SIZE_NON_NULLDATA = 34 bytes
+* POLICY_MAX_SCRIPT_PUSH_LEN = 256 bytes
+* POLICY_MAX_TAPROOT_CONTROL_BLOCK = 257 bytes
 
-P1. Push-only element (policy)
-: Reject a transaction if any witness stack element (any version) parses as push-only and total pushed bytes exceed POLICY_MAX_PUSHONLY_WITNESS_ELEM.
-
-P2. Per-input witness budget (policy, v1)
+P1. Per-input witness budget (policy, v1)
 : For segwit v1 inputs, if the total witness bytes for that input exceed POLICY_MAX_V1_PERINPUT_WITNESS, reject the transaction.
 
-P3. Tapscript push-only IF guard (policy)
-: For segwit v1 script-path spends, if any revealed tapscript leaf contains an OP_IF/OP_NOTIF branch body that is push-only with total pushed bytes > POLICY_MAX_PUSHONLY_WITNESS_ELEM, reject the transaction.
+P2. Tapscript IF restrictions (policy)
+: For segwit v1 script-path spends, any use of OP_IF/OP_NOTIF is rejected. Additionally, if any revealed tapscript leaf contains an OP_IF/OP_NOTIF branch body that is push-only with total pushed bytes > 80, reject the transaction.
+
+P3. Tapscript push-only run cap (policy)
+
+P4. Taproot control block cap (policy)
+: For segwit v1 script-path spends, reject if the control block exceeds POLICY_MAX_TAPROOT_CONTROL_BLOCK bytes.
+
+P5. scriptPubKey size cap (policy)
+: Reject if any non-NULL_DATA `scriptPubKey` exceeds POLICY_MAX_SPK_SIZE_NON_NULLDATA bytes.
+
+P6. script push-length cap (policy)
+: Reject if any single push opcode in `scriptPubKey` exceeds POLICY_MAX_SCRIPT_PUSH_LEN bytes.
+
+P7. Unknown witness versions (policy)
+: Node default is to reject unknown/future witness program versions; operators MAY opt-in via `-acceptunknownwitness`.
+: For segwit v1 script-path spends, if any revealed tapscript leaf contains a contiguous push-only run exceeding 256 total pushed bytes, reject the transaction.
 
 Rationale:
-* P1 mirrors (3) more strictly to catch payloads earlier.
-* P2 prevents trivial evasion by spreading data across many elements.
-* P3 targets the common “OP_FALSE OP_IF … OP_ENDIF” envelope at policy level.
+* P1 prevents trivial evasion by spreading data across many elements.
+* P2 removes the Tapscript IF avenue commonly abused by inscription envelopes, plus a narrow push-only IF-body guard.
+* P3–P6 cheaply reject large or abusive structures before consensus applies.
+* P7 avoids relay of undefined witness/taproot versions absent an explicit operator choice.
 
-Node operators MAY expose configuration flags (e.g., ``-datacarrierwitnesslimit`` and ``-v1perinputwitnesslimit``) to tune these thresholds.
+Node operators MAY expose configuration flags (e.g., ``-v1perinputwitnesslimit``) to tune these thresholds.
 
 ===Rationale===
 
 The proposal is intentionally syntactic and conservative:
 * Legitimate scripts include non-push opcodes (CHECKSIG, timelocks, arithmetic). Large contiguous push-only regions are exceptionally rare in practical contracts.
 * A stricter 80-byte limit applies only within IF/NOTIF branch bodies that are push-only, directly disabling the standard inscription envelope while preserving general use of OP_IF in contracts.
-* A 256-byte cap on push-only witness elements accommodates typical signatures, keys, and small auxiliary data, while blocking inscription-scale blobs.
+* The policy and consensus caps are chosen to avoid breaking common usage (e.g., keys/signatures, small scripts) while disabling inscription-style abuse and excessive UTXO/script growth.
 * Key-path spends and ordinary Tapscript contracts are unaffected.
 
 Alternative designs were considered:
@@ -125,11 +154,27 @@ Wallets and contract tooling should avoid constructing leaves with large push-on
 
 ===Deployment===
 
-Deployment is proposed via version bits (BIP9/BIP8) for a new soft-fork bit.
-* Title: “Taproot Push-Only Limits”
-* Start time/timeout: TBD by deployment coordinators.
-* Activation: lock-in on threshold signaling; enforcement begins after lock-in.
-* Implementers SHOULD enable policy rules irrespective of activation to reduce propagation of inscription-like transactions.
+This proposal uses BIP8 (height-based) with delayed activation after a one-year signaling window. Policy rules SHOULD be enabled immediately and remain irrespective of activation.
+
+Deployment parameters (mainnet, suggested):
+* Mechanism: BIP8 (LOT=false by default; LOT=true is an alternative if forced activation is desired)
+* Signaling bit: TBD
+* Period: 2016 blocks (about 2 weeks)
+* Threshold: 1815 blocks (90% of the period)
+* Start height: TBD_START
+* Timeout height: TBD_START + 52,560 blocks (≈ 1 year)
+* Min activation height: Timeout height + 2,016 blocks (activation delayed until after the full signaling window even if locked-in earlier)
+
+Behavior:
+* Before ACTIVE: nodes enforce only existing consensus rules; this BIP’s checks apply as non-consensus policy (relay/mempool) per the Policy section.
+* STARTED → LOCKED_IN: when a period meets the threshold, the deployment locks in but will not activate until min activation height.
+* ACTIVE at/after min activation height: consensus rules in “Consensus changes” become mandatory.
+
+Test networks (suggested):
+* Signet/testnet: shorter periods/thresholds acceptable; coordinators MAY use LOT=true to guarantee activation for testing.
+
+Optional (sunset):
+* If a temporary deployment is desired, specify a Deactivation height (sunset) after which the consensus checks in this BIP no longer apply. Nodes MUST treat spends after that height as if this BIP were never activated. This is not recommended unless there is a strong need for an automatic expiry.
 
 ===Reference implementation (pseudocode)===
 
@@ -250,15 +295,11 @@ Consensus checks (v1 script-path spend):
 * Leaf script: ``<32-byte-pubkey> OP_CHECKSIG`` → push-run = 32 ≤ 256; no IF blocks.
 * Witness element (sig): single push of 64 bytes (BIP340) → 64 ≤ 256.
 
-2) Invalid by rule (3): large push-only witness element
-* Witness element bytes: ``0x4d 0x2c 0x01 00…00`` (PUSHDATA2, 300 bytes of zeroes)
-* Parsed pushed_sum = 300 > 256 → invalid.
-
-3) Invalid by rule (2): IF-body inscription envelope
+2) Invalid by rule (2): IF-body inscription envelope
 * Leaf script bytes: ``OP_FALSE OP_IF 0x4d 0x51 0x00 00…00 OP_ENDIF`` (PUSHDATA2 of 81 bytes)
 * Branch body is push-only; pushed_sum = 81 > 80 → invalid.
 
-4) Invalid by rule (1): large contiguous push-only run
+3) Invalid by rule (1): large contiguous push-only run
 * Leaf script starts with multiple pushes totaling 300 bytes before any non-push opcode → max push-run = 300 > 256 → invalid.
 
 Implementers SHOULD include exact hex encodings in test suites reflecting these structures.
@@ -314,6 +355,5 @@ Thanks to contributors discussing witness/script policy tightening and Taproot i
 
 * BIP341: Taproot: SegWit version 1 spending rules.
 * BIP342: Validation of Taproot scripts.
-* BIP-0443 (format/style reference) — https://github.com/bitcoin/bips/blob/master/bip-0443.mediawiki
 
 
