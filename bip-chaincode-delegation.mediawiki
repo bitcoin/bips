@@ -6,7 +6,7 @@ Author: Jesse Posner <jesse@vora.io>, Jurvis Tan <jurvis@block.xyz>
 Status: Draft
 Type: Standards Track
 Created: 2025-10-14
-License: BSD-2-Clause
+License: BSD-3-Clause
 </pre>
 
 == Abstract ==
@@ -97,11 +97,11 @@ The transport that carries this bundle is out of scope for this proposal; implem
 Delegators use the supplied CCD tweak bundle during verification (see ''Delegator input and change verification'') and signature generation (see ''DelegatorSign'').
 
 === Delegatee Signing ===
-For non-blinded signing, the delegatee can apply the signatures as usual. 
+This BIP supports two modes:
+* '''Non‑blinded.''' The delegator receives the tweak for the child public key and the message. The delegator learns only about the specific child keys and transactions it signs for; it does not learn the wider address space.
+* '''Blinded.''' The delegator receives only a blinded challenge and parity bits. The delegator learns nothing about the message or child key for which it produces a signature.
 
-TODO(jesse): Add motivation for blinded signing variant.
-
-For blinded signing, see the section below on Blind Signing.
+Both modes produce valid BIP340 signatures.
 
 ====Non-Blinded Signing====
 For non-blinded signing, the delegatee can apply the signatures as usual.
@@ -168,9 +168,23 @@ Algorithm ''DelegatorSign(t, x, m)'':
 The caller is responsible for inserting ''σ'' into the surrounding protocol (e.g., a PSBT, transaction witness, or adaptor signature exchange).
 
 ====Blinded Signing====
-For blinded signing, the delegatee can apply the signatures as usual.
+The delegator learns neither the message, the challenge, or the public key used in the BIP340 signature, only a blinded challenge e'.
 
-TODO(jesse): Add some literature here about blinded signing.
+This blind‑signing protocol specifies how a delegator can produce a blind partial Schnorr signature that a delegatee can unblind into a standard [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki BIP340] signature under a possibly tweaked X‑only public key. The notation, algorithmic patterns, and test‑vector style are adapted from [BIP‑327 (MuSig2)] and from the [https://github.com/siv2r/bip-frost-signing FROST Signing BIP]. The design follows the “plain” blind Schnorr flow described in Concurrently Secure Blind Schnorr Signatures ([https://eprint.iacr.org/2022/1676 ePrint 2022/1676]), but without the concurrency hardening from that work.
+
+The output signature is a BIP340 Schnorr signature valid under an X‑only key obtained by applying a sequence of plain (e.g. BIP32) and X‑only (e.g. Tapscript) tweaks to the signer’s plain public key. Consequently the protocol is compatible with [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341]. The delegator learns neither the message, the challenge, or the public key used in the BIP340 signature, only a blinded challenge e'.
+
+The plain protocol here is '''not''' concurrently secure. A signer '''MUST NOT''' run multiple blind signing sessions in parallel or interleave state across sessions. A signer '''MUST''' refuse any new blind‑nonce requests while a previous blind‑signature request is outstanding, or '''MUST''' irrevocably discard (and never reuse) any in‑flight blind nonce commitments that have not resulted in a signature, before accepting new ones.
+
+To obtain concurrency security as in ([https://eprint.iacr.org/2022/1676 ePrint 2022/1676]), the delegatee first sends an encryption of (m, a, b) before the signer commits to the blind nonce; later, the delegatee includes a zero‑knowledge proof binding the produced challenge to that encrypted tuple. That proof can additionally encode policy predicates about m (spend limits, velocity controls, etc.). A complete specification of this variant is outside the scope of this BIP.
+
+===== Overview =====
+
+* '''Round 1 (blind nonce).''' The delegator runs ''BlindNonceGen'' to produce ''blindsecnonce'' and ''blindpubnonce'' and sends ''blindpubnonce'' to the delegatee.
+* '''Round 2 (challenge).''' The delegatee runs ''BlindChallengeGen'' using the message ''m'', ''blindpubnonce'', the base public key ''pk'', and a list of ordinary and X-only tweaks, to produce a ''session context'' (kept locally for unblinding), a ''blindchallenge'', and two booleans ''pk_parity'' and ''nonce_parity''. The delegatee sends ''blindchallenge'', ''pk_parity'', and ''nonce_parity'' to the signer.
+* '''Round 3 (blind signature).''' The delegator runs ''BlindSign'' with ''sk'', ''blindchallenge'', ''blindsecnonce'', ''pk_parity'', and ''nonce_parity'' and returns ''blindsignature''. The delegatee completes by calling ''UnblindSignature'' with the stored session context and ''blindsignature'' to obtain the final BIP340 signature ''sig''.
+
+''BlindSign'' '''MUST NOT''' be executed twice with the same ''blindsecnonce''. As a defense, implementations '''SHOULD''' overwrite the first 64 bytes of ''blindsecnonce'' with zeros after they have been read by ''BlindSign''.
 
 =====Key Tweaking=====
 ======Tweak Context======
@@ -354,16 +368,27 @@ Algorithm ''UnblindSignature(session_ctx, blindsignature)'':
 * Exposure of any delegated tweak scalar <code>t</code> enables signing only for the specific child key(s) that scalar was derived for, and is typically short-lived if disclosed immediately before spending.
 * Delegatees MUST ensure every delegated path remains non-hardened and that ''ComputeBIP32Tweak'' yields the correct tweak <code>t</code>; incorrect scalars can render funds unspendable by the delegator.
 * Delegators MUST verify change outputs when tweak data is provided (for example via ''ChangeOutputVerification'') to avoid authorizing unexpected scripts.
-* Combining CCD with blind-signing protocols can further reduce the information revealed to delegators at signing time.
+* Reusing the same k' (first 32 bytes in blindsecnonce) across two BlindSign calls allows recovery of the base secret key.
+* When using blinded signing, opening multiple sessions concurrently against the same signer can allow an attacker to learn the base secret key. If concurrency is required, use the concurrently secure variant (encryption + ZK) instead (not specified in this BIP).
 
 == Test Vectors ==
 A [[bip-chaincode-delegation/vectors|collection of JSON test vectors]] are provided, along with a [[bip-chaincode-delegation/reference.py|python reference implementation]].
 
 You may also find example code of CCD in action [https://github.com/jurvis/chaincode-delegation here].
 
+== Change Log ==
+
+To help implementers understand updates to this document, we attach a version number that resembles ''semantic versioning'' (<code>MAJOR.MINOR.PATCH</code>).
+The <code>MAJOR</code> version is incremented if changes to the BIP are introduced that are incompatible with prior versions.
+An exception to this rule is <code>MAJOR</code> version zero (0.y.z) which is for development and does not need to be incremented if backwards incompatible changes are introduced.
+The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
+The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
+
+* '''0.1.0''' (2025-10-14): Publication of draft BIP
+
 == Acknowledgements ==
 * Arik Sosman and Wilmer Paulino for the initial discussions and validation of this idea.  
 * Sanket Kajalkar, Jordan Mecom, Gregory Sanders, ZmnSCPxj, Yuval Krogman, and John Cantrell for code and design review.
 
 == Copyright ==
-This BIP is licensed under the BSD 2-Clause license.
+This BIP is licensed under the BSD 3-Clause license.
