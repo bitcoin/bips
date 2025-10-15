@@ -1,0 +1,319 @@
+BIP: TBD
+Title: Limiting Push-Only Data Payloads in Taproot to Prevent Arbitrary Inscriptions
+Author: TBD
+Comments-URI: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/
+Status: Draft
+Type: Standards Track
+Layer: Consensus (soft fork), Policy
+Created: 2025-10-15
+License: BSD-2-Clause
+Requires: 341, 342
+Post-History:
+
+==Abstract==
+
+This BIP proposes a narrowly-scoped soft fork, accompanied by relay/mempool policy defaults, to prevent large arbitrary-data inscriptions via Taproot. It introduces:
+* a consensus limit on large contiguous push-only regions in Tapscript,
+* a consensus ban on large push-only conditional (IF/NOTIF) bodies,
+* a consensus cap for push-only witness stack elements in segwit v1 inputs,
+* and complementary policy limits to halt propagation of inscription-like transactions.
+
+The changes are surgical: they preserve normal Taproot usage (key-path spends, common script-path contracts, signatures, and small constants) while disabling the well-known inscription envelopes.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+Arbitrary data inscriptions exploit Taproot witness/script areas to store large blobs, typically by arranging scripts or witness elements that are pure data pushes (e.g., the popular ``OP_FALSE OP_IF ... OP_ENDIF`` “envelope”). While valid by consensus, these patterns increase chain bloat and undermine the intended separation between data-carrier outputs (e.g., OP_RETURN) and script execution.
+
+Past policy-based mitigations (e.g., OP_RETURN datacarrier limits) do not cover Taproot witness/script pathways. This proposal introduces conservative consensus constraints, plus policy defaults, to block the main inscription vectors while avoiding collateral damage to legitimate contracts.
+
+==Specification==
+
+===Definitions===
+
+For the purposes of this BIP:
+
+; Push opcode
+: Any of the standard data-push opcodes: bytes 0x01..0x4b (implicit length), OP_PUSHDATA1 (0x4c), OP_PUSHDATA2 (0x4d), OP_PUSHDATA4 (0x4e).
+
+; Push-only sequence
+: A contiguous subsequence of script bytes which parses to one or more push opcodes and their payloads, and contains no non-push opcodes.
+
+; Total pushed bytes
+: The sum of payload lengths of all pushes within a parsed region (element or script run).
+
+; Conditional block
+: For any OP_IF or OP_NOTIF, the region beginning immediately after it and ending at the matching OP_ENDIF (including an optional OP_ELSE that splits the region into “then” and “else” branch bodies). “Branch body” means the bytes of one branch, excluding the delimiter opcodes.
+
+; Segwit v1 input / Tapscript leaf
+: As defined in BIP341/342. A “script-path spend” reveals a tapscript leaf during validation.
+
+===Consensus changes (soft fork)===
+
+These rules apply to all segwit v1 (Taproot) inputs. They are additional validity conditions.
+
+Parameters (consensus):
+* MAX_TAPSCRIPT_PUSH_RUN = 256 bytes
+* MAX_IF_PUSHONLY_BRANCH = 80 bytes
+* MAX_V1_PUSHONLY_WITNESS_ELEM = 256 bytes
+
+1. Tapscript push-run cap
+: For each revealed tapscript leaf in a segwit v1 script-path spend, parse the script and compute the maximum “push-only run” — i.e., the greatest total pushed bytes in any contiguous region consisting solely of push opcodes and their payloads. If this maximum exceeds MAX_TAPSCRIPT_PUSH_RUN, the spend is invalid.
+
+2. Push-only IF/NOTIF branch cap
+: For each OP_IF/OP_NOTIF…OP_ENDIF structure in a revealed tapscript leaf, consider each branch body separately (then and else, if present). If a branch body is push-only and its total pushed bytes exceed MAX_IF_PUSHONLY_BRANCH, the spend is invalid.
+
+3. Push-only witness element cap (v1)
+: For each segwit v1 input, for each witness stack element, if the element parses entirely as push-only and the total pushed bytes exceed MAX_V1_PUSHONLY_WITNESS_ELEM, the spend is invalid.
+
+Notes:
+* These checks do not require the branch to be taken or code to be executed; they operate on the revealed tapscript bytes.
+* Standard script malleability and tapscript semantics remain unchanged. This proposal adds new size-structure constraints only.
+* Key-path spends are unaffected (no script is revealed).
+* Non-push opcodes anywhere break push-only status and therefore are not constrained by rules (1) and (2), though other consensus rules still apply.
+
+===Relay/mempool policy (non-consensus)===
+
+Implementers SHOULD adopt the following default policy to prevent propagation of inscription-like transactions before and after activation:
+
+Parameters (policy defaults; independently configurable):
+* POLICY_MAX_PUSHONLY_WITNESS_ELEM = 80 bytes
+* POLICY_MAX_V1_PERINPUT_WITNESS = 1024 bytes
+
+P1. Push-only element (policy)
+: Reject a transaction if any witness stack element (any version) parses as push-only and total pushed bytes exceed POLICY_MAX_PUSHONLY_WITNESS_ELEM.
+
+P2. Per-input witness budget (policy, v1)
+: For segwit v1 inputs, if the total witness bytes for that input exceed POLICY_MAX_V1_PERINPUT_WITNESS, reject the transaction.
+
+P3. Tapscript push-only IF guard (policy)
+: For segwit v1 script-path spends, if any revealed tapscript leaf contains an OP_IF/OP_NOTIF branch body that is push-only with total pushed bytes > POLICY_MAX_PUSHONLY_WITNESS_ELEM, reject the transaction.
+
+Rationale:
+* P1 mirrors (3) more strictly to catch payloads earlier.
+* P2 prevents trivial evasion by spreading data across many elements.
+* P3 targets the common “OP_FALSE OP_IF … OP_ENDIF” envelope at policy level.
+
+Node operators MAY expose configuration flags (e.g., ``-datacarrierwitnesslimit`` and ``-v1perinputwitnesslimit``) to tune these thresholds.
+
+===Rationale===
+
+The proposal is intentionally syntactic and conservative:
+* Legitimate scripts include non-push opcodes (CHECKSIG, timelocks, arithmetic). Large contiguous push-only regions are exceptionally rare in practical contracts.
+* A stricter 80-byte limit applies only within IF/NOTIF branch bodies that are push-only, directly disabling the standard inscription envelope while preserving general use of OP_IF in contracts.
+* A 256-byte cap on push-only witness elements accommodates typical signatures, keys, and small auxiliary data, while blocking inscription-scale blobs.
+* Key-path spends and ordinary Tapscript contracts are unaffected.
+
+Alternative designs were considered:
+* Global witness-size caps: blunt and more likely to impact complex contracts.
+* Reweighting witness bytes: economic change, less predictable and contentious.
+* Banning OP_IF in Tapscript: over-broad; would break legitimate control-flow.
+
+These rules target the exact structure used by inscriptions without changing execution semantics.
+
+===Backward compatibility===
+
+This is a soft fork: previously valid v1 script-path spends with large push-only regions/elements become invalid. Impacts to legitimate usage are expected to be minimal due to:
+* rarity of large push-only runs in real scripts,
+* preservation of OP_IF for non-push-only branch bodies,
+* generous 256-byte allowance for push-only witness elements.
+
+Wallets and contract tooling should avoid constructing leaves with large push-only regions or branch bodies.
+
+===Deployment===
+
+Deployment is proposed via version bits (BIP9/BIP8) for a new soft-fork bit.
+* Title: “Taproot Push-Only Limits”
+* Start time/timeout: TBD by deployment coordinators.
+* Activation: lock-in on threshold signaling; enforcement begins after lock-in.
+* Implementers SHOULD enable policy rules irrespective of activation to reduce propagation of inscription-like transactions.
+
+===Reference implementation (pseudocode)===
+
+Parsing helpers:
+
+<code>
+bool ParsePushOnlyRun(const uint8_t* script, size_t len, size_t& i, uint64_t& pushed_sum) {
+    pushed_sum = 0;
+    size_t j = i;
+    while (j < len) {
+        uint8_t op = script[j++];
+        size_t push_len = 0;
+        if (op >= 0x01 && op <= 0x4b) {
+            push_len = op;
+        } else if (op == 0x4c) { // PUSHDATA1
+            if (j + 1 > len) return false;
+            push_len = script[j++];
+        } else if (op == 0x4d) { // PUSHDATA2
+            if (j + 2 > len) return false;
+            push_len = script[j] | (script[j+1] << 8); j += 2;
+        } else if (op == 0x4e) { // PUSHDATA4
+            if (j + 4 > len) return false;
+            push_len = script[j] | (script[j+1] << 8) | (script[j+2] << 16) | (script[j+3] << 24); j += 4;
+        } else {
+            // non-push opcode ends the run
+            j--; // step back to reprocess this opcode at caller
+            break;
+        }
+        if (j + push_len > len) return false;
+        pushed_sum += push_len;
+        j += push_len;
+    }
+    // i unchanged; caller advances as needed
+    return true;
+}
+</code>
+
+Max push-only run in a tapscript leaf:
+
+<code>
+bool MaxPushOnlyRun(const std::vector<uint8_t>& script, uint64_t& max_pushed) {
+    max_pushed = 0;
+    size_t i = 0, n = script.size();
+    while (i < n) {
+        uint64_t sum = 0;
+        size_t before = i;
+        if (!ParsePushOnlyRun(script.data(), n, i, sum)) return false;
+        if (sum > max_pushed) max_pushed = sum;
+        // Advance: if run length was zero (began on non-push), skip one opcode
+        if (i == before) {
+            // consume one opcode and its data if push, else just one opcode
+            uint8_t op = script[i++];
+            if (op >= 0x01 && op <= 0x4b) { i += op; }
+            else if (op == 0x4c && i < n) { uint8_t l = script[i++]; i += l; }
+            else if (op == 0x4d && i + 1 < n) { size_t l = script[i] | (script[i+1] << 8); i += 2 + l; }
+            else if (op == 0x4e && i + 3 < n) { size_t l = script[i] | (script[i+1] << 8) | (script[i+2] << 16) | (script[i+3] << 24); i += 4 + l; }
+        }
+    }
+    return true;
+}
+</code>
+
+IF/NOTIF branch bodies:
+
+<code>
+struct Branch { size_t start; size_t end; }; // [start, end)
+bool ExtractConditionalBranches(const std::vector<uint8_t>& script, std::vector<Branch>& branches);
+
+bool IsPushOnlyRegion(const std::vector<uint8_t>& script, Branch b, uint64_t& pushed_sum) {
+    size_t i = b.start, n = b.end;
+    pushed_sum = 0;
+    while (i < n) {
+        uint8_t op = script[i++];
+        size_t push_len = 0;
+        if (op >= 0x01 && op <= 0x4b) { push_len = op; }
+        else if (op == 0x4c) { if (i >= n) return false; push_len = script[i++]; }
+        else if (op == 0x4d) { if (i + 1 >= n) return false; push_len = script[i] | (script[i+1] << 8); i += 2; }
+        else if (op == 0x4e) { if (i + 3 >= n) return false; push_len = script[i] | (script[i+1] << 8) | (script[i+2] << 16) | (script[i+3] << 24); i += 4; }
+        else { return false; } // non-push
+        if (i + push_len > n) return false;
+        pushed_sum += push_len;
+        i += push_len;
+    }
+    return true;
+}
+</code>
+
+Witness element push-only:
+
+<code>
+bool IsPushOnlyElement(const std::vector<uint8_t>& elem, uint64_t& pushed_sum) {
+    size_t i = 0, n = elem.size();
+    pushed_sum = 0;
+    while (i < n) {
+        uint8_t op = elem[i++];
+        size_t push_len = 0;
+        if (op >= 0x01 && op <= 0x4b) { push_len = op; }
+        else if (op == 0x4c) { if (i >= n) return false; push_len = elem[i++]; }
+        else if (op == 0x4d) { if (i + 1 >= n) return false; push_len = elem[i] | (elem[i+1] << 8); i += 2; }
+        else if (op == 0x4e) { if (i + 3 >= n) return false; push_len = elem[i] | (elem[i+1] << 8) | (elem[i+2] << 16) | (elem[i+3] << 24); i += 4; }
+        else { return false; }
+        if (i + push_len > n) return false;
+        pushed_sum += push_len;
+        i += push_len;
+    }
+    return true;
+}
+</code>
+
+Consensus checks (v1 script-path spend):
+* Compute max push-only run; if > MAX_TAPSCRIPT_PUSH_RUN → invalid.
+* For each conditional branch body: if push-only and pushed_sum > MAX_IF_PUSHONLY_BRANCH → invalid.
+* For each witness stack element: if push-only and pushed_sum > MAX_V1_PUSHONLY_WITNESS_ELEM → invalid.
+
+===Test vectors (illustrative)===
+
+1) Valid: typical Tapscript CHECKSIG spend
+* Leaf script: ``<32-byte-pubkey> OP_CHECKSIG`` → push-run = 32 ≤ 256; no IF blocks.
+* Witness element (sig): single push of 64 bytes (BIP340) → 64 ≤ 256.
+
+2) Invalid by rule (3): large push-only witness element
+* Witness element bytes: ``0x4d 0x2c 0x01 00…00`` (PUSHDATA2, 300 bytes of zeroes)
+* Parsed pushed_sum = 300 > 256 → invalid.
+
+3) Invalid by rule (2): IF-body inscription envelope
+* Leaf script bytes: ``OP_FALSE OP_IF 0x4d 0x51 0x00 00…00 OP_ENDIF`` (PUSHDATA2 of 81 bytes)
+* Branch body is push-only; pushed_sum = 81 > 80 → invalid.
+
+4) Invalid by rule (1): large contiguous push-only run
+* Leaf script starts with multiple pushes totaling 300 bytes before any non-push opcode → max push-run = 300 > 256 → invalid.
+
+Implementers SHOULD include exact hex encodings in test suites reflecting these structures.
+
+===Security considerations===
+
+* The proposal prevents large obvious data payloads in v1 scripts/witnesses. It does not prevent steganographic data hidden in signatures/keys; doing so would break cryptographic correctness and is out of scope.
+* Parsing must be exact and robust to avoid misclassification of malformed byte sequences as push-only.
+* The rules are syntactic and non-contextual, minimizing risk of execution-time surprises.
+
+===Reference implementation (policy sketch)===
+
+Nodes MAY deploy stronger policy to preempt propagation:
+
+<code>
+static constexpr unsigned POLICY_MAX_PUSHONLY_WITNESS_ELEM = 80;
+static constexpr unsigned POLICY_MAX_V1_PERINPUT_WITNESS = 1024;
+
+bool TxViolatesPolicy(const CTransaction& tx) {
+    for (size_t vin_idx = 0; vin_idx < tx.vin.size(); ++vin_idx) {
+        const auto& wit = tx.vin[vin_idx].scriptWitness;
+        size_t per_input_bytes = 0;
+        for (const auto& elem : wit.stack) {
+            per_input_bytes += elem.size();
+            uint64_t pushed = 0;
+            if (elem.size() > POLICY_MAX_PUSHONLY_WITNESS_ELEM &&
+                IsPushOnlyElement(elem, pushed) &&
+                pushed > POLICY_MAX_PUSHONLY_WITNESS_ELEM) return true;
+        }
+        if (/* segwit v1 input */ false /* placeholder */ && per_input_bytes > POLICY_MAX_V1_PERINPUT_WITNESS) return true;
+
+        if (/* tapscript path */ false /* placeholder */) {
+            for (const auto& leaf_script : /* revealed leaves */ std::vector<std::vector<uint8_t>>{}) {
+                std::vector<Branch> bs;
+                if (!ExtractConditionalBranches(leaf_script, bs)) return true; // malformed → policy reject
+                for (const auto& b : bs) {
+                    uint64_t pushed = 0;
+                    if (IsPushOnlyRegion(leaf_script, b, pushed) &&
+                        pushed > POLICY_MAX_PUSHONLY_WITNESS_ELEM) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+</code>
+
+===Acknowledgements===
+
+Thanks to contributors discussing witness/script policy tightening and Taproot inscription mitigations on bitcoin-dev and related forums. Prior art in standardness rules (e.g., OP_RETURN datacarrier limits) informed the policy layer here.
+
+===References===
+
+* BIP341: Taproot: SegWit version 1 spending rules.
+* BIP342: Validation of Taproot scripts.
+* BIP-0443 (format/style reference) — https://github.com/bitcoin/bips/blob/master/bip-0443.mediawiki
+
+
