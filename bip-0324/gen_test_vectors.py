@@ -95,13 +95,13 @@ def ellswift_create_deterministic(seed, features):
         have_x1 = "valid_x(x1)" in flags
         have_x2 = "valid_x(x2)" in flags
         have_x3 = "valid_x(x3)" in flags
-        if (features & 4) == 0 and not (have_x1 and not have_x2 and not have_x3):
+        if (features & 3) == 0 and not (have_x1 and not have_x2 and not have_x3):
             continue
-        if (features & 4) == 1 and not (not have_x1 and have_x2 and not have_x3):
+        if (features & 3) == 1 and not (not have_x1 and have_x2 and not have_x3):
             continue
-        if (features & 4) == 2 and not (not have_x1 and not have_x2 and have_x3):
+        if (features & 3) == 2 and not (not have_x1 and not have_x2 and have_x3):
             continue
-        if (features & 4) == 3 and not (have_x1 and have_x2 and have_x3):
+        if (features & 3) == 3 and not (have_x1 and have_x2 and have_x3):
             continue
         return sec, u.to_bytes(32, 'big') + t.to_bytes()
 
