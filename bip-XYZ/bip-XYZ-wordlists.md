@@ -32,7 +32,7 @@ Emojis are chosen using the following rules:
 
 ==== License ====
 
-This addition inherits the MIT license.# Wordlists
+This addition inherits the MIT license.
 
 * [Emoji](emoji.txt)
 
