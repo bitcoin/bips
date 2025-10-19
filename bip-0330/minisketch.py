@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import random
+
 ######## ENCODING and DECODING ########
 
 FIELD_BITS = 32
@@ -30,8 +32,6 @@ def sketch(shortids, capacity):
     return b''.join(elem.to_bytes(4, 'little') for elem in odd_sums)
 
 ######## DECODING only ########
-
-import random
 
 def inv(x):
     """Compute 1/x in GF(2^FIELD_BITS)"""
@@ -154,4 +154,3 @@ def decode(sketch):
         else:
             sums.append(odd_sums[(i+1)//2])
     return find_roots(list(reversed(berlekamp_massey(sums))))
-
