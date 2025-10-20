@@ -63,10 +63,10 @@ def point_add(p1: Point, p2: Point) -> Point:
     return (x3, (lam * (p1[0] - x3) - p1[1]) % p)
 
 
-def point_mul(p: Point, n: int) -> Point:
+def point_mul(p: Point, scalar: int) -> Point:
     r = None
     for i in range(256):
-        if ((n >> i) & 1):
+        if ((scalar >> i) & 1):
             r = point_add(r, p)
         p = point_add(p, p)
     return r
