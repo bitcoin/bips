@@ -96,6 +96,16 @@ Note: in the followings sections, the operator ⊕  refers to the bitwise XOR op
 - Let $s_i$ = sha256("BEB_INDIVIDUAL_SECRET" | $p_i$)
 - Let $c_i$ = $s$ ⊕  $s_i$
 
+**Note:** To prevent attackers from decrypting the backup using publicly known
+keys, explicitly exclude any public keys with x coordinate
+`50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0` (the BIP341 NUMS
+point, used as a taproot internal key in some applications). Additionally, exclude any
+other publicly known keys. In some cases, it may be possible to exclude certain keys
+from this process for customs applications or user needs, it is recommended to document
+such decision.
+
+
+
 ### AES-GCM Encryption
 
 * let $nonce$ = random()  
