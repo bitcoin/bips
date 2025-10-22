@@ -136,13 +136,14 @@ while (++$bipnum <= $topbip) {
 	}
 	my %found;
 	my ($title, $authors, $status, $type, $layer);
-	my ($field, $val, @field_order);
+	my ($field, $val, @field_order, $continuation);
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
 		last if (!$is_markdown && m[^</pre>$]);
 		if (m[^  ([\w-]+)\: (.*\S)$]) {
 			$field = $1;
 			$val = $2;
+			$continuation = 0;
 			die "Duplicate $field field in $fn" if exists $found{$field};
 			die "Too many spaces in $fn" if $val =~ /^\s/;
 		} elsif (m[^  ( +)(.*\S)$]) {
@@ -150,6 +151,7 @@ while (++$bipnum <= $topbip) {
 			die "Too many spaces in $fn" if length $1 != 2 + length $field;
 			die "Not allowed for multi-value in $fn" unless exists $MayHaveMulti{$field};
 			$val = $2;
+			$continuation = 1;
 		} else {
 			die "Bad line in $fn preamble";
 		}
@@ -187,6 +189,8 @@ while (++$bipnum <= $topbip) {
 			die "Invalid layer $val in $fn" unless exists $ValidLayer{$val};
 			$layer = $val;
 		} elsif ($field =~ /^License(?:\-Code)?$/) {
+			die "License continued across lines in $fn, use SPDX expression (... OR $val) instead" if $continuation;
+			$val =~ s/ OR .*//;
 			die "Undefined license $val in $fn" unless exists $DefinedLicenses{$val};
 			if (not $found{$field}) {
 				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum}) or ($val eq 'CC-BY-SA-4.0' and exists $GrandfatheredCCBySA{$bipnum});
