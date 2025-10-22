@@ -89,7 +89,7 @@ my %AcceptableLicenses = (
 	'BSD-2-Clause' => undef,
 	'BSD-3-Clause' => undef,
 	'CC0-1.0' => undef,
-	'GNU-All-Permissive' => undef,
+	'FSFAP' => undef,
 	'MIT' => undef,
 	'CC-BY-4.0' => undef,
 	'Apache-2.0' => undef,
@@ -105,7 +105,8 @@ my %DefinedLicenses = (
 	'GPL-2.0+' => undef,
 	'LGPL-2.1' => undef,
 	'LGPL-2.1+' => undef,
-	'OPL' => undef,
+	'OPUBL-1.0' => undef,
+    # There's no identifier for "Public Domain" in the SPDX list but "PD" is used in some BIPs.
 	'PD' => undef,
 );
 my %GrandfatheredPD = map { $_ => undef } qw(9 36 37 38 42 49 50 60 65 67 69 74 80 81 83 90 99 105 107 109 111 112 113 114 122 124 125 126 130 131 132 133 140 141 142 143 144 146 147 150 151 152);
