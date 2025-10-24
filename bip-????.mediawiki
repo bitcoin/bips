@@ -1,0 +1,437 @@
+<pre>
+  BIP: ?
+  Layer: Consensus (soft fork)
+  Title: Reduced Data Temporary Softfork
+  Author: Dathon Ohm <dathonohm+bip@proton.me>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-?
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-10-24
+  License: BSD-3-Clause
+  Post-History: https://gnusha.org/pi/bitcoindev/aN_u-xB2ogn2D834@erisian.com.au/T/#mb71350c5dfb119efeb92c5ee738b6c8225bf15b6
+</pre>
+
+==Abstract==
+
+Temporarily limit the size of data fields at the consensus level.
+
+==Copyright==
+
+This document is licensed under the 3-clause BSD license.
+
+==Specification==
+
+Blocks with a height from (TBD) until and including 987424 are checked with these additional rules:
+
+# New output scriptPubKeys exceeding 34 bytes are invalid, unless the first opcode is OP_RETURN, in which case up to 83 bytes are valid.
+# OP_PUSHDATA* with payloads larger than 256 bytes are invalid, except for the redeemScript push in BIP16 scriptSigs.
+# Spending undefined witness (or Tapleaf) versions (ie, not Witness v0/BIP 141 nor Taproot/BIP 341) is invalid.
+# Witness stacks with a Taproot annex are invalid.
+# Taproot control blocks larger than 257 bytes (a merkle tree with 128 script leaves) are invalid.
+# Tapscripts including OP_SUCCESS* opcodes anywhere (even unexecuted) are invalid.
+# Tapscripts executing the OP_IF or OP_NOTIF instruction (regardless of result) are invalid.
+
+==Motivation==
+
+The recent release of Bitcoin Core 30 presents a severe threat to Bitcoin's viability.
+By formally standardizing rules for large-scale data storage (ie, 100kB OP_RETURNs), it proposes to redefine this behavior from an abuse of the system into a supported use case.
+The true danger lies not merely in the release existing, but in its adoption.
+The adoption of this release, even if by a minority of users, risks establishing this harmful redefinition as a new de facto standard for the entire network.
+
+This official sanction creates an immediate and severe threat.
+The threat here is distinct from general spam or economic costs, which are typically handled with policy and the fee market.
+It allows a malicious actor to mine a single transaction with illegal or universally abhorrent content and credibly claim that Bitcoin itself is a system for distributing it, rather than a system that was merely abused.
+This directly threatens the ability and/or willingness of common people to run fully validating nodes due to the resulting legal and moral risks.
+
+A core principle of Bitcoin is "don't trust, verify".
+The nature of Bitcoin requires users to run fully validating nodes, necessarily involving downloading, storing, and transmitting every transaction, even if they are fake/spam "transactions".
+If the blockchain contains content that is illegal to possess or distribute, node operators are forced to choose between violating the law (or their conscience) or shutting down their node.
+This unacceptable dilemma directly undermines the incentive to validate, leading to inevitable centralization and posing an existential threat to Bitcoin's security model.
+
+By enforcing these new rules, this softfork allows the community to reject the standardization of data storage at the consensus level, closing the gap being abused.
+
+Some of the rules may be severe limitations, especially on future protocol upgrades, so this softfork is explicitly temporary and self-expiring if no further action is taken to renew/extend them.
+This also buys time to refine the new rules into less restrictive forms.
+
+==Rationale==
+
+===Specification nuance===
+
+'''Why limit scriptPubKeys to 34 bytes?'''
+
+scriptPubKeys must be stored indefinitely in quick-access memory (often RAM) by all fully validating nodes.
+It generally cannot be pruned.
+It is also a direct cost to the sender rather than the receiver. For these reasons, modern usage is all 34 bytes or smaller in practice:
+actual spending conditions have been moved to the witness, and the scriptPubKey simply commits to them in advance with a hash.
+
+'''What about OP_RETURN? Why not get rid of it entirely?'''
+
+OP_RETURN outputs are provably unspendable, and nodes do not need to store it in the UTXO set.
+Historically, up to 83 bytes have been tolerated only to avoid unprovably unspendable spam in other output scripts, and no legitimate uses have ever been found.
+With the advent of pay-to-contract and Taproot, it is now also possible to commit to external data in the Taptree, making even hypothetical use of OP_RETURN deprecated.
+However, to avoid breaking legacy protocols that still include such outputs, this proposal allows these outputs.
+
+'''Why limit other data to 256/257 bytes?'''
+
+With modern compression, it is plausible to represent objectionable images (often illegal to even possess) in as few as 300-400 bytes.
+
+256 bytes (2048 bits) is also more than sufficient for reasonably large numbers that might be potentially needed in legitimate cryptography, reinforcing Bitcoin's intended purpose as a financial network.
+
+'''Won't spammers just spread their data over multiple fields?'''
+
+While it is impossible to fully prevent steganography, limiting data sizes ensures such abuses are non-contiguous and obfuscated within another intended meaning (script code, structure, etc).
+As far as Bitcoin is concerned, the data has some meaning other than the spammers' misinterpretation, and any external code to "reassemble" the unintended data is responsible for producing it
+(it is possible to write code that transforms *any* data into any other data - what matters is that Bitcoin has a well-defined meaning that is distinct from the unsupported one).
+This proposal also sends a clear message that data storage abuses in general (legal or otherwise) are unwelcome rather than sanctioned or supported.
+
+'''Why is there an exception for BIP16 redeemScripts?'''
+
+The content of redeemScripts are another script, which is then executed.
+Its contents are then also subject to the same OP_PUSHDATA* restrictions.
+Restricting it is not only unnecessary, but would reduce the ability to make use of the intended script capabilities, and could impact legitimate real-world usage.
+
+'''Why make spending undefined witness/Tapleaf versions invalid?'''
+
+Since they are undefined, witness stacks spending these versions are completely unlimited currently to allow maximum flexibility in future upgrades.
+Any future upgrade, however, would need more than a year of coordination, so this softfork will not actually restrict it, and only safeguards against abuse in the meantime.
+
+'''Why not make it invalid to send to undefined witness versions?'''
+
+This would require the senders of transactions to check the witness version prior to sending, and require additional coordination when a new witness version is intended to become used.
+
+'''Why not allow spending undefined witness versions with an empty witness?'''
+
+This has no use case, but would require nodes to track these UTXOs in case of potential spending.
+By making spending invalid, it is possible for nodes to store them instead in slow memory not needed until this softfork expires.
+(With proper planning, it also makes it possible for a future softfork making use of these witness versions to allow users to receive with an upgraded wallet even prior to activation of the upgrade.)
+
+'''Why make the Taproot annex invalid?'''
+
+The annex is currently undefined data with unlimited size.
+It exists for future upgrades, but has no legitimate usage today.
+Any future upgrade, however, would need more than a year of coordination, so this softfork will not actually restrict it, and only safeguards against abuse in the meantime.
+
+'''Why is the Taproot control block limited to 257 bytes instead of 256?'''
+
+The control block is a series of hashes proving the Tapscript is part of the Taptree, plus a single byte with the leaf version and parity bit.
+See BIP 341 for details.
+
+'''Why make OP_SUCCESS* invalid?'''
+
+OP_SUCCESS* is meant for future upgrades. See above regarding undefined witness versions.
+
+'''Why make OP_IF/OP_NOTIF invalid?'''
+
+OP_IF/OP_NOTIF originated in pre-Taproot Bitcoin script language as a way to execute different subscripts based on a condition.
+With Taproot, the conditions can instead be evaluated off-chain, revealing only the intended verification execution path.
+Furthermore, when the conditions are met, the intent is that the keypath spend path should be used instead, avoiding publishing any scripts at all.
+
+OP_IF is not only redundant for Tapscript, it is also commonly abused today to inject spam that gets skipped at execution.
+While it is impossible to fully prevent steganography, closing this gap eliminates one common abuse today basically for free, and sends a message that such abuses are not welcome.
+
+'''Why is the proposal so simple?'''
+
+A more complicated proposal could be envisioned that better balances innovation with safety, but implementing this properly would require extensive refactoring and review, delaying deployment when there is already no time to wait.
+The rules proposed herein have been intentionally kept very simple to minimise review time and avoid unnecessary risks of overlooking unexpected side effects.
+
+'''Why is this softfork temporary?'''
+
+The impact of these restrictions would severely constrain future upgrades, potentially forcing them to be designed as a hardfork instead of a softfork.
+Some restrictions are also not ideal, but an improved limit would be more complicated to develop and test -
+by deploying these simpler restrictions now, we avoid making the perfect the enemy of the good enough, while still allowing for upgrading the limits to better variants in the future.
+
+Over the next year, interested developers can implement and propose a longer-term solution to address the needs of the protocol without the tradeoffs or blunt/simplified changes.
+
+===Tradeoffs===
+
+'''Are there any tradeoffs?'''
+
+Yes:
+
+# Limiting Taproot control blocks to 257 bytes directly constrains the size of the on-chain, consensus-enforced script tree. This could complicate or possibly even impede advanced smart contracting like BitVM, which relies on a large number of executable scripts. In the worst case scenario, these use cases may just need to wait until this softfork expires. As they are still in early development, testnet and sidechains should be sufficient for the next year while a more scalable rule is implemented.
+# Upgrade hooks are not available for other softforks. As softforks need at least a year to activate, this shouldn't be a practical issue.
+# In some hypothetical cases, OP_IF could require less data than additional tapscripts. If such a use case is discovered, this simply increases the fee until the softfork expires.
+
+'''Isn't the limit on Taproot control blocks too restrictive?'''
+
+Possibly.
+The previous limit allows for 340,282,366,920,938,463,463,374,607,431,768,211,456 scripts, which is obviously way more than anyone could ever need.
+257 bytes allows for 128 scripts, which is plenty for ordinary human-made scenarios.
+However, it may prove too limiting for advanced off-chain functionality such as used by BitVM.
+This is an unfortunate tradeoff that (if this softfork is accepted) we have chosen to accept in the short-term for the immediate benefits of this softfork.
+The intent is to relax this restriction later, when this softfork expires, with a new approach allowing larger trees, yet to be developed.
+
+Do note that non-script (or non-Bitcoin-L1 scripts) usage of the taptree does not have this same limitation:
+just a single of the 128 leaves could very well be an extension of the merkle tree to greater depths than enforced by this softfork.
+
+'''Aren't Taptrees intended to be unbalanced?'''
+
+While it is true that optimal use of Taptrees may often be unbalanced to favour more-likely-executed scripts, this is optional, and the full capacity (in this case, 128 scripts) can still be used if needed.
+Additionally, in ideal/ordinary circumstances, neither the Taptree nor a merkle branch through it is ever published:
+all counterparties ought to evaluate the conditions for spending off-chain and rebroadcast the transaction using the keypath spending.
+Tapscripts are intended to only be used when one or more parties is unreachable or uncooperative; their existence mainly only serves to deter intentional non-cooperation by making it pointless.
+
+===Activation===
+
+Due to the unpredictable nature of the crisis this BIP addresses, we should move to limit on-chain data as quickly and orderly as possible, while being ready to react immediately in case illegal data appears in the chain before the new rules activate.
+Thus this BIP presents two parallel methods of activation: the first proactive, the other reactive.
+The proactive method involves a flag day activation of the rules, some time in early 2026. If no troublesome content appears in the chain, this BIP will activate smoothly via this proactive method.
+If, however, some content appears in the chain that causes significant risks, we can fall back to the reactive method, which is a retroactive chain reorganization to invalidate the offending block (and any subsequent blocks) while immediately activating the new rules.
+The mere existence of this BIP likely reduces the threat, since it demonstrates that, although Bitcoin Core 30 appears to sanction data storage as an official feature of the Bitcoin network, the network has not yet arrived at a consensus regarding this stance since there is an active opposition.
+
+===Proactive Deployment===
+
+TODO
+
+===Reactive Deployment===
+
+'''Doesn't this proposal activate too soon?'''
+
+In short, yes, it does.
+Unfortunately, due to the release of Bitcoin Core 30 endorsing large data storage and actual illegal content being mined in proposed block <TODO:hash>, the network as it stands is already contaminated.
+This is not a preemptive measure, but an emergency response to an immediate crisis.
+Therefore, there is no time for lengthy signaling periods or careful deployment; the only remaining option is immediate and retroactive activation to mitigate the harm.
+
+However, because this is a softfork, old nodes will continue to follow the blockchain so long as it attains significant enough hashrate.
+Even if non-upgraded miners continue to mine (now) invalid blocks, old nodes will continually replace them with valid blocks every time the valid chain overtakes the invalid one.
+Since this results in an incoherent consensus system, unusable for actual currency, and loss of rewards for the lagging miners, they should quickly adapt and bring the softfork to near 100% compatibility quickly.
+
+The true risk is that for an initial period of time, nearly all nodes will cease to function as fully validating nodes.
+This can only be mitigated by encouraging nodes to upgrade quickly, possibly by backporting the softfork to old and/or niche node software as necessary.
+Toward this end, the actual changes in this softfork have been kept very simple.
+
+'''Does this cause a chain split?'''
+
+Generally, softforks do not cause chain splits.
+However, since we are rejecting an already-mined block proposal, this softfork does indeed cause a chain split.
+In fact, that is an important part of its purpose:
+to keep the illegal content storage in block <TODO:hash> out of Bitcoin.
+
+To achieve this, the softfork must activate retroactively, invalidating that block and all its descendants.
+The prior segment of the blockchain including this block will eventually (hopefully quickly) be discarded entirely, as the network adopts the softfork proposed herein.
+
+'''What is the expected impact on exchanges and other businesses, and how can they prepare?'''
+
+Depending on how quickly miners adopt this softfork, there is potential for significant disruption in the short-term.
+Any econonomic node that continues to process deposits or payments should consider the risk of reversals or double-spending until the situation has fully resolved.
+
+The standard, industry-wide security procedure for any chain split event is to temporarily disable deposits and withdrawals until a single, stable chain has been decisively established with significant proof-of-work.
+Each entity is responsible for monitoring the network and determining when it is safe to resume operations.
+Before resuming operations, be sure your own nodes are updated to enforce the softfork for your own security.
+
+Depending on the situation, it may be safe to monitor multiple blockchains and accept payments that have confirmed on all of them.
+Similarly, already-open Lightning channels can be used, but monitoring the channels themselves must be taken into consideration.
+If the chain split is prolonged, it may be worth considering closing any high-value channels with untrusted counterparties.
+
+'''Is this unprecedented?'''
+
+No.
+Bitcoin has deployed emergency softforks, including chain splits, in at least two past occasions:
+
+# In 2010 August, an inflation bug ([https://en.bitcoin.it/wiki/Value_overflow_incident CVE-2010-5139]) was exploited to create 184 billion BTC, violating the fundamental monetary policy of Bitcoin. To fix the bug, an emergency softfork rolled back the chain, discarding the inflationary block and its descendants 16 hours later.
+# In 2013 March, Bitcoin Core 0.8.0 unintentionally introduced a hardfork attempt to increase block sizes ([https://en.bitcoin.it/wiki/BIP_0050 CVE-2013-3219]). While the hardfork was deemed desirable at the time, and eventually re-deployed in May, an emergency softfork was first rolled out in March to deliberately abandon and roll back the incompatible chain. The chain split went on for nearly 5 days before the big-block chain was discarded by 0.8.0 nodes.
+
+These incidents demonstrate the principle of prioritising fundamental integrity over short-term continuity.
+
+Notably, in both prior incidents, alternatives to reorganization were technically feasible:
+
+# In 2010, the inflation could have been addressed by a targeted soft fork that burned the inflationary outputs, without rolling back the blocks themselves.
+# In 2013, the network could have chosen to favor the v0.8.0 chain, requiring users of older versions to upgrade or apply patches to restore consensus with the rest of the network (ie, simply accepting the hardfork as was later done in May).
+
+In both cases, reorganization was *chosen* as the preferred method to restore the network cleanly, even while other options were available.
+The current crisis, however, presents an existential threat of a greater magnitude, and one where reorganization is required, rather than merely preferred.
+In the prior incidents, the harm (incorrect balances or divergent consensus) could have been resolved through different technical means.
+In this crisis, the harm is the legal and moral liability stemming from the possession and distribution of the data itself.
+Since historical blockchain data cannot be completely removed after the fact, the only way to eliminate this liability is to ensure the data is not part of the canonical history.
+
+This incident is therefore more severe than past crises and uniquely requires this emergency response.
+
+'''Is this like the BIP148 UASF?'''
+
+In some ways, yes:
+it only requires a significant minority to succeed;
+miners need to upgrade to continue mining, and are incentivised to do so;
+actual rejection requires a counter-softfork (aka URSF); etc.
+
+In other ways, no:
+due to the circumstances, there is a temporary chain split and old nodes may need to catch up;
+there is no signalling to coordinate activation;
+hopefully there is no hostile standoff between users and miners;
+there is a moral and legal impediment to any attempt to reject this softfork;
+etc.
+
+'''Isn't this compulsory?'''
+
+No.
+While it isn't viable to merely continue running old nodes as-is, if users truly wish to reject this softfork (and explicitly endorse forcing other compatible nodes to store and distribute the illegal content in block <TODO:hash>), they can do so simply by checkpointing that block.
+
+There are certainly practical concerns to take into consideration:
+rejecting this softfork may subject you to legal or moral consequences,
+or could result in you splitting off to a new altcoin like Bcash.
+However, strictly speaking, you are free to choose.
+
+'''Is it hypocritical to rush this softfork, while at the same time delaying others?'''
+
+Activating a protocol change over a very short period of time carries significant risks.
+Emergencies justify making this protocol change *despite* the risks.
+No such emergency exists for upgrades, and so reasonable timeframes should be used for activation of them, to ensure full nodes mostly upgrade first.
+
+Emergency mitigations such as this softfork do not add new functionality or use upgrade hooks. Disabling upgrade hooks does not impede any other such emergencies.
+
+===Conceptual===
+
+'''Why is a consensus change needed to address a policy change?'''
+
+Policy (mempool/relay and mining rules) serves as the first line of defense against network abuse.
+For general spam, policy is the appropriate tool, as it only needs to make abuse difficult and/or expensive, not impossible.
+
+When widely used node software relaxes default policies regarding data storage, it establishes, just as much as consensus rules, a new de facto standard way of using the network.
+In the case of data storage, this standardization transforms the otherwise-subjective policy preference into a universal burden and legal risk if illegal or immoral content is then stored.
+A single instance of such content mined into the blockchain imposes immediate legal and/or moral liability on all node operators.
+Because the risk is existential, it is insufficient to merely make this abuse difficult or costly;
+it is an absolute necessity to prevent it from occurring even once.
+This absolute protection cannot be guaranteed by voluntary policy and can only be provided by consensus rules.
+
+'''Isn't this censorship? By rejecting blocks based on data content, aren't you violating the principles of free speech and a neutral, permissionless network?'''
+
+Bitcoin is money, not speech.
+This softfork's rules are also no different from any other protocol rules currently enforced.
+
+Censorship would be selectively blocking specific users based on their identity.
+These rules do the opposite:
+they are applied universally, automatically, and impersonally to all transactions, regardless of origin.
+
+This is a matter of protocol maintenance, not content moderation.
+Content is in general not the purpose of Bitcoin's finite, shared resources.
+Multiple other networks (such as nostr) exist for distribution of content.
+The network has always had rules to define its proper use.
+This proposal simply refines those rules to mitigate an attack that poses a direct threat to the node operators who constitute the network.
+
+A permissionless network does not mean a network without rules:
+it means the rules apply to everyone equally.
+This softfork strengthens the network's ability to remain permissionless by protecting its operators from existential threats.
+
+'''Certain financial transactions are already illegal, so isn't this a non-issue?'''
+
+Performing financial transactions may indeed be illegal, but that is a completely different thing from keeping a record that it occurred.
+Someone violating OFAC sanctions, for example, may be liable for sending or receiving a payment, but that does not impact the Bitcoin network as a whole.
+
+Illegal data is completely different:
+nodes are not merely recording that it happened, they are active participants in storing and distributing the illegal content itself.
+
+'''Won't this hurt miners by reducing the fee revenue they could earn from large data transactions?'''
+
+On the contrary, it actually protects their businesses and revenue.
+If Bitcoin ceases to exist, becomes illegal to use, or even loses its credibility and value, miners cannot continue to operate or will earn far less in terms of real value.
+
+Many miners are also subject to or opt into regulations and/or compliance policies.
+These regulations/policies are typically more oppressive on services offering arbitrary data storage, regardless of content.
+Often, they can even require the isolation of illegal content and turning over servers to the authorities, which can result in expensive downtime and/or mitigation costs.
+
+===Alternatives / Alsos===
+
+'''Aren't node operators protected by law, similar to ISPs or the Tor network?'''
+
+Laws vary around the world, but there are a few crucial differences to note:
+
+* ISPs are generally unaware of the illegal content. However, for Bitcoin to function, nodes must continue to distribute the blockchain long after and despite being aware of any content in it.
+* ISPs are often required to quarantine and/or remove offending content to maintain their immunity. This option is not available for the Bitcoin network except by shutting down (which is likely to be considered a valid option that must be taken in many jurisdictions).
+* The Internet, even using Tor, is generally a hostile environment to immoral content. However, if Bitcoin supports such content sharing, it easily becomes a very favourable network for these kinds of crimes.
+
+Furthermore, even if governments were to make special provisions exempting Bitcoin nodes, it would remain reprehensible to the general public to participate in such distribution (and for good reason).
+
+'''Why not let the fee market manage data storage?'''
+
+The fee market is designed to prioritize transactions based on economic urgency.
+However, it fails when transactions impose externalities that are not properly weighed against the transaction fee.
+
+In this case, the externality is the existential legal and moral liability imposed on every node operator.
+No transaction fee can compensate for the risk of imprisonment or the moral burden of distributing abhorrent content.
+
+Furthermore, fees provide an incentive to miners only, and do not in any case justify forcing the burden on node operators who have not all consented.
+
+'''How about OP_RETURN2/"blobspace" making the data optional for nodes?'''
+
+This has been attempted multiple times in the past.
+There is perhaps no harm in trying yet again, and this proposal does not prevent doing so,
+but ultimately these schemes depend on the cooperation of the sender, who usually wants to explicitly force the content on non-consenting node operators
+(or they would be using other existing distribution methods already).
+These other ideas also do not remove the dangerous risks mitigated herein.
+
+'''Shouldn't spam be fought in policy? Does this proposal affirm that policy is ineffective?'''
+
+It remains true that policy is still the best place to fight spam.
+However, it is also true that policy cannot guarantee 100% effectiveness, particularly against bad actors who are mining.
+This softfork minimises the impact of such malicious miners, closing the worst-case risks.
+
+'''Does this proposal solve spam completely?'''
+
+No.
+It is impossible to solve spam completely, and typically spam is best fought with policy/filters, not consensus.
+What this does is close the gap for a bad actor miner to mine a malicious block including contiguous data that alone can be [mis]interpreted to be an image.
+
+'''Why doesn't this proposal address non-Bitcoin tokens?'''
+
+There are a wide variety of non-Bitcoin tokens, mostly scams, that a significant portion of the community considers spam.
+However, these schemes are best countered in policy rather than consensus, and besides, this proposal does not aim to eliminate spam entirely.
+
+'''Is this a slippery slope? If we make rules against data today, will we start banning tokens or other use cases we don't like tomorrow?'''
+
+No.
+These rules may be new at the consensus level, but they are merely enshrining long-standing principles of Bitcoin, as necessary to address a direct, existential threat to the decentralization of the network.
+Adopting this softfork does not require nor imply the adoption of any future softforks or spam filters.
+
+This softfork itself also specifically targets a certain subset of abuse of Bitcoin as an arbitrary data storage and distribution system, which has never been its intended purpose.
+It does not attempt to impose restrictions on financial activity or the validity of monetary transactions themselves.
+This clear distinction between mitigating a systemic risk from non-financial data abuse and interfering with actual financial use cases provides a strong barrier against future overreach.
+
+The explicitly temporary nature of the softfork further reinforces that this is a targeted intervention to mitigate a specific crisis, not a commitment or proposal of a new direction of development.
+If no further action is taken by you, it will expire in a year.
+Even if a followup softfork is proposed for that time, you retain the right to reject it.
+
+'''Why not reduce the block weight/size limit too?'''
+
+It is possible this softfork may activate before miners have fully upgraded.
+To ensure continuity of Bitcoin through a potentially low-hashrate period, we must assume there's a possibility of each block taking 10 times as long as intended (ie, ~2 hours per block), which would mean 4 MWU per block would be a mere 333 kWU per 10 minutes.
+
+If there is community support for reducing block sizes, it should therefore be done separately and calmly, after the network has settled down.
+
+'''Why not activate CTV at the same time?'''
+
+CTV is still controversial with a minority of the community, and bundling it with an emergency softfork could be seen as an attempt to trick/force it on the network.
+
+However, this softfork does "set the stage" for a followup softfork in a year, which would be an ideal stage to include CTV if the community deems it appropriate.
+
+==Backwards compatibility==
+
+As with all softforks, it is hypothetically possible there are existing unconfirmed transactions that are invalid under these rules.
+However, in practice, most if not all of these are contrived scenarios that shouldn't exist in reality.
+Any that do exist can be mined either before or after the rules are in effect, so there are no long-term incompatibilities.
+
+A known exception is BitVM, which is still in development and expected to wait out the duration of this softfork to become workable again (during which it can continue to be developed on test networks).
+
+Also as with all softforks, old nodes will not be enforcing the new rules, and must upgrade to retain the security of full verification.
+However, they should continue to follow the main blockchain so long as miners upgrade in a timely manner (which is reasonably expected since their income depends on it).
+
+Not all transactions made invalid are consistently rejected by policy, so miners must upgrade no later than activation to avoid mining invalid blocks and losing their reward.
+
+==Reference implementation==
+
+TODO
+
+==Deployment==
+
+As mentioned above, there will be two activation methods deployed in parallel: proactive, and reactive.
+
+===Proactive===
+
+We propose a flag day startheight of 934864 (2026-02-01), with mandatory signaling leading up to activation. This implies an expiry day stopheight of 987424 (2027-02-01). These heights were extrapolated from block 920464 which occurred near 00:00 UTC on 2025-10-24.
+
+===Reactive===
+
+We propose, in the event of an emergency, for miners to reject the offending block and immediately activate the new rules. In this case the new rules are effective on the very next block confirmed at the same height as the rejected block, and the soft fork expires at the same height as in the proactive case; that is, block 987424.
+
+==Credits==
+
+Original draft and advice: Luke-Jr
