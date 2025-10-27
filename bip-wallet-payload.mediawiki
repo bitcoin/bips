@@ -1,0 +1,871 @@
+<span id="standard-encrypted-wallet-payload">
+<span id="preamble">
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Standard Encrypted Wallet Payload
+  Author: Keyser Söze <keys.soze@proton.me>
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-09-05
+  Licence: BSD-2-Clause
+  Requires: 329, 380, 388, 389
+</pre></span>
+
+__TOC__
+
+= BIP ?: Standard Encrypted Wallet Payload =
+
+<span id="abstract">
+== Abstract ==
+
+This document specifies a canonical format for serialising Bitcoin wallets using a '''CBOR''' (Concise Binary Object Representation) data structure, referred to as the '''Wallet Payload'''. The wallet payload may contain descriptor-based accounts, transaction data, address lists and associated metadata. It defines a secure, interoperable and extensible format for wallet backups and transfers. This standard separates the core data format from its cryptographic container, mandating that the payload '''MUST''' be encrypted before being stored or transmitted. This approach unifies and improves upon existing fragmented solutions, providing a single standard for complete and secure wallet backups and data transfers.
+</span>
+
+<span id="copyright">
+== Copyright ==
+
+This BIP is licensed under the BSD 2-clause licence.
+</span>
+
+<span id="terminology">
+== Terminology ==
+
+The key words MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD NOT, RECOMMENDED, NOT RECOMMENDED, MAY and OPTIONAL in this document are to be interpreted as described in [[#references|RFC2119]] as updated by [[#references]|RFC8174]] when, and only when, they appear in all capitals.
+</span>
+
+<span id="motivation">
+== Motivation ==
+
+The Bitcoin ecosystem lacks a canonical, secure and interoperable wallet backup or transfer format. Wallets currently rely on ad-hoc formats or insecure exports (unencrypted descriptors, xprv dumps) and BIP329 only covers labels. This proposal fills that gap by providing a standard, encrypted, descriptor-centric format, enhancing interoperability and security for wallet restore or transfer across implementations.
+
+It combines modern data serialisation (CBOR), output script descriptors (BIP380) and an extensible schema into one unified standard.
+
+By defining a standard payload and mandating robust cryptographic containers in separate companion BIPs, this proposal aims to:
+
+* '''Unify Interoperability:''' Create a single, canonical format for wallets to exchange data, allowing a wallet export from one application to be securely imported or restored in another.
+* '''Ensure Security:''' Mandate the use of a robust, standardised cryptographic container to protect sensitive data like private keys and seeds.
+* '''Support Modern Wallets:''' Fully integrate with '''BIP380 Output Script Descriptors''' as the primary method for defining accounts, ensuring compatibility with modern wallet software.
+* '''Maintain Extensibility:''' Use an extensible data format (CBOR with integer keys) to allow for future additions.
+</span>
+
+<span id="rationale-and-design-decisions">
+== Rationale and Design Decisions ==
+
+* '''Payload vs. Container:''' The deliberate separation of the data '''payload''' from the security '''container''' ensures that the core wallet data format remains simple and interoperable, while allowing implementers to use various cryptographic libraries.
+* '''CBOR:''' CBOR was chosen over text-based formats like JSON for several key reasons. Its binary encoding is significantly more compact, which is advantageous for storage and transmission. Since the payload '''MUST''' be encrypted, human readability is not a design goal. CBOR is also highly efficient to parse on resource-constrained devices, such as hardware wallets. Finally, its native integration with COSE (CBOR Object Signing and Encryption) provides a natural fit for the secure encryption envelopes specified in companion BIPs.
+</span>
+
+<span id="relationship-to-other-bips-and-standards">
+== Relationship to Other BIPs and Standards ==
+
+* '''BIP380:''' Uses descriptors as accounts; this matches descriptor-centric design.
+* '''BIP389:''' Uses multipath descriptor key expressions.
+* '''BIP329:''' Label semantics are mirrored in metadata.
+* '''BIP32/BIP39:''' Seed usage follows these specifications.
+* '''RFC 8949:''' Concise Binary Object Representation (CBOR) used for wallet serialisation.
+
+</span>
+
+<span id="workflow">
+== Workflow ==
+
+This BIP defines a clear process for secure wallet backups or transfers.
+
+# '''Payload Creation''': Creator constructs the Wallet Payload CBOR map with integer keys.
+# '''Deterministic Encoding''': Payload is rendered into canonical CBOR.
+# '''Encryption''': Encryptor encodes Payload in a Standard Wallet Encryption Envelope as specified by companion BIPs
+# '''Transmission / Storage''': Encrypted result is saved or transferred.
+# '''Restoration''': Consumer reads the Standard Wallet Encryption Envelope, verifies consistency, decrypts payload and parses deterministic CBOR Wallet Payload.
+</span>
+
+<span id="specification">
+== Specification ==
+
+<span id="the-wallet-payload">
+=== The Wallet Payload ===
+
+A wallet payload is a CBOR map containing:
+
+* A version number and network identifier.
+* A list of accounts, each of which references one or more descriptors.
+* Optional transactions and UTXO sets.
+* Optional metadata (labels, creation height, timestamps, software/device identifiers etc.).
+* Reserved space for extensions.
+
+Where integer keys are used for the on-the-wire format, string keys are used for documentation and higher-level code. For interoperability, this map '''MUST''' be preceded by a CBOR Tag, which will be registered with IANA upon standardisation. The integer keys have been spaced out to allow for future additions.
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !! Required
+|-
+| 0 || version || uint || The version of the payload format. The first stable version is 1. || Yes
+|-
+| 1 || network || uint || Bitcoin network. See the '''Network Type Enum''' table below for standard values. || Yes
+|-
+| 2 || genesis_hash || bstr (32 bytes)  || The hash of the genesis block. || No
+|-
+| 3 || root || map || The wallet’s master secret material. || No
+|-
+| 10 || accounts || [+ map] || An array of account maps, each defined by a descriptor. || Yes
+|-
+| 20 || transactions || [+ map] || An array of transaction maps. || No
+|-
+| 30 || utxos || [+ map] || An array of utxo maps. || No
+|-
+| 31..99 || - || any || A reserved extension range. || No
+|-
+| 100 || metadata || map || Wallet-global metadata, including a mapping for BIP329 labels. || No
+|}
+
+'''Notes'''
+
+* The 32-byte raw binary <code>genesis_hash</code> '''MUST''' be stored as raw bytes in the internal serialisation order used in blocks and transactions
+
+<span id="network-type-enum">
+==== Network Type Enum ====
+
+{| class="wikitable"
+! Integer Value !! String Name !! Description
+|-
+| 0 || mainnet || The main Bitcoin production network.
+|-
+| 1 || testnet || The primary Bitcoin test network.
+|-
+| 2 || signet || The signet test network.
+|-
+| 3 || regtest || The regression test network.
+|-
+| 4..99 || - || A reserved extension range.
+|}
+</span></span>
+
+<span id="root-map">
+=== Root Map ===
+
+The root map contains the wallet’s master secret material from which all accounts and descriptors are derived. It may include the BIP-39 mnemonic, optional passphrase, raw entropy, or the derived BIP-39 seed. The root map is optional and a wallet '''MUST NOT''' contain more than one.
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !!
+|-
+| 10 || mnemonic || [tstr] || BIP-39 mnemonic sentence. || No
+|-
+| 11 || passphrase || tstr || BIP-39 passphrase. || No
+|-
+| 12 || seed || bstr || 512-bit binary seed as per BIP-39. || No
+|-
+| 13 || entropy || bstr || Raw bits before encoding. || No
+|}
+
+'''Notes'''
+
+* A root map '''MAY''' contain one of the following mutually exclusive options:
+** A BIP-39 <code>mnemonic</code> (with optional <code>passphrase</code>)
+** 512-bit <code>seed</code>
+** Raw <code>entropy</code>.
+</span>
+
+<span id="account-map">
+=== Account Map ===
+
+Defines a single account following prevailing practice and BIP388 wallet-policy expectations.
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !! Required
+|-
+| 1 || account_index || uint || Optional BIP44/84/86 account index (e.g. <code>0</code>, <code>1</code>). || No
+|-
+| 10 || descriptors || [+ map] || An array of descriptor maps  || Yes
+|-
+| 11..99 || - || any || A reserved extension range. || No
+|-
+| 100 || account-metadata || map || Account-specific metadata (e.g. label, birth height/time). || No
+|}
+</span>
+
+<span id="descriptor-map">
+=== Descriptor Map ===
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !! Required
+|-
+| 1 || script || tstr || A BIP380 descriptor string || Yes
+|-
+| 2 || checksum || tstr || Descriptor checksum || No
+|-
+| 10 || addresses || [+ map] || An array of address maps. || No
+|-
+| 11..99 || - || any || A reserved extension range. || No
+|-
+| 100 || descriptor-metadata || map || Descriptor-specific metadata || No
+|}
+</span>
+
+<span id="transactions-map">
+=== Transactions Map ===
+
+This map defines a single transaction. This map stores a simple txid but can optionally also contain all the on-chain data necessary to verify and display the transaction, including its inputs and outputs.
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !! Required
+|-
+| 1 || txid || bstr || The ID of the transaction. || Yes
+|-
+| 2 || raw_tx || bstr || The raw transaction byte stream || No
+|-
+| 3..99 || - || any || A reserved extension range. || No
+|-
+| 100 || transaction-metadata || map || Transaction-specific metadata, such as a user-friendly `label`. || No
+|}
+
+'''Notes'''
+
+* The 32-byte raw binary <code>txid</code> '''MUST''' be stored as raw bytes in the internal serialisation order used in blocks and transactions
+</span>
+
+<span id="utxo-map">
+=== UTXO Map ===
+
+This map defines a specific unspent transaction output (UTXO) that the wallet controls. The wallet’s balance is the sum of the amounts of all UTXOs it holds. It contains a snapshot of a wallets unspent transaction outputs at the time a backup was taken. Inclusion of UTXOs is '''OPTIONAL'''. Implementations '''MUST''' treat UTXOs in the backup as advisory hints only; the authoritative UTXO set is always defined by the Bitcoin blockchain. Backups that omit UTXOs remain valid and restorable.
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !! Required
+|-
+| 1 || txid || bstr || The ID of the transaction that created this UTXO. || Yes
+|-
+| 2 || vout || uint || The index of the output within the transaction. || Yes
+|-
+| 3 || amount || uint || The value of the UTXO in satoshis. || Yes
+|-
+| 4 || script_pubkey || bstr || The script to which the UTXO is locked. || Yes
+|-
+| 5 || address || tstr || The human-readable Bitcoin address to which the UTXO is locked. || No
+|-
+| 6..99 || - || any || A reserved extension range. || No
+|-
+| 100 || metadata || map || UTXO-specific metadata. || No
+|}
+
+'''Notes'''
+
+* The 32-byte raw binary <code>txid</code> '''MUST''' be stored as raw bytes in the internal serialisation order used in blocks and transactions
+</span>
+
+<span id="metadata-map">
+=== Metadata Map ===
+
+The metadata map serves as a foundational structure, containing generic attributes applicable across various elements. This base map is then inherited and extended by each specific element, allowing for the addition of specialised metadata for wallets, accounts, descriptors, transactions and addresses.
+
+{| class="wikitable"
+! Integer Key !! String Key !! Type !! Description !! Required
+|-
+| 100 || label || tstr || A user-friendly name, corresponding to the `label` field in '''BIP329'''.|| No
+|-
+| 101 || birth_height || uint || Optional block height when the account was first used.|| No
+|-
+| 102 || birth_time || uint || Optional CBOR tag 1 timestamp when the account was first used.|| No
+|-
+| 103 || updated_time || uint || A CBOR tag 1 timestamp of when the backup was last updated.|| No
+|-
+| 104 || software || tstr || Information about the software that created the backup (e.g. "Electrum, Version 4.6.1").|| No
+|-
+| 105 || device || tstr || Information about the device that created the backup (e.g. "Ledger Stax, Version 1.8.0").|| No
+|-
+| 106..199 || - || any || A reserved extension range. || No
+|-
+| ≥ 1000 || - || any || Implementation/vendor specific ramge. || No
+|}
+
+'''Notes'''
+
+* See [[#wallet-payload-cddl|Wallet Payload CDDL]] for more information on how the metadata map is extended by each wallet, account, descriptor, transaction and address element.
+</span></span>
+
+<span id="wallet-payload-data-schema-cddl">
+== Wallet Payload Data Schema (CDDL) ==
+
+Below is a tightly-constrained CDDL schema defining the Wallet Payload.
+
+<pre class="cddl" id="wallet-payload-cddl">; BIP-XXXX Wallet Payload (BIP388-conformant accounts)
+
+; ==========================
+; Basic types
+; ==========================
+uint32 = uint .le 4294967295
+uint64 = uint .le 18446744073709551615
+network-type = 0 / 1 / 2 / 3  ; 0=mainnet,1=testnet,2=signet,3=regtest
+role-type    = 0 / 1          ; 0=receive,1=change
+txid-type = bstr .size 32
+address-type = p2pkh-address / p2sh-address / segwit-address
+
+epoch-seconds = #1(uint)      ; UTC timestamp in seconds
+
+; ==========================
+; Wallet roots (mnemonic / seed / entropy)
+; ==========================
+mnemonic-type = mnemonic = [ 12*tstr ] / [ 15*tstr ] / [ 18*tstr ] / [ 21*tstr ] / [ 24*tstr ] ; BIP-39 mnemonic
+entropy-type = bstr .size 16 / bstr .size 20 / bstr .size 24 / bstr .size 28 / bstr .size 32 ; BIP-39 entropy
+passphrase-type = tstr
+seed-type = bstr .size 64  ; 512-bit binary seed as per BIP-39
+
+mnemonic-root = { 10 => mnemonic-type, ? 11 => passphrase-type } ; optional passphrase
+seed-root = { 12 => seed-type }                                  ; 512-bit seed
+entropy-root = { 13 => entropy-type }                            ; raw entropy
+root = mnemonic-root / seed-root / entropy-root
+
+; ==========================
+; Accounts
+; ==========================
+account = {
+  ? 1 => uint32,             ; account index
+  10 => [+ descriptor],      ; descriptors
+  ? 11..99 => any,           ; reserved extension range
+  ? 100 => account-metadata  ; account metadata
+}
+
+; ==========================
+; Descriptors
+; ==========================
+
+; A checksum: 8-character string using Bech32 charset
+checksum = tstr .size 8 .pattern "[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{8}"
+
+descriptor = {
+  1 => tstr,                    ; script
+  ? 2 => checksum,              ; checksum
+  ? 10 => [+ address],          ; addresses
+  ? 11..99 => any,              ; reserved extension range
+  ? 100 => descriptor-metadata  ; descriptor metadata
+}
+
+; ==========================
+; Transactions & UTXOs
+; ==========================
+transaction = {
+  1 => txid-type,                      ; txid
+  ? 2 => bstr .size 2..4000000,        ; raw transaction bytes
+  ? 3..99 => any,                      ; reserved extension range
+  ? 100 => transaction-metadata        ; transaction metadata
+}
+
+utxo = {
+  1 => txid-type,                      ; txid
+  2 => uint32,                         ; vout
+  3 => uint64,                         ; amount (sats)
+  4 => bstr .size 10..,                ; script_pubkey
+  ? 5 => address-type,                 ; address
+  ? 6..99 => any,                      ; reserved extension range
+  ? 100 => utxo-metadata               ; utxo metadata
+}
+
+; ==========================
+; Addresses
+; ==========================
+p2pkh-address = tstr .size 25..34
+p2sh-address = tstr .size 25..34
+segwit-address = tstr .size 11..71
+
+address = {
+  1 => address-type,         ; addresses
+  2..99 => any,              ; reserved extension range
+  ? 100 => address-metadata  ; address metadata
+}
+
+; ==========================
+; Metadata templates
+; ==========================
+metadata = {
+  ? 100 => tstr,           ; label / user-visible name
+  ? 101 => uint32,         ; birth_height
+  ? 102 => epoch-seconds,  ; birth_time
+  ? 103 => epoch-seconds,  ; updated_time
+  ? 104 => tstr,           ; software name
+  ? 105 => tstr,           ; device name
+  ? 106..199 => any,       ; reserved extension range
+  ? 1000.. => any          ; implementation/vendor specific
+}
+
+wallet-metadata = metadata .and {
+  ? 200 => bstr .size 4,   ; master key fingerprint
+  ? 201 => uint32,         ; default birth_height for rescan
+  ? 202 => tstr,           ; purpose (e.g., "BIP84")
+  ? 203 => tstr,           ; network
+  ? 204 => tstr,           ; software version at backup
+  ? 205..299 => any,       ; reserved extension range
+  ? 1000.. => any          ; implementation/vendor specific
+}
+
+account-metadata = metadata .and {
+  ? 300 => uint32,         ; purpose (44,49,84,86)
+  ? 301 => uint32,         ; coin_type (SLIP-44)
+  ? 302 => uint32,         ; account_index
+  ? 303..399 => any,       ; reserved extension range
+  ? 1000.. => any          ; implementation/vendor specific
+}
+
+descriptor-metadata = metadata .and {
+  ? 400 => role-type,      ; optional role (receive/change)
+  ? 401 => uint32,         ; next_receive_index
+  ? 402 => uint32,         ; next_change_index
+  ? 403 => bool,           ; watch-only account
+  ? 404..499 => any,       ; reserved extension range
+  ? 1000.. => any          ; implementation/vendor specific
+}
+
+transaction-metadata = metadata .and {
+  ? 500 => uint32,         ; confirmations
+  ? 501 => uint64,         ; fee paid
+  ? 502 => bool,           ; rbf
+  ? 503 => bool,           ; abandoned/conflicted
+  ? 504 => bool,           ; outgoing
+  ? 505..599 => any,       ; reserved extension range
+}
+
+utxo-metadata = metadata .and {
+  ? 600 => bool,           ; spendable
+  ? 601 => bool,           ; frozen
+  ? 602 => bool,           ; reserved for pending tx
+  ? 603 => uint32,         ; derivation index of controlling key
+  ? 604 => role-type,      ; receive/change
+  ? 605..699 => any,       ; reserved extension range
+  ? 1000.. => any          ; implementation/vendor specific
+}
+
+address-metadata = metadata .and {
+  ? 700 => uint32,         ; derivation index
+  ? 701 => role-type,      ; 0=receive,1=change
+  ? 702 => bool,           ; is_used
+  ? 703 => uint32,         ; use_count
+  ? 704..799 => any,       ; reserved extension range
+  ? 1000.. => any          ; implementation/vendor specific
+}
+
+; ==========================
+; Wallet payload
+; ==========================
+wallet-payload = {
+  0  => 1..255,             ; version
+  1  => network-type,       ; network enum
+  ? 2 => bstr .size 32,     ; genesis hash
+  ? 3 => root,              ; master secret material
+  10 => [+ account],        ; accounts
+  ? 20 => [+ transaction],  ; transactions
+  ? 30 => [+ utxo],         ; utxos
+  ? 31..99 => any,          ; reserved extension range
+  ? 100 => wallet-metadata, ; wallet metadata
+}
+</pre></span>
+
+<span id="reserved-key-ranges">
+=== Reserved Key Ranges ===
+
+* '''0–99:''' Core fields defined by this BIP.
+** Implementations '''SHOULD''' warn on unknown keys in this range, but continue processing.
+* '''100–999:''' Metadata fields.
+** Implementations '''MAY''' ignore unknown keys in this range.
+* '''≥1000:''' Implementation or vendor-specific fields (non-interoperable).
+** Implementations '''MAY''' ignore unknown keys in this range.
+</span>
+
+<span id="encoding-and-compliance-notes">
+== Encoding and Compliance Notes ==
+
+<span id="deterministic-canonical-cbor">
+=== Deterministic/Canonical CBOR ===
+
+* Implementations '''MUST''' use the canonical deterministic encoding specified in RFC 8949 §4.2.1 (shortest integer encoding, sorted map keys by byte-wise representation, no indefinite-length items).
+* Implementations '''MUST''' reject duplicate map keys (any range).
+* Text strings '''MUST''' be UTF-8 NFC, no indefinite-length items anywhere.
+* Floats '''MUST NOT''' be used and '''MUST''' be rejected.
+* CBOR Tag (registered with IANA) '''MUST''' prefix the payload in tagged form.
+</span></span>
+
+<span id="validation-algorithm">
+== Validation Algorithm ==
+
+An implementation that parses a wallet payload '''SHOULD''' perform the following checks, in the order listed and '''MAY''' reject the payload if any check fails.
+
+<span id="general-rules">
+=== General rules ===
+# CBOR indefinite length strings and arrays '''MUST NOT''' be used.
+# CBOR floats '''MUST NOT''' be used.
+# All 32-byte hashes (<code>txid</code>, <code>genesis_hash</code>) '''MUST''' be stored as raw bytes in the internal serialisation order used in blocks and transactions
+# On-the-wire maps '''MUST''' use integer keys.
+</span>
+
+<span id="version-checks">
+=== Version checks ===
+# The wallet-payload object '''MUST''' contain a <code>version</code> field with an integer value.
+# An implementation '''MUST''' check the <code>version</code> number before parsing the rest of the payload.
+# If the <code>version</code> number is greater than the latest version supported by the implementation, it '''MUST''' reject the entire payload. This prevents older software from misinterpreting or corrupting data from a newer, incompatible version of the standard.
+</span>
+
+<span id="structural-checks">
+=== Structural checks ===
+# The <code>wallet-payload</code> object '''MUST''' be embedded inside an <code>encrypted-envelope</code>.
+# The wallet object '''MUST''' contain an <code>accounts</code> field, which '''MUST''' be an array (and '''MAY''' be empty).
+# If the network is not <code>mainnet</code>, the <code>wallet-payload</code> object '''MUST''' include the <code>genesis_hash</code>.
+</span>
+
+<span id="root-checks">
+=== Root checks ===
+# The wallet-payload object '''MUST NOT''' contain more than one root map.
+# The root map '''MUST NOT''' contain more than one type of secret material (e.g., both <code>mnemonic</code> and <code>seed</code>). If multiple are present, the payload '''MUST''' be rejected.
+</span>
+
+<span id="account-checks">
+=== Account checks ===
+# Each <code>descriptor</code> within an account '''MUST''' be valid according to all rules in the [[#descriptor-checks|Descriptor checks]] section.
+# If present, the <code>account_index</code> '''SHOULD''' be consistent with the account number in the derivation paths of the contained descriptors. Parsers '''MAY''' produce a warning on mismatch but '''MUST NOT''' reject the payload solely on this basis.
+# Accounts '''MAY''' contain metadata.
+</span>
+
+<span id="descriptor-checks">
+=== Descriptor checks ===
+# If a <code>root</code> map is present in the payload, an implementation '''SHOULD''' perform the following for each key expression within a <code>descriptor</code> string:
+## Verify that the master key fingerprint in the <code>descriptor</code> matches the fingerprint of the key derived from the <code>root</code> material.
+## Verify that the child keys at the specified derivation path in the <code>descriptor</code> string are derived from the root seed in the <code>root</code> map.
+# A payload '''MUST NOT''' be rejected solely because a descriptor's key cannot be derived from the <code>root</code> material. This is to support "mixed wallets" that legitimately contain separately imported keys which are not part of the HD keychain.
+</span>
+
+<span id="transaction-checks">
+=== Transaction checks ===
+# If a transaction object contains a <code>txid</code> and a <code>raw_tx</code>, the implementation '''MUST''' validate that the hash of the <code>raw_tx</code> matches the provided <code>txid</code>. If they do not match, the transaction '''MAY''' be rejected.
+</span>
+
+<span id="final-consistency-checks">
+=== Final consistency checks ===
+After validating all accounts and their contained descriptors, the implementation '''MUST''' perform a final consistency check.
+# If any mismatch, duplication, or unresolved reference remains, the payload is invalid.</span></span>
+
+<span id="expanding-the-security-model">
+== Expanding the Security Model ==
+The separation between the data payload and the security container is a deliberate design choice that allows for future extensions. This modularity allows various cryptographic containers, defined in one or more companion BIPs, to secure the payload. Some mechanisms include:
+* '''Password-Based Encryption''': A straightforward model using a COSE_Encrypt0 structure, where the content is encrypted using a symmetric key derived from a user password via a strong key derivation function like Argon2id.
+* '''Ephemeral Passwords''': For direct wallet-to-wallet transfers, two devices could negotiate a high-entropy, single-use password that is never stored or seen by the user. This mechanism can be implemented using a COSE_Encrypt0 structure, providing strong security for the transfer without the long-term risks of a user-chosen password.
+* '''Asymmetric Key Exchange''': A source wallet could secure a backup for a specific recipient using a COSE_Encrypt structure. It could encrypt the payload using a public key provided by the destination wallet (or a key derived via a Diffie-Hellman exchange). This creates a backup or transfer that can only be decrypted by the intended recipient, removing the reliance on a shared password.
+* '''Multiparty Encryption and Authentication''': The COSE framework enables multi-party schemes. Using structures like COSE_Encrypt (with multiple recipients) or COSE_Sign (with multiple signers), wallets could support multi-party decryption or collaborative authentication. For example, a backup could be encrypted so that any one of several recovery agents can decrypt it, or signed by multiple custodians to prove joint authorisation.
+
+These advanced methods can be defined as new, standardised container formats in separate companion BIPs, without requiring any changes to the core wallet payload itself.
+</span>
+
+<span id="test-vectors">
+== Test Vectors ==
+
+These vectors show the '''unencrypted Wallet Payload''' in CBOR diagnostic notation and its deterministic CBOR hex representation.
+
+<span id="test-vector-1-single-imported-private-key-wallet">
+=== Test Vector 1: Single Imported Private Key Wallet ===
+
+* '''Use Case:''' A simple non-HD wallet created from a single imported WIF private key.
+* '''Imported WIF Key:''' L5dSD5wTEHKxbLDSJqRaERpEg1yQPiKZDqtxHMQxk8yy7DkHkYvh
+
+<span id="cbor-diagnostic-notation-1">
+==== CBOR Diagnostic Notation ====
+
+<pre class="cbor-diag">{
+  0: 1,
+  1: 0,
+  10: [
+    {
+      10: [
+        { 1: "pkh(L5dSD5wTEHKxbLDSJqRaERpEg1yQPiKZDqtxHMQxk8yy7DkHkYvh)",
+          2: "gsplkxu4" }
+      ],
+      100: { 100: "Imported Single Key" }
+    }
+  ]
+}
+</pre></span>
+
+<span id="dcbor-hex-representation-1">
+==== dCBOR Hex Representation ====
+
+<pre>a3000101000a81a20a81a2017839706b68284c3564534435775445484b78624c44534a715261455270456731795150694b5a44717478484d51786b38797937446b486b5976682902686773706c6b7875341864a1186473496d706f727465642053696e676c65204b6579
+</pre>
+</span></span>
+
+<span id="test-vector-2-watch-only-p2wpkh-wallet">
+=== Test Vector 2: Watch-Only P2WPKH Wallet ===
+
+* '''Use Case:''' A watch-only wallet for a BIP44-based xpub.
+
+<span id="cbor-diagnostic-notation-2">
+==== CBOR Diagnostic Notation ====
+
+<pre class="cbor-diag">{
+  0: 1,
+  1: 0,
+  10: [
+    {
+      1: 0,
+      10: [
+        { 1: "wpkh([4749f0a2/44'/0'/0']xpub6D8Apb367GJs1tjqbWa2Rdydsbwo8DyvrVwhwn58C2pi76s2VMQ2LeVVESaeN3CgAcfaZuL53wia6ViyY4ax9uHuLMfLHkCPxdkyyUYdwUM/0/*)",
+          2: "qx48ntwy" }
+      ],
+      100: { 100: "Main Watch-Only Account" }
+    }
+  ]
+}
+</pre></span>
+
+<span id="dcbor-hex-representation-2">
+==== dCBOR Hex Representation ====
+
+<pre>a3000101000a81a301000a81a201788d77706b68285b34373439663061322f3434272f30272f30275d78707562364438417062333637474a7331746a7162576132526479647362776f3844797672567768776e35384332706937367332564d51324c655656455361654e334367416366615a754c35337769613656697959346178397548754c4d664c486b435078646b797955596477554d2f302f2a290268717834386e7477791864a11864774d61696e2057617463682d4f6e6c79204163636f756e74</pre>
+</span></span>
+
+<span id="test-vector-3-multi-account-wallet-with-private-keys">
+=== Test Vector 3: Multi-Account Wallet with Private Keys ===
+
+* '''Use Case:''' A full backup of a multi-account wallet with a passphrase-protected mnemonic.
+* '''Mnemonic:''' `canoe trash auction flag debate door idle unlock noble wagon hint nose system shuffle abandon march tomato pizza state bus material bean dice stairs`
+* '''Passphrase:''' `satoshi`
+
+<span id="cbor-diagnostic-notation-3">
+==== CBOR Diagnostic Notation ====
+
+<pre class="cbor-diag">{
+  0: 1,
+  1: 0,
+  3: {
+    10: [ "canoe", "trash", "auction", "flag", "debate", "door", "idle", "unlock", "noble", "wagon", "hint", "nose", "system", "shuffle", "abandon", "march", "tomato", "pizza", "state", "bus", "material", "bean", "dice", "stairs" ],
+    11: "satoshi"
+  },
+  10: [
+    {
+      1: 0,
+      10: [
+        {
+          1: "wpkh([4749f0a2/44'/0'/1']xprv9z8pR5WCGtkZrizgtCUDEXj15QbNYJvdXWYmetaeh8Yup2Z5ZTPa1qDGfunujYpc3tRDuNih45hvpvTomHS6nWXEL5UdXQMRB19z8QVj2QR/0/*)",
+          2: "fakat2wx"
+        }
+      ],
+      100: {
+        100: "Checking"
+      }
+    },
+    {
+      1: 1,
+      10: [
+          1: "tr([4749f0a2/44'/0'/2']xprv9z8pR5WCGtkZuXEpFAhRKi4kSeDWKD2KYQbiEQd7VPzEke34oUDbJejhZmGkXFGaHUVoXBtvheZSCixb9yNvnzYLRFBah8BQ22xZ22fFftK/0/*)",
+          2: "mf2a6jp0"
+        }
+      ],
+      100: {
+        100: "Taproot Savings"
+      }
+    }
+  ]
+}</pre></span>
+
+<span id="dcbor-hex-representation-3">
+==== dCBOR Hex Representation ====
+
+<pre>a40001010003a20a98186563616e6f656574726173686761756374696f6e64666c61676664656261746564646f6f726469646c6566756e6c6f636b656e6f626c65657761676f6e6468696e74646e6f73656673797374656d6773687566666c65676162616e646f6e656d6172636866746f6d61746f6570697a7a6165737461746563627573686d6174657269616c646265616e6464696365667374616972730b677361746f7368690a82a301000a81a201788d77706b68285b34373439663061322f3434272f30272f31275d78707276397a38705235574347746b5a72697a677443554445586a313551624e594a76645857596d657461656838597570325a355a5450613171444766756e756a59706333745244754e6968343568767076546f6d4853366e5758454c35556458514d524231397a3851566a3251522f302f2a29026866616b61743277781864a1186468436865636b696e67a301010a81a201788b7472285b34373439663061322f3434272f30272f32275d78707276397a38705235574347746b5a75584570464168524b69346b536544574b44324b595162694551643756507a456b6533346f5544624a656a685a6d476b584647614855566f5842747668655a534369786239794e766e7a594c52464261683842513232785a3232664666744b2f302f2a2902686d663261366a70301864a118646f546170726f6f7420536176696e6773</pre>
+</span></span>
+
+<span id="test-vector-4-mixed-wallet-with-imported-key">
+=== Test Vector 4: Mixed Wallet with Imported Key ===
+
+* '''Use Case:''' A 2-of-2 multisig wallet with one key from a BIP39 seed and the other an imported raw private key.
+
+<span id="cbor-diagnostic-notation-4">
+==== CBOR Diagnostic Notation ====
+
+<pre class="cbor-diag">{
+  0: 1,
+  1: 0,
+  3: {
+    10: [ "crumble", "radio", "orient", "frequent", "become", "disorder", "basic", "network", "dismiss", "person", "update", "elder" ]
+  },
+  10: [
+    {
+      1: 0,
+      10: [
+        {
+          1: "wsh(sortedmulti(2,[4749f0a2/44'/0'/1'/0']xpub6Ex8K2t3ZHK3fmFUXBBPwehxHaW7bEDKwZgvEmiZUFTDMk9Y8q3Lu5eXZ2ipowg5HXq547Fq8oypL6qmZMs6KDNTrnwSQTgcacwqyQwj4kw/0/*,03edf035f83ef86cb13e3b2443852ac48e3275052a6d56e2a7fd40d8466afcb594))",
+          2: "fchdhf9r"
+        }
+      ],
+      100: {
+        100: "Shared Vault"
+      }
+    }
+  ],
+  20: [
+    {
+      1: h'7a2c156f62ce568058eb3913ed305c02957d7866e89809058ca856827c578456',
+      2: h'020000000001017a2c156f62ce568058eb3913ed305c02957d7866e89809058ca856827c5784560000000000ffffffff028f5d0000000000001600147ed79847b9e696ecae385f0e13e46ae04f4ee2c40000000000000000156a5d1214011400ff7f818cec82d08bc0a88281d21502483045022100fa875440c25a3d8f3937859d7b10113a9d55c49b04876e9dc4550f7cd77a1eab0220662d55cf01aeef45dd230268ec8af99ec7db94b4e804c5a5d2bb4e9a2ce407e10121020f0ea103b622de90cbcbaf5d794571a648207bcbf35dacf2140a5b5c8fb7c6a100000000',
+      100: {
+        100: "Test transaction 1 label"
+      }
+    },
+    {
+      1: h'3af14980a05a9f5fd05860cbbced0be5b7fc6cc10d7057925276d13a04c81c13',
+      2: h'020000000001013af14980a05a9f5fd05860cbbced0be5b7fc6cc10d7057925276d13a04c81c130000000000ffffffff021f600000000000001600147ed79847b9e696ecae385f0e13e46ae04f4ee2c40000000000000000156a5d1214011400ff7f818cec82d08bc0a88281d21502483045022100a4c02b05113579286944c77ecd7d2e97040571c8f9a5eae3a9ecc27b6b7c564b02200e02126a0785b095a1aa2cc5e09f6dcf5831b2670d7b1bf8c0540ebf1bf5ab810121020f0ea103b622de90cbcbaf5d794571a648207bcbf35dacf2140a5b5c8fb7c6a100000000',
+      100: {
+        100: "Test transaction 2 label"
+      }
+    }
+  ]
+}</pre></span>
+
+<span id="dcbor-hex-representation-4">
+==== dCBOR Hex Representation ====
+
+<pre>a50001010003a10a8c676372756d626c6565726164696f666f7269656e74686672657175656e74666265636f6d65686469736f72646572656261736963676e6574776f726b676469736d69737366706572736f6e6675706461746565656c6465720a81a301000a81a20178e177736828736f727465646d756c746928322c5b34373439663061322f3434272f30272f31272f30275d78707562364578384b3274335a484b33666d46555842425077656878486157376245444b775a6776456d695a554654444d6b39593871334c753565585a3269706f7767354858713534374671386f79704c36716d5a4d73364b444e54726e775351546763616377717951776a346b772f302f2a2c3033656466303335663833656638366362313365336232343433383532616334386533323735303532613664353665326137666434306438343636616663623539342929026866636864686639721864a118646c536861726564205661756c741482a30158207a2c156f62ce568058eb3913ed305c02957d7866e89809058ca856827c5784560258de020000000001017a2c156f62ce568058eb3913ed305c02957d7866e89809058ca856827c5784560000000000ffffffff028f5d0000000000001600147ed79847b9e696ecae385f0e13e46ae04f4ee2c40000000000000000156a5d1214011400ff7f818cec82d08bc0a88281d21502483045022100fa875440c25a3d8f3937859d7b10113a9d55c49b04876e9dc4550f7cd77a1eab0220662d55cf01aeef45dd230268ec8af99ec7db94b4e804c5a5d2bb4e9a2ce407e10121020f0ea103b622de90cbcbaf5d794571a648207bcbf35dacf2140a5b5c8fb7c6a1000000001864a11864781854657374207472616e73616374696f6e2031206c6162656ca30158203af14980a05a9f5fd05860cbbced0be5b7fc6cc10d7057925276d13a04c81c130258de020000000001013af14980a05a9f5fd05860cbbced0be5b7fc6cc10d7057925276d13a04c81c130000000000ffffffff021f600000000000001600147ed79847b9e696ecae385f0e13e46ae04f4ee2c40000000000000000156a5d1214011400ff7f818cec82d08bc0a88281d21502483045022100a4c02b05113579286944c77ecd7d2e97040571c8f9a5eae3a9ecc27b6b7c564b02200e02126a0785b095a1aa2cc5e09f6dcf5831b2670d7b1bf8c0540ebf1bf5ab810121020f0ea103b622de90cbcbaf5d794571a648207bcbf35dacf2140a5b5c8fb7c6a1000000001864a11864781854657374207472616e73616374696f6e2032206c6162656c</pre>
+</span></span></span>
+
+<span id="reference-implementation">
+=== Reference Implementation ===
+
+Below is a Python script that implements encoding and outputs hex values.
+
+<pre class="python" id="reference-implementation-python">
+#!/usr/bin/env python3
+"""
+Generate canonical CBOR hex for wallet test vectors.
+
+Requires:
+    pip install cbor2
+"""
+
+import cbor2
+from binascii import hexlify
+
+def to_hex(obj):
+    """Encode obj to canonical CBOR and return hex string."""
+    return hexlify(cbor2.dumps(obj, canonical=True)).decode()
+
+def main():
+    # Test Vector 1: Single Imported Private Key Wallet
+    tv1 = {
+        0: 1,
+        1: 0,
+        10: [
+            {
+                10: [
+                    {1: "pkh(L5dSD5wTEHKxbLDSJqRaERpEg1yQPiKZDqtxHMQxk8yy7DkHkYvh)",
+                     2: "gsplkxu4"}
+                ],
+                100: {100: "Imported Single Key"},
+            }
+        ],
+    }
+
+    # Test Vector 2: Watch-Only P2WPKH Wallet
+    tv2 = {
+        0: 1,
+        1: 0,
+        10: [
+            {
+                1: 0,
+                10: [
+                    {1: "wpkh([4749f0a2/44'/0'/0']"
+                           "xpub6D8Apb367GJs1tjqbWa2Rdydsbwo8DyvrVwhwn58C2pi76s2VMQ2LeVVESaeN3"
+                           "CgAcfaZuL53wia6ViyY4ax9uHuLMfLHkCPxdkyyUYdwUM/0/*)",
+                     2: "qx48ntwy"}
+                ],
+                100: {100: "Main Watch-Only Account"},
+            }
+        ],
+    }
+
+    # Test Vector 3: Multi-Account Wallet with Private Keys
+    tv3 = {
+        0: 1,
+        1: 0,
+        3: {
+            10: [
+                "canoe","trash","auction","flag","debate","door","idle","unlock","noble","wagon","hint","nose",
+                "system","shuffle","abandon","march","tomato","pizza","state","bus","material","bean","dice","stairs",
+            ],
+            11: "satoshi",
+        },
+        10: [
+            {
+                1: 0,
+                10: [
+                    {1: "wpkh([4749f0a2/44'/0'/1']"
+                           "xprv9z8pR5WCGtkZrizgtCUDEXj15QbNYJvdXWYmetaeh8Yup2Z5ZTPa1qDGfunuj"
+                           "Ypc3tRDuNih45hvpvTomHS6nWXEL5UdXQMRB19z8QVj2QR/0/*)",
+                     2: "fakat2wx"}
+                ],
+                100: {100: "Checking"},
+            },
+            {
+                1: 1,
+                10: [
+                    {1: "tr([4749f0a2/44'/0'/2']"
+                           "xprv9z8pR5WCGtkZuXEpFAhRKi4kSeDWKD2KYQbiEQd7VPzEke34oUDbJejhZmGkX"
+                           "FGaHUVoXBtvheZSCixb9yNvnzYLRFBah8BQ22xZ22fFftK/0/*)",
+                     2: "mf2a6jp0"}
+                ],
+                100: {100: "Taproot Savings"},
+            },
+        ],
+    }
+
+    # Test Vector 4: Mixed Wallet with Imported Key and Transactions
+    tv4 = {
+        0: 1,
+        1: 0,
+        3: {
+            10: [
+                "crumble","radio","orient","frequent","become","disorder",
+                "basic","network","dismiss","person","update","elder",
+            ],
+        },
+        10: [
+            {
+                1: 0,
+                10: [
+                    {1: "wsh(sortedmulti(2,[4749f0a2/44'/0'/1'/0']"
+                           "xpub6Ex8K2t3ZHK3fmFUXBBPwehxHaW7bEDKwZgvEmiZUFTDMk9Y8q3Lu5eXZ2ipo"
+                           "wg5HXq547Fq8oypL6qmZMs6KDNTrnwSQTgcacwqyQwj4kw/0/*,"
+                           "03edf035f83ef86cb13e3b2443852ac48e3275052a6d56e2a7fd40d8466afcb594))",
+                     2: "fchdhf9r"}
+                ],
+                100: {100: "Shared Vault"},
+            }
+        ],
+        20: [
+            {1: bytes.fromhex("7a2c156f62ce568058eb3913ed305c02957d7866e89809058ca856827c578456"),
+			 2: bytes.fromhex("020000000001017a2c156f62ce568058eb3913ed305c02957d7866e89809058ca856827c5784560000000000ffffffff028f5d0000000000"
+							  "001600147ed79847b9e696ecae385f0e13e46ae04f4ee2c40000000000000000156a5d1214011400ff7f818cec82d08bc0a88281d2150248"
+							  "3045022100fa875440c25a3d8f3937859d7b10113a9d55c49b04876e9dc4550f7cd77a1eab0220662d55cf01aeef45dd230268ec8af99ec7"
+							  "db94b4e804c5a5d2bb4e9a2ce407e10121020f0ea103b622de90cbcbaf5d794571a648207bcbf35dacf2140a5b5c8fb7c6a100000000"),
+             100: {100: "Test transaction 1 label"}},
+            {1: bytes.fromhex("3af14980a05a9f5fd05860cbbced0be5b7fc6cc10d7057925276d13a04c81c13"),
+			 2: bytes.fromhex("020000000001013af14980a05a9f5fd05860cbbced0be5b7fc6cc10d7057925276d13a04c81c130000000000ffffffff021f600000000000"
+							  "001600147ed79847b9e696ecae385f0e13e46ae04f4ee2c40000000000000000156a5d1214011400ff7f818cec82d08bc0a88281d2150248"
+							  "3045022100a4c02b05113579286944c77ecd7d2e97040571c8f9a5eae3a9ecc27b6b7c564b02200e02126a0785b095a1aa2cc5e09f6dcf58"
+							  "31b2670d7b1bf8c0540ebf1bf5ab810121020f0ea103b622de90cbcbaf5d794571a648207bcbf35dacf2140a5b5c8fb7c6a100000000"),
+             100: {100: "Test transaction 2 label"}},
+        ],
+    }
+
+    vectors = {"tv1": tv1, "tv2": tv2, "tv3": tv3, "tv4": tv4}
+    for name, obj in vectors.items():
+        hex_str = to_hex(obj)
+        print(f"{name} ({len(hex_str)} hex chars):\n{hex_str}\n")
+
+if __name__ == "__main__":
+    main()
+</pre>
+</span>
+
+<span id="references">
+== References ==
+
+* <a href="https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki" class="wikilink" title="BIP 39: Mnemonic code for generating deterministic keys">BIP 39: Mnemonic code for generating deterministic keys</a>
+* <a href="https://github.com/bitcoin/bips/blob/master/bip-0329.mediawiki" class="wikilink" title="BIP 329: Wallet Label Export Format">BIP 329: Wallet Label Export Format</a>
+* <a href="https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki" class="wikilink" title="BIP 380: Output Script Descriptors">BIP 380: Output Script Descriptors</a>
+* <a href="https://github.com/bitcoin/bips/blob/master/bip-0388.mediawiki" class="wikilink" title="BIP 388: Wallet Policies for Descriptor Wallets">BIP 388: Wallet Policies for Descriptor Wallets</a>
+* <a href="https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki" class="wikilink" title="BIP 389: Multipath Descriptor Key Expressions">BIP 389: Multipath Descriptor Key Expressions</a>
+* <a href="https://www.rfc-editor.org/rfc/rfc8949.html" class="wikilink" title="RFC 8949: Concise Binary Object Representation (CBOR)">RFC 8949: Concise Binary Object Representation (CBOR)</a>
+* <a href="https://www.rfc-editor.org/rfc/rfc8610.html" class="wikilink" title="RFC 8610: Concise Data Definition Language (CDDL)">RFC 8610: Concise Data Definition Language (CDDL)</a>
+* <a href="https://www.iana.org/assignments/cbor-tags/cbor-tags.xhtml" class="wikilink" title="IANA CBOR Tags Registry">IANA CBOR Tags Registry</a>
+* <a id="RFC2119" href="https://www.rfc-editor.org/rfc/rfc2119.html" class="wikilink" title="RFC 2119: Key words for use in RFCs to Indicate Requirement Levels">RFC 2119: Key words for use in RFCs to Indicate Requirement Levels</a>
+* <a id="RFC8174" href="https://www.rfc-editor.org/rfc/rfc8174.html" class="wikilink" title="RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words">RFC 8174: Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</a>
+</span></span>
