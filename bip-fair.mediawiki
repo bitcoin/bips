@@ -1,0 +1,161 @@
+<pre>
+  BIP: FAIR
+  Layer: Consensus (soft fork)
+  Title: Fair Fee Accounting for On-Chain Data with Segregated OP_RETURN (segOP)
+  Author: defenwycke <defenwycke@icloud.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-FAIR
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-10-29
+  License: BSD-3-Clause
+</pre>
+
+==Abstract==
+
+This BIP proposes to remove the 75% witness discount for non-script data in transactions, introduce a new segregated data section called segOP for clean and structured data storage, and enforce a 100,000-byte total data cap per transaction. Non-script data is defined as OP_RETURN payloads, the segOP section, or witness stack items larger than 520 bytes (the Taproot maximum push size). The goal is to make large data storage economically unviable while preserving low fees for normal financial transactions and allowing limited, fair-priced metadata.
+
+==Copyright==
+
+This BIP is licensed under the BSD-3-Clause license.
+
+==Motivation==
+
+Bitcoin's block space is a scarce resource, and protocols like Ordinals have exploited the 75% witness discount to embed large arbitrary data (e.g., 3.8 MB images) at reduced cost, leading to congestion, higher fees for normal users, and increased node storage burdens. Bitcoin Core v30.0 raised the default OP_RETURN limit to 100,000 bytes to improve mempool transparency, but witness data abuse persists. This BIP enforces proportional fees for all data based on size, without affecting financial transactions. segOP provides a clean, future-proof alternative for useful metadata like proofs or hashes, while the 100 KB cap prevents excessive storage. Heuristics or filters are avoided in favor of economic incentives, aligning with Bitcoin's design.
+
+==Specification==
+
+Non-script data is defined as:
+- OP_RETURN payloads (the scriptPubKey minus the opcode byte).
+- The entire segOP section.
+- Any witness stack item larger than 520 bytes (aligned with BIP-341's MAX_SCRIPT_ELEMENT_SIZE).
+
+The total non-script data size per transaction must not exceed 100,000 bytes. For non-script data, the transaction weight is increased by data_size * 3 to remove the 75% witness discount, ensuring all data pays 4 weight units per byte.
+
+segOP is a new section serialized after the witness and before the coinbase flag, consisting of variable-length data chunks. The segOP output is a P2SOP script: OP_SUCCESS184 (0xb8) followed by a push of a 32-byte Merkle root of the segOP data for verification.
+
+**Structure**:
+Transaction
+├── Base
+├── Witness
+└── segOP Section ← NEW
+     ├── Data Chunk 1
+     ├── Data Chunk 2
+     └── ...
+
+Consensus rules:
+- Transactions with total data >100,000 bytes are invalid.
+- Witness items >520 bytes are treated as data for fee calculation.
+- segOP must match the Merkle root in the P2SOP output; mismatch = invalid.
+
+==Rationale==
+
+The 520-byte threshold is chosen because it is the Taproot maximum push size (BIP-341), ensuring no valid financial script is misclassified as data. Linear fees are preferred over exponential for predictability and fairness, as exponential curves could disproportionately penalize legitimate use. The 100,000-byte cap matches v30.0's policy and allows practical metadata (e.g., a legal document) while preventing block-filling spam. segOP is introduced to provide a structured, non-hacky alternative to witness embedding, with Merkle roots enabling efficient verification and future extensions like compression. This design uses economic disincentives rather than filters, which are prone to evasion.
+
+==Backward Compatibility==
+
+This is a soft fork. Old nodes will validate transactions correctly but may underestimate fees for data-heavy transactions. Normal financial transactions are unaffected. Legacy OP_RETURN outputs remain valid. Upgraded nodes will relay and include compliant transactions. No changes to existing wallets or scripts are required for non-data use.
+
+==Security Considerations==
+
+No new denial-of-service vectors are introduced, as the 100 KB cap limits resource usage. Merkle root validation in segOP prevents tampering. Removing the discount for large witness items discourages bloated transactions, reducing mempool pressure. No cryptographic assumptions are added beyond existing Taproot rules.
+
+==Economic Examples==
+
+At 15 sat/vB (~$100,000/BTC):
+- Normal P2TR send (57 vB, 0 data): Fee = 855 sats (~$0.09). No change.
+- Lightning channel open (~130 vB, 0 data): Fee = 1,950 sats (~$0.20). No change.
+- 200-byte proof in segOP: Data = 200 bytes → weight +600 → fee = 9,000 sats (~$0.09).
+- 100 KB document in segOP: Data = 100,000 bytes → weight +300,000 → fee = 4,500,000 sats (~$45).
+- 3.8 MB inscription in witness: Data = 3,800,000 bytes → weight +11,400,000 → fee = 171,000,000 sats (~$1,710) + rejected by cap.
+
+At high congestion (100 sat/vB):
+- Normal P2TR: Fee = 5,700 sats (~$0.57). No change.
+- 100 KB data: Fee = 30,000,000 sats (~$300). Proportional deterrent.
+
+Miners benefit from higher fees on data transactions, while blocks can fit more normal transactions as spam is priced out.
+
+==Deployment==
+
+Activation via BIP 9 (versionbits) with bit 5. Start time: TBD. Timeout: 12 months after signaling begins. 95% miner signaling threshold.
+
+==Reference Implementation==
+
+```c
+// P2SOP Output
+std::vector<unsigned char> p2sop_script = {
+    0xb8,  // OP_SUCCESS184
+    0x20,  // push 32 bytes
+    // ...32-byte Merkle root...
+};
+
+// segOP Section
+struct SegOPSection {
+    std::vector<std::vector<unsigned char>> chunks;
+    size_t total_size() const {
+        size_t t = 0;
+        for (const auto& c : chunks) t += c.size();
+        return t;
+    }
+};
+
+// Validation
+bool CheckDataRules(const CTransaction& tx) {
+    size_t data_size = 0;
+
+    for (const auto& out : tx.vout) {
+        if (out.scriptPubKey[0] == OP_RETURN && out.scriptPubKey.size() > 1) {
+            data_size += out.scriptPubKey.size() - 1;
+        }
+        if (out.scriptPubKey[0] == 0xb8) {
+            data_size += tx.segop_section.total_size(); // tx.segop_section is a new field added by this BIP
+        }
+    }
+
+    for (const auto& in : tx.vin) {
+        for (const auto& item : in.scriptWitness.stack) {
+            if (item.size() > 520) {
+                data_size += item.size();
+            }
+        }
+    }
+
+    if (data_size > 0) {
+        tx.weight += data_size * 3;
+    }
+
+    return data_size <= 100000;
+}
+==References==:
+
+*BIP 9: Version bits with timeout and delay
+*BIP 341: Taproot: SegWit version 1 spending rules
+*Bitcoin Core v30.0 release notes: https://bitcoin.org/en/release/v30.0
+*Ordinals protocol documentation: https://ordinals.com
+
+==Acknowledgments==
+
+Inspired by discussions on bitcoin-dev mailing list and xAI assistance in drafting.
+
+==Appendix: Frequently Asked Questions==:
+
+Q: Is the fee proportional to data size?
+A: Yes, linear: fee = data_size * 4 * fee_rate.
+Q: Does this open the network for data storage?
+A: It allows limited (100 KB) storage at full cost, but discourages abuse.
+Q: What to do to remove data storage?
+A: Use economics (fees and cap) rather than filters.
+Q: Would an exponential curve be better?
+A: No, linear is fair and predictable.
+Q: Is it bulletproof?
+A: Yes, relies on economics, not filters.
+Q: Economic costs for transactions?
+A: Normal transactions unchanged; data storage pays more.
+Q: Is the 520 B limit safe?
+A: Yes, matches Taproot's max push size.
+Q: What stops witness use?
+A: Full fee for >520 B items, same as segOP.
+Q: Is segOP capped?
+A: Yes, part of 100 KB total cap.
+
+---
