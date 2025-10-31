@@ -126,7 +126,7 @@ while (++$bipnum <= $topbip) {
 		$is_markdown = 1;
 	}
 	-e $fn || next;
-	open my $F, "<$fn";
+	open my $F, '<', $fn or die "can't open $fn: $!";
 	if ($is_markdown) {
 		while (<$F> !~ m[^(?:\xef\xbb\xbf)?```$]) {
 			die "No ``` in $fn" if eof $F;
