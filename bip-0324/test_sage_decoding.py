@@ -23,7 +23,6 @@ Instructions:
 No output = good.
 """
 
-import sys
 import csv
 from config import F
 from Xencoding_0 import Xdecode
