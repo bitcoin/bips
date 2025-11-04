@@ -24,7 +24,7 @@ use bitcoinpqc::{
     generate_keypair, public_key_size, secret_key_size, Algorithm, KeyPair, sign, verify,
 };
 
-use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn, UnifiedKeypair, MultiKeypair, LeafScriptType, MixedLeafInfo};
+use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn, UnifiedKeypair, MultiKeypair, LeafScriptType};
 
 /* Secp256k1 implements the Signing trait when it's initialized in signing mode.
    It's important to note that Secp256k1 has different capabilities depending on how it's constructed:

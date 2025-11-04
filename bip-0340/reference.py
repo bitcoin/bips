@@ -79,9 +79,6 @@ def lift_x(x: int) -> Optional[Point]:
 def int_from_bytes(b: bytes) -> int:
     return int.from_bytes(b, byteorder="big")
 
-def hash_sha256(b: bytes) -> bytes:
-    return hashlib.sha256(b).digest()
-
 def has_even_y(P: Point) -> bool:
     assert not is_infinite(P)
     return y(P) % 2 == 0

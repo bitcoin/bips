@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 
 use p2mr_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, UtxoReturn};
 use p2mr_ref::error::P2MRError;
-use p2mr_ref::{create_p2mr_utxo, tagged_hash};
+use p2mr_ref::create_p2mr_utxo;
 
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
