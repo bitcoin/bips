@@ -1,11 +1,7 @@
-use std::env;
-use log::info;
-use once_cell::sync::Lazy;
-use bitcoin::hashes::{sha256::Hash, Hash as HashTrait};
 use rand::{rng, RngCore};
 
 use bitcoinpqc::{
-    generate_keypair, public_key_size, secret_key_size, sign, signature_size, verify, Algorithm, KeyPair,
+    generate_keypair, sign, verify, Algorithm, KeyPair,
 };
 
 fn main() {
