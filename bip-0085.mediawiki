@@ -225,6 +225,130 @@ OUTPUT:
 * DERIVED ENTROPY=ae131e2312cdc61331542efe0d1077bac5ea803adf24b313a4f0e48e9c51f37f
 * DERIVED BIP39 MNEMONIC=puppy ocean match cereal symbol another shed magic wrap hammer bulb intact gadget divorce twin tonight reason outdoor destroy simple truth cigar social volcano
 
+===BIP93 (codex32)===
+Application Number: 93'
+
+The derivation path format is: <code>m/83696968'/93'/{header}'/{byte_len}'/{index}'</code> 
+
+Truncate trailing (least significant) bytes of the entropy after <code>byte_len</code>.
+
+Use this application to generate fresh codex32 strings (as defined in BIP-0093) for backups of BIP-0032 HD master seeds. Each codex32 string encodes a share or secret with a human-readable prefix, and a data part consisting of a threshold, identifier, share index, payload, and checksum.
+
+The header is concatenated to fit in one hardened index, as follows:
+* 8-digits: human-readable prefix code
+* 1-digit: threshold parameter (2 through 9, or 0)
+* 1-digit: share index (index from "sacdefghjk")
+
+Human-readable Prefix Table
+
+{|
+!hrp
+!Code
+|-
+| "ms"
+| 0
+|-
+| "cl"
+| 1
+|-
+|}
+
+Bytes Length Table
+
+{|
+! Bytes
+! Data Length (Characters)
+!Code
+|-
+| 16
+| 45
+| 16'
+|-
+| 32
+| 71
+| 32'
+|-
+| 64
+| 124
+| 64'
+|}
+Note: Other lengths between 16 and 64 are valid but not recommended, using corresponding hardened indices.
+
+Example of derivation path computation:
+
+<source lang="python">
+
+CANONICAL_INDICES = "sacdefghjk"
+VALID_HRP = {
+    "ms": 0,
+    "cl": 1
+}
+
+def bip93_parameters_to_path(hrp, threshold=0, identifier="", share_idx, byte_len, index=0):
+    if share_idx == "s":
+        threshold = 0
+    elif threshold < max(CANONICAL_INDICES.index(share_idx), 2):
+        raise InvalidShareIndex()
+    elif identifier:
+        index = int.from_bytes(bech32_decode(identifier), 'big') + index << 20
+    else:
+        raise MissingIdentifier()
+    header_path_int = (
+                        VALID_HRP[hrp] * 100 
+                        + threshold * 10
+                        + CANONICAL_INDICES.index(share_idx)
+                      )
+    return f"m/83696968'/93'/{header_path_int}'/{byte_len}'/{index}'"
+</source>
+
+Example: a codex32 secret with <code>hrp = "ms"</code>, <code>share_idx = "s"</code>, <code>byte_len = 16</code> would have the path <code>m/83696968'/93'/0'/16'/0'</code>, the next secret would be <code>m/83696968'/93'/0'/16'/1'</code> etc.
+
+For <code>byte_len % 5 > 0</code>, the truncated bytes from the entropy MUST be padded to a multiple of 5 bits. The <code>pad_len = 5 - byte_len * 8 % 5</code> padding bits are generated using CRC polynomial <code>(1 << pad_len) | 3</code> with an initial value of <code>0</code> and appended to the entropy bytes.
+
+====Unshared Secret====
+
+When <code>share_idx == "s"</code>, the output is a codex32 secret. The payload in a codex32 secret is a direct encoding of a BIP-0032 HD master seed. The threshold parameter and 4 character identifier are ignored for derivation and the value <code>threshold = 0</code> is used. If not specified, the threshold parameter SHOULD default to "0". The identifier SHOULD default to the 4 left-most characters of the Bech32-encoded BIP-0032 fingerprint derived from the master seed.
+
+Generate a 16-byte "ms" prefixed codex32 secret
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/0'/16'/0'
+
+OUTPUT:
+* DERIVED ENTROPY=
+* DERIVED CODEX32 SECRET=ms10xxxxs...
+
+Generate a 32-byte "cl" prefixed Core Lightning HSM secret with threshold parameter "2" and identifier "c00l"
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/100'/32'/0'
+
+OUTPUT:
+* DERIVED ENTROPY=
+* DERIVED CODEX32 SECRET=cl12c00ls...
+
+
+====Share Generation====
+
+When <code>share_idx != "s"</code>, the output is a codex32 share. Here the threshold and identifier MUST be specified as both impact derivation. The threshold parameter also restricts which <code>share_idx</code> values are valid. Only the first threshold indicies in alphabetical order may be generated. E.g.: For <code>threshold = 3</code>, shares <code>"a"</code>, <code>"c"</code>, and <code>"d"</code>.
+
+The index derivation level is serialized to include the chosen <code>identifier</code>, as follows:
+* 11-bits: bip85 index
+* 20-bits: 4 bech32 character identifier converted using the character table from BIP-0173
+Users should enter a unique <code>identifier</code> instead of incrementing <code>{index}</code> as different share sets SHOULD have unique identifiers.
+
+Generate a 16-byte <code>threshold = 3</code> codex32 share "A" with <code>identifier = "c00l"</code>
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PATH: m/83696968'/93'/31'/16'/802303'
+
+OUTPUT:
+* DERIVED ENTROPY=
+* DERIVED CODEX32 SHARE A=ms13c00la...
+
 ===HD-Seed WIF===
 Application number: 2'
 
