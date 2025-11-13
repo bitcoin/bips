@@ -1,0 +1,248 @@
+<pre>
+  BIP: ?
+  Layer: Consensus (soft fork)
+  Title: Reduced Data Temporary Softfork
+  Author: Dathon Ohm <dathonohm+bip@proton.me>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-?
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-10-24
+  License: BSD-3-Clause
+  Post-History: https://gnusha.org/pi/bitcoindev/aN_u-xB2ogn2D834@erisian.com.au/T/#mb71350c5dfb119efeb92c5ee738b6c8225bf15b6
+</pre>
+
+==Abstract==
+
+Temporarily limit the size of data fields at the consensus level, in order to correct distorted incentives caused by standardizing support for arbitrary data, and to refocus priorities on improving Bitcoin as money.
+
+==Copyright==
+
+This document is licensed under the 3-clause BSD license.
+
+==Specification==
+
+Blocks with a height from 934864 until and including 987424 are checked with these additional rules:
+
+# New output scriptPubKeys exceeding 34 bytes are invalid, unless the first opcode is OP_RETURN, in which case up to 83 bytes are valid.
+# OP_PUSHDATA* with payloads larger than 256 bytes are invalid, except for the redeemScript push in BIP16 scriptSigs.
+# Spending undefined witness (or Tapleaf) versions (ie, not Witness v0/BIP 141, Taproot/BIP 341, or P2A) is invalid. (Creating outputs with undefined witness versions is still valid.)
+# Witness stacks with a Taproot annex are invalid.
+# Taproot control blocks larger than 257 bytes (a merkle tree with 128 script leaves) are invalid.
+# Tapscripts including OP_SUCCESS* opcodes anywhere (even unexecuted) are invalid.
+# Tapscripts executing the OP_IF or OP_NOTIF instruction (regardless of result) are invalid.
+
+Inputs spending UTXOs that were created before the activation height are exempt from the new rules.
+Once the softfork expires, UTXOs of all heights are once again unrestricted.
+
+==Motivation==
+
+In order to protect Bitcoin's intended function as the Internet's native money, the Bitcoin community has historically treated techniques for embedding arbitrary data into Bitcoin transactions with antagonism.
+
+Such data embedding must be resisted at all times in order to ensure it doesn't become load-bearing and start to produce negative externalities, especially for node operators.
+
+Starting with the "inscription" hack first exploited in 2022, a trend has emerged around embedding arbitrary data into Bitcoin transactions, creating significant unnecessary burdens on node operators and diverting development focus and incentives away from Bitcoin's fundamental purpose of being sound, permissionless, borderless money.
+
+This BIP aims to set Bitcoin back on the path to becoming the world's money by rejecting the standardization of data storage as a supported use case at the consensus level.
+
+It achieves this by temporarily invalidating all of the most harmful methods of data abuse by consensus, while preserving all known monetary use cases.
+
+In software development, it is a common practice to disable unsupported use cases, because not doing so quickly becomes unsustainable and inevitably leads development to grind to a standstill.
+
+This sends a clear message that arbitrary data storage will continue to be actively resisted, and that such unsupported usage should not be permitted to derail network priorities.
+
+It also reinforces Bitcoin's core principle of censorship resistance, because data storage competes with payments, making Bitcoin harder to use without trusted third parties, degrading its quality as money.
+
+Finally, it improves decentralization of the node network by re-establishing the long-held commitment towards minimizing the cost (financial or otherwise) of operating a node.
+
+By rejecting data storage, this BIP liberates Bitcoin protocol developers from having to cater to all possible use cases in perpetuity, enabling them to focus on what's really important: Bitcoin's success as money.
+
+==Rationale==
+
+===Specification nuance===
+
+'''Why limit scriptPubKeys to 34 bytes?'''
+
+scriptPubKeys must be stored indefinitely in quick-access memory (often RAM) by all fully validating nodes.
+It generally cannot be pruned.
+It is also a direct cost to the sender rather than the receiver. For these reasons, modern usage is all 34 bytes or smaller in practice: actual spending conditions have been moved to the witness, and the scriptPubKey simply commits to them in advance with a hash.
+This limitation also carries the added benefit of mitigating "poison blocks" that take a long time to validate.
+
+'''What about OP_RETURN? Why not get rid of it entirely?'''
+
+OP_RETURN outputs are provably unspendable, and nodes do not need to store them in the UTXO set.
+Historically, up to 83 bytes have been tolerated only to avoid unprovably unspendable spam in other output scripts, and no legitimate uses have ever been found.
+With the advent of pay-to-contract and Taproot, it is now also possible to commit to external data in the Taptree, making even hypothetical use of OP_RETURN deprecated.
+However, to avoid breaking legacy protocols that still include such outputs, this proposal allows these outputs.
+
+'''Why limit other data to 256/257 bytes?'''
+
+With modern compression, it is plausible to represent images in as few as 300-400 bytes. Images are likely the most harmful use case for data storage, as they have huge demand and supporting them can engender high fees and UTXO-set bloat, as well as content that a large majority of node operators might object to.
+
+256 bytes (2048 bits) is also more than sufficient for reasonably large numbers that might be potentially needed in legitimate cryptography, reinforcing Bitcoin's intended purpose as a monetary network.
+
+'''Won't spammers just spread their data over multiple fields?'''
+
+While it is impossible to fully prevent steganography, limiting data sizes ensures such abuses are non-contiguous and obfuscated within another intended meaning (script code, structure, etc).
+As far as Bitcoin is concerned, the data has some meaning other than the spammers' misinterpretation, and any external code to "reassemble" the unintended data is responsible for producing it
+(it is possible to write code that transforms *any* data into any other data - what matters is that Bitcoin has a well-defined meaning that is distinct from the unsupported one).
+This proposal also sends a clear message that data storage abuses in general are unwelcome rather than sanctioned or supported.
+
+'''Why is there an exception for BIP16 redeemScripts?'''
+
+The content of redeemScripts are another script, which is then executed.
+Its contents are then also subject to the same OP_PUSHDATA* restrictions.
+Restricting it is not only unnecessary, but would reduce the ability to make use of the intended script capabilities, and could impact legitimate real-world usage.
+
+'''Why make spending undefined witness/Tapleaf versions invalid?'''
+
+Since they are undefined, witness stacks spending these versions are completely unlimited currently to allow maximum flexibility in future upgrades.
+Any future upgrade, however, would need more than a year of coordination, so this softfork will not actually restrict it, and only safeguards against abuse in the meantime.
+
+'''Why not make it invalid to send to undefined witness versions?'''
+
+This would require the senders of transactions to check the witness version prior to sending, and require additional coordination when a new witness version is intended to become used.
+
+'''Why not allow spending undefined witness versions with an empty witness?'''
+
+This has no use case, but would require nodes to track these UTXOs in case of potential spending.
+By making spending invalid, it is possible for nodes to store them instead in slow memory not needed until this softfork expires.
+(With proper planning, it also makes it possible for a future softfork making use of these witness versions to allow users to receive with an upgraded wallet even prior to activation of the upgrade.)
+
+'''Why make the Taproot annex invalid?'''
+
+The annex is currently undefined data with unlimited size.
+It exists for future upgrades, but has no legitimate usage today.
+Any future upgrade, however, would need more than a year of coordination, so this softfork will not actually restrict it, and only safeguards against abuse in the meantime.
+
+'''Why is the Taproot control block limited to 257 bytes instead of 256?'''
+
+The control block is a series of hashes proving the Tapscript is part of the Taptree, plus a single byte with the leaf version and parity bit.
+See BIP 341 for details.
+
+'''Why make OP_SUCCESS* invalid?'''
+
+OP_SUCCESS* is meant for future upgrades. See above regarding undefined witness versions.
+
+'''Why make OP_IF/OP_NOTIF invalid?'''
+
+OP_IF/OP_NOTIF originated in pre-Taproot Bitcoin script language as a way to execute different subscripts based on a condition.
+With Taproot, the conditions can instead be evaluated off-chain, revealing only the intended verification execution path.
+Furthermore, when the conditions are met, the intent is that the keypath spend path should be used instead, avoiding publishing any scripts at all.
+
+OP_IF is not only redundant for Tapscript, it is also commonly abused today to inject spam that gets skipped at execution.
+While it is impossible to fully prevent steganography, closing this gap eliminates one common abuse today basically for free, and sends a message that such abuses are not welcome.
+
+'''Why is the proposal so simple?'''
+
+A more complicated proposal could be envisioned that better balances innovation with safety, but implementing this properly would require extensive refactoring and review, delaying deployment when the change is already urgent.
+The rules proposed herein have been intentionally kept very simple to minimise review time and avoid unnecessary risks of overlooking unexpected side effects.
+
+'''Why is this softfork temporary?'''
+
+The impact of these restrictions would severely constrain future upgrades, potentially forcing them to be designed as a hardfork instead of a softfork.
+Some restrictions are also not ideal, but an improved limit would be more complicated to develop and test -
+by deploying these simpler restrictions now, we avoid making the perfect the enemy of the good enough, while still allowing for upgrading the limits to better variants in the future.
+
+Over the next year, interested developers can implement and propose a longer-term solution to address the needs of the protocol without the tradeoffs or blunt/simplified changes.
+
+===Tradeoffs===
+
+'''Are there any tradeoffs?'''
+
+Yes:
+
+# Limiting Taproot control blocks to 257 bytes directly constrains the size of the on-chain, consensus-enforced script tree. This could complicate or possibly even impede advanced smart contracting like BitVM, which relies on a large number of executable scripts. In the worst case scenario, these use cases may just need to wait until this softfork expires. As they are still in early development, testnet and sidechains should be sufficient for the next year while a more scalable rule is implemented.
+# Upgrade hooks are not available for other softforks. As softforks adding new opcodes typically need at least a year to activate, this shouldn't be a practical issue.
+# Some wallet software such as Miniscript habitually create Tapleaves containing OP_IF. To mitigate the risk of freezing these funds for a year, this proposal exempts inputs that spend outputs that were created before activation.
+
+'''Isn't the limit on Taproot control blocks too restrictive?'''
+
+Possibly.
+The previous limit allows for 340,282,366,920,938,463,463,374,607,431,768,211,456 scripts, which is obviously way more than anyone could ever need.
+257 bytes allows for 128 scripts, which is sufficient for modern and complex transactions.
+However, it may prove too limiting for advanced off-chain functionality such as used by BitVM.
+This is an unfortunate tradeoff that (if this softfork is accepted) we have chosen to accept in the short-term for the immediate benefits of this softfork.
+The intent is to relax this restriction later, when this softfork expires, with a new approach allowing larger trees, yet to be developed.
+
+Do note that non-script (or non-Bitcoin-L1 scripts) usage of the taptree does not have this same limitation:
+just a single of the 128 leaves could very well be an extension of the merkle tree to greater depths than enforced by this softfork.
+
+'''Aren't Taptrees intended to be unbalanced?'''
+
+While it is true that optimal use of Taptrees may often be unbalanced to favour more-likely-executed scripts, this is optional, and the full capacity (in this case, 128 scripts) can still be used if needed.
+Additionally, in ideal/ordinary circumstances, neither the Taptree nor a merkle branch through it is ever published:
+all counterparties ought to evaluate the conditions for spending off-chain and rebroadcast the transaction using the keypath spending.
+Tapscripts are designed to be used when one or more parties is unreachable or uncooperative; their existence mainly only serves to deter intentional non-cooperation by making it pointless.
+An exception to this is protocols employing a NUMS point to restrict an output to only being spendable via the script path.
+
+===Alternatives / Alsos===
+'''Why not let the fee market manage data storage?'''
+
+The fee market is designed to prioritize transactions based on economic urgency.
+
+However, the market for data storage on the blockchain is a completely different market from the market for payments, with completely different incentives.
+
+Specifically, the fee for a monetary transaction incentivises a miner to include the transaction in a block, representing a one-time transfer of one or more UTXOs. The miner thus provides the one-time service of securing a payment, for a one-time fee.
+
+Once the payment is secured, the payor does not receive any additional benefit from the Bitcoin network, besides the integrity of Bitcoin's transaction history (a service to which all node operators are happy to contribute, because Bitcoin would not function as money otherwise).
+
+Conversely, the fee for a data storage transaction still goes only to the miner who includes the data in a block, but the burden of storing the data falls on all node operators, who never received even a part of the fee, yet are forced to continue downloading, storing, and serving the data forever.
+
+In this case, the miner accepts a one-time fee, and in exchange, the priceless service of highly-available, uncensorable data storage is provided in perpetuity ''for free'' by node operators.
+
+The problem becomes even worse when the data is objectionable to node operators, as this represents an even larger, unexpected cost for them.
+
+'''How about OP_RETURN2/"blobspace" making the data optional for nodes?'''
+
+This has been attempted multiple times in the past.
+There is perhaps no harm in trying yet again, and this proposal does not prevent doing so,
+but ultimately these schemes depend on the cooperation of the sender, who usually wants to explicitly force the content on non-consenting node operators
+(or they would be using other existing distribution methods already).
+These other ideas also do not solve the problem of objectionable content.
+
+'''Shouldn't spam be fought in policy? Does this proposal affirm that policy is ineffective?'''
+
+It remains true that policy is still the best place to fight spam.
+However, it is also true that policy cannot guarantee 100% effectiveness, particularly against bad actors who are mining.
+This softfork minimises the impact of such malicious miners, closing the worst-case risks.
+
+'''Does this proposal solve spam completely?'''
+
+No.
+It is impossible to solve spam completely, and typically spam is best fought with policy/filters, not consensus.
+What this softfork does is require users wanting to store large unencrypted files in the blockchain to disguise the data as financial data and/or break it up into multiple data pushes. Obviously doing so is considered an abuse of bitcoin and should be avoided, but if it does happen, this BIP strengthens the argument that data storage is not a supported use case.
+
+'''Why doesn't this proposal address non-Bitcoin tokens?'''
+
+There are a wide variety of non-Bitcoin tokens, mostly scams, that a significant portion of the community considers spam.
+However, these schemes are best countered in policy rather than consensus, and besides, this proposal does not aim to eliminate spam entirely.
+
+'''Is this a slippery slope? If we make rules against data today, will we start banning use cases we don't like tomorrow?'''
+
+No.
+These rules may be new at the consensus level, but they are merely enshrining long-standing principles of Bitcoin, as necessary to address a threat to the decentralization of the network and its usability for monetary purposes.
+
+This softfork does not attempt to impose restrictions on monetary activity or the validity of monetary transactions themselves.
+By restricting the data storage use case as much as possible, this proposal reinforces Bitcoin's guarantee of sound, permissionless money for the long-term.
+This clear distinction between mitigating a systemic risk from non-monetary data abuse and interfering with actual monetary use cases provides a strong barrier against future overreach.
+
+The explicitly temporary nature of the softfork further reinforces that this is a targeted intervention to mitigate a specific crisis, not a commitment or proposal of a new direction of development.
+If no further action is taken by you, it will expire in a year.
+Even if a followup softfork is proposed for that time, you retain the right to reject it.
+
+==Backwards compatibility==
+
+Any UTXOs confirmed before activation will be spendable while this deployment is active; only outputs that are created ''during'' the deployment will have to wait until it expires in order to be spendable.
+
+==Reference implementation==
+
+https://github.com/bitcoinknots/bitcoin/compare/29.x-knots...UASF:bitcoin:29.2.knots20251010+UASF-ReducedData
+
+==Deployment==
+
+TBD
+
+==Credits==
+
+Original draft and advice: Luke-Jr
