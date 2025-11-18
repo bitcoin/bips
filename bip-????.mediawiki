@@ -22,7 +22,7 @@ This document is licensed under the 3-clause BSD license.
 
 ==Specification==
 
-Blocks with a height from 934864 until and including 987424 are checked with these additional rules:
+Blocks during a temporary, one-year deployment are checked with these additional rules:
 
 # New output scriptPubKeys exceeding 34 bytes are invalid, unless the first opcode is OP_RETURN, in which case up to 83 bytes are valid.
 # OP_PUSHDATA* with payloads larger than 256 bytes are invalid, except for the redeemScript push in BIP16 scriptSigs.
@@ -45,17 +45,19 @@ Starting with the "inscription" hack first exploited in 2022, a trend has emerge
 
 This BIP aims to set Bitcoin back on the path to becoming the world's money by rejecting the standardization of data storage as a supported use case at the consensus level.
 
-It achieves this by temporarily invalidating all of the most harmful methods of data abuse by consensus, while preserving all known monetary use cases.
+It achieves this by temporarily invalidating most harmful methods of data abuse by consensus, while preserving all known monetary use cases.
 
-In software development, it is a common practice to disable unsupported use cases, because not doing so quickly becomes unsustainable and inevitably leads development to grind to a standstill.
+Specifically, this proposal invalidates all methods of embedding contiguous arbitrary data larger than 256 bytes; it also invalidates large scriptPubKey and Tapleaf formats that are abused almost exclusively for data embedding; and finally, it restores, in consensus, the long-established 83-byte policy limit on OP_RETURN outputs.
 
-This sends a clear message that arbitrary data storage will continue to be actively resisted, and that such unsupported usage should not be permitted to derail network priorities.
+In software development, it is a common practice to disable unsupported use cases, because not doing so quickly becomes unsustainable and causes development to grind to a standstill.
 
-It also reinforces Bitcoin's core principle of censorship resistance, because data storage competes with payments, making Bitcoin harder to use without trusted third parties, degrading its quality as money.
+Activation of these new rules thus sends a clear message that arbitrary data storage will continue to be actively resisted, and that such unsupported usage should not be permitted to derail network priorities.
+
+It also reinforces Bitcoin's core function as a censorship-resistant payment system, because data storage competes unfairly with payments, making Bitcoin payments unnecessarily costly. This encourages reliance on third-party payment processors, making Bitcoin payments easier to censor.
 
 Finally, it improves decentralization of the node network by re-establishing the long-held commitment towards minimizing the cost (financial or otherwise) of operating a node.
 
-By rejecting data storage, this BIP liberates Bitcoin protocol developers from having to cater to all possible use cases in perpetuity, enabling them to focus on what's really important: Bitcoin's success as money.
+Bitcoin should "do one thing, and do it well". By rejecting data storage, this BIP liberates Bitcoin developers from endless scope creep, enabling them to focus on what's really important: Bitcoin's success as money.
 
 ==Rationale==
 
@@ -64,9 +66,11 @@ By rejecting data storage, this BIP liberates Bitcoin protocol developers from h
 '''Why limit scriptPubKeys to 34 bytes?'''
 
 scriptPubKeys must be stored indefinitely in quick-access memory (often RAM) by all fully validating nodes.
-It generally cannot be pruned.
-It is also a direct cost to the sender rather than the receiver. For these reasons, modern usage is all 34 bytes or smaller in practice: actual spending conditions have been moved to the witness, and the scriptPubKey simply commits to them in advance with a hash.
-This limitation also carries the added benefit of mitigating "poison blocks" that take a long time to validate.
+They generally cannot be pruned.
+They are also a direct cost to the sender rather than the receiver.
+For these reasons, modern usage is all 34 bytes or smaller in practice; actual spending conditions have been moved to the witness, and the scriptPubKey simply commits to them in advance with a hash.
+Furthermore, large scriptPubKeys, in addition to being a data embedding vector, can be abused to create malicious transactions and blocks ("poison blocks") that take a long time to validate.
+Large scriptPubKeys, thus carrying a large abuse potential and no benefit, are invalidated by this BIP.
 
 '''What about OP_RETURN? Why not get rid of it entirely?'''
 
@@ -86,7 +90,7 @@ With modern compression, it is plausible to represent images in as few as 300-40
 While it is impossible to fully prevent steganography, limiting data sizes ensures such abuses are non-contiguous and obfuscated within another intended meaning (script code, structure, etc).
 As far as Bitcoin is concerned, the data has some meaning other than the spammers' misinterpretation, and any external code to "reassemble" the unintended data is responsible for producing it
 (it is possible to write code that transforms *any* data into any other data - what matters is that Bitcoin has a well-defined meaning that is distinct from the unsupported one).
-This proposal also sends a clear message that data storage abuses in general are unwelcome rather than sanctioned or supported.
+Requiring users to divide their files into chunks of at most 256 bytes, raising the cost both in fees and in effort, sends a clear message that data storage abuses in general are unwelcome rather than sanctioned or supported.
 
 '''Why is there an exception for BIP16 redeemScripts?'''
 
@@ -132,6 +136,7 @@ Furthermore, when the conditions are met, the intent is that the keypath spend p
 
 OP_IF is not only redundant for Tapscript, it is also commonly abused today to inject spam that gets skipped at execution.
 While it is impossible to fully prevent steganography, closing this gap eliminates one common abuse today basically for free, and sends a message that such abuses are not welcome.
+There are some potential experimental use cases for OP_IF in Tapscript. See the Tradeoffs section for more details.
 
 '''Why is the proposal so simple?'''
 
@@ -154,7 +159,7 @@ Yes:
 
 # Limiting Taproot control blocks to 257 bytes directly constrains the size of the on-chain, consensus-enforced script tree. This could complicate or possibly even impede advanced smart contracting like BitVM, which relies on a large number of executable scripts. In the worst case scenario, these use cases may just need to wait until this softfork expires. As they are still in early development, testnet and sidechains should be sufficient for the next year while a more scalable rule is implemented.
 # Upgrade hooks are not available for other softforks. As softforks adding new opcodes typically need at least a year to activate, this shouldn't be a practical issue.
-# Some wallet software such as Miniscript habitually create Tapleaves containing OP_IF. To mitigate the risk of freezing these funds for a year, this proposal exempts inputs that spend outputs that were created before activation.
+# Some wallet software such as Miniscript habitually creates Tapleaves containing OP_IF. To mitigate the risk of these funds being frozen for a year, this proposal exempts inputs that spend outputs that were created before activation, and provides a two-week grace period between lock-in and activation, to give users time to prepare.
 
 '''Isn't the limit on Taproot control blocks too restrictive?'''
 
@@ -175,6 +180,40 @@ Additionally, in ideal/ordinary circumstances, neither the Taptree nor a merkle 
 all counterparties ought to evaluate the conditions for spending off-chain and rebroadcast the transaction using the keypath spending.
 Tapscripts are designed to be used when one or more parties is unreachable or uncooperative; their existence mainly only serves to deter intentional non-cooperation by making it pointless.
 An exception to this is protocols employing a NUMS point to restrict an output to only being spendable via the script path.
+
+'''Is there any risk of funds being frozen or lost?'''
+
+In theory, yes. This proposal goes to great pains to make sure it does not affect any known use cases, and it is reasonably certain that no one will be affected. However, there are a couple of experimental use cases involving pre-signed Taproot transactions that could end up being affected.
+
+Specifically:
+
+* The restriction on OP_IF/OP_NOTIF could temporarily invalidate some edge-case Tapleaves produced by the current version of the Miniscript compiler. There are no verified uses of these constructions currently in production, but there are some popular wallets that could, in theory, produce them.
+* The restriction on Taptree depth will invalidate any Tapleaves deeper than 7 levels. Since Taptrees are usually designed with the more common spending conditions positioned higher in the tree, any funds encumbered by such a Taptree will almost certainly be easily spendable by Tapleaves higher up in the tree.
+
+In both scenarios, funds are spendable either by other Tapleaves in the tree, or by the keypath (unless the keypath is provably invalidated using a NUMS point).
+
+Funds in either scenario could end up being frozen or lost ''only'' if ''all'' of the following conditions are met:
+
+* The UTXO is pay-to-Taproot (P2TR);
+* The UTXO is in a pre-signed transaction;
+* The UTXO being spent ''must'' be confirmed ''and'' spent during the temporary, one-year deployment of these new rules;
+* The Tapleaf the user selects to spend the UTXO contains an OP_IF/OP_NOTIF or exists at a depth greater than 7;
+* The keypath is unusable to spend the funds, AND there are no other suitable Tapleaves in the tree to spend the UTXO (in which case funds are frozen), OR there are other Tapleaves that ''can'' spend the UTXO in unexpected ways (in which case funds are lost).
+
+In other words, funds are completely unaffected if:
+
+* They do not use Taproot;
+* They use Taproot in standard and well-supported ways;
+* UTXOs needed during the temporary deployment are confirmed before the fork activates;
+* UTXOs in pre-signed transactions do not lock funds using Tapleaves that violate the new rules;
+* UTXOs in pre-signed transactions that lock funds using Tapleaves that violate the new rules do not need to be confirmed ''and'' spent during the deployment;
+* UTXOs in pre-signed transactions that lock funds using Tapleaves that violate the new rules and need to be confirmed ''and'' spent during the deployment can be spent either via the keypath OR by other, expected Tapleaves in the tree.
+
+This proposal does everything possible to try to avoid funds being frozen or lost, but ultimately it is impossible to prove that absolutely no one will be affected.
+It is therefore up to the Bitcoin community to activate these new rules only if they feel that rejecting data storage is worth this tradeoff.
+To prepare for activation, it is recommended that users begin migrating any affected funds now.
+In the event that these new rules are activated, there will be at least a two-week period between lock-in and activation, during which all users will have the chance to migrate any remaining funds.
+
 
 ===Alternatives / Alsos===
 '''Why not let the fee market manage data storage?'''
@@ -200,6 +239,14 @@ There is perhaps no harm in trying yet again, and this proposal does not prevent
 but ultimately these schemes depend on the cooperation of the sender, who usually wants to explicitly force the content on non-consenting node operators
 (or they would be using other existing distribution methods already).
 These other ideas also do not solve the problem of objectionable content.
+
+'''Why not ban PUSHDATA opcodes/Eliminate the witness discount/Apply a length limit to the Annex rather than eliminating it/Add limits to overall witness or transaction sizes/Make the softfork permanent instead of temporary/Remove the witness discount/Make OP_RETURN cheaper?'''
+
+These are all interesting ideas, but they all increase the complexity of the implementation, and this proposal was optimized to be simple and easy to review for fast deployment. If the community decides to do any of these things, this proposal encourages them to do so once it expires.
+
+'''Why not eliminate one or more of the restrictions?'''
+
+This proposal, as is, represents the strongest possible rejection of the arbitrary data storage use case, while minimizing complexity. Loosening any of the rules would make it less effective at achieving this objective, for not much benefit.
 
 '''Shouldn't spam be fought in policy? Does this proposal affirm that policy is ineffective?'''
 
@@ -231,9 +278,19 @@ The explicitly temporary nature of the softfork further reinforces that this is 
 If no further action is taken by you, it will expire in a year.
 Even if a followup softfork is proposed for that time, you retain the right to reject it.
 
+'''Doesn't this proposal break user space?'''
+Yes, this proposal intentionally breaks user space, specifically the data storage user space. This is necessary in order to communicate that data storage is not supported.
+Pains have been taken to avoid breaking monetary use cases, and it is unlikely that any such use cases have been affected, but in theory they might be. See the Tradeoffs section for more details.
+
 ==Backwards compatibility==
 
-Any UTXOs confirmed before activation will be spendable while this deployment is active; only outputs that are created ''during'' the deployment will have to wait until it expires in order to be spendable.
+There are a couple of very unlikely scenarios in which funds could theoretically be frozen or lost. See the Tradeoffs section for more details.
+
+If this proposal activates, the Miniscript compiler will need to be modified not to produce scripts that violate the new rules, at least while the new rules are active.
+
+Users storing arbitrary data in the Bitcoin blockchain should start looking for other places to store their data, such as Nostr, IPFS, BitTorrent, cloud storage, etc, as the Bitcoin network will not support this use case going forward.
+
+All other known use cases are not affected.
 
 ==Reference implementation==
 
@@ -241,7 +298,11 @@ https://github.com/bitcoinknots/bitcoin/compare/29.x-knots...UASF:bitcoin:29.2.k
 
 ==Deployment==
 
-TBD
+We propose deployment via UASF, using BIP8/9 with an unconditional activation on timeout, 9 months from the start of the signaling period, which we propose to be 2025-12-01.
+
+This would put the timeout at 2026-09-01.
+
+The expiry will be 52416 blocks (~1 year) after activation.
 
 ==Credits==
 
