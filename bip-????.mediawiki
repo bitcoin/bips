@@ -1,21 +1,22 @@
 <pre>
   BIP: ?
   Layer: Consensus (soft fork)
-  Title: Consensus ScriptPubKey Length Limit
+  Title: Consensus ScriptPubKey Length Limit In Most Blocks
   Author: billymcbip@proton.me
   Status: Draft
   Type: Specification
   License: MIT
+  Discussion: 2025-10-02: https://groups.google.com/g/bitcoindev/c/YO8ZwnG_ISs/m/cgnE52cSAgAJ
   Version: 1.0.0
 </pre>
 
 ==Abstract==
 
-Limit the size of new ScriptPubKeys at the consensus level (including OP_RETURN outputs).
+Limit the size of new ScriptPubKeys at the consensus level (including OP_RETURN outputs) in most (254/255) blocks.
 
 ==Specification==
 
-Transactions in blocks at or above the activation height (''tbd'') cannot include outputs with ScriptPubKeys that are longer than 260 bytes.
+Transactions in blocks at or above the activation height (''tbd'') cannot include outputs with ScriptPubKeys that are longer than 260 bytes unless the block height is a factor of 256 (<code>block_height % 256 == 0</code>).
 
 ==Motivation==
 
@@ -24,6 +25,8 @@ Bitcoin is money. Transactions embedding arbitrary data compete with financial t
 The motivation of this BIP is to reduce the amount of arbitrary data that can be embedded in transactions and in the UTXO set.
 
 A system with N independent bits of freedom can carry at most N bits of information. Limiting the length of ScriptPubKeys reduces independent bits of freedom within a block. More non-arbitrary bytes would have to wrap arbitrary bytes embedded in ScriptPubKeys.
+
+Since Bitcoin is money, we must avoid setting any precedent for confiscation, i.e. making previously spendable UTXOs unspendable. Some users may hold pre-signed transactions that create new ScriptPubKeys longer than 260 bytes and no longer control the private keys that signed them. To avoid invalidating these transactions, we allow them to be processed in one out of every 255 blocks (<code>block_height % 256 == 0</code>), i.e. in roughly one block every ~42 hours. BIP34 lets us extract the block height from the coinbase transaction. Of course, this exception also allows any other large OP_RETURN outputs to be included in those blocks, but such transactions are throttled.
 
 ==Rationale==
 
@@ -36,13 +39,13 @@ However, OP_RETURN should only be ''marginally'' more attractive for data embedd
 '''Why 260 bytes?'''
 
 The length of ScriptPubKeys for all standard outputs is well below 260 bytes:
+* P2PK: up to 67 bytes
+* P2MS: up to 201 bytes (max. 3 keys are standard)
 * P2PKH: 25 bytes
 * P2SH: 23 bytes
 * P2WPKH: 22 bytes
 * P2WSH: 34 bytes
 * P2TR: 34 bytes
-
-Even x-of-3 bare multisig scriptPubKeys are smaller than 260 bytes.
 
 A 260 byte limit allows 256 bytes of data in OP_RETURN outputs:
 <pre>
@@ -83,6 +86,10 @@ Soft fork, backwards compatible.
 ==Credits==
 
 This BIP is inspired by parts of the "Reduced Data Temporary Softfork" (https://github.com/bitcoin/bips/pull/2017).
+
+@moonsettler and @portlandhodl provided direct feedback.
+
+@portlandhodl suggested a 520-byte limit without a block height exception. See: https://groups.google.com/g/bitcoindev/c/YO8ZwnG_ISs/m/cgnE52cSAgAJ
 
 ==Copyright==
 
