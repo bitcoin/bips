@@ -35,8 +35,8 @@ def find_key_end_position(desc: str, start_pos: int) -> int:
     else:
         key_pos_start = start_pos
 
-    # find the earliest occurrence of ",", a ")" or a "/" (it must find at least 1)
-    end_pos = find_first(desc, key_pos_start, [",", ")", "/"])
+    # find the earliest occurrence of ",", a ")" (it must find at least 1)
+    end_pos = find_first(desc, key_pos_start, [",", ")"])
     if end_pos == -1:
         raise Exception(
             "Invalid descriptor: cannot find the end of key expression")
@@ -95,13 +95,24 @@ class WalletPolicy(object):
 
             while True:
                 if handle_musig and descriptor[key_with_orig_pos_start:].startswith("musig"):
-                    closing_parenthesis_pos = find_first(
-                        descriptor, key_with_orig_pos_start, [")"])
+                    # find matching closing parenthesis for musig(...)
+                    open_pos = key_with_orig_pos_start + len("musig")
+                    if open_pos >= len(descriptor) or descriptor[open_pos] != '(':
+                        raise Exception("Invalid descriptor: musig not followed by '('")
+                    depth = 0
+                    closing_parenthesis_pos = -1
+                    for i, ch in enumerate(descriptor[open_pos:], open_pos):
+                        if ch == '(':
+                            depth += 1
+                        elif ch == ')':
+                            depth -= 1
+                            if depth == 0:
+                                closing_parenthesis_pos = i
+                                break
                     if closing_parenthesis_pos == -1:
                         raise Exception(
                             "Invalid descriptor: musig without closing parenthesis")
-                    key_with_orig_pos_start = key_with_orig_pos_start + \
-                        len("musig(")
+                    key_with_orig_pos_start = key_with_orig_pos_start + len("musig(")
                     parse_key_expressions(
                         only_first=False, handle_musig=False)
 
@@ -112,7 +123,7 @@ class WalletPolicy(object):
                     key_expressions.append(
                         (key_with_orig_pos_start, key_pos_end))
 
-                if descriptor[key_pos_end] == '/':
+                if key_pos_end < len(descriptor) and descriptor[key_pos_end] == '/':
                     # find the actual end (comma or closing parenthesis)
                     key_pos_end = find_first(
                         descriptor, key_pos_end, [",", ")"])
@@ -120,7 +131,7 @@ class WalletPolicy(object):
                         raise Exception(
                             "Invalid descriptor: unterminated key expression")
 
-                if descriptor[key_pos_end] == ',':
+                if key_pos_end < len(descriptor) and descriptor[key_pos_end] == ',':
                     # There is another key expression, repeat from after the comma
                     key_with_orig_pos_start = key_pos_end + 1
                 else:
