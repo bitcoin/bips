@@ -116,7 +116,7 @@ def decode_silent_payment_address(address: str, hrp: str = "tsp") -> Tuple[ECPub
     return B_scan, B_spend
 
 
-def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[COutPoint], recipients: List[str], expected: Dict[str, any] = None, hrp="tsp") -> List[str]:
+def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[COutPoint], recipients: List[Dict[str, str]], expected: Dict[str, any] = None, hrp="tsp") -> List[str]:
     G = ECKey().set(1).get_pubkey()
     negated_keys = []
     for key, is_xonly in input_priv_keys:
