@@ -95,7 +95,7 @@ JSON object features the following entries:
 - `comment`: a JSON string. Description of the test case.
 
 
-[bip54-miner]: https://github.com/darosior/bitcoin/blob/bip54_miner/commits
+[bip54-miner]: https://github.com/darosior/bitcoin/commits/bip54_miner/
 [header-miner]: https://github.com/darosior/bitcoin/blob/bip54_miner/src/test/bip54_header_miner.cpp
 [block-miner]: https://github.com/darosior/bitcoin/blob/bip54_miner/src/test/bip54_block_miner.cpp
 [other-vectors]: https://github.com/darosior/bitcoin/blob/2509_inquisition_consensus_cleanup/src/test/bip54_tests.cpp
