@@ -82,22 +82,22 @@ allows us to avoid having character-set restrictions on the human-readable part.
 As with bech32 strings, a codex32 string MUST be entirely uppercase or entirely lowercase.
 For presentation, lowercase is usually preferable, but uppercase SHOULD be used for handwritten codex32 strings.
 If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, as this is encoded more compactly.
-The lowercase form is used when determining a character's value for checksum purposes.
+When constructing or verifying a checksum, the human-readable part MUST be interpreted in lowercase, as specified in BIP-0173.
 
 ===Checksum===
 
 The last thirteen characters of the data part form a checksum and contain no information.
 Valid strings MUST pass the criteria for validity specified by the Python 3 code snippet below.
-The function <code>ms32_verify_checksum</code> must return true when its arguments are:
+The function <code>codex32_verify_checksum</code> must return true when its arguments are:
 * <tt>hrp</tt>: the human-readable part as a string
 * <tt>data</tt>: the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173
 
-To construct a valid checksum given the human-readable part and data-part characters (excluding the checksum), the <code>ms32_create_checksum</code> function can be used.
+To construct a valid checksum given the human-readable part and data-part characters (excluding the checksum), the <code>codex32_create_checksum</code> function can be used.
 
 <source lang="python">
-MS32_CONST = 0x10ce0795c2fd1e62a
+CODEX32_CONST = 0x10ce0795c2fd1e62a
 
-def ms32_polymod(values):
+def codex32_polymod(values):
     GEN = [
         0x19dc500ce73fde210,
         0x1bfae00def77fe529,
@@ -116,30 +116,25 @@ def ms32_polymod(values):
 def bech32_hrp_expand(s):
   return [ord(x) >> 5 for x in s] + [0] + [ord(x) & 31 for x in s]
 
-def ms32_verify_checksum(hrp, data):
+def codex32_verify_checksum(hrp, data):
     if len(data) >= 96:                      # See Long codex32 Strings
-        return ms32_verify_long_checksum(bech32_hrp_expand(hrp) + data)
+        return codex32_verify_long_checksum(bech32_hrp_expand(hrp) + data)
     if len(data) <= 93:
-        return ms32_polymod(bech32_hrp_expand(hrp) + data) == MS32_CONST
+        return codex32_polymod(bech32_hrp_expand(hrp) + data) == CODEX32_CONST
     return False
 
-def ms32_create_checksum(hrp, data):
+def codex32_create_checksum(hrp, data):
     values = bech32_hrp_expand(hrp) + data
     if len(data) > 80:                       # See Long codex32 Strings
-        return ms32_create_long_checksum(values)
-    polymod = ms32_polymod(values + [0] * 13) ^ MS32_CONST
+        return codex32_create_long_checksum(values)
+    polymod = codex32_polymod(values + [0] * 13) ^ CODEX32_CONST
     return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
 </source>
 
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
 guarantees detection of '''any error affecting at most 8 characters'''
 and has less than a 3 in 10<sup>19</sup> chance of failing to detect more
-errors. The human-readable part is processed by first
-feeding the higher bits of each character's US-ASCII value into the
-checksum calculation followed by a zero and then the lower bits of each<ref>'''Why are the high bits of the human-readable part processed first?'''
-This results in the actually checksummed data being ''[high hrp] 0 [low hrp] [data]''. This means that under the assumption that errors to the
-human readable part only change the low 5 bits (like changing an alphabetical character into another), errors are restricted to the ''[low hrp] [data]''
-part, and thus all error detection properties remain applicable.</ref>.
+errors. The human-readable part is processed as specified in BIP-0173.</ref>
 
 ===Error Correction===
 
@@ -168,7 +163,7 @@ Note that unlike the decoding process in BIP-0173, we do NOT require that the in
 
 For an unshared secret, the threshold parameter (the first character of the data part) is ignored (beyond the fact it must be a digit for the codex32 string to be valid).
 We recommend using the digit "0" for the threshold parameter in this case.
-The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets with the same prefix in cases where they have more than one.
+The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets or share sets with the same prefix in cases where they have more than one.
 
 ===Recovering Secret===
 
@@ -181,10 +176,10 @@ In order to recover a secret, one needs a set of valid shares such that:
 * All of the share index values are distinct.
 * The number of shares is exactly equal to the (common) threshold value.
 
-If all the above conditions are satisfied, the <code>ms32_recover</code> function will return a codex32 secret when its argument is the list of shares with each share represented as a list of integers representing the data characters converted using the bech32 character table from BIP-0173.
+If all the above conditions are satisfied, the <code>codex32_recover</code> function will return a codex32 secret when its argument is the list of shares with each share represented as a list of integers representing the data characters converted using the bech32 character table from BIP-0173.
 
 <source lang="python">
-bech32_inv = [
+BECH32_INV = [
     0, 1, 20, 24, 10, 8, 12, 29, 5, 11, 4, 9, 6, 28, 26, 31,
     22, 18, 17, 23, 2, 25, 16, 19, 3, 21, 14, 30, 13, 7, 27, 15,
 ]
@@ -206,9 +201,9 @@ def bech32_lagrange(l, x):
         for j in l:
             m = bech32_mul(m, (x if i == j else i) ^ j)
         c.append(m)
-    return [bech32_mul(n, bech32_inv[i]) for i in c]
+    return [bech32_mul(n, BECH32_INV[i]) for i in c]
 
-def ms32_interpolate(l, x):
+def codex32_interpolate(l, x):
     w = bech32_lagrange([s[5] for s in l], x)
     res = []
     for i in range(len(l[0])):
@@ -218,8 +213,8 @@ def ms32_interpolate(l, x):
         res.append(n)
     return res
 
-def ms32_recover(l):
-    return ms32_interpolate(l, 16)
+def codex32_recover(l):
+    return codex32_interpolate(l, 16)
 </source>
 
 ===Generating Shares===
@@ -229,7 +224,7 @@ If we already have ''k'' valid codex32 strings such that:
 * All strings have the same human-readable part, the same threshold value ''k'', the same identifier, and the same length.
 * All of the share index values are distinct.
 
-Then we can derive additional shares with the <code>ms32_interpolate</code> function by passing it a list of exactly ''k'' of these codex32 strings, together with a fresh share index distinct from all of the existing share indexes.
+Then we can derive additional shares with the <code>codex32_interpolate</code> function by passing it a list of exactly ''k'' of these codex32 strings, together with a fresh share index distinct from all of the existing share indexes.
 The newly derived share will have the provided share index.
 
 Once a user has generated ''n'' codex32 shares, they may discard the codex32 secret (if it exists).
@@ -242,7 +237,7 @@ There are two ways to create an initial set of ''k'' valid codex32 strings, depe
 In the case that the user wishes to generate a fresh secret, the user generates random initial shares, as follows:
 
 # Choose a bitsize, between 128 and 512, which must be a multiple of 8
-# Choose a human-readable part according to application (Use "ms" for HD master seeds)
+# Choose a human-readable part according to application (Use "ms" for BIP-0032 master seeds)
 # Choose a threshold value ''k'' between 2 and 9, inclusive
 # Choose a 4 bech32 character identifier
 #* We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every secret the user may need to disambiguate
@@ -261,7 +256,7 @@ With this set of ''k'' shares, new shares can be derived as discussed above. Thi
 Before generating shares for an existing secret, it first must be codex32-encoded.
 The conversion process consists of:
 
-# Choose a human-readable part according to application (Use "ms" for HD master seeds)
+# Choose a human-readable part according to application (Use "ms" for BIP-0032 master seeds)
 # Choose a threshold value ''k'' between 2 and 9, inclusive
 # Choose a 4 bech32 character identifier
 #* We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every secret the user may need to disambiguate
@@ -282,9 +277,9 @@ While this is enough to support the 32-byte advised size of BIP-0032 master seed
 We define a long codex32 format to support these longer seeds by defining an alternative checksum.
 
 <source lang="python">
-MS32_LONG_CONST = 0x43381e570bf4798ab26
+CODEX32_LONG_CONST = 0x43381e570bf4798ab26
 
-def ms32_long_polymod(values):
+def codex32_long_polymod(values):
     GEN = [
         0x3d59d273535ea62d897,
         0x7a9becb6361c6c51507,
@@ -300,12 +295,12 @@ def ms32_long_polymod(values):
             residue ^= GEN[i] if ((b >> i) & 1) else 0
     return residue
 
-def ms32_verify_long_checksum(data):
-    return ms32_long_polymod(data) == MS32_LONG_CONST
+def codex32_verify_long_checksum(data):
+    return codex32_long_polymod(data) == CODEX32_LONG_CONST
 
-def ms32_create_long_checksum(data):
+def codex32_create_long_checksum(data):
     values = data
-    polymod = ms32_long_polymod(values + [0] * 15) ^ MS32_LONG_CONST
+    polymod = codex32_long_polymod(values + [0] * 15) ^ CODEX32_LONG_CONST
     return [(polymod >> 5 * (14 - i)) & 31 for i in range(15)]
 </source>
 
@@ -316,7 +311,7 @@ A long codex32 string follows the same specification as a regular codex32 string
 
 A codex32 string with a data part of 94 or 95 characters is never legal as a regular codex32 string is limited to 93 data characters and a long codex32 string is at least 96 characters.
 
-Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>ms32_interpolate</code> function.
+Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>codex32_interpolate</code> function.
 
 The long checksum is designed to be an error correcting code that can correct up to 4 character substitutions, up to 8 unreadable characters (called erasures), or up to 15 consecutive erasures.
 As with regular checksums we do not specify how an implementation should implement error correction, and all our recommendations for error correction of regular codex32 strings also apply to long codex32 strings.
@@ -331,40 +326,12 @@ A secret seed is a codex32 encoding of:
 * The data-part values:
 ** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
 ** An identifier consisting of 4 bech32 characters.
-*** We recommend the first 4 characters of the bech32-encoded BIP-0032 key fingerprint.
-** The share index, which is "s".
+*** We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every master seed and share set the user may need to disambiguate.
+** The share index "s".
 ** A conversion of the 16-to-64-byte BIP-0032 HD master seed to bech32:
 *** Start with the bits of the master seed, most significant bit per byte first.
 *** Re-arrange those bits into groups of 5, and pad with arbitrary bits at the end if needed.
 *** Translate those bits to characters using the bech32 character table from BIP-0173.
-
-When padding bits are needed they should be generated using CRC polynomial <code>(1 << pad_len) | 3</code> with an initial value of <code>0</code> and appended to the master seed bits. Note that unlike the codex32 checksums, we do NOT include the header data.
-
-Valid codex32-encoded master seeds SHOULD pass the criteria for validity specified by the Python 3 code snippet below. The function <code>ms32_verify_crc</code> should return true when its argument is the payload as a list of integers representing the characters converted to binary.
-
-To construct a valid CRC checksum given the data bytes converted to binary, the <code>ms32_create_checksum</code> function can be used.
-
-<source lang="python">
-def crc_polymod(pad_len, values):
-    gen = (1 << pad_len) | 3
-    crc = 0
-    for v in values:
-        crc = crc << 1 ^ v
-        crc ^= gen if crc & 1 << pad_len else 0
-    return crc & (2**pad_len - 1)
-
-def ms32_verify_crc(data):
-    pad_len = len(data) % 8
-    return crc_polymod(pad_len, data) == 0
-
-def ms32_create_crc(data):
-    pad_len = 5 - len(data) % 5
-    polymod = crc_polymod(pad_len, data + [0] * pad_len)
-    return [(polymod >> (pad_len - 1 - i)) & 1 for i in range(pad_len)]
-</source>
-
-This implements a [https://en.wikipedia.org/wiki/Cyclic_redundancy_check CRC code] that guarantees detection of any error affecting at most 1 bit or <code>pad_len</code> contiguous bits and has less than a 1 in <code>2 ^ pad_len</code> chance of failing to detect other errors. Because this code uses a different finite field, GF[2], it complements the codex32 checksum error detection performance.
-
 
 ==Rationale==
 
@@ -391,9 +358,9 @@ We only guarantee to correct 4 characters no matter how long the string is.
 Longer strings mean more chances for transcription errors, so shorter strings are better.
 
 The longest data part using the regular 13 character checksum is 93 characters and corresponds to a 400-bit secret.
-At this length, the prefix <code>MS1</code> is not covered by the checksum.
-This is acceptable because the checksum scheme itself requires you to know that the <code>MS1</code> prefix is being used in the first place.
-If the prefix is damaged and a user is guessing that the data might be using this scheme, then the user can enter the available data explicitly using the suspected <code>MS1</code> prefix.
+At this length, the human-readable part is not covered by the checksum.
+This is acceptable because the checksum scheme itself requires you to know that a valid human-readable part is being used in the first place.
+If the prefix is damaged and a user is guessing that the data might be using this scheme, then the user can enter the available data explicitly using the suspected prefix.
 
 ===Not BIP-0039 Entropy===
 
@@ -481,9 +448,6 @@ Share with index <code>C</code>: <code>MS12NAMECACDEFGHJKLMNPQRSTUVWXYZ023FTR2GD
 * Master seed (hex): <code>d1808e096b35b209ca12132b264662a5</code>
 * master node xprv: <code>xprv9s21ZrQH143K2NkobdHxXeyFDqE44nJYvzLFtsriatJNWMNKznGoGgW5UMTL4fyWtajnMYb5gEc2CgaKhmsKeskoi9eTimpRv2N11THhPTU</code>
 
-Note that per BIP-0173, the lowercase form is used when determining a character's value for checksum purposes.
-In particular, given an all uppercase codex32 string, we still use lowercase <code>ms</code> as the human-readable part during checksum construction.
-
 ===Test vector 3===
 
 This example shows splitting an existing 128-bit master seed into "random" shares, using a human-readable part of <code>ms</code>, ''k''=3, and an identifier of <code>cash</code>.
@@ -491,7 +455,7 @@ We appended two zero bits in order to obtain 26 bech32 characters (130 bits of d
 
 Master seed (hex): <code>ffeeddccbbaa99887766554433221100</code>
 
-Secret seed with index <code>s</code>: <code>ms13cashsllhdmn9m42vcsamx24zrxgs3qqjzqud4m0d6nln</code>
+codex32-encoded master seed with index <code>s</code>: <code>ms13cashsllhdmn9m42vcsamx24zrxgs3qqjzqud4m0d6nln</code>
 
 Share with index <code>a</code>: <code>ms13casha320zyxwvutsrqpnmlkjhgfedca2a8d0zehn8a0t</code>
 
@@ -504,7 +468,7 @@ Share with index <code>c</code>: <code>ms13cashcacdefghjklmnpqrstuvwxyz023949xq3
 
 Any three of the five shares among <code>acdef</code> can be used to recover the secret.
 
-Note that the choice to append two zero bits was arbitrary, and any of the following four secret seeds would have been valid choices.
+Note that the choice to append two zero bits was arbitrary, and any of the following four codex32 secrets would have been valid choices.
 However, each choice would have resulted in a different set of derived shares.
 
 * <code>ms13cashsllhdmn9m42vcsamx24zrxgs3qqjzqud4m0d6nln</code>
@@ -543,22 +507,19 @@ Note that the choice to append four zero bits was arbitrary, and any of the foll
 
 ===Test vector 5===
 
-This example shows generating a new 512-bit master seed using "random" codex32 characters and appending a checksum.
+This example shows the long codex32 format, when used without splitting the secret into any shares.
 The payload contains 103 bech32 characters, which corresponds to 515 bits. The last three bits are discarded when converting to a 512-bit master seed.
 
 This is an example of a '''Long codex32 String'''.
 
-unchecksummed string (bech32): <code>MS10C8VSM32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06F</code>
+codex32 secret (bech32): <code>MS100C8VSM32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06FHPV80UNDVARHRAK</code>
 
-* payload: <code>M32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06F</code>
-* checksum: <code>HPV80UNDVARHRAK</code>
-* Secret seed with index <code>S</code>: <code>MS100C8VSM32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06FHPV80UNDVARHRAK</code>
 * Master seed (hex): <code>dc5423251cb87175ff8110c8531d0952d8d73e1194e95b5f19d6f9df7c01111104c9baecdfea8cccc677fb9ddc8aec5553b86e528bcadfdcc201c17c638c47e9</code>
 * master node xprv: <code>xprv9s21ZrQH143K4UYT4rP3TZVKKbmRVmfRqTx9mG2xCy2JYipZbkLV8rwvBXsUbEv9KQiUD7oED1Wyi9evZzUn2rqK9skRgPkNaAzyw3YrpJN</code>
 
 ===Test vector 6===
 
-This example shows converting an existing 256-bit Core Lightning HSM secret into a codex32 secret using a human-readable part of <code>cl</code> and an identifier of <code>luea</code> and then relabeling the secret. Four zero bits are appended in order to obtain 52 bech32 payload characters (260 bits of data) from the 256-bit secret.
+This example shows converting an existing 256-bit Core Lightning HSM secret into a codex32 secret using a human-readable part of <code>cl</code> and an identifier of <code>luea</code> and then relabeling the secret. Four zero bits are appended in order to obtain 52 bech32 payload characters (260 bits of data) from the 256-bit HSM secret.
 
 Core Lightning HSM secret (hex): <code>83634b3b43a3734b73396989980000000000000000000000000000000000000000</code>
 
@@ -577,7 +538,7 @@ Note the identifier choice is arbitrary, any identifier would have been valid; h
 This example shows the codex32 format, when used with a different human-readable part.
 The payload contains 52 bech32 characters, which corresponds to 260 bits. We truncate the last four bits in order to obtain a 256-bit HSM secret.
 
-codex32 secret (bech32): <code>cl10peevst6cqh0wu7p5ssjyf4z4ez42ks9jlt3zneju9uuypr2hddak6tlqsjhsks4laxts8q</code>
+codex32-encoded HSM secret (bech32): <code>cl10peevst6cqh0wu7p5ssjyf4z4ez42ks9jlt3zneju9uuypr2hddak6tlqsjhsks4laxts8q</code>
 
 * human-readable part: <code>cl</code>
 * separator: <code>1</code>
