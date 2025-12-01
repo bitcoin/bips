@@ -298,18 +298,21 @@ After the inputs have been selected, the sender can create one or more outputs f
 * Let ''a = a<sub>1</sub> + a<sub>2</sub> + ... + a<sub>n</sub>'', where each ''a<sub>i</sub>'' has been negated if necessary
 ** If ''a = 0'', fail
 * Let ''input_hash = hash<sub>BIP0352/Inputs</sub>(outpoint<sub>L</sub> || A)'', where ''outpoint<sub>L</sub>'' is the smallest ''outpoint'' lexicographically used in the transaction<ref name="why_smallest_outpoint"></ref> and ''A = a·G''
+** If ''input_hash'' is not a valid scalar, i.e., if ''input_hash = 0'' or ''input_hash'' is larger or equal to the secp256k1 group order, fail
 * Group receiver silent payment addresses by ''B<sub>scan</sub>'' (e.g. each group consists of one ''B<sub>scan</sub>'' and one or more ''B<sub>m</sub>'')
 * For each group:
 ** Let ''ecdh_shared_secret = input_hash·a·B<sub>scan</sub>''
 ** Let ''k = 0''
 ** For each ''B<sub>m</sub>'' in the group:
 *** Let ''t<sub>k</sub> = hash<sub>BIP0352/SharedSecret</sub>(ser<sub>P</sub>(ecdh_shared_secret) || ser<sub>32</sub>(k))''
-**** If ''t<sub>k</sub>'' is not valid tweak, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
+**** If ''t<sub>k</sub>'' is not a valid scalar, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
 *** Let ''P<sub>mn</sub> = B<sub>m</sub> + t<sub>k</sub>·G''
 *** Encode ''P<sub>mn</sub>'' as a [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] taproot output
 *** Optionally, repeat with k++ to create additional outputs for the current ''B<sub>m</sub>''
 *** If no additional outputs are required, continue to the next ''B<sub>m</sub>'' with ''k++''<ref name="why_not_the_same_tn">''' Why not re-use ''t<sub>k</sub>'' when paying different labels to the same receiver?''' If paying the same entity but to two separate labeled addresses in the same transaction without incrementing ''k'', an outside observer could subtract the two output values and observe that this value is the same as the difference between two published silent payment addresses and learn who the recipient is.</ref>
 ** Optionally, if the sending wallet implements receiving silent payments, it can create change outputs by sending to its own silent payment address using label ''m = 0'', following the steps above
+
+All generated outputs MUST be present in the final transaction. If an output ''P<sub>i</sub>'' with ''i < k'' is omitted, the receiver will not be able to find outputs ''P<sub>j</sub>'' where ''i < j <= k''.
 
 === Receiver ===
 
@@ -331,12 +334,13 @@ If each of the checks in ''[[#scanning-silent-payment-eligible-transactions|Scan
 * Let ''A = A<sub>1</sub> + A<sub>2</sub> + ... + A<sub>n</sub>'', where each ''A<sub>i</sub>'' is the public key of an input from the ''[[#inputs-for-shared-secret-derivation|Inputs For Shared Secret Derivation]]'' list
 ** If ''A'' is the point at infinity, skip the transaction
 * Let ''input_hash = hash<sub>BIP0352/Inputs</sub>(outpoint<sub>L</sub> || A)'', where ''outpoint<sub>L</sub>'' is the smallest ''outpoint'' lexicographically used in the transaction<ref name="why_smallest_outpoint"></ref>
+** If ''input_hash'' is not a valid scalar, i.e., if ''input_hash = 0'' or ''input_hash'' is larger or equal to the secp256k1 group order, fail
 * Let ''ecdh_shared_secret = input_hash·b<sub>scan</sub>·A''
 * Check for outputs:
 ** Let ''outputs_to_check'' be the taproot output keys from all taproot outputs in the transaction (spent and unspent).
 ** Starting with ''k = 0'':
 *** Let ''t<sub>k</sub> = hash<sub>BIP0352/SharedSecret</sub>(ser<sub>P</sub>(ecdh_shared_secret) || ser<sub>32</sub>(k))''
-**** If ''t<sub>k</sub>'' is not valid tweak, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
+**** If ''t<sub>k</sub>'' is not a valid scalar, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
 *** Compute ''P<sub>k</sub> = B<sub>spend</sub> + t<sub>k</sub>·G''
 *** For each ''output'' in ''outputs_to_check'':
 **** If ''P<sub>k</sub>'' equals ''output'':
@@ -484,6 +488,8 @@ The <code>MAJOR</code> version is incremented if changes to the BIP are introduc
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.0.2''' (2025-07-25):
+** Clarify how to handle the improbable corner case where the output of SHA256 is equal to 0 or greater than or equal to the secp256k1 curve order.
 * '''1.0.1''' (2024-06-22):
 ** Add steps to fail if private key sum is zero (for sender) or public key sum is point at infinity (for receiver), add corresponding test vectors.
 * '''1.0.0''' (2024-05-08):

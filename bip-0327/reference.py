@@ -4,7 +4,7 @@
 # be used in production environments. The code is vulnerable to timing attacks,
 # for example.
 
-from typing import Any, List, Optional, Tuple, NewType, NamedTuple
+from typing import List, Optional, Tuple, NewType, NamedTuple
 import hashlib
 import secrets
 import time
@@ -468,8 +468,7 @@ import sys
 def fromhex_all(l):
     return [bytes.fromhex(l_i) for l_i in l]
 
-# Check that calling `try_fn` raises a `exception`. If `exception` is raised,
-# examine it with `except_fn`.
+# Check if calling `try_fn` raises an exception. If yes, examine it with `except_fn`.
 def assert_raises(exception, try_fn, except_fn):
     raised = False
     try:

@@ -9,12 +9,13 @@
   Type: Informational
   Created: 2024-06-04
   License: CC0-1.0
+  Requires: 380, 328
 </pre>
 
 ==Abstract==
 
 This document specifies a <tt>musig()</tt> key expression for output script descriptors.
-<tt>musig()</tt> expressions take multiple keys and produce an aggregate public key using BIP 327.
+<tt>musig()</tt> expressions take multiple keys and produce an aggregate public key using [[bip-0327.mediawiki|BIP-327]].
 
 ==Copyright==
 
@@ -22,18 +23,21 @@ This BIP is licensed under the Creative Commons CC0 1.0 Universal license.
 
 ==Motivation==
 
-BIP 327 introduces the MuSig2 Multi-Signature scheme. It is useful to have a way for keys to be used
+[[bip-0327.mediawiki|BIP-327]] introduces the MuSig2 Multi-Signature scheme. It is useful to have a way for keys to be used
 in a MuSig2 aggregate key to be expressed in descriptors so that wallets can more easily use MuSig2.
 
 ==Specification==
 
 A new key expression is defined: <tt>musig()</tt>.
 
+In the following sections, the term <tt>KEY</tt> refers to key expressions as defined in [[bip-0380.mediawiki|BIP-380]]
+and [[bip-0389.mediawiki|BIP-389]].
+
 ===<tt>musig(KEY, KEY, ..., KEY)</tt>===
 
 The <tt>musig(KEY, KEY, ..., KEY)</tt> expression can only be used inside of a <tt>tr()</tt>
 expression as a key expression. It additionally cannot be nested within another <tt>musig()</tt>
-expression. Repeated participant public keys are not allowed. The aggregate public key is produced
+expression. Participant public keys may be repeated. The aggregate public key is produced
 by using the <tt>KeyAgg</tt> algorithm on all KEYs specified in the expression after performing all
 specified derivation. As with script expressions, KEY can contain child derivation specified by
 <tt>/*</tt>. A new aggregate public key will be computed for each child index. Keys must be sorted
@@ -48,16 +52,17 @@ backed up, or guess, the correct order of keys.</ref>.
 
 ===<tt>musig(KEY, KEY, ..., KEY)/NUM/.../*</tt>===
 
-<tt>musig(KEY, KEY, ..., KEY)/NUM/.../*</tt> expressions are also allowed, with the same usage
-restrictions as in the previous section. The aggregate public key
-is first computed as described above, with the keys also being sorted after all derivation and prior
-to aggregation. Then further BIP 32 derivation will be performed on the aggregate public key as described in
-[[bip-0328.mediawiki|BIP 328]]. As there is no aggregate private key,
-only unhardened derivation from the aggregate public key is allowed, and thus the derivation steps
-following the <tt>musig()</tt> expression cannot contain
-<tt>/NUMh</tt> or <tt>/NUM'</tt> derivation steps nor <tt>/*h</tt>, or <tt>/*'</tt> child derivation.
-For these <tt>musig()</tt> expressions, the KEY expressions contained within must be xpubs or derived from
-xpubs, and cannot contain child derivation as specified by a <tt>/*</tt>, <tt>/*'</tt>, or <tt>/*h</tt>.
+<tt>musig(KEY, KEY, ..., KEY)/NUM/.../*</tt> expressions are also allowed if no KEY expression
+contains child derivation as specified by <tt>/*</tt> or multipath as specified with
+<tt>/<NUM;NUM;...></tt>, in addition to the same usage restrictions as in the previous section. The KEY expressions
+additionally must be xpubs or derived from xpubs. The aggregate public key is first computed as
+described above, with the keys also being sorted after all derivation and prior to aggregation.
+Then further [[bip-0032.mediawiki|BIP-32]] derivation will be performed on the aggregate public key as described in
+[[bip-0328.mediawiki|BIP-328]]. The <tt>/NUM/.../*</tt> following the <tt>musig()</tt> specifies
+the derivation path to be used when deriving from the aggregate public key. <tt>/*</tt> is also
+optional. As there is no aggregate private key, only unhardened derivation from the aggregate public
+key is allowed. Thus these derivation steps cannot contain <tt>/NUMh</tt> or <tt>/NUM'</tt>
+nor can child derivation be specified as <tt>/*h</tt>, or <tt>/*'</tt>.
 
 ==Test Vectors==
 
@@ -80,6 +85,8 @@ will have the 0th, 1st, and 2nd scripts listed.
 ** <tt>512068983d461174afc90c26f3b2821d8a9ced9534586a756763b68371a404635cc8</tt>
 ** <tt>5120368e2d864115181bdc8bb5dc8684be8d0760d5c33315570d71a21afce4afd43e</tt>
 ** <tt>512097a1e6270b33ad85744677418bae5f59ea9136027223bc6e282c47c167b471d5</tt>
+* <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/1,xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/1)/2)</tt>
+** <tt>5120a17ceacd6422bd5ffd9f165807b254b7d68ad39f179cc4f11545a6835227e97c</tt>
 
 Invalid descriptors
 
@@ -93,13 +100,15 @@ Invalid descriptors
 * <tt>musig()</tt> is not allowed in <tt>sh()</tt>: <tt>sh(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66))</tt>
 * Ranged <tt>musig()</tt> requires all participants to be xpubs: <tt>tr(musig(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9,03dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659,023590a94e768f8e1815c2f24b4d80a8e3149316c3518ce7b7ad338368d038ca66)/0/0)</tt>
 * Cannot have ranged participants if <tt>musig()</tt> is also ranged: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/*,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*)</tt>
+* Cannot have multipath participants if <tt>musig()</tt> is also multipath: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/<0;1>,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/<2;3>)</tt>
 * <tt>musig()</tt> cannot have hardened derivation steps: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0h/*)</tt>
 * <tt>musig()</tt> cannot have hardened child derivation: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y)/0/*h)</tt>
+* <tt>musig()</tt> cannot have participants with child derivation when <tt>musig()</tt> has derivation steps: <tt>tr(musig(xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/*,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/*)/1/2</tt>
 
 ==Backwards Compatibility==
 
 <tt>musig()</tt> expressions use the format and general operation specified in
-[[bip-0380.mediawiki|BIP 380]]. As these are a set of wholly new expressions, they are not compatible
+[[bip-0380.mediawiki|BIP-380]]. As these are a set of wholly new expressions, they are not compatible
 with any implementation. However the keys are produced using a standard process so existing software
 are likely to be familiar with them.
 

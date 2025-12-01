@@ -37,6 +37,30 @@ my %MiscField = (
 	'Requires' => undef,
 	'Superseded-By' => undef,
 );
+my @FieldOrder = qw(
+	BIP
+	Layer
+	Title
+	Author
+	Authors
+	Editor
+	Deputies
+	Discussions-To
+	Comments-Summary
+	Comments-URI
+	Status
+	Type
+	Created
+	License
+	License-Code
+	Discussion
+	Post-History
+	Version
+	Requires
+	Replaces
+	Proposed-Replacement
+	Superseded-By
+);
 
 my %ValidLayer = (
 	'Consensus (soft fork)' => undef,
@@ -114,7 +138,7 @@ while (++$bipnum <= $topbip) {
 	}
 	my %found;
 	my ($title, $author, $status, $type, $layer);
-	my ($field, $val);
+	my ($field, $val, @field_order);
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
 		last if (!$is_markdown && m[^</pre>$]);
@@ -175,19 +199,25 @@ while (++$bipnum <= $topbip) {
 				die "First Comments-URI must be exactly \"$first_comments_uri\" in $fn" unless $val eq $first_comments_uri;
 			}
 		} elsif (exists $DateField{$field}) {
-			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0\d|1[012])\-(?:[012]\d|30|31)$/;
+			# Enforce date format 20XX-MM-DD, where XX is 00-99, MM is 01-12 and DD is 01-31
+			die "Invalid date format in $fn" unless $val =~ /^20\d{2}\-(?:0[1-9]|1[0-2])\-(?:0[1-9]|[12]\d|30|31)$/;
 		} elsif (exists $EmailField{$field}) {
 			$val =~ m/^(\S[^<@>]*\S) \<[^@>]*\@[\w.]+\.\w+\>$/ or die "Malformed $field line in $fn";
 		} elsif (not exists $MiscField{$field}) {
 			die "Unknown field $field in $fn";
 		}
 		++$found{$field};
+		push @field_order, $field unless @field_order and $field_order[-1] eq $field;
 	}
 	if (not $found{License}) {
 		die "Missing License in $fn" unless exists $TolerateMissingLicense{$bipnum};
 	}
 	for my $field (keys %RequiredFields) {
 		die "Missing $field in $fn" unless $found{$field};
+	}
+	my @expected_field_order = grep { exists $found{$_} } @FieldOrder;
+	if ("@expected_field_order" ne "@field_order") {
+		die "Field order is incorrect in $fn, should be:\n\t" . join(", ", @expected_field_order) . "\nbut contains:\n\t" . join(", ", @field_order);
 	}
 	print "|-";
 	if (defined $ValidStatus{$status}) {

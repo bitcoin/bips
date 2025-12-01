@@ -1,0 +1,481 @@
+<pre>
+  BIP: 443
+  Layer: Consensus (soft fork)
+  Title: OP_CHECKCONTRACTVERIFY
+  Author: Salvatore Ingala <salvatoshi@protonmail.com>
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0443
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-05-08
+  License: BSD-3-Clause
+  Post-History: 2022-11-08: https://gnusha.org/pi/bitcoindev/CAMhCMoH9uZPeAE_2tWH6rf0RndqV+ypjbNzazpFwFnLUpPsZ7g@mail.gmail.com
+                2023-07-30: https://gnusha.org/pi/bitcoindev/CAMhCMoFYF+9NL1sqKfn=ma3C_mfQv7mj2fqbqO5WXVwd6vyhLw@mail.gmail.com
+</pre>
+
+
+== Abstract ==
+
+This BIP proposes to add consensus support for a new tapscript opcode that enables a new type of output restrictions:
+<code>OP_CHECKCONTRACTVERIFY</code> (<code>OP_CCV</code>).
+
+This opcode enables users to create UTXOs that carry a dynamic commitment to a piece of data. The commitment can be
+validated during the execution of the script, allowing introspection to the committed data. Moreover, a script can
+constrain the internal public key and taptree of one or more outputs, and possibly the committed data.
+
+In conjunction with an opcode for ''vector commitments''<ref>''Vector commitments'' are cryptographic primitives that
+allow to commit to a vector of values via a single short value. Hashing and concatenation trivially allow to commit to
+an entire vector, and later reveal all of its elements. Merkle trees are among the simplest efficient vector
+commitments, allowing to reveal individual elements with logarithmically-sized proofs.</ref>, this allows to create and
+compose arbitrary state machines that define the possible future outcomes of a UTXO. The validity of a state transition
+depends on the conditions that can be expressed in the program (scripts in the taptree).
+
+=== Copyright ===
+
+This document is licensed under the 3-clause BSD license.
+
+=== Motivation ===
+
+The ability to constrain the future of coins beyond what is possible with presigned transactions is at the core of
+numerous attempts to improve bitcoin. Some of the proposed applications include:
+
+* UTXO sharing schemes like Ark, CoinPools, Timeout Trees, etc. use various types of output restrictions in order to enable multiple parties to share the control of a UTXO, while ensuring that each participant controls their own balance.
+* <code>OP_VAULT</code><ref>[[bip-0345.mediawiki|BIP-345]]</ref> is a proposed opcode to implement a 2-step withdrawal process, enabling on-chain reactive security.
+* <code>OP_CHECKTEMPLATEVERIFY</code><ref>[[bip-0119.mediawiki|BIP-119]]</ref> is a long-proposed opcode to constrain a transaction to a ''template'' with a fixed set of outputs.
+* Sidechains and rollups could be implemented via a UTXO encumbered with a recursive covenant, updating the sidechain state root every time it is spent.
+
+Constructions like BitVM<ref>https://bitvm.org/</ref> try to side-step the lack of a primitive allowing UTXOs to carry
+state with a clever use of Lamport Signatures, and optimistic execution of smart contracts. This comes with an extremely
+high cost in term of complexity, interactivity, and (potentially) in block size occupation, for some of the possible
+execution paths. Moreover, the design of fully trustless bridges remains elusive.
+
+Rather than providing a construct optimized for a specific application, this BIP aims to provide a fundamental building
+block that is widely applicable, and common to many constructions.
+
+== Design ==
+
+<code>OP_CHECKCONTRACTVERIFY</code> is an implementation of a new primitive that could be called
+''state-carrying UTXOs''. It allows to embed a commitment to a piece of data in a UTXO, and to validate it during the
+execution of the script, and ''carry'' a (possibly dynamically computed) piece of data to the new UTXOs that are
+produced.
+
+We consider the ''program'' of a P2TR UTXO to be composed of an x-only public key (that we call the ''naked key''), and
+a Merkle tree of scripts. If there is no data committed in the UTXO, then the naked key is the internal key as defined
+in BIP-341.
+
+If the UTXO carries a commitment to a 32-byte hash (the ''data''), the naked key is tweaked with a hash of the data.
+The resulting key is the taproot internal key per BIP-341.
+
+This allows to embed a commitment to the data that can be validated during the script execution, while staying fully
+compatible with taproot. Notably:
+* the committed data does not make the UTXO any larger;
+* the keypath spend is still available to any party that possesses the private key of the naked key, as long as they have knowledge of the embedded data (or at least the data’s hash)<ref>For example, in a multi-party contract, the naked key could be an aggregate key using [[bip-0327.mediawiki|MuSig2]]; the taproot keypath would therefore allow a ''cooperative'' spend, without executing any script at all. Like for all taproot transactions, this is indeed the
+  cheapest way of spending the UTXO — albeit not always possible in practice.</ref>;
+* if multiple scripts are in different leaves of the taptree, only the ones that actually need to access the data have to pay a cost for it, in terms of additional witness bytes.
+
+<code>OP_CHECKCONTRACTVERIFY</code> can be applied to introspect the program and data of one of the inputs of the
+transaction (typically, the UTXO being spent, in order to access its committed data), or one of the outputs of the
+transaction (in order to define its program, and possibly its committed data).
+
+=== Output amounts ===
+
+When checking the script of one or more outputs with <code>OP_CHECKCONTRACTVERIFY</code>, it is usually necessary to
+also check that the amount of the current input (that is, the UTXO being spent) is correctly distributed among the
+outputs in the expected way. Therefore, the opcode already includes an amount semantic that covers the common use cases.
+
+There are three supported modes for the opcode when checking an output, depending on the value of the <code>mode</code>
+parameter:
+* ''default'': the residual amount of the current input must be preserved in the output (aggregate across the inputs that specify the output);
+* ''ignore'': the output amount is ignored.
+* ''deduct'': the amount of the checked output is subtracted from the amount of the current input (the residual amount is then available for further checks);
+
+The ''default'' logic covers the common case where a UTXO’s full amount is required to be sent to a specific output.
+
+The ''deduct'' logic allows to assign portions of the input amount to one or more outputs; the residual amount, checked
+with a final check using the ''default'' logic, can be used to enforce that the total amount is preserved.
+
+The following figures illustrate some common examples of supported use cases for the amount logic. This list is not
+exhaustive, as there are many more possible combinations.
+
+'''Remark:''' validation fails if the amount of an output is checked with both the ''default'' and the ''deduct'' logic
+in the same transaction, or multiple times with the ''deduct'' logic. This prevents duplicate or inconsistent counting
+of the same amounts.
+
+'''Remark:''' it is allowed for multiple inputs to check the same output with the ''default'' logic. This
+allows multiple inputs to aggregate (in full or in part) their amounts to the same output.
+
+-----
+
+::[[File:bip-0443/amount_example_1.png|framed|center|alt=1-to-1 amount logic|600px]]
+::'''Figure 1:''' A UTXO <code>A</code> sends the entire amount to some output contract <code>B</code>, using <code>CCV</code> with the <i>default</i> semantic.
+
+-----
+
+::[[File:bip-0443/amount_example_2.png|framed|center|alt=3-to-1 aggregate amount logic|600px]]
+::'''Figure 2:''' Three UTXOs aggregate their amounts towards the same output contract, using <code>CCV</code> with the <i>default</i> semantic.
+
+-----
+
+::[[File:bip-0443/amount_example_3.png|framed|center|alt=split amount logic|600px]]
+::'''Figure 3:''' A UTXO <code>A</code> sends a portion of its amount to a contract <code>A'</code> identical to itself, and the rest to a different contract <code>B</code>. It would use <code>CCV</code> to introspect its own input's program, then to check the first output with the <i>deduct</i> semantic, then to check the second output with the <i>default</i> semantic to assign the residual amount.
+
+-----
+
+::[[File:bip-0443/amount_example_4.png|framed|center|alt=split and aggregate amount logic|600px]]
+::'''Figure 4:''' Similar to the previous example, but a second input <code>B</code> also checks the same output <code>X</code> with the <i>default</i> semantic, aggregating its input with the residual amount of the first input.
+
+-----
+
+Note that the ''deduct'' semantic does not allow to check the exact amount of its output. Therefore, in contracts using
+a scheme similar to figure 3 or 4 above, amounts should be constrained either with a signature, or with future
+introspection opcodes that allow fixing the amount. In lack of that, amounts would be malleable.
+
+=== Paying fees ===
+
+Since the amount-checking semantics of <code>OP_CHECKCONTRACTVERIFY</code> are designed to preserve the entire input
+amount across one or more outputs, transaction fees must be paid exogenously. This can be achieved by adding an extra
+input to the transaction, by using an anchor output, or with other future mechanisms.
+
+The ''ignore'' amount mode is not a safe mechanism for paying endogenous fees. An output checked with this mode has no
+amount constraint, which would allow a miner to claim the entire value of that input. This mode is included for forward
+compatibility with potential future soft forks that may introduce other amount-related logic that is compatible with
+<code>OP_CHECKCONTRACTVERIFY</code>'s script checks.
+
+
+== Specification ==
+
+The tapscript opcode <code>OP_SUCCESS187</code> (<code>0xbb</code>) is constrained with new rules to implement
+<code>OP_CHECKCONTRACTVERIFY</code>.
+
+When evaluating <code>OP_CHECKCONTRACTVERIFY</code> (<code>OP_SUCCESS187</code>,
+<code>0xbb</code>), the expected format of the stack, shown bottom-to-top, is:
+
+<source>
+<data> <index> <pk> <taptree> <mode>
+</source>
+
+where:
+
+* <code><mode></code> is a minimally encoded integer, according to one of the values defined below.
+* <code><taptree></code> is the Merkle root of the taproot tree, or a minimally encoded <code>-1</code>, or the empty buffer.
+* <code><pk></code> is called the ''naked key'', and it's a valid 32-byte x-only public key, or a minimally encoded <code>-1</code>, or the empty buffer.
+* <code><index></code> is a minimally encoded -1, or a minimally encoded non-negative integer.
+* <code><data></code> is a buffer of arbitrary length.
+
+In short, the semantics of the opcode with respect to the script can be summarized as follows:
+
+<blockquote>
+Verify that the input/output with the given 'index' is a P2TR UTXO whose taproot output key is obtained from 'pk',
+tweaked with the hash of 'data' (if non-empty), then taptweaked with 'taptree' (if non-empty).
+</blockquote>
+
+If the <code><data></code> is non-empty, then the additive tweak for the data is computed as:
+
+<source lang="python">
+  data_tweak = sha256(pk || data)
+</source>
+
+In the following, the ''current input'' is the input whose script is being executed.
+
+The following values of the <code><mode></code> are defined:
+* <code>CCV_MODE_CHECK_INPUT = -1</code>: Check an input's script; no amount check.
+* <code>CCV_MODE_CHECK_OUTPUT = 0</code>: Check an output's script; preserve the (possibly residual) amount.
+* <code>CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT = 1</code>: Check an output's script; ignore amounts.
+* <code>CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT = 2</code>: Check an output's script; deduct the output amount from the input's residual amount.
+
+Any other value of the <code><mode></code> makes the opcode succeed validation immediately for the current
+input<ref>This allows to soft-fork future behavior by introducing new values for the <code><mode></code>. As the mode
+would always be hard-coded via a push in the script, the risk of mistakes seems negligible.</ref>.
+
+The following values of the other parameters have special meanings:
+* If the <code><taptree></code> is -1, it is replaced with the Merkle root of the current input's tapscript tree. If the taptree is the empty buffer, then the taptweak is skipped.
+* If the <code><pk></code> is 0, it is replaced with the NUMS x-only pubkey <code>0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code> defined in [[bip-0341.mediawiki|BIP-341]]. If the <code><pk></code> is -1, it is replaced with the taproot internal key of the current input.
+* If the <code><index></code> is -1, it is replaced with the index of the current input.
+* If the <code><data></code> is the empty buffer, then there is no data tweak for the input/output being checked.
+
+Any other value of the <code><taptree></code>, <code><pk></code>, <code><index></code> or <code><data></code> parameters
+is invalid, and makes the opcode immediately fail validation.
+
+=== Script support for <code>OP_CHECKCONTRACTVERIFY</code> ===
+
+The specification is divided into three parts:
+* the transaction-wide initialization;
+* the input initialization;
+* the opcode evaluation.
+
+The following helper function is a variant of <code>taproot_tweak_pubkey</code> from [[bip-0341.mediawiki|BIP341]],
+except that a regular SHA256-hash is used instead of a tagged hash, and the pubkey is returned unchanged if the length
+of <code>data</code> is 0.
+
+<source lang="python">
+def tweak_embed_data(pubkey, data):
+    assert len(pubkey) == 32
+
+    if len(data) == 0:
+      return None, pubkey
+
+    data_tweak = sha256(pubkey + data)
+
+    t = int_from_bytes(data_tweak)
+    if t >= SECP256K1_ORDER:
+        raise ValueError
+    P = lift_x(int_from_bytes(pubkey))
+    if P is None:
+        raise ValueError
+    Q = point_add(P, point_mul(G, t))
+    return 0 if has_even_y(Q) else 1, bytes_from_int(x(Q))
+</source>
+
+The <code>taproot_tweak_pubkey</code> function is also used as a helper in the pseudocode below.
+
+The following notations are used in the pseudocode below:
+* <code>n_inputs</code> and <code>n_outputs</code> are the number of inputs and outputs of the transaction, respectively;
+* <code>inputs[i]</code> is the i-th input of the transaction;
+* <code>outputs[i]</code> is the i-th output of the transaction;
+* <code>this_input_index</code>, <code>this_input_internal_key</code> and <code>this_input_taptree</code> are the index,
+  taproot internal key and taproot Merkle root of the current input, respectively.
+* <code>P2TR(key)</code> computes the scriptPubKey of the P2TR output with the given key as the taproot output key.
+
+==== Transaction-wide initialization ====
+
+This is executed once for the entire transaction, before any of the transaction input's scripts are evaluated.
+It initializes three arrays that are used to keep track of the amount information of the output.
+
+<source lang="python">
+  output_min_amount = [0] * n_outputs
+  output_checked_default = [False] * n_outputs
+  output_checked_deduct = [False] * n_outputs
+</source>
+
+==== Input initialization ====
+
+This is executed at the beginning of the evaluation of each input's script. It initializes the residual amount to equal
+the full amount of the current input.
+
+<source lang="python">
+  residual_input_amount = inputs[this_input_index].amount
+</source>
+
+==== <code>OP_CHECKCONTRACTVERIFY</code> evaluation ====
+
+The following code is executed every time the <code>OP_CHECKCONTRACTVERIFY</code> opcode is encountered during the
+evaluation of a taproot script spend. <code>this_input_index</code>, <code>this_input_internal_key</code> and
+<code>this_input_taptree</code> are the index, taproot internal key and taproot Merkle root of the current input.
+
+<code>BIP341_NUMS_KEY</code> is the x-only provably unspendable key <code>50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0</code>
+defined in [[bip-0341.mediawiki|BIP-341]].
+
+<source lang="python">
+  if mode < CCV_MODE_CHECK_INPUT or mode > CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT:
+    return success()  # undefined mode is OP_SUCCESS
+
+  if index == -1:
+    index = this_input_index
+
+  if mode == CCV_MODE_CHECK_INPUT:
+    if index < 0 or index >= n_inputs:
+      return fail()  # input index out of bounds
+
+    target_script = inputs[index].scriptPubKey
+  else:
+    if index < 0 or index >= n_outputs:
+      return fail()  # output index out of bounds
+
+    target_script = outputs[index].scriptPubKey
+
+  if taptree == <-1>:
+    taptree = this_input_taptree
+
+  if pk == <0>:
+    naked_key = BIP341_NUMS_KEY
+  elif pk == <-1>:
+    naked_key = this_input_internal_key
+  elif len(pk) == 32:
+    naked_key = pk
+  else:
+    return fail()
+
+  # Verify the target contract data and program
+  _, internal_key = tweak_embed_data(naked_key, data)
+
+  if len(taptree) != 0:
+    if len(taptree) != 32:
+      return fail()
+
+    _, final_key = taproot_tweak_pubkey(internal_key, taptree)
+  else:
+    final_key = internal_key
+
+  if target_script != P2TR(final_key):
+    return fail()
+
+  # Amount checks
+
+  if mode == CCV_MODE_CHECK_OUTPUT:
+    # default amount semantic
+    if output_checked_deduct[index]:
+      return fail()
+
+    output_min_amount[index] += residual_input_amount
+    residual_input_amount = 0
+
+    if outputs[index].amount < output_min_amount[index]:
+      return fail()
+
+    output_checked_default[index] = True
+  elif mode == CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT:
+    # 'deduct' amount semantic
+    if residual_input_amount < outputs[index].amount:
+      return fail()
+
+    if output_checked_default[index] or output_checked_deduct[index]:
+      return fail()
+
+    residual_input_amount = residual_input_amount - outputs[index].amount
+    output_checked_deduct[index] = True
+
+  stack.pop(5)  # drop all 5 stack elements
+</source>
+
+==== sigops budget ====
+
+TODO
+
+== Policy changes ==
+
+TODO
+
+== Implementation ==
+
+A reference implementation is provided as a bitcoin-core [https://github.com/bitcoin/bitcoin/pull/32080 pull request].
+
+== Examples ==
+
+This section documents some common script fragments that use <code>OP_CHECKCONTRACTVERIFY</code> for various common
+choices of the parameters. Depending on the use case, some of the parameters might be passed via the witness stack.
+In these examples, <code><></code> (empty buffer) and <code>0</code> both refer to an empty stack element.
+
+----
+
+Check data embedded in the current input:
+<source>
+<data=data>
+<index=-1>
+<pk=naked_pk>
+<taptree=-1>
+<mode=-1 (CCV_MODE_CHECK_INPUT)>
+OP_CHECKCONTRACTVERIFY
+</source>
+
+This would be used to access the data committed in the current input. The <code><data></code> parameter, of course,
+would be passed via the witness stack.
+
+----
+
+Check that the input with index <code>in_i</code> is a specific contract with embedded <code>input_data</code>:
+<source>
+<data=input_data>
+<index=in_i>
+<pk=input_i_naked_pk>
+<taptree=input_i_taptree>
+<mode=-1 (CCV_MODE_CHECK_INPUT)>
+OP_CHECKCONTRACTVERIFY
+</source>
+
+This allows introspecting the program (naked key and taptree) and data of another input of the transaction.
+
+----
+
+Check that the output with index <code>out_i</code> is a certain contract (pubkey and taptree) with the specified
+embedded <code><data></code>, preserving input amount:
+<source>
+<data=data>
+<index=out_i>
+<pk=output_naked_pk>
+<taptree=output_taptree>
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
+OP_CHECKCONTRACTVERIFY
+</source>
+
+This allows introspecting an output's program and data, and sending the full residual amount to it. Logically, it can be
+thought as a state transition, moving money to a different state, but still under the control of the pre-set rules.
+Typically, the <code>data</code> would be computed based on the witness stack, while the output program would be
+hard-coded in Script.
+
+----
+
+Check that the output with index <code>out_i</code> is a P2TR with pubkey <code>output_pk</code>, preserving amount:
+<source>
+<data=<>>  # no data
+<index=out_i>
+<pk=output_pk>
+<taptree=<>>  # no taptweak
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
+OP_CHECKCONTRACTVERIFY
+</source>
+
+Unlike the previous example, here there is no computation over the destination taproot public key, since both
+<code>data</code> and <code>taptweak</code> are omitted.
+
+----
+
+Check that the output with index <code>out_i</code> is a certain contract (pubkey and taptree) with the specified
+embedded <code>data</code>; don't check amount:
+<source>
+<data=data>
+<index=out_i>
+<pk=output_i_naked_pk>
+<taptree=output_i_taptree>
+<mode=1 (CCV_MODE_CHECK_OUTPUT_IGNORE_AMOUNT)>
+OP_CHECKCONTRACTVERIFY
+</source>
+
+'''Remark:''' amounts are malleable with this check alone; therefore, it is expected that the amount is also checked
+with separate introspection opcodes.
+
+----
+
+Check that the amount of the current input is partially sent to the first output (that must have a certain pubkey), and
+all the remaining amount is sent to the second output, which has the same internal key and taptree as the current input:
+<source>
+<data=<>>     # no data
+<index=0>
+<pk=<output_0_pk>>
+<taptree=<>>  # no tweak
+<mode=2 (CCV_MODE_CHECK_OUTPUT_DEDUCT_AMOUNT)>
+OP_CHECKCONTRACTVERIFY
+
+<data=<>>     # no data
+<index=1>
+<pk=-1>
+<taptree=-1>
+<mode=0 (CCV_MODE_CHECK_OUTPUT)>
+OP_CHECKCONTRACTVERIFY
+</source>
+
+'''Remark:''' in some applications, it might be desirable to check the exact amount of the first output with separate
+introspection opcodes.
+
+== Applications ==
+
+TODO
+
+== Deployment ==
+
+The activation mechanism, and the set of other BIPs to be concurrently deployed, are to be determined.
+
+== Backwards compatibility ==
+
+<code>OP_CHECKCONTRACTVERIFY</code> replaces the witness v1-only opcode OP_SUCCESS187 with stricter verification
+semantics. Consequently, scripts using those opcodes which previously were valid will cease to be valid with this change.
+
+Stricter verification semantics for an OP_SUCCESSx opcode are a soft fork, so existing software will be fully functional
+without upgrade except for mining and block validation.
+
+== Footnotes ==
+
+<references />
+
+
+== Acknowledgements ==
+
+TODO
