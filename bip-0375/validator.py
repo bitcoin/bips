@@ -5,17 +5,28 @@ BIP 375: PSBT Validator
 Complete BIP 375 validation for PSBTs with silent payment outputs.
 """
 
+import hashlib
 import struct
-from typing import Tuple
+from typing import Tuple, List, Dict, Optional
 
 from constants import PSBTFieldType
-from parser import parse_psbt_structure
-from inputs import validate_input_eligibility, check_invalid_segwit_version
 from dleq import validate_global_dleq_proof, validate_input_dleq_proof
+from inputs import validate_input_eligibility, check_invalid_segwit_version
+from parser import parse_psbt_structure
+# External references bip-0374
+from secp256k1 import GE, G
 
 
-def validate_bip375_psbt(psbt_data: bytes) -> Tuple[bool, str]:
-    """Validate a PSBT according to BIP 375 rules"""
+def validate_bip375_psbt(
+    psbt_data: bytes,
+    input_keys: Optional[List[Dict]] = None,
+) -> Tuple[bool, str]:
+    """Validate a PSBT according to BIP 375 rules
+
+    Args:
+        psbt_data: Raw PSBT bytes
+        input_keys: Optional list of input key material for BIP-352 validation
+    """
 
     # Basic PSBT structure validation
     if len(psbt_data) < 5 or psbt_data[:5] != b"psbt\xff":
@@ -140,4 +151,161 @@ def validate_bip375_psbt(psbt_data: bytes) -> Tuple[bool, str]:
                         f"Input {i} uses non-SIGHASH_ALL ({sighash_type}) with silent payments",
                     )
 
+    # Validate BIP-352 output scripts if test material provided
+    if input_keys:
+        is_valid, error_msg = validate_bip352_outputs(
+            global_fields, input_maps, output_maps, input_keys
+        )
+        if not is_valid:
+            return False, error_msg
+
     return True, "Valid BIP 375 PSBT"
+
+
+def validate_bip352_outputs(
+    global_fields: Dict,
+    input_maps: List[Dict],
+    output_maps: List[Dict],
+    input_keys: List[Dict],
+) -> Tuple[bool, str]:
+    """Validate BIP-352 output script derivation (requires input_keys test material)"""
+
+    # Build outpoints list from PSBT inputs
+    outpoints = []
+    for input_fields in input_maps:
+        if PSBTFieldType.PSBT_IN_PREVIOUS_TXID in input_fields:
+            txid = input_fields[PSBTFieldType.PSBT_IN_PREVIOUS_TXID]
+            output_index_bytes = input_fields.get(PSBTFieldType.PSBT_IN_OUTPUT_INDEX)
+            if output_index_bytes and len(output_index_bytes) == 4:
+                output_index = struct.unpack("<I", output_index_bytes)[0]
+                outpoints.append((txid, output_index))
+
+    # Validate each silent payment output
+    for output_idx, output_fields in enumerate(output_maps):
+        # Only validate outputs with SP_V0_INFO (silent payment outputs)
+        if PSBTFieldType.PSBT_OUT_SP_V0_INFO not in output_fields:
+            continue
+
+        sp_info = output_fields[PSBTFieldType.PSBT_OUT_SP_V0_INFO]
+        if len(sp_info) != 66:
+            continue
+
+        scan_pubkey_bytes = sp_info[:33]
+        spend_pubkey_bytes = sp_info[33:]
+
+        # Find matching ECDH share for this scan key
+        ecdh_share_bytes = None
+        summed_pubkey_bytes = None
+
+        # Check for global ECDH share
+        if PSBTFieldType.PSBT_GLOBAL_SP_ECDH_SHARE in global_fields:
+            global_ecdh = global_fields[PSBTFieldType.PSBT_GLOBAL_SP_ECDH_SHARE]
+            if (
+                isinstance(global_ecdh, dict)
+                and global_ecdh.get("key") == scan_pubkey_bytes
+            ):
+                ecdh_share_bytes = global_ecdh["value"]
+                # Combine all input public keys
+                summed_pubkey = None
+                for input_key in input_keys:
+                    pubkey_bytes = bytes.fromhex(input_key["public_key"])
+                    pubkey = GE.from_bytes(pubkey_bytes)
+                    summed_pubkey = (
+                        pubkey if summed_pubkey is None else summed_pubkey + pubkey
+                    )
+                if summed_pubkey:
+                    summed_pubkey_bytes = summed_pubkey.to_bytes_compressed()
+
+        # Check for per-input ECDH shares (if no global share found)
+        # BIP-375: When using per-input shares, sum all shares for the same scan key
+        if not ecdh_share_bytes:
+            summed_ecdh_share = None
+            summed_pubkey = None
+
+            for input_idx, input_fields in enumerate(input_maps):
+                if PSBTFieldType.PSBT_IN_SP_ECDH_SHARE in input_fields:
+                    input_ecdh = input_fields[PSBTFieldType.PSBT_IN_SP_ECDH_SHARE]
+                    if (
+                        isinstance(input_ecdh, dict)
+                        and input_ecdh.get("key") == scan_pubkey_bytes
+                    ):
+                        # Add this ECDH share to the sum
+                        ecdh_share_point = GE.from_bytes(input_ecdh["value"])
+                        summed_ecdh_share = (
+                            ecdh_share_point
+                            if summed_ecdh_share is None
+                            else summed_ecdh_share + ecdh_share_point
+                        )
+
+                        # Add this input's public key to the sum
+                        if input_idx < len(input_keys):
+                            pubkey_bytes = bytes.fromhex(input_keys[input_idx]["public_key"])
+                            pubkey = GE.from_bytes(pubkey_bytes)
+                            summed_pubkey = (
+                                pubkey if summed_pubkey is None else summed_pubkey + pubkey
+                            )
+
+            if summed_ecdh_share and summed_pubkey:
+                ecdh_share_bytes = summed_ecdh_share.to_bytes_compressed()
+                summed_pubkey_bytes = summed_pubkey.to_bytes_compressed()
+
+        # If we found ECDH share and summed pubkey, compute and verify output script
+        if ecdh_share_bytes and summed_pubkey_bytes and outpoints:
+            computed_script = compute_bip352_output_script(
+                outpoints=outpoints,
+                summed_pubkey_bytes=summed_pubkey_bytes,
+                ecdh_share_bytes=ecdh_share_bytes,
+                spend_pubkey_bytes=spend_pubkey_bytes,
+                k=output_idx,  # Use output index for k parameter
+            )
+
+            # Compare with actual PSBT output script
+            if PSBTFieldType.PSBT_OUT_SCRIPT in output_fields:
+                actual_script = output_fields[PSBTFieldType.PSBT_OUT_SCRIPT]
+                if actual_script != computed_script:
+                    return (
+                        False,
+                        f"Output {output_idx} script doesn't match BIP-352 derivation",
+                    )
+
+    return True, "BIP-352 output validation passed"
+
+
+def compute_bip352_output_script(
+    outpoints: List[Tuple[bytes, int]],
+    summed_pubkey_bytes: bytes,
+    ecdh_share_bytes: bytes,
+    spend_pubkey_bytes: bytes,
+    k: int = 0,
+) -> bytes:
+    """Compute BIP-352 silent payment output script"""
+    # Find smallest outpoint lexicographically
+    serialized_outpoints = [txid + struct.pack("<I", idx) for txid, idx in outpoints]
+    smallest_outpoint = min(serialized_outpoints)
+
+    # Compute input_hash = hash_BIP0352/Inputs(smallest_outpoint || A)
+    tag_data = b"BIP0352/Inputs"
+    tag_hash = hashlib.sha256(tag_data).digest()
+    input_hash_preimage = tag_hash + tag_hash + smallest_outpoint + summed_pubkey_bytes
+    input_hash_bytes = hashlib.sha256(input_hash_preimage).digest()
+    input_hash = int.from_bytes(input_hash_bytes, "big")
+
+    # Compute shared_secret = input_hash * ecdh_share
+    ecdh_point = GE.from_bytes(ecdh_share_bytes)
+    shared_secret_point = input_hash * ecdh_point
+    shared_secret_bytes = shared_secret_point.to_bytes_compressed()
+
+    # Compute t_k = hash_BIP0352/SharedSecret(shared_secret || k)
+    tag_data = b"BIP0352/SharedSecret"
+    tag_hash = hashlib.sha256(tag_data).digest()
+    t_preimage = tag_hash + tag_hash + shared_secret_bytes + k.to_bytes(4, "big")
+    t_k_bytes = hashlib.sha256(t_preimage).digest()
+    t_k = int.from_bytes(t_k_bytes, "big")
+
+    # Compute P_k = B_spend + t_k * G
+    B_spend = GE.from_bytes(spend_pubkey_bytes)
+    P_k = B_spend + (t_k * G)
+
+    # Create P2TR script (x-only pubkey)
+    x_only = P_k.to_bytes_compressed()[1:]  # Remove parity byte
+    return bytes([0x51, 0x20]) + x_only
