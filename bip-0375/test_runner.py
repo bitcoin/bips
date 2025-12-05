@@ -11,6 +11,8 @@ import json
 import sys
 
 from parser import parse_psbt_structure
+from inputs import validate_input_eligibility, check_invalid_segwit_version
+from constants import PSBTFieldType
 
 
 def load_test_vectors(filename: str) -> dict:
@@ -26,8 +28,8 @@ def load_test_vectors(filename: str) -> dict:
         sys.exit(1)
 
 
-def validate_basic_structure(psbt_b64: str) -> tuple[bool, str]:
-    """Validate basic PSBT structure (magic bytes and parseability)"""
+def validate_structure_and_inputs(psbt_b64: str) -> tuple[bool, str]:
+    """Validate PSBT structure and input eligibility"""
     try:
         # Decode PSBT
         psbt_data = base64.b64decode(psbt_b64)
@@ -39,17 +41,39 @@ def validate_basic_structure(psbt_b64: str) -> tuple[bool, str]:
         # Parse structure
         global_fields, input_maps, output_maps = parse_psbt_structure(psbt_data)
 
-        return True, f"Valid structure: {len(input_maps)} inputs, {len(output_maps)} outputs"
+        # Check if this PSBT has silent payment outputs
+        has_silent_outputs = any(
+            PSBTFieldType.PSBT_OUT_SP_V0_INFO in output_fields
+            or PSBTFieldType.PSBT_OUT_SP_V0_LABEL in output_fields
+            for output_fields in output_maps
+        )
+
+        if not has_silent_outputs:
+            return True, f"Valid PSBT v2 (no silent payments): {len(input_maps)} inputs, {len(output_maps)} outputs"
+
+        # Validate input eligibility for silent payments
+        for i, input_fields in enumerate(input_maps):
+            is_valid, error_msg = validate_input_eligibility(input_fields, i)
+            if not is_valid:
+                return False, error_msg
+
+            # Check segwit version restrictions
+            if PSBTFieldType.PSBT_IN_WITNESS_UTXO in input_fields:
+                witness_utxo = input_fields[PSBTFieldType.PSBT_IN_WITNESS_UTXO]
+                if check_invalid_segwit_version(witness_utxo):
+                    return False, f"Input {i} uses segwit version > 1 with silent payments"
+
+        return True, f"Valid structure with eligible inputs: {len(input_maps)} inputs, {len(output_maps)} outputs"
 
     except Exception as e:
-        return False, f"Parse error: {str(e)}"
+        return False, f"Validation error: {str(e)}"
 
 
 def run_tests(test_data: dict, verbose: bool = False) -> None:
-    """Run basic structure validation on all test cases"""
+    """Run structure and input validation on all test cases"""
 
-    print("BIP 375 Reference Implementation - Test Runner (Basic Validation)")
-    print("=" * 70)
+    print("BIP 375 Reference Implementation - Test Runner (Structure + Input Validation)")
+    print("=" * 78)
     print(f"Description: {test_data['description']}")
     print(f"Version: {test_data['version']}")
     print(f"Invalid test cases: {len(test_data['invalid'])}")
@@ -67,7 +91,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         print(f"Test {test_num}: {description}")
 
-        is_valid, msg = validate_basic_structure(psbt_b64)
+        is_valid, msg = validate_structure_and_inputs(psbt_b64)
 
         if verbose:
             print(f"     Result: {msg}")
@@ -90,7 +114,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         print(f"Test {test_num}: {description}")
 
-        is_valid, msg = validate_basic_structure(psbt_b64)
+        is_valid, msg = validate_structure_and_inputs(psbt_b64)
 
         if verbose:
             print(f"     Result: {msg}")
@@ -103,8 +127,8 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         test_num += 1
 
-    print(f"\n✓ Basic structure validation complete: {passed} passed, {failed} failed")
-    print("Note: Full BIP 375 validation will be added in subsequent commits")
+    print(f"\n✓ Validation complete: {passed} passed, {failed} failed")
+    print("Note: Full DLEQ and output validation will be added in subsequent commits")
 
 
 if __name__ == "__main__":
