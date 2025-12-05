@@ -8,11 +8,19 @@ Validates BIP 375 PSBT test vectors.
 import argparse
 import base64
 import json
+import os
 import sys
 
 from parser import parse_psbt_structure
 from inputs import validate_input_eligibility, check_invalid_segwit_version
 from constants import PSBTFieldType
+
+# Add sibling directory bip-374 to path before to make secp256k1 and dleq reference available
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sibling_dir_path = os.path.join(current_dir, '..', 'bip-0374')
+if sibling_dir_path not in sys.path:
+    sys.path.append(sibling_dir_path)
+from dleq import validate_global_dleq_proof, validate_input_dleq_proof
 
 
 def load_test_vectors(filename: str) -> dict:
@@ -28,8 +36,8 @@ def load_test_vectors(filename: str) -> dict:
         sys.exit(1)
 
 
-def validate_structure_and_inputs(psbt_b64: str) -> tuple[bool, str]:
-    """Validate PSBT structure and input eligibility"""
+def validate_structure_inputs_and_dleq(psbt_b64: str) -> tuple[bool, str]:
+    """Validate PSBT structure, input eligibility, and DLEQ proofs"""
     try:
         # Decode PSBT
         psbt_data = base64.b64decode(psbt_b64)
@@ -63,16 +71,63 @@ def validate_structure_and_inputs(psbt_b64: str) -> tuple[bool, str]:
                 if check_invalid_segwit_version(witness_utxo):
                     return False, f"Input {i} uses segwit version > 1 with silent payments"
 
-        return True, f"Valid structure with eligible inputs: {len(input_maps)} inputs, {len(output_maps)} outputs"
+        # ECDH shares must exist
+        has_global_ecdh = PSBTFieldType.PSBT_GLOBAL_SP_ECDH_SHARE in global_fields
+        has_input_ecdh = any(
+            PSBTFieldType.PSBT_IN_SP_ECDH_SHARE in input_fields
+            for input_fields in input_maps
+        )
+
+        if not has_global_ecdh and not has_input_ecdh:
+            return False, "Silent payment outputs present but no ECDH shares found"
+
+        # Cannot have both global and per-input ECDH shares for same scan key
+        if has_global_ecdh and has_input_ecdh:
+            # Extract scan key from global ECDH share
+            global_ecdh_field = global_fields[PSBTFieldType.PSBT_GLOBAL_SP_ECDH_SHARE]
+            global_scan_key = global_ecdh_field["key"]
+
+            # Check if any input has ECDH share for the same scan key
+            for i, input_fields in enumerate(input_maps):
+                if PSBTFieldType.PSBT_IN_SP_ECDH_SHARE in input_fields:
+                    input_ecdh_field = input_fields[PSBTFieldType.PSBT_IN_SP_ECDH_SHARE]
+                    input_scan_key = input_ecdh_field["key"]
+                    if input_scan_key == global_scan_key:
+                        return False, "Cannot have both global and per-input ECDH shares for same scan key"
+
+        # DLEQ proofs must exist for ECDH shares
+        if has_global_ecdh:
+            has_global_dleq = PSBTFieldType.PSBT_GLOBAL_SP_DLEQ in global_fields
+            if not has_global_dleq:
+                return False, "Global ECDH share present but missing DLEQ proof"
+
+        if has_input_ecdh:
+            for i, input_fields in enumerate(input_maps):
+                if PSBTFieldType.PSBT_IN_SP_ECDH_SHARE in input_fields:
+                    if PSBTFieldType.PSBT_IN_SP_DLEQ not in input_fields:
+                        return False, f"Input {i} has ECDH share but missing DLEQ proof"
+
+        # Verify DLEQ proofs
+        if has_global_ecdh:
+            if not validate_global_dleq_proof(global_fields, input_maps):
+                return False, "Global DLEQ proof verification failed"
+
+        if has_input_ecdh:
+            for i, input_fields in enumerate(input_maps):
+                if PSBTFieldType.PSBT_IN_SP_ECDH_SHARE in input_fields:
+                    if not validate_input_dleq_proof(input_fields, None, i):
+                        return False, f"Input {i} DLEQ proof verification failed"
+
+        return True, f"Valid PSBT with DLEQ proofs: {len(input_maps)} inputs, {len(output_maps)} outputs"
 
     except Exception as e:
         return False, f"Validation error: {str(e)}"
 
 
 def run_tests(test_data: dict, verbose: bool = False) -> None:
-    """Run structure and input validation on all test cases"""
+    """Run structure, input, and DLEQ validation on all test cases"""
 
-    print("BIP 375 Reference Implementation - Test Runner (Structure + Input Validation)")
+    print("BIP 375 Reference Implementation - Test Runner (Structure + Input + DLEQ)")
     print("=" * 78)
     print(f"Description: {test_data['description']}")
     print(f"Version: {test_data['version']}")
@@ -91,7 +146,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         print(f"Test {test_num}: {description}")
 
-        is_valid, msg = validate_structure_and_inputs(psbt_b64)
+        is_valid, msg = validate_structure_inputs_and_dleq(psbt_b64)
 
         if verbose:
             print(f"     Result: {msg}")
@@ -114,7 +169,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         print(f"Test {test_num}: {description}")
 
-        is_valid, msg = validate_structure_and_inputs(psbt_b64)
+        is_valid, msg = validate_structure_inputs_and_dleq(psbt_b64)
 
         if verbose:
             print(f"     Result: {msg}")
@@ -128,7 +183,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
         test_num += 1
 
     print(f"\n✓ Validation complete: {passed} passed, {failed} failed")
-    print("Note: Full DLEQ and output validation will be added in subsequent commits")
+    print("Note: Full output script validation will be added in subsequent commits")
 
 
 if __name__ == "__main__":
