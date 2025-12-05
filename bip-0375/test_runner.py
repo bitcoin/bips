@@ -32,14 +32,17 @@ def load_test_vectors(filename: str) -> dict:
         sys.exit(1)
 
 
-def run_validation(psbt_b64: str) -> tuple[bool, str]:
+def run_validation(psbt_b64: str, test_case: dict = None) -> tuple[bool, str]:
     """Run BIP 375 validation on a PSBT"""
     try:
         # Decode PSBT
         psbt_data = base64.b64decode(psbt_b64)
 
+        # Extract optional test material for BIP-352 validation
+        input_keys = test_case.get("input_keys") if test_case else None
+
         # Run complete BIP 375 validation
-        return validate_bip375_psbt(psbt_data)
+        return validate_bip375_psbt(psbt_data, input_keys)
 
     except Exception as e:
         return False, f"Validation error: {str(e)}"
@@ -67,7 +70,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         print(f"Test {test_num}: {description}")
 
-        is_valid, msg = run_validation(psbt_b64)
+        is_valid, msg = run_validation(psbt_b64, test_case)
 
         if verbose:
             print(f"     Result: {msg}")
@@ -90,7 +93,7 @@ def run_tests(test_data: dict, verbose: bool = False) -> None:
 
         print(f"Test {test_num}: {description}")
 
-        is_valid, msg = run_validation(psbt_b64)
+        is_valid, msg = run_validation(psbt_b64, test_case)
 
         if verbose:
             print(f"     Result: {msg}")
