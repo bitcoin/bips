@@ -2,7 +2,7 @@
 BIP: ?
 Title: The Cat: Non-Monetary UTXO Cleanup
 Author: Claire Ostrom <ostromclairehome@gmail.com>
-Discussions-To: https://github.com/ostromcode/TheCat
+Discussions-To: https://github.com/ostromcode/The-Cat
 Status: Draft
 Type: Standards Track
 Layer: Consensus (soft fork)
@@ -46,7 +46,7 @@ Recent attempts to reduce spam have focused on the supply side, trying to stop s
 The Cat defines a fixed, reproducible set of “NMUs” using established external indexers, and makes them permanently unspendable by consensus, so that such data cannot be monetized or transacted, only archived. Once rendered unspendable, we will be removing these UTXOs made unspendable by consensus under this proposal, from the UTXO set, materially reducing the current resource requirement for nodes (likely on the order of tens of millions of UTXOs, roughly ~30% of the set, subject to measurement). The NMU classification itself is encoded in a compact membership structure (a Binary Fuse Filter plus a false-positive exclusion list) that ships with the binary and does not require any node to reindex or re-download the chain.
 
 See supporting charts and statistics at:
-https://github.com/ostromcode/TheCat/tree/main/charts
+https://github.com/ostromcode/The-Cat/tree/main/charts
 
 ---
 
