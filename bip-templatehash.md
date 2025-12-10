@@ -29,7 +29,7 @@ of LN-Symmetry. It is also a [significant optimisation][fournier-ctv-dlcs] for [
 
 ## Specification
 
-`OP_TEMPLATEHASH` redefines `OP_SUCCESS187` (0xbb) in the Tapscript execution context with further restrictions.
+`OP_TEMPLATEHASH` redefines `OP_SUCCESS206` (0xce) in the Tapscript execution context with further restrictions.
 
 Upon execution of the opcode, the template hash of the transaction in context is pushed onto the stack as defined below,
 and script execution continues.
