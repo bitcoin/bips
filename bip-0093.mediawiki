@@ -84,7 +84,7 @@ In particular, given an all uppercase codex32 string, we still use lowercase <co
 For presentation, lowercase is usually preferable, but uppercase SHOULD be used for handwritten codex32 strings.
 If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, as this is encoded more compactly.
 
-===Checksum===
+====Checksum====
 
 The last thirteen characters of the data part form a checksum and contain no information.
 Valid strings MUST pass the criteria for validity specified by the Python 3 code snippet below.
@@ -128,9 +128,9 @@ def ms32_create_checksum(data):
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
 guarantees detection of '''any error affecting at most 8 characters'''
 and has less than a 3 in 10<sup>20</sup> chance of failing to detect more
-errors.
+random errors.
 
-===Error Correction===
+====Error Correction====
 
 A codex32 string without a valid checksum MUST NOT be used.
 The checksum is designed to be an error correcting code that can correct up to 4 character substitutions, up to 8 unreadable characters (called erasures), or up to 13 consecutive erasures.
@@ -147,7 +147,6 @@ We do not specify how an implementation should implement error correction. Howev
 ===Unshared Secret===
 
 When the share index of a valid codex32 string (converted to lowercase) is the letter "s", we call the string a codex32 secret.
-The payload in a codex32 secret is a direct encoding of a BIP-0032 HD master seed.
 
 The secret is decoded by converting the payload to bytes:
 
@@ -187,7 +186,26 @@ def ms32_decode(codex):
     data = [CHARSET.index(x) for x in codex[pos+1:]]
     if not ms32_verify_checksum(data):
         return None
-    return data[:-13 if len(data) < 94 else -15]  # See Long codex32 Strings</source>
+    return data[:-13 if len(data) < 94 else -15]  # See Long codex32 Strings
+</source>
+
+===Master seed format===
+
+When the human-readable part of a valid codex32 secret (converted to lowercase) is the string "ms", we call it a codex32-encoded master seed or secret seed. The payload in this case is a direct encoding of a BIP-0032 HD master seed.
+
+A secret seed is a codex32 encoding of:
+
+* The human-readable part "ms" for master seed.
+* The data-part values:
+** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
+** An identifier consisting of 4 bech32 characters.
+*** We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every master seed and share set the user may need to disambiguate.
+** The share index "s".
+** A conversion of the 16-to-64-byte BIP-0032 HD master seed to bech32:
+*** Start with the bits of the master seed, most significant bit per byte first.
+*** Re-arrange those bits into groups of 5, and pad with arbitrary bits at the end if needed.
+*** Translate those bits to characters using the bech32 character table from BIP-0173.
+** A valid checksum in accordance with the Checksum section.
 
 ===Recovering Secret===
 
@@ -327,7 +345,7 @@ def ms32_create_long_checksum(data):
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
 guarantees detection of '''any error affecting at most 8 characters'''
 and has less than a 3 in 10<sup>23</sup> chance of failing to detect more
-errors.
+random errors.
 
 A long codex32 string follows the same specification as a regular codex32 string with the following changes.
 
@@ -340,23 +358,6 @@ Generation of long shares and recovery of the long secret from long shares proce
 
 The long checksum is designed to be an error correcting code that can correct up to 4 character substitutions, up to 8 unreadable characters (called erasures), or up to 15 consecutive erasures.
 As with regular checksums we do not specify how an implementation should implement error correction, and all our recommendations for error correction of regular codex32 strings also apply to long codex32 strings.
-
-===Master seed format===
-
-When the human-readable part of a valid codex32 secret (converted to lowercase) is the string "ms", we call it a codex32-encoded master seed or secret seed. The payload in this case is a direct encoding of a BIP-0032 HD master seed.
-
-A secret seed is a codex32 encoding of:
-
-* The human-readable part "ms" for master seed.
-* The data-part values:
-** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
-** An identifier consisting of 4 bech32 characters.
-*** We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every master seed and share set the user may need to disambiguate.
-** The share index "s".
-** A conversion of the 16-to-64-byte BIP-0032 HD master seed to bech32:
-*** Start with the bits of the master seed, most significant bit per byte first.
-*** Re-arrange those bits into groups of 5, and pad with arbitrary bits at the end if needed.
-*** Translate those bits to characters using the bech32 character table from BIP-0173.
 
 ==Rationale==
 
@@ -544,7 +545,7 @@ identifier (bech32): <code>0C8V</code>
 payload (bech32): <code>M32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06F</code>
 
 * checksum: <code>HPV80UNDVARHRAK</code>
-* Secret seed: <code>MS100C8VSM32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06FHPV80UNDVARHRAK</code>
+* codex32 secret: <code>MS100C8VSM32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06FHPV80UNDVARHRAK</code>
 * Master seed (hex): <code>dc5423251cb87175ff8110c8531d0952d8d73e1194e95b5f19d6f9df7c01111104c9baecdfea8cccc677fb9ddc8aec5553b86e528bcadfdcc201c17c638c47e9</code>
 * master node xprv: <code>xprv9s21ZrQH143K4UYT4rP3TZVKKbmRVmfRqTx9mG2xCy2JYipZbkLV8rwvBXsUbEv9KQiUD7oED1Wyi9evZzUn2rqK9skRgPkNaAzyw3YrpJN</code>
 
