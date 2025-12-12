@@ -188,6 +188,7 @@ Future silent payments versions will use the following scheme:
 For silent payments v0 a transaction MUST be scanned if and only if all of the following are true:
 
 * The transaction contains at least one BIP341 taproot output (note: spent transactions optionally can be skipped by only considering transactions with at least one unspent taproot output)
+* The number of taproot outputs in the transaction fits within an unsigned 32-bit integer<ref name="maximum_recipients">'''Why specify a limit of recipients, if the maximum number of possible transaction outputs is practically constrained by Bitcoin's consensus rules (block weight limit) anyway?''' Specifying an explicit limit improves clarity and ensures that implementations can safely choose compatible data types without the risk of becoming non-compliant. The limit is inferred from the data type of ''k'', which is serialized as a 4-bytes sequence in the course of the shared secret scalar calculation ''t<sub>k</sub>''.</ref>
 * The transaction has at least one input from the ''[[#inputs-for-shared-secret-derivation|Inputs For Shared Secret Derivation]]'' list
 * The transaction does not spend an output with SegWit version > 1<ref name="skip_txs_with_unknown_prevouts">'''Why skip transactions that spend SegWit version > 1?''' Skipping transactions that spend unknown output scripts allows us to have a clean upgrade path for silent payments by avoiding the need to scan the same transaction multiple times with different rule sets. If a new SegWit version is added in the future and silent payments v1 is released with support, we would want to avoid having to first scan the transaction with the silent payment v0 rules and then again with the silent payment v1 rules. Note: this restriction only applies to the inputs of a transaction.</ref>
 
@@ -291,7 +292,7 @@ The sending wallet performs coin selection as usual with the following restricti
 
 ==== Creating outputs ====
 
-After the inputs have been selected, the sender can create one or more outputs for one or more silent payment addresses in the following manner:
+After the inputs have been selected, the sender can create one or more outputs (the number of recipients must fit within an unsigned 32-bit integer<ref name="maximum_recipients"></ref>) for one or more silent payment addresses in the following manner:
 
 * Collect the private keys for each input from the ''[[#inputs-for-shared-secret-derivation|Inputs For Shared Secret Derivation]]'' list
 * For each private key ''a<sub>i</sub>'' corresponding to a [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] taproot output, check that the private key produces a point with an even Y coordinate and negate the private key if not<ref name="why_negate_taproot_private_keys">'''Why do taproot private keys need to be checked?''' Recall from [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki BIP340] that each X-only public key has two corresponding private keys, ''d'' and ''n - d''. To maintain parity between sender and receiver, it is necessary to use the private key corresponding to the even Y coordinate when performing the ECDH step since the receiver will assume the even Y coordinate when summing the taproot X-only public keys.</ref>
