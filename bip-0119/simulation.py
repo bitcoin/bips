@@ -122,8 +122,8 @@ if __name__ == "__main__":
 
 
     par1.set_ylabel("Confirmed but Pending Transactions")
-    p4, = par1.plot(blocktimes_c1, unspendable2, "c", label="Congestion Control Pending (2x Rate)")
-    p4, = par1.plot(blocktimes_c2, unspendable, "r", label="Congestion Control Pending (1x Rate)")
+    p4, = par1.plot(blocktimes_c1, unspendable, "c", label="Congestion Control Pending (1x Rate)")
+    p4, = par1.plot(blocktimes_c2, unspendable2, "r", label="Congestion Control Pending (2x Rate)")
     par1.yaxis.label.set_color(p4.get_color())
 
 
