@@ -164,10 +164,10 @@ class GE:
     * infinity: True
     """
 
-    # Order of the group (number of points on the curve, plus 1 for infinity)
+    # Order of the group (number of points on the curve, including infinity)
     ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
-    # Number of valid distinct x coordinates on the curve.
+    # Half the order, used for ECDSA low-S normalization
     ORDER_HALF = ORDER // 2
 
     def __init__(self, x=None, y=None):
