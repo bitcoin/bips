@@ -1,0 +1,225 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Timelock-Recovery storage format
+  Author: Oren <orenz0@protonmail.com>
+  Status: Draft
+  Type: Process
+  Assigned: ?
+  License: BSD-2-Clause
+</pre>
+
+== Abstract ==
+
+This document proposes a standard format for saving timelock-recovery plans, to allow different
+wallets to generate them, and different services to monitor/execute them.
+
+== Motivation ==
+
+Pre-signed transactions are one way to create a recovery-plan, for use in case of seed loss or
+inheritance.
+The most common example is a single pre-signed transaction with an <code>nLocktime</code> set to a
+future date, as explained in [[bip-0065.mediawiki|BIP-65]].
+One limitation of this approach is that in the happy-flow scenario, when the seed is not lost,
+and the <code>nLocktime</code> is about to be reached, the user must access their wallet and spend
+one of its UTXOs - in order to revoke the pre-signed transaction and prevent it from being able to
+move the funds with no cancellation period.
+This could be frustrating, for example, for users that split their seed over multiple geographic
+locations.
+
+''Timelock-Recovery plans'' are a way to pre-sign a pair of transactions that eventually move the
+funds to one or more secondary wallets - with a special <code>nSequence</code> relative-locktime
+in the second transaction, so that the user always has a cancellation-period.
+
+Executing and monitoring a ''Timelock-Recovery plan'' thus requires more than broadcasting and
+monitoring a single transaction. It also requires mechanisms for accelerating the first
+transaction (which does not move most funds to the secondary wallet), for checking whether
+the relative-timelock has passed, and a more nuanced handling of reorgs.
+
+This BIP proposes a standard format for exporting ''Timelock-Recovery plans'' from the wallet that
+generated them, and importing them into apps/services for monitoring/execution.
+
+== Specification ==
+
+A ''Timelock-Recovery plan'' consists of two transactions:
+
+* ''Alert Transaction'': A mostly-consolidation transaction that keeps most funds in the original wallet, except for a fee and a small fixed amount that goes to ''anchor-addresses'' - addresses which can be used to accelerate the ''Alert Transaction'' via CPFP. The majority of funds should remain on the original wallet, in a new previously-unused address which we call the ''alert-address''. We use the term ''Alert Transaction'' because it should alert the user that the recovery-plan has been triggered, giving them a limited time to prevent the majority of the funds from moving to the secondary wallets.
+* ''Recovery Transaction'': The transaction that moves the funds from the alert-address UTXO from the ''Alert Transaction'' to one or more addresses of secondary wallets (each may receive a different amount). This transaction should have a special <code>nSequence</code> relative-locktime according to the size of cancellation-period requested by the user, following the rules of [[bip-0068.mediawiki|BIP-68]].
+
+Both transactions are expected to have an <code>nVersion</code> of at least 2, and an
+<code>nLocktime</code> not higher than the current block height.
+Both transactions should be non-malleable, as defined in [[bip-0062.mediawiki|BIP-62]].
+
+=== nSequence calculation ===
+
+Users will specify the cancellation-period in whole days between 2-388.
+
+Following [[bip-0068.mediawiki|BIP-68]], the <code>nSequence</code> can represent a timespan in
+units of 512 seconds, when bit (1 << 22) is set. An example calculation is provided below:
+
+<source lang="python">
+n_sequence = (1 << 22) | round(cancellation_period_days * 24 * 60 * 60 / 512)
+</source>
+
+Users should be notified that the cancellation-period is not guaranteed to be exact (due to miners'
+manipulation of block-timestamps).
+
+Less than 2 days of cancellation-period and partial-days are not supported, as they are not useful.
+
+More than 388 days of cancellation-period will overflow the <code>nSequence</code> field bits
+allocated for the relative-locktime, and is not supported.
+
+=== JSON format ===
+
+For simplicity, this BIP proposes that a ''Timelock-Recovery plan'' will be saved as a JSON
+object.
+
+The JSON object will have the following fields:
+
+* kind (mandatory): must be "timelock-recovery-plan".
+* id (mandatory): a non-empty string of up to 100 characters, to represent the plan uniquely (i.e. a UUID, or a server generated ID).
+* name (optional): a name for the plan, decided by the user. A string of up to 200 characters.
+* description (optional): a description for the plan, decided by the user. A string of up to 10,000 characters.
+* created_at (mandatory): an ISO 8601 timestamp of the plan creation time, including timezone offset ('Z' if the timezone is UTC).
+* plugin_version (mandatory): The version of the plugin that generated the plan. A string of up to 100 characters.
+* wallet_version (mandatory): The version of the wallet that generated the plan. A string of up to 100 characters.
+* wallet_name (mandatory): The human-readable name of the wallet app that generated the plan. A string of up to 100 characters.
+* wallet_kind (mandatory): The internal name of the wallet app that generated the plan. A string of up to 100 characters.
+* timelock_days (mandatory): The cancellation period in whole days. A number between 2 and 388.
+* anchor_amount_sats (mandatory): The amount in satoshis sent to each anchor address in the <code>Alert Transaction</code>. We recommend using 600 sats, which is above the dust limit.
+* anchor_addresses (mandatory): An array of up to 10,000 Bitcoin addresses that receive the anchor amount in the <code>Alert Transaction</code>. Each address is a string of up to 100 characters.
+* alert_address (mandatory): The Bitcoin address (mainnet) that receives the majority of funds in the <code>Alert Transaction</code>. A string of up to 100 characters.
+* alert_inputs (mandatory): An array of up to 10,000 inputs spent by the <code>Alert Transaction</code>. Each input is a string in the format "txid:vout" where txid is a 64-character lowercase hexadecimal string and vout is a decimal number of up to 6 digits.
+* alert_tx (mandatory): The raw <code>Alert Transaction</code> in uppercase hexadecimal format. A string of up to 800,000 characters.
+* alert_txid (mandatory): The transaction ID of the <code>Alert Transaction</code>. A 64-character lowercase hexadecimal string.
+* alert_fee (mandatory): The total fee paid by the <code>Alert Transaction</code> in satoshis. A non-negative integer.
+* alert_weight (mandatory): The weight of the <code>Alert Transaction</code>. A positive integer.
+* recovery_tx (mandatory): The raw <code>Recovery Transaction</code> in uppercase hexadecimal format. A string of up to 800,000 characters.
+* recovery_txid (mandatory): The transaction ID of the <code>Recovery Transaction</code>. A 64-character lowercase hexadecimal string.
+* recovery_fee (mandatory): The total fee paid by the <code>Recovery Transaction</code> in satoshis. A non-negative integer.
+* recovery_weight (mandatory): The weight of the <code>Recovery Transaction</code>. A positive integer.
+* recovery_outputs (mandatory): An array of up to 10,000 outputs from the <code>Recovery Transaction</code>. Each output is a tuple containing: <code>[address, amount_sats, label?]</code> where:
+** address is a mandatory Bitcoin address string (up to 100 characters).
+** amount_sats is a mandatory positive integer representing the amount in satoshis.
+** label is an optional string of up to 200 characters.
+* metadata (optional): A string of up to 10,000 characters for additional metadata, for example a digital-signature.
+* checksum (mandatory): A checksum for verifying the integrity of the plan. A string of 8 to 64 characters.
+
+=== Checksum Calculation ===
+Notice that besides the top-level JSON object, all the internal values are either primitive or
+arrays.
+This is intentional, so a conversion of the values to JSON strings will be deterministic.
+
+The checksum is calculated by converting the top-level JSON object to an array of
+<code>[key, value]</code> pairs, sorting the array, stringifying, calculating the
+SHA256 hash of the result in lowercase hexadecimal format, and taking a prefix of at least 8
+characters.
+
+For example:
+<source lang="javascript">
+const checksumData = new TextEncoder().encode(
+  JSON.stringify(Object.entries(recoveryPlanJson).sort()),
+);
+const checksum = new Uint8Array(await crypto.subtle.digest('SHA-256', checksumData));
+const checksumHex = Array.from(checksum).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 8);
+</source>
+
+Checksum hex string should be at least 8 characters long. Wallets may choose to use a longer
+checksum.
+
+== Rationale ==
+
+The JSON object will contain the raw transactions, in addition to other information - some of
+which could technically be extracted from the raw transactions. This is intentional, to let
+frontend UIs display the plan before uploading it to any service, without the need for
+complicated parsing in the frontend.
+
+Backend services that receive the JSON object for monitoring/execution are expected to validate
+that the information is consistent with the raw transactions.
+
+Also, if some wallet apps did not implement the specifications correctly, the services could
+write custom code based on the <code>wallet_kind</code>, <code>wallet_version</code> and
+<code>plugin_version</code> fields.
+
+Servers may decide to put more restrictions on JSON objects, for example to refuse
+storing very large transactions.
+
+Notice that the raw transactions (<code>alert_tx</code> and <code>recovery_tx</code>) are expected
+to be in uppercase hexadecimal format.
+This is useful for frontend UIs to display them as QR codes, which are more compact when using
+uppercase-only alphanumeric characters.
+
+=== Monitoring Timelock-Recovery Plans ===
+
+Checking whether the <code>Alert Transaction</code> is valid is trivial, via the
+<code>testmempoolaccept</code> RPC call in bitcoin core 0.17+.
+
+However, checking whether the <code>Recovery Transaction</code> is valid is more complex,
+since it depends on a UTXO created by the <code>Alert Transaction</code>.
+
+The <code>testmempoolaccept</code> RPC can receive a list of transactions in which the later
+transactions may depend on earlier transactions - however in our case the
+<code>Recovery Transaction</code> has an <code>nSequence</code> relative-locktime, and therefore
+calling <code>testmempoolaccept 'alert-tx' 'recovery-tx'</code> will fail, claiming that the
+<code>Alert Transaction</code> UTXO is not confirmed (and the required time window has not passed).
+
+We recommend services that want to verify the entire <code>Timelock-Recovery plan</code> to parse
+the <code>Recovery Transaction</code> and check its signatures manually, and reject complicated
+spending scripts. Discovering that the <code>Recovery Transaction</code> is invalid only at the
+time of execution, could lead to funds being locked forever.
+
+== Reference Implementation ==
+
+JSON files can be generated using the Timelock Recovery plugin on
+[https://electrum.org Electrum Wallet]:
+
+https://github.com/spesmilo/electrum/tree/master/electrum/plugins/timelock_recovery
+
+Demo Video: https://drive.google.com/file/d/10uXRouQbH1kz_HC14WnmRnYHa3gPZY8l/preview
+
+Example JSON file:
+
+<source lang="json">
+{
+  "kind": "timelock-recovery-plan",
+  "id": "exported-692452189b301b561ed57cbe",
+  "name": "Recovery Plan ac300e72-7612-497e-96b0-df2fdeda59ea",
+  "description": "RITREK APP 1.1.0: Trezor Account #1",
+  "created_at": "2025-11-24T12:39:53.532Z",
+  "plugin_version": "1.0.1",
+  "wallet_version": "1.0.1",
+  "wallet_name": "RITREK Service",
+  "wallet_kind": "RITREK BACKEND",
+  "timelock_days": 2,
+  "anchor_amount_sats": 600,
+  "anchor_addresses": [
+    "bc1qnda6x2gxdh3yujd2zjpsd7qzx3awxmlaf9wwlk"
+  ],
+  "alert_address": "bc1qj0f9sjenwyjs0u7mlgvptjp05z3syzq7mru3ep",
+  "alert_inputs": [
+    "a265a485df4c6417019b91379257eb387bceeda96f7bb6311794b8ed358cf104:0",
+    "2f621c2151f33173983133cbc1000e3b603b8a18423b0379feffe8513171d5d3:0"
+  ],
+  "alert_tx": "0200000000010204F18C35EDB8941731B67B6FA9EDCE7B38EB579237919B0117644CDF85A465A20000000000FDFFFFFFD3D5713151E8FFFE79033B42188A3B603B0E00C1CB3331987331F351211C622F0000000000FDFFFFFF0258020000000000001600149B7BA329066DE24E49AA148306F802347AE36FFD205600000000000016001493D2584B33712507F3DBFA1815C82FA0A302081E02483045022100DCDBAE77C35EB4A0B3ED0DE5484206AB6B07041BE99B2BBAF0243C125916523C0220396959C3C52B2B1F9E472AEEE7C5D9540531B131C3221DE942754C6D0941397D012103C08FF3ADBA14B742646572BCA6F07AEB910666FB28E4DDDC40E33755E7C869D30248304502210089084472FDA3CF82D6ABC11BF1A5E77C9B423617C8B840F58C02746035B3BA6302203942AA1FA13F952F49FB114D48130A9AAF70151E7D09036D15734DB1F41A8B6001210397064EDED7DAD7D662290DC2847E87C5C27DA8865B89DDB58FDE9A006BA7DB3900000000",
+  "alert_txid": "f1413fedadaf30697820bcd8f6a393fcc73ea00a15bea3253f89d5658690d2f7",
+  "alert_fee": 231,
+  "alert_weight": 834,
+  "recovery_tx": "02000000000101F7D2908665D5893F25A3BE150AA03EC7FC93A3F6D8BC20786930AFADED3F41F101000000005201400001A6550000000000001600149B7BA329066DE24E49AA148306F802347AE36FFD0247304402204AFF87C2127F5697F300C6522067A8D5E5290CA8D140D2E5BCEF4A36606C5FE5022056673BEC5BB459DFFBD4D266EE95AEF0D701383ED80BD433A02C3C486A826D76012102774DBCD59F2D08EFF718BC09972ADC609FBC31C26B551B3E4EA30A1D43EEDB9700000000",
+  "recovery_txid": "bc304610e8f282036345e87163d4cba5b16488a3bf2e4d738379d7bda3a0bca3",
+  "recovery_fee": 122,
+  "recovery_weight": 437,
+  "recovery_outputs": [
+    [
+      "bc1qnda6x2gxdh3yujd2zjpsd7qzx3awxmlaf9wwlk",
+      21926,
+      "My Backup Wallet"
+    ]
+  ],
+  "metadata": "sig:825d6b3858c175c7fc16da3134030e095c4f9089c3c89722247eeedc08a7ef4f",
+  "checksum": "92f8b3da"
+}
+</source>
+
+== Copyright ==
+
+This document is licensed under the 2-clause BSD license.
