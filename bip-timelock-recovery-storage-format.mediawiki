@@ -39,6 +39,27 @@ the relative-timelock has passed, and a more nuanced handling of reorgs.
 This BIP proposes a standard format for exporting ''Timelock-Recovery plans'' from the wallet that
 generated them, and importing them into apps/services for monitoring/execution.
 
+=== Comparison with Script-Based Wallets ===
+
+Script-based wallets are another way to create recovery mechanisms, and can use absolute and
+relative locktimes using OP_CHECKLOCKTIMEVERIFY ([[bip-0065.mediawiki|BIP-65]]) and
+OP_CHECKSEQUENCEVERIFY ([[bip-0112.mediawiki|BIP-112]]).
+For example, we can build a script that allows one main key to spend the funds at any time,
+and a secondary key to spend the funds only in transactions with nLocktime above a certain
+date/block-height, or only in transactions with nSequence above a certain relative
+time-gap/number-of-blocks.
+This makes the secondary key useful only after an absolute date/block-height, or after
+a relative time since the funds were received (each UTXO independently).
+This approach does have some advantages over pre-signed transactions, for example the
+recovery-mechanism automatically applies to new funds received into the wallet.
+
+However, script-based wallets have some disadvantages over a sequence of
+pre-signed transactions:
+
+* Script-based wallets are harder to implement correctly by hardware wallets, and harder to backup properly (i.e. users may forget to backup wallet-descriptors even for basic multisig wallets).
+* As of the time of writing, scripts can limit when secondary-keys can be used, but not how they can be used: if the user doesn't touch the wallets' UTXOs for long-enough time, the secondary key will eventually become useable and could move the funds anywhere. This is true whether we measure the time in absolute terms (OP_CHECKLOCKTIMEVERIFY) or relative terms compared to when the wallets' UTXOs were created (OP_CHECKSEQUENCEVERIFY). This means that even in the happy-flow scenario of an untouched wallet, where no recovery is needed, the user must periodically "renew" the recovery-mechanism by spending the UTXO to a new wallet/address. This may be inconvenient in ultra-cold-storage scenarios (i.e. multisig with main keys hidden in different geographic locations). New opcode suggestions, such as OP_CHECKTEMPLATEVERIFY ([[bip-0119.mediawiki|BIP-119]]) and OP_VAULT ([[bip-0345.mediawiki|BIP-345]]), discuss possible recovery-mechanisms in which in order for a secondary key to have full control over the funds, some onchain operations must be performed, with a required time-gap between them - giving the user enough time to revoke the whole process and move the funds elsewhere (assuming they still have the main key and the recovery-mechanism was triggered unintentionally). However, these suggestions are still in the discussion phase and even if ever implemented, their adoption may be slow.
+* New Bitcoiners today typically don't think of such recovery-mechanisms in advance, and start with a P2WPKH wallet. They can pre-sign transactions with this wallet, but to utilize script-based features they would need to create a new wallet and move the funds there - an operation that might seem intimidating for large amounts.
+
 == Specification ==
 
 A ''Timelock-Recovery plan'' consists of two transactions:
