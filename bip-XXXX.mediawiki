@@ -16,7 +16,7 @@
 This BIP proposes to extend the range of numeric operands in Script from -2^<sup>31</sup>+1 to 2^<sup>31</sup>-1, to -2^<sup>63</sup>+1 to 2^<sup>63</sup>-1.
 It further expands the result range for arithmetic operations from -2^<sup>63</sup> to 2^<sup>63</sup>-1, to -2^<sup>127</sup> to 2^<sup>127</sup>-1.
 
-All existing opcodes<ref>[https://github.com/bitcoin/bitcoin/blob/223fc24c4ebc8dbaecf59ccd36e49193b58d422b/src/script/interpreter.cpp#L944 List of opcodes interpreting stack elements as numbers: OP_ADD, OP_SUB, OP_BOOLAND, OP_BOOLOR, OP_NUMEQUAL, OP_NUMEQUALVERIFY, OP_NUMNOTEQUAL, OP_LESSTHAN, OP_GREATERTHAN, OP_LESSTHANOREQUAL, OP_GREATERTHANOREQUAL, OP_MIN, OP_MAX, OP_1ADD, OP_1SUB, OP_NEGATE, OP_ABS, OP_NOT, OP_0NOTEQUAL, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY]</ref> 
+All existing opcodes<ref name="numeric-opcodes">[https://github.com/bitcoin/bitcoin/blob/223fc24c4ebc8dbaecf59ccd36e49193b58d422b/src/script/interpreter.cpp#L944 List of opcodes interpreting stack elements as numbers: OP_ADD, OP_SUB, OP_BOOLAND, OP_BOOLOR, OP_NUMEQUAL, OP_NUMEQUALVERIFY, OP_NUMNOTEQUAL, OP_LESSTHAN, OP_GREATERTHAN, OP_LESSTHANOREQUAL, OP_GREATERTHANOREQUAL, OP_MIN, OP_MAX, OP_1ADD, OP_1SUB, OP_NEGATE, OP_ABS, OP_NOT, OP_0NOTEQUAL, OP_DEPTH, OP_SIZE, OP_WITHIN, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY]</ref> 
 that interpret stack elements as numbers are upgraded to support 64-bit parameters.
 
 The existing number encoding format<ref>[https://delvingbitcoin.org/t/64-bit-arithmetic-soft-fork/397/6?u=chris_stewart_5 The original Script number encoding: minimal-length little-endian, sign-magnitude format]</ref> 
@@ -57,6 +57,12 @@ A future extension, OP_AMOUNTVERIFY, would allow for verification of the total a
 
 Given that Bitcoin amounts can occupy up to 51 bits, OP_AMOUNTVERIFY and related CTV enhancements would benefit from support for 64-bit arithmetic operations.
 
+==Specification==
+
+All existing opcodes<ref name="numeric-opcodes" /> that interpret stack elements as numbers are modified to support 64-bit operands.
+If an operand exceeds the 64-bit range of -2^<sup>63</sup>+1 to 2^<sup>63</sup>-1, the script fails with an error.<ref name="overflow-handling">[https://delvingbitcoin.org/t/overflow-handling-in-script/1549#p-4652-background-3 Overflows propagate an error message `mandatory-script-verify-flag-failed (unknown error)`]</ref>
+The result of the opcode is expanded to accommodate values in the range of -2^<sup>127</sup> to 2^<sup>127</sup>-1.
+
 ==Rationale==
 
 ===OP_CHECKSEQUENCEVERIFY / OP_CHECKLOCKTIMEVERIFY===
@@ -68,14 +74,14 @@ Extending the numeric range for these opcodes would not yield additional express
 by using the BIP341's annex.<ref>[https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-5 What is an annex? The annex is a reserved space for future extensions, such as extending precision of locktime/sequence fields.]</ref>
 
 A benefit expanding these opcodes to accept 8-byte parameters is the quality of error reporting.
-Instead of Script execution failing with an overflow error<ref>[https://delvingbitcoin.org/t/overflow-handling-in-script/1549#p-4652-background-3 Overflows propagate a cryptic error message `mandatory-script-verify-flag-failed (unknown error)`, which does not clearly indicate the cause of failure]</ref>
+Instead of Script execution failing with an overflow error<ref name="overflow-handling"/>
 the Script would terminate with an error indicating the locktime was not satisfied.
 
 ===Larger precision than 64 bits===
 
 BIP342 permits the introduction of new opcodes that bypass the 520-byte push size limitation.<ref>[https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki Since OP_SUCCESSx precedes the size check for the initial stack and push opcodes, an OP_SUCCESSx-derived opcode requiring stack elements larger than 520 bytes could uplift the limit in a soft fork]</ref>
 This mechanism could theoretically allow for arbitrary-precision numeric operations.
-However, the scope of this BIP is intentionally limited to supporting 64 bits of precision, sufficient for expressing native Bitcoin amounts.
+However, the scope of this BIP is intentionally limited to supporting 64-bit operands, sufficient for expressing native Bitcoin amounts.
 
 ==Reference Implementation==
 
