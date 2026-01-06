@@ -121,9 +121,7 @@ def get_xpub_fingerprint_hex(xpub: str) -> str:
     :param xpub: The extended pubkey
     :return: The parent fingerprint as a hex string
     """
-    data = decode(xpub)
-    fingerprint = data[5:9]
-    return hexlify(fingerprint).decode()
+    return hexlify(get_xpub_fingerprint(xpub)).decode()
 
 def to_address(b: bytes, version: bytes) -> str:
     """
