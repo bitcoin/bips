@@ -1,9 +1,9 @@
 use log::info;
 use bitcoin::blockdata::witness::Witness;
 
-use p2qrh_ref::{ pay_to_p2wpkh_tx, serialize_script };
+use p2tsh_ref::{ pay_to_p2wpkh_tx, serialize_script };
 
-use p2qrh_ref::data_structures::SpendDetails;
+use p2tsh_ref::data_structures::{SpendDetails, LeafScriptType};
 
 /*  The rust-bitcoin crate does not provide a single high-level API that builds the full Taproot script-path witness stack for you.
    It does expose all the necessary types and primitives to build it manually and correctly.
@@ -39,7 +39,7 @@ fn test_script_path_spend_simple() {
 
 
 // Inspired by:  https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature
-// Spends from a p2qrh UTXO to a p2wpk UTXO
+// Spends from a p2tsh UTXO to a p2wpk UTXO
 #[test]
 fn test_script_path_spend_signatures() {
     let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
@@ -57,7 +57,7 @@ fn test_script_path_spend_signatures() {
         hex::decode("206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0ac").unwrap();
 
     // Modified from learnmeabitcoin example
-    // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
+    // Changed from c0 to c1 control byte to reflect p2tsh specification:  The parity bit of the control byte is always 1 since P2TSH does not have a key-spend path.
     let input_control_block_bytes: Vec<u8> =
         hex::decode("c1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
 
@@ -65,6 +65,9 @@ fn test_script_path_spend_signatures() {
         hex::decode("5120f3778defe5173a9bf7169575116224f961c03c725c0e98b8da8f15df29194b80")
             .unwrap();
     let input_script_priv_key_bytes: Vec<u8> = hex::decode("9b8de5d7f20a8ebb026a82babac3aa47a008debbfde5348962b2c46520bd5189").unwrap();
+    
+    // Convert to Vec<Vec<u8>> format expected by the function
+    let input_script_priv_keys_bytes: Vec<Vec<u8>> = vec![input_script_priv_key_bytes];
 
 
     // https://learnmeabitcoin.com/explorer/tx/797505b104b5fb840931c115ea35d445eb1f64c9279bf23aa5bb4c3d779da0c2#outputs
@@ -76,7 +79,7 @@ fn test_script_path_spend_signatures() {
     let test_signature_bytes: Vec<u8> = hex::decode("01769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f01").unwrap();
 
     // Modified from learnmeabitcoin example
-    // Changed from c0 to c1 control byte to reflect p2qrh specification:  The parity bit of the control byte is always 1 since P2QRH does not have a key-spend path.
+    // Changed from c0 to c1 control byte to reflect p2tsh specification:  The parity bit of the control byte is always 1 since P2TSH does not have a key-spend path.
     let test_witness_bytes: Vec<u8> = hex::decode("01769105cbcbdcaaee5e58cd201ba3152477fda31410df8b91b4aee2c4864c7700615efb425e002f146a39ca0a4f2924566762d9213bd33f825fad83977fba7f01206d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0acc1924c163b385af7093440184af6fd6244936d1288cbb41cc3812286d3f83a3329").unwrap();
 
     let result: SpendDetails = pay_to_p2wpkh_tx(funding_tx_id_bytes,
@@ -85,9 +88,10 @@ fn test_script_path_spend_signatures() {
         input_script_pubkey_bytes,
         input_control_block_bytes,
         input_leaf_script_bytes,
-        input_script_priv_key_bytes,
+        input_script_priv_keys_bytes,  // Now passing Vec<Vec<u8>> format
         spend_output_pubkey_bytes,
-        spend_output_amount_sats
+        spend_output_amount_sats,
+        LeafScriptType::SchnorrOnly  // This test uses a Schnorr signature
     );
 
     assert_eq!(result.sighash.as_slice(), test_sighash_bytes.as_slice(), "sighash mismatch");

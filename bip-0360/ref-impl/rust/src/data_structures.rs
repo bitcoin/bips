@@ -2,6 +2,45 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use log::debug;
 
+// Add imports for the unified keypair
+use bitcoin::secp256k1::{SecretKey, XOnlyPublicKey};
+use bitcoinpqc::{KeyPair, Algorithm};
+
+/// Enum representing the type of leaf script to create
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeafScriptType {
+    /// Script requires only SLH-DSA signature
+    SlhDsaOnly,
+    /// Script requires only Schnorr signature  
+    SchnorrOnly,
+    /// Script requires both Schnorr and SLH-DSA signatures (in that order)
+    SchnorrAndSlhDsa,
+    /// Script type is not applicable
+    NotApplicable,
+}
+
+impl LeafScriptType {
+    /// Check if this script type uses SLH-DSA
+    pub fn uses_slh_dsa(&self) -> bool {
+        matches!(self, LeafScriptType::SlhDsaOnly | LeafScriptType::SchnorrAndSlhDsa)
+    }
+    
+    /// Check if this script type uses Schnorr
+    pub fn uses_schnorr(&self) -> bool {
+        matches!(self, LeafScriptType::SchnorrOnly | LeafScriptType::SchnorrAndSlhDsa)
+    }
+    
+    /// Check if this script type requires both signature types
+    pub fn requires_both(&self) -> bool {
+        matches!(self, LeafScriptType::SchnorrAndSlhDsa)
+    }
+    
+    /// Check if this script type is not applicable
+    pub fn is_not_applicable(&self) -> bool {
+        matches!(self, LeafScriptType::NotApplicable)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct TestVectors {
     pub version: u32,
@@ -67,8 +106,8 @@ pub struct TestVectorIntermediary {
     #[serde(default)]
     #[serde(rename = "leafHashes")]
     pub leaf_hashes: Vec<String>,
-    #[serde(rename = "quantumRoot")]
-    pub quantum_root: Option<String>
+    #[serde(rename = "merkleRoot")]
+    pub merkle_root: Option<String>
 }
 
 
@@ -285,7 +324,7 @@ impl std::process::Termination for UtxoReturn {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaptreeReturn {
-    pub leaf_script_priv_key_hex: String,
+    pub leaf_script_priv_keys_hex: Vec<String>, // Changed to support multiple private keys
     pub leaf_script_hex: String,
     pub tree_root_hex: String,
     pub control_block_hex: String,
@@ -316,5 +355,151 @@ impl std::process::Termination for ConstructionReturn {
             println!("{:?}", self);
         }
         std::process::ExitCode::SUCCESS
+    }
+}
+
+/// A unified keypair that can contain either a Schnorr keypair or an SLH-DSA keypair
+#[derive(Debug, Clone)]
+pub enum UnifiedKeypair {
+    Schnorr(SecretKey, XOnlyPublicKey),
+    SlhDsa(KeyPair),
+}
+
+/// A container for multiple keypairs that can be used in a single leaf script
+#[derive(Debug, Clone)]
+pub struct MultiKeypair {
+    pub schnorr_keypair: Option<UnifiedKeypair>,
+    pub slh_dsa_keypair: Option<UnifiedKeypair>,
+}
+
+impl MultiKeypair {
+    /// Create a new MultiKeypair with only a Schnorr keypair
+    pub fn new_schnorr_only(schnorr_keypair: UnifiedKeypair) -> Self {
+        Self {
+            schnorr_keypair: Some(schnorr_keypair),
+            slh_dsa_keypair: None,
+        }
+    }
+
+    /// Create a new MultiKeypair with only an SLH-DSA keypair
+    pub fn new_slh_dsa_only(slh_dsa_keypair: UnifiedKeypair) -> Self {
+        Self {
+            schnorr_keypair: None,
+            slh_dsa_keypair: Some(slh_dsa_keypair),
+        }
+    }
+
+    /// Create a new MultiKeypair with both keypairs
+    pub fn new_combined(schnorr_keypair: UnifiedKeypair, slh_dsa_keypair: UnifiedKeypair) -> Self {
+        Self {
+            schnorr_keypair: Some(schnorr_keypair),
+            slh_dsa_keypair: Some(slh_dsa_keypair),
+        }
+    }
+
+    /// Get all secret key bytes for serialization (in order: schnorr, then slh_dsa if present)
+    pub fn secret_key_bytes(&self) -> Vec<Vec<u8>> {
+        let mut result = Vec::new();
+        if let Some(ref schnorr) = self.schnorr_keypair {
+            result.push(schnorr.secret_key_bytes());
+        }
+        if let Some(ref slh_dsa) = self.slh_dsa_keypair {
+            result.push(slh_dsa.secret_key_bytes());
+        }
+        result
+    }
+
+    /// Get all public key bytes for script construction (in order: schnorr, then slh_dsa if present)
+    pub fn public_key_bytes(&self) -> Vec<Vec<u8>> {
+        let mut result = Vec::new();
+        if let Some(ref schnorr) = self.schnorr_keypair {
+            result.push(schnorr.public_key_bytes());
+        }
+        if let Some(ref slh_dsa) = self.slh_dsa_keypair {
+            result.push(slh_dsa.public_key_bytes());
+        }
+        result
+    }
+
+    /// Check if this contains a Schnorr keypair
+    pub fn has_schnorr(&self) -> bool {
+        self.schnorr_keypair.is_some()
+    }
+
+    /// Check if this contains an SLH-DSA keypair
+    pub fn has_slh_dsa(&self) -> bool {
+        self.slh_dsa_keypair.is_some()
+    }
+
+    /// Get the Schnorr keypair if present
+    pub fn schnorr_keypair(&self) -> Option<&UnifiedKeypair> {
+        self.schnorr_keypair.as_ref()
+    }
+
+    /// Get the SLH-DSA keypair if present
+    pub fn slh_dsa_keypair(&self) -> Option<&UnifiedKeypair> {
+        self.slh_dsa_keypair.as_ref()
+    }
+}
+
+impl UnifiedKeypair {
+    /// Create a new Schnorr keypair
+    pub fn new_schnorr(secret_key: SecretKey, public_key: XOnlyPublicKey) -> Self {
+        UnifiedKeypair::Schnorr(secret_key, public_key)
+    }
+
+    /// Create a new SLH-DSA keypair
+    pub fn new_slh_dsa(keypair: KeyPair) -> Self {
+        UnifiedKeypair::SlhDsa(keypair)
+    }
+
+    /// Get the secret key bytes for serialization
+    pub fn secret_key_bytes(&self) -> Vec<u8> {
+        match self {
+            UnifiedKeypair::Schnorr(secret_key, _) => secret_key.secret_bytes().to_vec(),
+            UnifiedKeypair::SlhDsa(keypair) => keypair.secret_key.bytes.clone(),
+        }
+    }
+
+    /// Get the public key bytes for script construction
+    pub fn public_key_bytes(&self) -> Vec<u8> {
+        match self {
+            UnifiedKeypair::Schnorr(_, public_key) => public_key.serialize().to_vec(),
+            UnifiedKeypair::SlhDsa(keypair) => keypair.public_key.bytes.clone(),
+        }
+    }
+
+    /// Get the algorithm type
+    pub fn algorithm(&self) -> &'static str {
+        match self {
+            UnifiedKeypair::Schnorr(_, _) => "Schnorr",
+            UnifiedKeypair::SlhDsa(_) => "SLH-DSA",
+        }
+    }
+
+    /// Check if this is a Schnorr keypair
+    pub fn is_schnorr(&self) -> bool {
+        matches!(self, UnifiedKeypair::Schnorr(_, _))
+    }
+
+    /// Check if this is an SLH-DSA keypair
+    pub fn is_slh_dsa(&self) -> bool {
+        matches!(self, UnifiedKeypair::SlhDsa(_))
+    }
+
+    /// Get the underlying Schnorr keypair if this is a Schnorr keypair
+    pub fn as_schnorr(&self) -> Option<(&SecretKey, &XOnlyPublicKey)> {
+        match self {
+            UnifiedKeypair::Schnorr(secret_key, public_key) => Some((secret_key, public_key)),
+            _ => None,
+        }
+    }
+
+    /// Get the underlying SLH-DSA keypair if this is an SLH-DSA keypair
+    pub fn as_slh_dsa(&self) -> Option<&KeyPair> {
+        match self {
+            UnifiedKeypair::SlhDsa(keypair) => Some(keypair),
+            _ => None,
+        }
     }
 }

@@ -1,6 +1,6 @@
-use p2qrh_ref::{ pay_to_p2wpkh_tx , verify_schnorr_signature_via_bytes};
+use p2tsh_ref::{ pay_to_p2wpkh_tx , verify_schnorr_signature_via_bytes};
 
-use p2qrh_ref::data_structures::SpendDetails;
+use p2tsh_ref::data_structures::{SpendDetails, LeafScriptType};
 use std::env;
 use log::{info, error};
 
@@ -54,12 +54,36 @@ fn main() -> SpendDetails {
       });
     info!("P2TR control block size: {}", control_block_bytes.len());
 
-    let leaf_script_priv_key_bytes: Vec<u8> = env::var("LEAF_SCRIPT_PRIV_KEY_HEX")
-        .map(|s| hex::decode(s).unwrap())
-        .unwrap_or_else(|_| {
-            error!("LEAF_SCRIPT_PRIV_KEY_HEX environment variable is required but not set");
-            std::process::exit(1);
-        });
+    // P2TR only supports Schnorr signatures, so we only need one private key
+    let leaf_script_priv_key_bytes: Vec<u8> = {
+        let priv_keys_hex_array = env::var("LEAF_SCRIPT_PRIV_KEYS_HEX")
+            .unwrap_or_else(|_| {
+                error!("LEAF_SCRIPT_PRIV_KEYS_HEX environment variable is required but not set");
+                std::process::exit(1);
+            });
+        // Parse JSON array and extract the first (and only) hex string
+        let priv_keys_hex: String = serde_json::from_str::<Vec<String>>(&priv_keys_hex_array)
+            .unwrap_or_else(|_| {
+                error!("Failed to parse LEAF_SCRIPT_PRIV_KEYS_HEX as JSON array");
+                std::process::exit(1);
+            })
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| {
+                error!("LEAF_SCRIPT_PRIV_KEYS_HEX array is empty");
+                std::process::exit(1);
+            });
+        hex::decode(priv_keys_hex).unwrap()
+    };
+
+    // Validate that the private key is 32 bytes (Schnorr key size)
+    if leaf_script_priv_key_bytes.len() != 32 {
+        error!("P2TR private key must be 32 bytes (Schnorr), got {}", leaf_script_priv_key_bytes.len());
+        std::process::exit(1);
+    }
+
+    // Convert to Vec<Vec<u8>> format expected by the function
+    let leaf_script_priv_keys_bytes: Vec<Vec<u8>> = vec![leaf_script_priv_key_bytes];
 
     // ie: OP_PUSHBYTES_32 6d4ddc0e47d2e8f82cbe2fc2d0d749e7bd3338112cecdc76d8f831ae6620dbe0 OP_CHECKSIG
     let leaf_script_bytes: Vec<u8> = env::var("LEAF_SCRIPT_HEX")
@@ -86,9 +110,10 @@ fn main() -> SpendDetails {
         funding_script_pubkey_bytes,
         control_block_bytes,
         leaf_script_bytes.clone(),
-        leaf_script_priv_key_bytes,
+        leaf_script_priv_keys_bytes,  // Now passing Vec<Vec<u8>> format
         spend_output_pubkey_hash_bytes.clone(),
-        spend_output_amount_sats
+        spend_output_amount_sats,
+        LeafScriptType::SchnorrOnly
     );
 
     // Remove first and last byte from leaf_script_bytes to get tapleaf_pubkey_bytes
