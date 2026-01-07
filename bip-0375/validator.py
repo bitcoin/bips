@@ -180,6 +180,9 @@ def validate_bip352_outputs(
                 output_index = struct.unpack("<I", output_index_bytes)[0]
                 outpoints.append((txid, output_index))
 
+    # Track k values per scan key (k increments for each output per scan key)
+    scan_key_k_values = {}
+
     # Validate each silent payment output
     for output_idx, output_fields in enumerate(output_maps):
         # Only validate outputs with SP_V0_INFO (silent payment outputs)
@@ -192,6 +195,9 @@ def validate_bip352_outputs(
 
         scan_pubkey_bytes = sp_info[:33]
         spend_pubkey_bytes = sp_info[33:]
+
+        # Get k value for this scan key (starts at 0, increments for each output)
+        k = scan_key_k_values.get(scan_pubkey_bytes, 0)
 
         # Find matching ECDH share for this scan key
         ecdh_share_bytes = None
@@ -256,7 +262,7 @@ def validate_bip352_outputs(
                 summed_pubkey_bytes=summed_pubkey_bytes,
                 ecdh_share_bytes=ecdh_share_bytes,
                 spend_pubkey_bytes=spend_pubkey_bytes,
-                k=output_idx,  # Use output index for k parameter
+                k=k,
             )
 
             # Compare with actual PSBT output script
@@ -267,6 +273,9 @@ def validate_bip352_outputs(
                         False,
                         f"Output {output_idx} script doesn't match BIP-352 derivation",
                     )
+
+            # Increment k for this scan key after successful validation
+            scan_key_k_values[scan_pubkey_bytes] = k + 1
 
     return True, "BIP-352 output validation passed"
 
