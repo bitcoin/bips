@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # mypy treated secp256k1lab.secp256k1 as Any, so callers (see frost_ref/signing.py)
-# hit "Returning Any from function declared to return ..." errors. This stub describes adds type defintions for the secp256k1lab APIs used
+# hit "Returning Any from function declared to return ..." errors. This stub describes adds type definitions for the secp256k1lab APIs used
 
 from typing_extensions import Self
 
