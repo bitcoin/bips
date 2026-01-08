@@ -1,55 +1,15 @@
-```yaml
-BIP:
-Title: FROST Signing Protocol for BIP340 Schnorr Signatures
-Author: Sivaram Dhakshinamoorthy <siv2ram@gmail.com>
-Status: Draft
-License: CC0-1.0
-License-Code: MIT
-Type: Informational
-Created:
-Post-History: https://groups.google.com/g/bitcoindev/c/PeMp2HQl-H4/m/AcJtK0aKAwAJ
-Comments-URI:
 ```
-
-- [Abstract](#abstract)
-- [Copyright](#copyright)
-- [Motivation](#motivation)
-- [Overview](#overview)
-  - [Optionality of Features](#optionality-of-features)
-  - [Key Material and Setup](#key-material-and-setup)
-    - [Protocol Parties and Network Setup](#protocol-parties-and-network-setup)
-    - [Signing Inputs and Outputs](#signing-inputs-and-outputs)
-  - [General Signing Flow](#general-signing-flow)
-  - [Nonce Generation](#nonce-generation)
-  - [Identifying Disruptive Signers](#identifying-disruptive-signers)
-    - [Further Remarks](#further-remarks)
-  - [Tweaking the Threshold Public Key](#tweaking-the-threshold-public-key)
-- [Algorithms](#algorithms)
-  - [Notation](#notation)
-    - [Cryptographic Types and Operations](#cryptographic-types-and-operations)
-    - [Auxiliary and Byte-string Operations](#auxiliary-and-byte-string-operations)
-  - [Key Material and Setup](#key-material-and-setup-1)
-    - [Signers Context](#signers-context)
-  - [Tweaking the Threshold Public Key](#tweaking-the-threshold-public-key-1)
-    - [Tweak Context](#tweak-context)
-    - [Applying Tweaks](#applying-tweaks)
-  - [Nonce Generation](#nonce-generation-1)
-  - [Nonce Aggregation](#nonce-aggregation)
-  - [Session Context](#session-context)
-  - [Signing](#signing)
-  - [Partial Signature Verification](#partial-signature-verification)
-  - [Partial Signature Aggregation](#partial-signature-aggregation)
-  - [Test Vectors \& Reference Code](#test-vectors--reference-code)
-- [Remarks on Security and Correctness](#remarks-on-security-and-correctness)
-  - [Modifications to Nonce Generation](#modifications-to-nonce-generation)
-    - [Deterministic and Stateless Signing for a Single Signer](#deterministic-and-stateless-signing-for-a-single-signer)
-  - [Tweaking Definition](#tweaking-definition)
-  - [Negation of the Secret Share when Signing](#negation-of-the-secret-share-when-signing)
-    - [Negation of the Pubshare when Partially Verifying](#negation-of-the-pubshare-when-partially-verifying)
-  - [Dealing with Infinity in Nonce Aggregation](#dealing-with-infinity-in-nonce-aggregation)
-- [Backwards Compatibility](#backwards-compatibility)
-- [Changelog](#changelog)
-- [Acknowledgments](#acknowledgments)
+BIP: ?
+Title: FROST Signing Protocol for BIP340 Signatures
+Author: Sivaram Dhakshinamoorthy <siv2ram@gmail.com>
+Comments-URI:
+Status: Draft
+Type: Standards Track
+Assigned: ?
+License: CC0-1.0 or MIT
+Post-History: https://groups.google.com/g/bitcoindev/c/PeMp2HQl-H4/m/AcJtK0aKAwAJ
+Requires: 32, 340, 341
+```
 
 ## Abstract
 
@@ -232,7 +192,7 @@ In particular, partial signatures are *not* signatures.
 An adversary can forge a partial signature, i.e., create a partial signature without knowing the secret share for that particular participant public share.[^partialsig-forgery]
 However, if *PartialSigVerify* succeeds for all partial signatures then *PartialSigAgg* will return a valid Schnorr signature.
 
-[^partialsig-forgery]: Assume a malicious participant intends to forge a partial signature for the participant with public share *P*. It participates in the signing session pretending to be two distinct signers: one with the public share *P* and the other with its own public share. The adversary then sets the nonce for the second signer in such a way that allows it to generate a partial signature for *P*. As a side effect, it cannot generate a valid partial signature for its own public share. An explanation of the steps required to create a partial signature forgery can be found in [this document](./bip-frost-signing/docs/partialsig_forgery.md).
+[^partialsig-forgery]: Assume a malicious participant intends to forge a partial signature for the participant with public share *P*. It participates in the signing session pretending to be two distinct signers: one with the public share *P* and the other with its own public share. The adversary then sets the nonce for the second signer in such a way that allows it to generate a partial signature for *P*. As a side effect, it cannot generate a valid partial signature for its own public share. An explanation of the steps required to create a partial signature forgery can be found in [this document](https://gist.github.com/siv2r/0eab97bae9b7186ef2a4919e49d3b426).
 
 ### Tweaking the Threshold Public Key
 
