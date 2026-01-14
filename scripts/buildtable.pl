@@ -142,20 +142,22 @@ while (++$bipnum <= $topbip) {
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
 		last if (!$is_markdown && m[^</pre>$]);
+		my $space_error;
 		if (m[^  ([\w-]+)\: (.*\S)$]) {
 			$field = $1;
 			$val = $2;
 			die "Duplicate $field field in $fn" if exists $found{$field};
-			die "Too many spaces in $fn" if $val =~ /^\s/;
+			$space_error = "Too many spaces in $fn";
 		} elsif (m[^  ( +)(.*\S)$]) {
 			die "Continuation of non-field in $fn" unless defined $field;
 			die "Too many spaces in $fn" if length $1 != 2 + length $field;
 			die "Not allowed for multi-value in $fn" unless exists $MayHaveMulti{$field};
 			$val = $2;
+			$space_error = "Extra spaces in $fn";
 		} else {
 			die "Bad line in $fn preamble";
 		}
-		die "Extra spaces in $fn" if $val =~ /^\s/;
+		die $space_error if $val =~ /^\s/;
 		if ($field eq 'BIP') {
 			die "$fn claims to be BIP $val" if $val ne $bipnum;
 		} elsif ($field eq 'Title') {
