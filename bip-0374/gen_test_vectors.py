@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
 """Generate the BIP-0374 test vectors."""
 import csv
-import os
-import sys
+from pathlib import Path
 from reference import (
-    TaggedHash,
     dleq_generate_proof,
     dleq_verify_proof,
 )
-from secp256k1 import G as GENERATOR, GE
+from secp256k1lab.secp256k1 import G as GENERATOR, GE
+from secp256k1lab.util import tagged_hash
 
 
 NUM_SUCCESS_TEST_VECTORS = 8
 DLEQ_TAG_TESTVECTORS_RNG = "BIP0374/testvectors_rng"
 
-FILENAME_GENERATE_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_generate_proof.csv')
-FILENAME_VERIFY_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_verify_proof.csv')
+FILENAME_GENERATE_PROOF_TEST = Path(__file__).parent / 'test_vectors_generate_proof.csv'
+FILENAME_VERIFY_PROOF_TEST = Path(__file__).parent / 'test_vectors_verify_proof.csv'
 
 
 def random_scalar_int(vector_i, purpose):
-    rng_out = TaggedHash(DLEQ_TAG_TESTVECTORS_RNG, purpose.encode() + vector_i.to_bytes(4, 'little'))
+    rng_out = tagged_hash(DLEQ_TAG_TESTVECTORS_RNG, purpose.encode() + vector_i.to_bytes(4, 'little'))
     return int.from_bytes(rng_out, 'big') % GE.ORDER
 
 
 def random_bytes(vector_i, purpose):
-    rng_out = TaggedHash(DLEQ_TAG_TESTVECTORS_RNG, purpose.encode() + vector_i.to_bytes(4, 'little'))
+    rng_out = tagged_hash(DLEQ_TAG_TESTVECTORS_RNG, purpose.encode() + vector_i.to_bytes(4, 'little'))
     return rng_out
 
 
