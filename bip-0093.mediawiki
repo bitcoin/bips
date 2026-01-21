@@ -57,29 +57,28 @@ Note that hand computation is optional, the particular details of hand computati
 [https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki BIP-0039] serves the same purpose as this standard: encoding master seeds for storage by users.
 However, BIP-0039 has no error-correcting ability, cannot sensibly be extended to support secret sharing, has no support for versioning or other metadata, and has many technical design decisions that make implementation and interoperability difficult (for example, the use of SHA-512 to derive seeds, or the use of 11-bit words).
 
-==Specification==
-
-We first describe the general checksummed base32<ref>'''Why use base32 at all?''' The lack of mixed case makes it more
-efficient to read out loud, write, type or to put into QR codes.</ref> format called
-''codex32'' and then define a BIP-0032 master seed encoding using it.
-
-===codex32===
-
 A codex32 string is similar to a bech32 string defined in [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP-0173].
-It reuses the base-32 character set from BIP-0173, is at most 94 characters long, and consists of:
-* The '''human-readable part''', as specified in BIP-0173.
-* The '''separator''', as specified in BIP-0173, which is always "1".
-* The '''data part''', which is at least 19 bech32 characters long and is in turn subdivided into:
-** The '''threshold parameter''', which MUST be a single digit between "2" and "9", or the digit "0".
+It reuses the base-32 character set from BIP-0173, and consists of:
+
+* The human-readable part, as specified in BIP-0173.
+* A separator, which is always "1".
+* A data part, which is at least 19 bech32 characters long and is in turn subdivided into:
+** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
 *** If the threshold parameter is "0" then the share index, defined below, MUST have a value of "s" (or "S").
-** The '''identifier''', which consists of 4 bech32 characters.
-** The '''share index''', which is any bech32 character.
-***Note that a share index value of "s" (or "S") is special and denotes the unshared secret (see section "Unshared Secret").
-** The '''payload''', which is a sequence of 0 to 73 bech32 characters. (However, see '''Long codex32''' below for an exception to this limit.)
-** The '''checksum''', which consists of 13 bech32 characters as described below.
+** An identifier consisting of 4 bech32 characters.
+** A share index, which is any bech32 character.
+*** Note that a share index value of "s" (or "S") is special and denotes the unshared secret (see section '''Unshared Secret''').
+** A payload which is a sequence of up to 74 bech32 characters. (However, see '''Long codex32''' below for an exception to this limit.)
+** A checksum which consists of 13 bech32 characters as described below.
 
 As with bech32 strings, a codex32 string MUST be entirely uppercase or entirely lowercase. 
 The lowercase form of the human-readable part is used when determining a character's value for checksum purposes.
+For presentation, lowercase is usually preferable, but uppercase SHOULD be used for handwritten codex32 strings.
+If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, as this is encoded more compactly.
+
+As with bech32 strings, a codex32 string MUST be entirely uppercase or entirely lowercase.
+Note that per BIP-0173, the lowercase form is used when determining a character's value for checksum purposes.
+In particular, given an all uppercase codex32 string, we still lowercase the human-readable part during checksum construction.
 For presentation, lowercase is usually preferable, but uppercase SHOULD be used for handwritten codex32 strings.
 If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, as this is encoded more compactly.
 
@@ -90,10 +89,18 @@ Valid strings MUST pass the criteria for validity specified by the Python 3 code
 The function <code>codex32_verify_checksum</code> must return true when its arguments are:
 * <tt>hrp</tt>: the human-readable part as a string
 * <tt>data</tt>: the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173
+* <tt>spec</tt>: the checksum specification to use (e.g. `Encoding.CODEX32` or `Encoding.LONG_CODEX32`) determined by specific application rules
 
-To construct a valid checksum given the human-readable part and data-part characters (excluding the checksum), the <code>codex32_create_checksum</code> function can be used.
+To construct a valid checksum given the human-readable part, data-part characters (excluding the checksum) and checksum specification, the <code>codex32_create_checksum</code> function can be used.
 
 <source lang="python">
+from enum import Enum
+
+class Encoding(Enum):
+    """Enumeration type to list the various supported encodings."""
+    CODEX32 = 1
+    LONG_CODEX32 = 2                         # See Long codex32
+
 CODEX32_CONST = 0x10ce0795c2fd1e62a
 
 def codex32_polymod(values):
@@ -115,28 +122,27 @@ def codex32_polymod(values):
 def bech32_hrp_expand(hrp):
     return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
     
-def codex32_verify_checksum(hrp, data):
-    if len(hrp) + len(data) >= 96:           # See Long codex32 Strings
+def codex32_verify_checksum(hrp, data, spec):
+    if spec == Encoding.LONG_CODEX32:        # See Long codex32 Strings
         return codex32_verify_long_checksum(bech32_hrp_expand(hrp) + data)
-    if len(hrp) + len(data) <= 93:
+    if spec == Encoding.CODEX32:
         return codex32_polymod(bech32_hrp_expand(hrp) + data) == CODEX32_CONST
     return False
 
-def codex32_create_checksum(hrp, data):
+def codex32_create_checksum(hrp, data, spec):
     values = bech32_hrp_expand(hrp) + data
-    if len(hrp) + len(data) > 80:            # See Long codex32 Strings
+    if spec == Encoding.LONG_CODEX32:        # See Long codex32 Strings
         return codex32_create_long_checksum(values)
     polymod = codex32_polymod(values + [0] * 13) ^ CODEX32_CONST
     return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
 </source>
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
-guarantees detection of '''any error affecting at most 8 characters'''
+guarantees detection of '''any error affecting at most 8 characters''' in codex32 strings up to 94 characters long
 and has less than a 3 in 10<sup>20</sup> chance of failing to detect more
 random errors. The human-readable part is processed as per BIP-0173<ref>'''Why are the high bits of the human-readable part processed first?'''
 This results in the actually checksummed data being ''[high hrp] 0 [low hrp] [data]''. This means that under the assumption that errors to the
 human readable part only change the low 5 bits (like changing an alphabetical character into another), errors are restricted to the ''[low hrp] [data]''
-part, which is at most 93 (or 1023 in long codex32) characters, and thus all error detection properties (see appendix) remain applicable.</ref>.
-
+part, which if at most 93 (or 1023 in long codex32) characters, all error detection properties (see appendix) remain applicable.</ref>.
 
 ====Error Correction====
 
@@ -157,31 +163,25 @@ We do not specify how an implementation should implement error correction. Howev
 
 When the share index of a valid codex32 string (converted to lowercase) is the letter "s", we call the string a codex32 secret.
 
-The secret is decoded by converting the payload to bytes:
-
-* Translate the characters to 5 bits values using the bech32 character table from BIP-0173, most significant bit first.
-* Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or less, and is discarded.
-
-Note that unlike the decoding process in BIP-0173, we do NOT require that the incomplete group be all zeros.
-
 For an unshared secret, the threshold parameter (the first character of the data part) is ignored (beyond the fact it must be a digit for the codex32 string to be valid).
 We recommend using the digit "0" for the threshold parameter in this case.
-The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets or share sets with the same prefix in cases where they have more than one.
+The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets in cases where they have more than one.
 
 The function <code>codex32_encode</code> constructs a codex32 string when its arguments are:
 * <tt>hrp</tt>: the human-readable part as a string
 * <tt>data</tt>: the data part (excluding the checksum) as a list of 5-bit values
+* <tt>spec</tt>: the checksum specification to use (e.g. `Encoding.CODEX32` or `Encoding.LONG_CODEX32`)
 
-To validate a codex32 string, and determine the human-readable part and the data part (excluding the checksum) as a list of 5-bit values, the <code>codex32_decode</code> function can be used.
+To validate a codex32 string under a given checksum specification, and determine the human-readable part and data-part (excluding the checksum) as a list of 5-bit values, the function <code>codex32_decode</code> can be used.
 
 <source lang="python">
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
-def codex32_encode(hrp, data):
-    combined = data + codex32_create_checksum(hrp, data)
+def codex32_encode(hrp, data, spec):
+    combined = data + codex32_create_checksum(hrp, data, spec)
     return hrp + '1' + ''.join([CHARSET[d] for d in combined])
 
-def codex32_decode(codex):
+def codex32_decode(codex, spec):  # A codex32 string MAY validate under more than one checksum specification.
     if ((any(ord(x) < 33 or ord(x) > 126 for x in codex)) or
             (codex.lower() != codex and codex.upper() != codex)):
         return None, None
@@ -195,9 +195,12 @@ def codex32_decode(codex):
         return None, None
     hrp = codex[:pos]
     data = [CHARSET.index(x) for x in codex[pos+1:]]
-    if not codex32_verify_checksum(hrp, data):
+    if spec == Encoding.CODEX32 and len(data) > 93:
+        return None, None:
+    if not codex32_verify_checksum(data, spec):
         return None, None
-    return hrp, data[:-13 if len(codex) < 95 else -15]  # See Long codex32 Strings
+    return hrp, data[:-13 if spec == Encoding.CODEX32 else -15]  # See Long codex32 Strings
+
 </source>
 
 ===Master seed format===
@@ -216,7 +219,59 @@ A secret seed is a codex32 encoding of:
 *** Start with the bits of the master seed, most significant bit per byte first.
 *** Re-arrange those bits into groups of 5, and pad with arbitrary bits at the end if needed.
 *** Translate those bits to characters using the bech32 character table from BIP-0173.
-** A valid checksum in accordance with the Checksum section.
+** A valid checksum in accordance with either:
+*** The '''Checksum''' section for payloads of up to 74 characters.
+*** The '''Long codex32''' section below for payloads of 76 characters or more.
+
+'''Decoding'''
+
+Software interpreting a codex32-encoded master seed:
+* MUST verify that the human-readable part is "ms".
+* MUST verify that the sixth data character is "s" (or "S").
+* Convert the payload characters to bytes:
+** Translate the characters to 5-bit values using the bech32 character table from BIP-0173, most significant bit first.
+** Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or less, and is discarded.
+** There MUST be between 16 and 64 groups, which are interpreted as the bytes of the master seed.
+
+Note that unlike the decoding process in BIP-0173, we do NOT require that the incomplete group be all zeros.
+
+Decoders SHOULD enforce known-length restrictions on master seeds.
+
+As a result of the previous rules, codex32-encoded master seeds cannot be between 97 and 99 characters long, and their length modulo 8 cannot be 1.
+Regular codex32-encoded master seeds are always between 48 and 96 characters long, and their length modulo 8 cannot be 4 or 7.
+Long codex32-encoded master seeds are always between 100 and 127 characters long, and their length modulo 8 cannot be 3 or 6.
+
+<source lang="python">
+def ms_decode(codex):
+    if len(codex) >= 100:                    # See Long codex32 Strings
+        spec = Encoding.LONG_CODEX32
+    elif len(codex) <= 96:
+        spec = Encoding.CODEX32
+    else:
+        # codex32-encoded master seeds are never 97-99 characters long.
+        return None, None
+    hrpgot, data = codex32_decode(codex, spec)
+    if hrpgot != "ms":
+        return None, None
+    header = u5_to_bech32(data[:6])
+    decoded = convertbits(data[6:], 5, 8, False, pad_val="any")
+    # Master seeds are between 16 and 64 bytes in length.
+    if decoded is None or len(decoded) < 16 or len(decoded) > 64:
+        return None, None
+    # Master seeds must be encoded with share index "s".
+    if header[5] != "s":
+        return None, None
+    # Success.
+    return header, decoded
+
+def ms_encode(header, seed):
+    spec = Encoding.CODEX32 if len(seed) < 47 else Encoding.LONG_CODEX32
+    ret = codex32_encode("ms", bech32_to_u5(header) + convertbits(witprog, 8, 5), spec)
+    if ms_decode(ret) == None, None:
+        return None
+    return ret
+</source>
+
 
 ===Recovering Secret===
 
@@ -298,7 +353,7 @@ In the case that the user wishes to generate a fresh secret, the user generates 
 ## Take the next available letter from the bech32 alphabet, in alphabetical order, as <code>a</code>, <code>c</code>, <code>d</code>, ..., to be the share index
 ## Set the first characters to be the human-readable part, the separator <code>1</code>, the threshold value ''k'', the 4-character identifier, and then the share index
 ## Choose the next ceil(''bitlength / 5'') characters uniformly at random
-## Generate a valid checksum in accordance with the Checksum section, and append this to the resulting shares
+## Generate a valid checksum in accordance with the '''Checksum''' section, and append this to the resulting shares
 
 The result will be ''k'' distinct shares, all with the same initial characters, and a distinct share index as the 6th data character.
 
@@ -315,7 +370,7 @@ The conversion process consists of:
 #* We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every set of shares the user may need to disambiguate
 # Set the share index to <code>s</code>
 # Set the payload to a bech32 encoding of the secret data, padded with arbitrary bits
-# Generate a valid checksum in accordance with the Checksum section
+# Generate a valid checksum in accordance with the '''Checksum''' section
 
 Along with the codex32 secret, the user must generate ''k''-1 other codex32 shares, each with the same human-readable part, the same threshold value, the same identifier, and a distinct share index.
 These shares should be generated as described in the "fresh secret" section.
@@ -325,7 +380,7 @@ The codex32 secret and the ''k''-1 codex32 shares form a set of ''k'' valid init
 ===Long codex32===
 
 The 13 character checksum design only supports up to 80 data characters.
-Excluding the human-readable part, threshold, identifier and index characters, this limits the payload to 74 characters or 46 bytes.
+Excluding the threshold, identifier and index characters, this limits the payload to 74 characters or 46 bytes.
 While this is enough to support the 32-byte advised size of BIP-0032 master seeds, BIP-0032 allows seeds to be up to 64 bytes in size.
 We define a long codex32 format to support these longer seeds by defining an alternative checksum.
 
@@ -363,10 +418,9 @@ random errors.
 
 A long codex32 string follows the same specification as a regular codex32 string with the following changes.
 
-* The payload is a sequence of between 75 and 103 bech32 characters.
+* The length may be up to 1024 characters long.
+* The payload is a sequence of up to 1001 bech32 characters.
 * The checksum consists of 15 bech32 characters as defined above.
-
-A codex32 string with a data part of 94 or 95 characters is never legal as a regular codex32 string is limited to 93 data characters and a long codex32 string is at least 96 data characters.
 
 Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>codex32_interpolate</code> function.
 
@@ -397,10 +451,10 @@ While we could use the 15 character checksum for both cases, we prefer to keep t
 We only guarantee to correct 4 characters no matter how long the string is.
 Longer strings mean more chances for transcription errors, so shorter strings are better.
 
-The longest data part using the regular 13 character checksum is 91 characters and corresponds to 360-bit secret data.
-At this length, the upper bits of the human-readable part are not covered by the checksum.
+The longest data part using the regular 13 character checksum is 93 characters and corresponds to 368-bit secret.
+At this length, the prefix <code>MS1</code> is not covered by the checksum.
 This is acceptable because the checksum scheme itself requires you to know that a codex32 human-readable part is being used in the first place.
-If the prefix is damaged and a user is guessing that the data might be using this scheme, then the user can enter the available data explicitly using the suspected codex32 prefix.
+If the prefix is damaged and a user is guessing that the data might be using this scheme, then the user can enter the available data explicitly using the suspected <code>MS1</code> prefix.
 
 ===Not BIP-0039 Entropy===
 
