@@ -82,7 +82,8 @@ def dleq_verify_proof(
 ) -> bool:
     if A.infinity or B.infinity or C.infinity or G.infinity:
         return False
-    assert len(proof) == 64
+    if len(proof) != 64:
+        return False
     e = int.from_bytes(proof[:32], "big")
     s = int.from_bytes(proof[32:], "big")
     if s >= GE.ORDER:
