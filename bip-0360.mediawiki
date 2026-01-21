@@ -20,7 +20,7 @@
 
 This document proposes a new output type: Pay-to-Tapscript-Hash (P2TSH), via a soft fork. P2TSH outputs operate with nearly the same functionality as P2TR (Pay-to-Taproot) outputs, but with the key path spend removed.
 
-Through this modification, P2TSH outputs allow developers to use tapscript in a manner that is:
+Through this modification, P2TSH outputs allow developers to use tapscript and script trees in a manner that is:
 
 # resistant to long exposure attacks by Cryptographically Relevant Quantum Computers (CRQCs), and
 # resistant to future cryptanalytic approaches that may compromise the elliptic curve cryptography (ECC) used by Bitcoin.
@@ -47,9 +47,9 @@ As a conservative first step in this effort, we propose Pay-to-Tapscript-Hash (P
 
 ===Long Exposure vs Short Exposure Attacks===
 
-For clarity, this proposal specifically mitigates against the risk of long exposure attacks on tapscript-native outputs. While other Bitcoin output types already mitigate against this risk, Tapscript outputs (P2TR output types) are vulnerable to long exposure quantum attacks.
+For clarity, this proposal specifically mitigates against the risk of long exposure attacks on tapscript-native outputs. While other Bitcoin output types already mitigate against this risk, Taproot outputs (P2TR output types) are vulnerable to long exposure quantum attacks.
 
-A long exposure attack is an attack performed on exposed blockchain data, such as exposed public keys or the spend scripts of spent outputs. These are likely to be the earliest quantum attacks made possible on Bitcoin, because attackers will have ample time — as much time as vulnerable keys are exposed — to carry out quantum key recovery.
+A long exposure attack is an attack performed on exposed blockchain data, such as exposed public keys, or the scripts of spent outputs. These are likely to be the earliest quantum attacks made possible on Bitcoin, because attackers will have ample time — as much time as vulnerable keys are exposed — to carry out quantum key recovery.
 
 Short exposure attacks, however, require faster quantum computers, because they must occur within the relatively short time that a transaction is unconfirmed in the mempool.
 
@@ -111,7 +111,7 @@ The following output types are fundamentally vulnerable to long exposure attacks
 
 * P2PK outputs (e.g. Satoshi's coins, CPU miners)
 * Reused outputs*
-* Tapscript outputs (starts with bc1p)
+* Taproot outputs (starts with bc1p)
 
 <nowiki>*</nowiki> Funds in P2PKH, P2SH, P2WPKH, P2WSH, and P2TSH outputs can become vulnerable to long exposure quantum attacks anytime their script reveals a public key.
 
@@ -119,17 +119,17 @@ Note: Extended public keys, commonly known as "xpubs," and wallet descriptors al
 
 ==Design==
 
-Pay-to-Tapscript-Hash (P2TSH) is a proposed new output type that commits to the root of a tapscript tree. It operates with nearly the same functionality as P2TR (Pay-to-Taproot) outputs, but with the quantum vulnerable key path spend removed.
+Pay-to-Tapscript-Hash (P2TSH) is a proposed new output type that commits to the root of a script tree. It operates with nearly the same functionality as P2TR (Pay-to-Taproot) outputs, but with the quantum vulnerable key path spend removed.
 
-In other words, P2TSH outputs commit to the Merkle root of a tapscript tree without committing to an internal key. The script(s) being committed to, however, may contain a key or key-hash.
+In other words, P2TSH outputs commit to the Merkle root of a script tree without committing to an internal key. The script(s) being committed to, however, may contain a key or key-hash.
 
-This output type is designed to offer tapscript users protection against long exposure quantum attacks as well as a practical output type with which post-quantum signatures may be used if such signatures are adopted in the future.
+This output type is designed to offer users protection against long exposure quantum attacks as well as a practical output type with which post-quantum signatures may be used if such signatures are adopted in the future.
 
-Since P2TSH outputs have no key path spend, they omit the Taproot internal key. Instead, a P2TSH output includes the 32-byte root of the taptree as defined in [[bip-0341.mediawiki|BIP 341]] hashed with the tag "TapBranch" as shown below.
+Since P2TSH outputs have no key path spend, they omit the Taproot internal key. Instead, a P2TSH output includes the 32-byte root of the script tree as defined in [[bip-0341.mediawiki|BIP 341]] hashed with the tag "TapBranch" as shown below.
 
-[[File:bip-0360/media/merkletree.png|thumb|Construction of P2TSH Taptree root, scriptPubkey, and Witness]]
+[[File:bip-0360/media/merkletree.png|thumb|Construction of P2TSH  script tree root, scriptPubkey, and Witness]]
 
-To construct a P2TSH output, we follow the process outlined in [[bip-0341.mediawiki|BIP 341]] to compute the final tapbranch hash, which is the merkle root of the tapleaves; however, instead of tweaking the internal key with the root of the Merkle tree (as is the case with P2TR outputs), P2TSH outputs commit only to final tapbranch hash, which is tagged, "TapBranch".
+To construct a P2TSH output, we follow the process outlined in [[bip-0341.mediawiki|BIP 341]] to compute the final tapbranch hash, which is the merkle root of the script leaves; however, instead of tweaking the internal key with the root of the Merkle tree (as is the case with P2TR outputs), P2TSH outputs commit only to final tapbranch hash, which is tagged, "TapBranch".
 
 <source>
 D = tagged_hash("TapLeaf", bytes([leaf_version]) + ser_script(script))
@@ -144,13 +144,14 @@ A P2TSH input witness provides the following:
 initial stack element 0,
 ...,
 initial stack element N,
-tapleaf script,
+leaf script,
 control block = [control byte, 32*m byte Merkle path] # m is the depth of the script in the Merkle tree
 </source>
 
-The initial stack elements of P2TSH provide the same functionality as they do in P2TR. That is, they place elements on the stack to be evaluated by the script.
+The initial stack elements of P2TSH follow the same rules as P2TR script path spends.
+That is, they place elements on the stack to be evaluated by the leaf script.
 
-The control block is a ''1 + 32 * m'' byte array, where the first byte is the control byte and the next ''32 * m'' bytes are the Merkle path to the tapleaf script. The control byte is the same as the control byte in a P2TR control block, including the 7 bits which are used to specify the tapleaf version. The parity bit of the control byte is always 1, since P2TSH does not have a key path spend. Unlike P2TR, we omit the public key from the control block as it is not needed in P2TSH. We maintain support for the optional annex in the witness (see Specification section below for more details).
+The control block is a ''1 + 32 * m'' byte array, where the first byte is the control byte and the next ''32 * m'' bytes are the Merkle path to the leaf script. The control byte is the same as the control byte in a P2TR control block, including the 7 bits which are used to specify the leaf version. The parity bit of the control byte is always 1, since P2TSH does not have a key path spend. Unlike P2TR, we omit the public key from the control block as it is not needed in P2TSH. We maintain support for the optional annex in the witness (see Specification section below for more details).
 
 ==Rationale==
 
@@ -174,7 +175,7 @@ We designed P2TSH with an eye towards integrating post-quantum signatures in the
 
 While P2TR outputs (and the use of key path spend) will remain an option for folks wishing to use them, we aim to be clear about the tradeoffs of using P2TSH outputs, which disable the key path spend for the benefit of quantum resistance.
 
-The witness to a P2TSH spend is always larger than the witness to a P2TR key path spend. This is because a P2TR key path spend requires only a Schnorr signature in the witness. For P2TSH, the witness must include your chosen leaf script, its inputs, and a control block consisting of the control byte and Merkle path (if any).
+The witness to a P2TSH spend is always larger than the witness to a P2TR key path spend. This is because a P2TR key path spend requires only a Schnorr signature in the witness. For P2TSH, the witness must include the chosen leaf script, the initial stack, and a control block consisting of the control byte and Merkle path (if any).
 
 That said, the witness to a P2TSH spend will always be smaller than the witness to an equivalent P2TR script path spend, because there is no longer any internal key in P2TSH that must be revealed in the control block. For a more complete comparison of output type transaction sizes, the "Transaction Size and Fees" section may be reviewed later in this proposal.
 
@@ -186,7 +187,9 @@ Additionally, there is a privacy tradeoff when comparing P2TSH and P2TR, which i
 
 We define the Pay-to-Tapscript-Hash (P2TSH) output structure as follows:
 
-A P2TSH output is similar to a P2TR output that uses the root of a taptree (as defined in [[bip-0341.mediawiki|BIP 341]]); however, unlike P2TR outputs, we disable the key path spend for the benefit of quantum resistance by omitting the internal key and the tap tweak step. The root of the Merkle tree is then set as the witness program, prepended with a SegWit version 2 byte, and committed to in the output scriptPubKey.
+A P2TSH output is similar to a P2TR output (as defined in [[bip-0341.mediawiki|BIP 341]]); however, unlike P2TR outputs, we disable the key path spend for the benefit of quantum resistance by omitting the internal key and the tap tweak step.
+A P2TSH output is then a SegWit version 2 byte followed by the Merkle root of the script tree as the witness program.
+
 
 ===Address Format===
 
@@ -198,7 +201,7 @@ Example P2TSH address:
 bc1zzmv50jjgxxhww6ve4g5zpewrkjqhr06fyujpm20tuezdlxmfphcqfc80ve
 </source>
 
-This commits to a 32-byte tapscript tree hash.
+This commits to a 32-byte script tree Merkle root.
 
 ===ScriptPubKey===
 
@@ -210,22 +213,22 @@ OP_2 OP_PUSHBYTES_32 <hash>
 
 Where:
 * <code>OP_2</code> indicates SegWit version 2.
-* <code><hash></code> is the 32-byte Merkle root of the taptree.
+* <code><hash></code> is the 32-byte Merkle root of the script tree.
 
 ===Script Validation===
 
-A P2TSH output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) with version 2 and a 32-byte witness program. The witness program is the root of the tapscript tree. For the sake of comparison, we have — as much as possible — copied the language verbatim from the script validation section of [[bip-0341.mediawiki|BIP 341]].
+A P2TSH output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) with version 2 and a 32-byte witness program. The witness program is the Merkle root of the script tree. For the sake of comparison, we have — as much as possible — copied the language verbatim from the script validation section of [[bip-0341.mediawiki|BIP 341]].
 
-* Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents the root of the tapleaf Merkle tree (also known as a taptree).
+* Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents the Merkle root of the script tree.
 * Fail if the witness stack does not have two or more elements.
 * If there are at least three witness elements, and the first byte of the last element is 0x50, this last element is called ''annex a'' and is removed from the witness stack. The annex (or the lack thereof) is always covered by the signature and contributes to transaction weight, but is otherwise ignored during P2TSH validation.
 * There must be at least two witness elements left.
-** Call the second-to-last stack element ''s'', the script (as defined in [[bip-0341.mediawiki|BIP 341]])
+** Call the second-to-last stack element ''s'', the script (as defined in [[bip-0341.mediawiki|BIP 341]]).
 ** The last stack element is called the control block ''c'', and must have length ''1 + 32 * m'', for a value of ''m'' that is an integer between 0 and 128, inclusive. Fail if it does not have such a length.
 ** Let ''v = c[0] & 0xfe'' be the ''leaf version'' (as defined in [[bip-0341.mediawiki|BIP 341]]). To maintain ''leaf version'' encoding compatibility the last bit of c[0] is unused and must be 1.<ref>Why set the last bit of c[0] to one? Consider a faulty implementation that deserializes the ''leaf version'' as c[0] rather than c[0] & 0xfe for both P2TR and P2TSH. If they test against P2TSH outputs and require that last bit is 1, this deserialization bug will cause an immediate error.</ref>
 ** Let ''k<sub>0</sub> = hash<sub>TapLeaf</sub>(v || compact_size(size of s) || s)''; also call it the ''tapleaf hash''.
 ** For ''j'' in ''[0,1,...,m-1]'':
-*** Let ''e<sub>j</sub> = c[33+32j:65+32j]''.
+*** Let ''e<sub>j</sub> = c[1+32j:33+32j]''.
 *** Let ''k<sub>j+1</sub>'' depend on whether ''k<sub>j</sub> < e<sub>j</sub>'' (lexicographically):
 **** If ''k<sub>j</sub> < e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(k<sub>j</sub> || e<sub>j</sub>)''.
 **** If ''k<sub>j</sub> &ge; e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(e<sub>j</sub> || k<sub>j</sub>)''.
@@ -235,8 +238,8 @@ A P2TSH output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) wi
 
 The steps above follow the script path spend logic from [[bip-0341.mediawiki|BIP 341]] with the following changes:
 
-* The witness program is the taptree Merkle root and not a tweaked public key. This means that we skip directly to the BIP 341 spend path taptree Merkle tree validation.
-* We compute the taptree Merkle root ''r'' and compare it directly to the witness program ''q''.
+* The witness program is the the Merkle root of the script tree and not a tweaked public key. This means that we skip directly to the BIP 341 script path validation.
+* We compute the script tree Merkle root ''r'' and compare it directly to the witness program ''q''.
 * The control block is ''1 + 32*m'' bytes, instead of ''33 + 32*m'' bytes.
 
 ===Common Signature Message Construction===
@@ -245,7 +248,7 @@ The [https://learnmeabitcoin.com/technical/upgrades/taproot/#common-signature-me
 
 === Compatibility with BIP 141 ===
 
-By adhering to the SegWit transaction structure and versioning, P2TSH outputs are compatible with existing transaction processing rules. Nodes that do not recognize SegWit version 2 will treat these outputs as anyone-can-spend but, per [[bip-0141.mediawiki|BIP 141]], will not relay or mine such transactions.
+By adhering to the SegWit transaction structure and versioning, P2TSH outputs are compatible with existing transaction processing rules. Nodes that do not recognize SegWit version 2 will treat these outputs as anyone-can-spend but generally will not relay or mine such transactions.
 
 ===Transaction Size and Fees===
 
@@ -253,14 +256,14 @@ All P2TSH and P2TR outputs are always the same size. P2TSH inputs can be slightl
 
 ====Comparison with P2TR key path spend====
 
-A P2TSH witness will be larger than a P2TR witness when the P2TR output is spent via the key path spend. A witness to a P2TR key path spend is simply a signature. P2TSH quantum resistance comes from removing the P2TR key path spend. Every P2TSH spend is a P2TR script path spend and so requires a script, its input stack and a control block. Consequently, P2TSH loses this size advantage of P2TR key path spends in order to gain quantum resistance. If the taptree only has a single leaf script, no Merkle path is needed in the control block, giving us a minimal size control block of 1 byte.
+A P2TSH witness will be larger than a P2TR witness when the P2TR output is spent via the key path spend. A witness to a P2TR key path spend is simply a signature. P2TSH quantum resistance comes from removing the P2TR key path spend. Every P2TSH spend is a P2TR script path spend and so requires a script, its input stack and a control block. Consequently, P2TSH loses this size advantage of P2TR key path spends in order to gain quantum resistance. If the script tree only has a single leaf script, no Merkle path is needed in the control block, giving us a minimal size control block of 1 byte.
 
 P2TSH witness for depth-0 tree (103 bytes):
 
 <source>
 [count] (1 byte), # Number of elements in the witness
 [size] signature (1 + 64 bytes = 65 bytes),
-tapleaf script = [size] [OP_PUSHBYTES_32, 32-byte public key, OP_CHECKSIG] (1 + 1 + 32 + 1 bytes = 35 bytes),
+leaf script = [size] [OP_PUSHBYTES_32, 32-byte public key, OP_CHECKSIG] (1 + 1 + 32 + 1 bytes = 35 bytes),
 control block = [size] [control byte] [merkle path (empty)] (1 + 1 + 0 bytes = 2 bytes)
 </source>
 
@@ -273,14 +276,16 @@ P2TR key path spend witness (66 bytes):
 
 Thus, the P2TSH witness would be 103 - 66 = 37 bytes larger than a P2TR key path spend witness.
 
-If the Merkle tree has more than a single leaf, then the Merkle path must be included in the control block, increasing the size by ''32 * m'' bytes, where m is the depth of the Merkle tree. This would make such witness 37 + 32 * m bytes larger than a P2TR key path spend witness.<ref>If ''m >= 8'', then the compact size will use 3 bytes rather than 1 byte</ref>
+If the Merkle tree has more than a single leaf, then the Merkle path must be included in the control block, increasing the size by ''32 * m'' bytes, where m is the depth of the Merkle tree.
+While script trees do support leaf scripts of different depths, here we assume the Merkle tree has been constructed such that each leaf is at the same depth.
+This would make such witness 37 + 32 * m bytes larger than a P2TR key path spend witness.<ref>If ''m >= 8'', then the compact size will use 3 bytes rather than 1 byte</ref>
 
 P2TSH witness ''(103 + 32*m bytes)'':
 
 <source>
 [count] (1 byte), # Number of elements in the witness
 [size] signature (64 + 1 bytes = 65 bytes),
-tapleaf script = [size] [OP_PUSHBYTES_32, 32-byte public key, OP_CHECKSIG] (34 + 1 bytes = 35 bytes),
+leaf script = [size] [OP_PUSHBYTES_32, 32-byte public key, OP_CHECKSIG] (34 + 1 bytes = 35 bytes),
 control block = [size] [control byte] [Merkle path] (1 + 1 + 32*m = 2 + 32*m bytes)
 </source>
 
@@ -294,7 +299,7 @@ P2TSH is slightly more computationally performant than P2TR script path spends, 
 
 ==Backward Compatibility==
 
-Older wallets and nodes that have not been made compatible with SegWit version 2 and P2TSH will not recognize these outputs. Users should ensure they are using updated wallets and nodes to use P2TSH outputs and validate transactions using P2TSH outputs. P2TSH is fully compatible with tapscript and existing tapscript programs can be used in P2TSH outputs without modification.
+Older wallets and nodes that have not been made compatible with SegWit version 2 and P2TSH will not understand these outputs. Per [[bip-0350.mediawiki|BIP 350]] older wallets should be able to spend funds to SegWit version 2 outputs. Users should ensure they are using updated wallets and nodes to receive P2TSH outputs and validate transactions using P2TSH outputs. P2TSH is fully compatible with tapscript and existing tapscript programs can be used in P2TSH outputs without modification.
 
 ==Security==
 
@@ -324,7 +329,7 @@ Test vector data for creation of P2TSH UTXOs can be found [https://github.com/bi
 
 These test vectors build off of the test vectors for [[bip-0341.mediawiki|BIP 341]] (Taproot). One important distinction is that the P2TSH test vectors do not include keypath spend scenarios.
 
-Also included are test vectors in [https://github.com/bitcoin/bips/tree/master/bip-0360/ref-impl/rust rust implementation] and [https://github.com/bitcoin/bips/tree/master/bip-0360/ref-impl/python python implementation]. One of these tests demonstrates a tapleaf tapscript that requires a secp256k1 signature to spend the P2TSH UTXO (modeled after one of the extremely valuable examples provided by [https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature this Taproot script path spend example]. Similar to BIP 341 test vectors, all signatures are created with an all-zero (0x0000...0000) [[bip-0340.mediawiki|BIP 340]] auxiliary randomness array.
+Also included are test vectors in [https://github.com/bitcoin/bips/tree/master/bip-0360/ref-impl/rust rust implementation] and [https://github.com/bitcoin/bips/tree/master/bip-0360/ref-impl/python python implementation]. One of these tests demonstrates a tapscript that requires a secp256k1 signature to spend the P2TSH UTXO (modeled after one of the extremely valuable examples provided by [https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature this Taproot script path spend example]. Similar to BIP 341 test vectors, all signatures are created with an all-zero (0x0000...0000) [[bip-0340.mediawiki|BIP 340]] auxiliary randomness array.
 
 ==Related Work==
 
@@ -381,7 +386,7 @@ Protection against short exposure attacks may require post-quantum signature sch
 <span id="tapscript-native-output-type"></span>
 '''Tapscript-Native Output Type'''
 
-Tapscript-native output types are the category of output types that support tapscript (including Schnorr signatures) and taptrees.
+Tapscript-native output types are the category of output types that support tapscript (including Schnorr signatures) and script trees.
 
 '''Pay-to-Tapscript-Hash (P2TSH)'''
 
@@ -395,9 +400,10 @@ A tapscript-native output type, similar to to Pay-to-Taproot (P2TR), but with th
 
 To help implementers understand updates to this BIP, we keep a list of substantial changes.
 
+* 2026-01-21 - Terminology and clarity improvements, addressed feedback from reviews.
 * 2025-09-17 - Rewrote BIP for clarity and renamed from P2QRH to P2TSH
 * 2025-07-20 - Changed the Witness Version from 3 to 2.
-* 2025-07-07 - P2QRH is now a P2TR with the vulnerable key path spend removed. Number of PQ signature algorithms supported reduced from three to two. PQ signature algorithm support is now added via opcodes or tapleaf version.
+* 2025-07-07 - P2QRH is now a P2TR with the vulnerable key path spend removed. Number of PQ signature algorithms supported reduced from three to two. PQ signature algorithm support is now added via opcodes or leaf version.
 * 2025-03-18 - Correct inconsistencies in commitment and attestation structure. Switch from Merkle tree commitment to sorted vector hash commitment. Update descriptor format.
 * 2025-03-12 - Add verification times for each algorithm. 256 to 128 (NIST V to NIST I). Add key type bitmask. Clarify multisig semantics.
 * 2025-02-23 - More points of clarification from review. Update dead link.
