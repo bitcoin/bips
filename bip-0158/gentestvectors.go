@@ -290,12 +290,10 @@ func main() {
 				fmt.Println("Error writing test case to output: ", err.Error())
 				return
 			}
+
+			testBlockIndex++
 		}
 
 		prevBasicHeader = basicHeader
-
-		if uint32(height) == testBlockHeights[testBlockIndex].height {
-			testBlockIndex++
-		}
 	}
 }
