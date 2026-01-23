@@ -2,14 +2,13 @@
   BIP: 360
   Layer: Consensus (soft fork)
   Title: Pay-to-Tapscript-Hash (P2TSH)
-  Author: Hunter Beast <hunter@surmount.systems>
-          Ethan Heilman <ethan.r.heilman@gmail.com>
-          Isabel Foxen Duke <isabel.duke@gmail.com>
-  Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0360
+  Authors: Hunter Beast <hunter@surmount.systems>
+           Ethan Heilman <ethan.r.heilman@gmail.com>
+           Isabel Foxen Duke <isabel.duke@gmail.com>
   Status: Draft
-  Type: Standards Track
-  Created: 2024-12-18
+  Type: Specification
+  Assigned: 2024-12-18
+  Version: 0.10.2
   License: BSD-3-Clause
   Requires: 340, 341, 342
 </pre>
@@ -47,7 +46,7 @@ As a conservative first step in this effort, we propose Pay-to-Tapscript-Hash (P
 
 ===Long Exposure vs Short Exposure Attacks===
 
-For clarity, this proposal specifically mitigates against the risk of long exposure attacks on tapscript-native outputs. While other Bitcoin output types already mitigate against this risk, Taproot outputs (P2TR output types) are vulnerable to long exposure quantum attacks.
+For clarity, this proposal specifically mitigates the risk of long exposure attacks on outputs that support tapscript and script trees. While some other Bitcoin output types, such as P2SH, are safe against long exposure attacks, taproot is not and taproot is the only currently activated output type that supports tapscript and script trees.
 
 A long exposure attack is an attack performed on exposed blockchain data, such as exposed public keys, or the scripts of spent outputs. These are likely to be the earliest quantum attacks made possible on Bitcoin, because attackers will have ample time — as much time as vulnerable keys are exposed — to carry out quantum key recovery.
 
@@ -217,10 +216,11 @@ Where:
 
 ===Script Validation===
 
-A P2TSH output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) with version 2 and a 32-byte witness program. The witness program is the Merkle root of the script tree. For the sake of comparison, we have — as much as possible — copied the language verbatim from the script validation section of [[bip-0341.mediawiki|BIP 341]].
+A P2TSH output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) with version 2 and a 32-byte witness program. For the sake of comparison, we have — as much as possible — copied the language verbatim from the script validation section of [[bip-0341.mediawiki|BIP 341]].
 
 * Let ''q'' be the 32-byte array containing the witness program (the second push in the scriptPubKey) which represents the Merkle root of the script tree.
 * Fail if the witness stack does not have two or more elements.
+* Fail if the witness stack has exactly two elements and the first byte of the last element is 0x50.
 * If there are at least three witness elements, and the first byte of the last element is 0x50, this last element is called ''annex a'' and is removed from the witness stack. The annex (or the lack thereof) is always covered by the signature and contributes to transaction weight, but is otherwise ignored during P2TSH validation.
 * There must be at least two witness elements left.
 ** Call the second-to-last stack element ''s'', the script (as defined in [[bip-0341.mediawiki|BIP 341]]).
@@ -244,7 +244,7 @@ The steps above follow the script path spend logic from [[bip-0341.mediawiki|BIP
 
 ===Common Signature Message Construction===
 
-The [https://learnmeabitcoin.com/technical/upgrades/taproot/#common-signature-message common signature message] construction for P2TSH outputs is exactly the same procedure as defined in [[bip-0341.mediawiki|BIP 341]] for Taproot transactions.
+The [https://learnmeabitcoin.com/technical/upgrades/taproot/#common-signature-message common signature message] construction for P2TSH outputs is exactly the same procedure as defined in [[bip-0342.mediawiki#user-content-Common_Signature_Message_Extension|BIP342 Common Signature Message]].
 
 === Compatibility with BIP 141 ===
 
@@ -303,7 +303,7 @@ Older wallets and nodes that have not been made compatible with SegWit version 2
 
 ==Security==
 
-P2TSH outputs provide the same tapscript functionality as P2TR outputs, but with the quantum-vulnerable key path spend removed. The similarity between these output types enables users to easily migrate coins from P2TR outputs to P2TSH outputs for protection against long exposure quantum attacks.
+P2TSH outputs provide the same tapscript functionality as P2TR outputs, but with the quantum-vulnerable key path spend removed. The similarity between these output types enables users to easily migrate script trees from P2TR outputs to P2TSH outputs for protection against long exposure quantum attacks. Wallets supporting only P2TR key path spends would need to migrate to using script trees. This is a straightforward migration as it only requires moving to a simple OP_CHECKSIG leaf script.
 
 Protection from long exposure quantum attacks does not depend on the activation of post-quantum signatures in Bitcoin, but requires that users do not expose their public keys to attackers via public key reuse or other unsafe practices.
 
@@ -400,22 +400,23 @@ A tapscript-native output type, similar to to Pay-to-Taproot (P2TR), but with th
 
 To help implementers understand updates to this BIP, we keep a list of substantial changes.
 
-* 2026-01-21 - Terminology and clarity improvements, addressed feedback from reviews.
-* 2025-09-17 - Rewrote BIP for clarity and renamed from P2QRH to P2TSH
-* 2025-07-20 - Changed the Witness Version from 3 to 2.
-* 2025-07-07 - P2QRH is now a P2TR with the vulnerable key path spend removed. Number of PQ signature algorithms supported reduced from three to two. PQ signature algorithm support is now added via opcodes or leaf version.
-* 2025-03-18 - Correct inconsistencies in commitment and attestation structure. Switch from Merkle tree commitment to sorted vector hash commitment. Update descriptor format.
-* 2025-03-12 - Add verification times for each algorithm. 256 to 128 (NIST V to NIST I). Add key type bitmask. Clarify multisig semantics.
-* 2025-02-23 - More points of clarification from review. Update dead link.
-* 2025-01-20 - Remove SQIsign from consideration due to significant performance concerns. Refactor language from long range attack to long exposure so as to not be confused with the language around block re-org attacks.
-* 2024-12-18 - Assigned BIP number.
-* 2024-12-13 - Update to use Merkle tree for attestation commitment. Update LR & SR quantum attack scenarios.
-* 2024-12-01 - Add details on attestation structure and parsing.
-* 2024-10-21 - Replace XMSS with CRYSTALS-Dilithium due to NIST approval and size constraints.
-* 2024-09-30 - Refactor the ECC vs PoW section. Swap quitness for attestation.
-* 2024-09-29 - Update section on PoW to include partial-preimage.
-* 2024-09-28 - Add Winternitz, XMSS signatures, and security assumption types to PQC table. Omit NIST Level I table. Add spend script specification. Add revealed public key scenario table.
-* 2024-09-27 - Initial draft proposal
+* __0.10.2__  (2026-01-23) - Fix bug in verification, minor review comments and adopt [[bip-0003.mediawiki|BIP 003]] conventions.
+* __0.10.1__  (2026-01-21) - Terminology and clarity improvements, addressed feedback from reviews.
+* __0.10.0__  (2025-09-17) - Rewrote BIP for clarity and renamed from P2QRH to P2TSH
+* __0.9.0__  (2025-07-20) - Changed the Witness Version from 3 to 2.
+* __0.8.0__ (2025-07-07) - P2QRH is now a P2TR with the vulnerable key path spend removed. Number of PQ signature algorithms supported reduced from three to two. PQ signature algorithm support is now added via opcodes or leaf version.
+* __0.7.0__ (2025-03-18) - Correct inconsistencies in commitment and attestation structure. Switch from Merkle tree commitment to sorted vector hash commitment. Update descriptor format.
+* __0.6.2__ (2025-03-12) - Add verification times for each algorithm. 256 to 128 (NIST V to NIST I). Add key type bitmask. Clarify multisig semantics.
+* __0.6.1__ (2025-02-23) - More points of clarification from review. Update dead link.
+* __0.6.0__ (2025-01-20) - Remove SQIsign from consideration due to significant performance concerns. Refactor language from long range attack to long exposure so as to not be confused with the language around block re-org attacks.
+* __0.5.1__ (2024-12-18) - Assigned BIP number.
+* __0.5.0__ (2024-12-13) - Update to use Merkle tree for attestation commitment. Update LR & SR quantum attack scenarios.
+* __0.4.0__ (2024-12-01) - Add details on attestation structure and parsing.
+* __0.3.0__ (2024-10-21) - Replace XMSS with CRYSTALS-Dilithium due to NIST approval and size constraints.
+* __0.2.2__ (2024-09-30) - Refactor the ECC vs PoW section. Swap quitness for attestation.
+* __0.2.1__ (2024-09-29) - Update section on PoW to include partial-preimage.
+* __0.2.0__ (2024-09-28) - Add Winternitz, XMSS signatures, and security assumption types to PQC table. Omit NIST Level I table. Add spend script specification. Add revealed public key scenario table.
+* __0.1.0__ (2024-09-27) - Initial draft proposal
 
 ==Acknowledgements==
 
