@@ -10,8 +10,10 @@ check_availability() {
 }
 
 check_availability markdownlint-cli2
+check_availability typos
 
 markdownlint-cli2 ../bip-frost-signing.md --config ./.markdownlint.json || true
+typos ../bip-frost-signing.md . || true
 
 cd python || exit 1
 ./tests.sh
