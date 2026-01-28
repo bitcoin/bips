@@ -6,8 +6,8 @@ Comments-URI:
 Status: Draft
 Type: Standards Track
 Assigned: ?
-License: CC0-1.0 or MIT
-Post-History: https://groups.google.com/g/bitcoindev/c/PeMp2HQl-H4/m/AcJtK0aKAwAJ
+License: CC0-1.0
+Discussion: 2024-07-31: https://groups.google.com/g/bitcoindev/c/PeMp2HQl-H4/m/AcJtK0aKAwAJ
 Requires: 32, 340, 341
 ```
 
@@ -783,6 +783,7 @@ This document proposes a standard for the FROST threshold signature scheme that 
 
 ## Changelog
 
+- *0.3.6* (2026-01-28): Add MIT license file for reference code and other auxiliary files.
 - *0.3.5* (2026-01-25): Update secp256k1lab to latest version, remove stub file, and fix formatting in the BIP text.
 - *0.3.4* (2026-01-01): Add an example file to the reference code.
 - *0.3.3* (2025-12-29): Replace the lengthy Introduction section with a concise Motivation section.

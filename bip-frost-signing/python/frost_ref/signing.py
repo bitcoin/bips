@@ -47,6 +47,7 @@ class InvalidContributionError(Exception):
 def derive_interpolating_value(ids: List[int], my_id: int) -> Scalar:
     assert my_id in ids
     assert 0 <= my_id < 2**32
+    assert len(set(ids)) == len(ids)
     num = Scalar(1)
     deno = Scalar(1)
     for curr_id in ids:
@@ -95,9 +96,7 @@ def validate_signers_ctx(signers_ctx: SignersContext) -> None:
         except ValueError:
             raise InvalidContributionError(i, "pubshare")
     if len(set(ids)) != len(ids):
-        raise ValueError(
-            "The participant identifier list must contain unique elements."
-        )
+        raise ValueError("The participant identifier list contains duplicate elements.")
     if derive_thresh_pubkey(ids, pubshares) != thresh_pk:
         raise ValueError("The provided key material is incorrect.")
 
