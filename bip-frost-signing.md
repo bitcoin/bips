@@ -22,11 +22,9 @@ The accompanying source code is licensed under the [MIT license](https://opensou
 
 ## Motivation
 
-<!-- REVIEW: Should we add a paragraph about `OP_CHECKSIGADD` like BIP327 does? -->
+The FROST signature scheme enables threshold Schnorr signatures. In a *t-of-n* threshold configuration, any *t*[^t-edge-cases] participants can cooperatively produce a Schnorr signature that is indistinguishable from a signature produced by a single signer. FROST signatures are unforgeable as long as fewer than *t* participants are corrupted. The signing protocol remains functional provided that at least *t* honest participants retain access to their secret key shares.
 
-The FROST signature scheme enables threshold Schnorr signatures. In a *t*-of-*n* threshold configuration, any *t*[^t-edge-cases] participants can cooperatively produce a Schnorr signature that is indistinguishable from a signature produced by a single signer. FROST signatures are unforgeable as long as fewer than *t* participants are corrupted. The signing protocol remains functional provided that at least *t* honest participants retain access to their secret key shares.
-
-[^t-edge-cases]: While *t = n* and *t = 1* are in principle supported, simpler alternatives are available in these cases. In the case *t = n*, using a dedicated *n*-of-*n* multi-signature scheme such as MuSig2 (see [BIP327][bip327]) instead of FROST avoids the need for an interactive DKG. The case *t = 1* can be realized by letting one signer generate an ordinary [BIP340][bip340] key pair and transmitting the key pair to every other signer, who can check its consistency and then simply use the ordinary [BIP340][bip340] signing algorithm. Signers still need to ensure that they agree on a key pair.
+[^t-edge-cases]: While *t = n* and *t = 1* are in principle supported, simpler alternatives are available in these cases. In the case *t = n*, using a dedicated *n-of-n* multi-signature scheme such as MuSig2 (see [BIP327][bip327]) instead of FROST avoids the need for an interactive DKG. The case *t = 1* can be realized by letting one signer generate an ordinary [BIP340][bip340] key pair and transmitting the key pair to every other signer, who can check its consistency and then simply use the ordinary [BIP340][bip340] signing algorithm. Signers still need to ensure that they agree on a key pair.
 
 The IRTF has published [RFC 9591][rfc9591], which specifies the FROST signing protocol for several elliptic curve and hash function combinations, including secp256k1 with SHA-256, the cryptographic primitives used in Bitcoin. However, the signatures produced by RFC 9591 are incompatible with BIP340 Schnorr signatures due to the X-only public keys introduced in BIP340. Additionally, RFC 9591 does not specify key tweaking mechanisms, which are essential for Bitcoin applications such as [BIP32][bip32] key derivation and [BIP341][bip341] Taproot. This document addresses these limitations by specifying a BIP340-compatible variant of FROST signing protocol that supports key tweaking.
 
@@ -35,6 +33,11 @@ Following the initial publication of the FROST protocol[[KG20][frost1]], several
 This document specifies the FROST3 variant[^frost3-security]. The FROST3 signing protocol shares substantial similarities with the MuSig2 signing protocol specified in [BIP327][bip327]. Accordingly, this specification adopts several design principles from BIP327, including support for key tweaking, partial signature verification, and identifiable abort mechanisms. We note that significant portions of this document have been directly adapted from BIP327 due to the similarities in the signing protocols. Key generation for FROST signing is out of scope for this document.
 
 [^frost3-security]: The FROST3 signing scheme has been proven existentially unforgeable for both trusted dealer and distributed key generation setups. When using a trusted dealer for key generation, security reduces to the standard One-More Discrete Logarithm (OMDL) assumption. When instantiated with a distributed key generation protocol such as SimplPedPoP, security reduces to the Algebraic One-More Discrete Logarithm (AOMDL) assumption.
+
+The on-chain footprint of a FROST Taproot output is essentially a single BIP340 public key, and a transaction spending the output only requires a single signature cooperatively produced by at least *t* signers. This is **more compact** and has **lower verification cost** than each signer providing an individual public key and signature, as would be required by an *t-of-n* policy implemented using `OP_CHECKSIGADD` as introduced in [BIP342][bip342].
+As a side effect, the number *n* of signers is not limited by any consensus rules when using FROST.
+
+Moreover, FROST offers a **higher level of privacy** than `OP_CHECKSIGADD`: FROST Taproot outputs are indistinguishable for a blockchain observer from regular, single-signer Taproot outputs even though they are actually controlled by multiple signers. By tweaking the threshold public key, the shared Taproot output can have script spending paths that are hidden unless used.
 
 ## Overview
 
@@ -56,7 +59,7 @@ Similarly, the test vectors that exercise the unimplemented features should be r
 ### Key Material and Setup
 
 <!-- REVIEW: should we use "identifiers `i`", secret share `secshare_i` style here? -->
-A FROST key generation protocol configures a group of *n* participants with a *threshold public key* (representing a *t*-of-*n* threshold policy).
+A FROST key generation protocol configures a group of *n* participants with a *threshold public key* (representing a *t-of-n* threshold policy).
 The corresponding *threshold secret key* is Shamir secret-shared among all *n* participants, where each participant holds a distinct long-term *secret share*.
 This ensures that any subset of at least *t* participants can jointly run the FROST signing protocol to produce a signature under the *threshold secret key*.
 
@@ -66,7 +69,7 @@ This protocol distinguishes between two public key formats: *plain public keys* 
 Key generation protocols produce *public shares* and *threshold public keys* in the plain format. During signing, we conditionally negate *secret shares* to ensure the resulting threshold-signature verifies under the corresponding *X-only threshold public key*.
 
 > [!WARNING]
-> Key generation protocols must commit the *threshold public key* to an unspendable script path as recommended in [BIP341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-23). This prevents a malicious party from embedding a hidden script path during key generation that would allow them to bypass the *t*-of-*n* threshold policy.
+> Key generation protocols must commit the *threshold public key* to an unspendable script path as recommended in [BIP341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-23). This prevents a malicious party from embedding a hidden script path during key generation that would allow them to bypass the *t-of-n* threshold policy.
 
 #### Protocol Parties and Network Setup
 
@@ -107,8 +110,8 @@ Signers begin the signing session by running *NonceGen* to compute their *secnon
 Each signer sends their *pubnonce* to the coordinator, who aggregates them using *NonceAgg* to produce an aggregate nonce and sends it back to all signers.
 
 [^nonce-serialization-detail]: We treat the *secnonce* and *pubnonce* as grammatically singular even though they include serializations of two scalars and two elliptic curve points, respectively.
-This treatment may be confusing for readers familiar with the MuSig2 paper.
-However, serialization is a technical detail that is irrelevant for users of MuSig2 interfaces.
+This treatment may be confusing for readers familiar with the [FROST paper][olaf].
+However, serialization is a technical detail that is irrelevant for users of FROST interfaces.
 
 **Second broadcast round:**
 At this point, every signer has the required data to sign, which, in the algorithms specified below, is stored in a data structure called [Session Context](#session-context).
@@ -241,10 +244,10 @@ The reference code vendors the secp256k1lab library to handle underlying arithme
 | Notation | secp256k1lab | Description |
 | --- | --- | --- |
 | *p* | *FE.SIZE* | Field element size |
-| *ord* | *GE.ORDER* | Group order |
+| *ord* | *GE.ORDER*, *Scalar.SIZE* | Group order |
 | *G* | *G* | The secp256k1 generator point |
 | *inf_point* | *GE()* | The infinity point |
-| *is_infinity(P)* | *P.infinity()* | Returns whether *P* is the point at infinity |
+| *is_infinity(P)* | *P.infinity* | Returns whether *P* is the point at infinity |
 | *x(P)* | *P.x* | Returns the x-coordinate of a non-infinity point *P*, in the range *[0, p−1]* |
 | *y(P)* | *P.y* | Returns the y-coordinate of a non-infinity point *P*, in the range *[0, p-1]* |
 | *has_even_y(P)* | *P.has_even_y()* | Returns whether *P* has an even y-coordinate |
@@ -347,8 +350,8 @@ Internal Algorithm *DeriveInterpolatingValue(id<sub>1..u</sub>, my_id):*
 The Tweak Context is a data structure consisting of the following elements:
 
 - The point *Q* representing the potentially tweaked threshold public key: a *GE*
-- The accumulated tweak *tacc*: a *Scalar*
 - The value *gacc*: *Scalar(1)* or *Scalar(-1)*
+- The accumulated tweak *tacc*: a *Scalar*
 
 We write "Let *(Q, gacc, tacc) = tweak_ctx*" to assign names to the elements of a Tweak Context.
 
@@ -426,12 +429,12 @@ Algorithm *NonceGen(secshare, pubshare, thresh_pk, m, extra_in)*:
 - Fail if *k<sub>1</sub> = Scalar(0)* or *k<sub>2</sub> = Scalar(0)*
 - Let *R<sub>\*,1</sub> = k<sub>1</sub> &middot; G*, *R<sub>\*,2</sub> = k<sub>2</sub> &middot; G*
 - Let *pubnonce = cbytes(R<sub>\*,1</sub>) || cbytes(R<sub>\*,2</sub>)*
-- Let *secnonce = bytes(32, k<sub>1</sub>) || bytes(32, k<sub>2</sub>)*[^secnonce-ser]
+- Let *secnonce = scalar_to_bytes(k<sub>1</sub>) || scalar_to_bytes(k<sub>2</sub>)*[^secnonce-ser]
 - Return *(secnonce, pubnonce)*
 
 [^sk-xor-rand]: The random data is hashed (with a unique tag) as a precaution against situations where the randomness may be correlated with the secret signing share itself. It is xored with the secret share (rather than combined with it in a hash) to reduce the number of operations exposed to the actual secret share.
 
-[^secnonce-ser]: The algorithms as specified here assume that the *secnonce* is stored as a 64-byte array using the serialization *secnonce = bytes(32, k<sub>1</sub>) || bytes(32, k<sub>2</sub>)*. The same format is used in the reference implementation and in the test vectors. However, since the *secnonce* is (obviously) not meant to be sent over the wire, compatibility between implementations is not a concern, and this method of storing the *secnonce* is merely a suggestion. The *secnonce* is effectively a local data structure of the signer which comprises the value pair *(k<sub>1</sub>, k<sub>2</sub>)*, and implementations may choose any suitable method to carry it from *NonceGen* (first communication round) to *Sign* (second communication round). In particular, implementations may choose to hide the *secnonce* in internal state without exposing it in an API explicitly, e.g., in an effort to prevent callers from reusing a *secnonce* accidentally.
+[^secnonce-ser]: The algorithms as specified here assume that the *secnonce* is stored as a 64-byte array using the serialization *secnonce = scalar_to_bytes(k<sub>1</sub>) || scalar_to_bytes(k<sub>2</sub>)*. The same format is used in the reference implementation and in the test vectors. However, since the *secnonce* is (obviously) not meant to be sent over the wire, compatibility between implementations is not a concern, and this method of storing the *secnonce* is merely a suggestion. The *secnonce* is effectively a local data structure of the signer which comprises the value pair *(k<sub>1</sub>, k<sub>2</sub>)*, and implementations may choose any suitable method to carry it from *NonceGen* (first communication round) to *Sign* (second communication round). In particular, implementations may choose to hide the *secnonce* in internal state without exposing it in an API explicitly, e.g., in an effort to prevent callers from reusing a *secnonce* accidentally.
 
 [^max-msg-len]: In theory, the allowed message size is restricted because SHA256 accepts byte strings only up to size of 2^61-1 bytes (and because of the 8-byte length encoding).
 
@@ -442,7 +445,7 @@ Algorithm *NonceAgg(pubnonce<sub>1..u</sub>, id<sub>1..u</sub>)*:
 - Inputs:
   - The number *u* of signing participants: an integer with *t ≤ u ≤ n*
   - The list of participant public nonces *pubnonce<sub>1..u</sub>*: *u* 66-byte array, each an output of *NonceGen*
-  - The list of participant identifiers *id<sub>1..u</sub>*: *u* integers, each with 0 ≤ *id<sub>i</sub>* < *n*
+  - The list of participant identifiers *id<sub>1..u</sub>*: *u* integers, each with *0 ≤ id<sub>i</sub> ≤ n-1*
 - For *j = 1 .. 2*:
   - For *i = 1 .. u*:
     - Let *R<sub>i,j</sub> = cpoint(pubnonce<sub>i</sub>[(j-1)\*33:j\*33])*; fail if that fails and blame signer *id<sub>i</sub>* for invalid *pubnonce*
@@ -525,7 +528,7 @@ Algorithm *PartialSigVerify(psig, pubnonce<sub>1..u</sub>, signers_ctx, tweak<su
 
 - Inputs:
   - The partial signature *psig*: a 32-byte array, serialized scalar
-  - The list public nonces *pubnonce<sub>1..u</sub>*: *u* 66-byte arrays, each an output of *NonceGen*
+  - The list of public nonces *pubnonce<sub>1..u</sub>*: *u* 66-byte arrays, each an output of *NonceGen*
   - The *signers_ctx*: a [Signers Context](#signers-context) data structure
   - The number *v* of tweaks with *0 ≤ v < 2^32*
   - The list of tweaks *tweak<sub>1..v</sub>*: *v* 32-byte arrays, each a serialized scalar
@@ -811,7 +814,7 @@ We thank Jonas Nick, Tim Ruffing, Jesse Posner, and Sebastian Falbesoner for the
 [bip32]: https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
 [bip340]: https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki
 [bip341]: https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki
-<!-- [bip342]: https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki -->
+[bip342]: https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki
 [bip327]: https://github.com/bitcoin/bips/blob/master/bip-0327.mediawiki
 [frost1]: https://eprint.iacr.org/2020/852
 [frost2]: https://eprint.iacr.org/2021/1375
