@@ -26,6 +26,9 @@ from bitcoin_utils import (
     )
 
 
+K_max = 2323  # per-group recipient limit
+
+
 def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
     if is_p2pkh(vin.prevout):
         # skip the first 3 op_codes and grab the 20 byte hash
@@ -144,6 +147,10 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
         else:
             silent_payment_groups[B_scan] = [B_m]
 
+    # Fail if per-group recipient limit (K_max) is exceeded
+    if any([len(group) > K_max for group in silent_payment_groups.values()]):
+        return []
+
     outputs = []
     for B_scan, B_m_values in silent_payment_groups.items():
         ecdh_shared_secret = input_hash * a_sum * B_scan
@@ -175,6 +182,8 @@ def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: byte
     k = 0
     wallet = []
     while True:
+        if k == K_max:  # Don't look further than the per-group recipient limit (K_max)
+            break
         t_k = TaggedHash("BIP0352/SharedSecret", ecdh_shared_secret.get_bytes(False) + ser_uint32(k))
         P_k = B_spend + t_k * G
         for output in outputs_to_check:
