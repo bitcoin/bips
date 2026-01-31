@@ -14,6 +14,7 @@ Type | Message      | Proposal
   34 | utreexotx    | [BIP 183 / PR#1923](https://github.com/bitcoin/bips/pull/1923)
   35 | uroot        | [BIP 183 / PR#1923](https://github.com/bitcoin/bips/pull/1923)
   36 | geturoot     | [BIP 183 / PR#1923](https://github.com/bitcoin/bips/pull/1923)
+  37 | feature      | [BIP 434](https://github.com/bitcoin/bips/blob/master/bip-0434.md)
 
 Note that this table is not authoritative but instead is reflective
 of the BIPs proposing the changes. If multiple BIPs make conflicting
