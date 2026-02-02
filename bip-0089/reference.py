@@ -4,10 +4,12 @@
 # be used in production environments. The code is vulnerable to timing attacks,
 # for example.
 
-from typing import Dict, Optional, Sequence, Tuple, NewType, NamedTuple, List, Mapping
-from enum import Enum
+from typing import Dict, Mapping, Optional, Sequence, Tuple, NewType, NamedTuple, List, Callable, Any, cast
 import hashlib
+import json
+import os
 import secrets
+import sys
 
 from bip32 import (
     CURVE_N,
@@ -25,9 +27,7 @@ from secp256k1lab.bip340 import schnorr_sign, schnorr_verify
 from secp256k1lab.keys import pubkey_gen_plain
 from secp256k1lab.secp256k1 import G, GE, Scalar
 
-class HashFunction(Enum):
-    SHA256 = hashlib.sha256
-    SHA512 = hashlib.sha512
+HashFunc = Callable[[bytes], Any]
 
 PlainPk = NewType('PlainPk', bytes)
 XonlyPk = NewType('XonlyPk', bytes)
@@ -42,15 +42,15 @@ def cpoint(x: bytes) -> GE:
     return GE.from_bytes_compressed(x)
 
 TweakContext = NamedTuple('TweakContext', [('Q', GE),
-                                           ('gacc', int),
-                                           ('tacc', int)])
+                                           ('gacc', Scalar),
+                                           ('tacc', Scalar)])
 
 def tweak_ctx_init(pk: PlainPk) -> TweakContext:
     Q = cpoint(pk)
     if Q.infinity:
         raise ValueError('The public key cannot be infinity.')
-    gacc = 1
-    tacc = 0
+    gacc = Scalar(1)
+    tacc = Scalar(0)
     return TweakContext(Q, gacc, tacc)
 
 def apply_tweak(tweak_ctx: TweakContext, tweak: bytes, is_xonly: bool) -> TweakContext:
@@ -81,10 +81,9 @@ def bytes_xor(a: bytes, b: bytes) -> bytes:
 
 # This implementation can be sped up by storing the midstate after hashing
 # tag_hash instead of rehashing it all the time.
-def tagged_hash(tag: str, msg: bytes, hash_func: HashFunction = HashFunction.SHA256) -> bytes:
-    hash_fn = hash_func.value
-    tag_hash = hash_fn(tag.encode()).digest()
-    return hash_fn(tag_hash + tag_hash + msg).digest()
+def tagged_hash(tag: str, msg: bytes, hash_func: HashFunc = hashlib.sha256) -> bytes:
+    tag_hash = hash_func(tag.encode()).digest()
+    return hash_func(tag_hash + tag_hash + msg).digest()
 
 def nonce_hash(rand: bytes, pk: PlainPk, extra_in: bytes) -> bytes:
     buf = b''
@@ -137,7 +136,7 @@ def blind_factor_hash(rand: bytes, cpk: PlainPk, blindpubnonce: bytes, msg: byte
     buf += msg
     buf += len(extra_in).to_bytes(4, 'big')
     buf += extra_in
-    return tagged_hash('CCD/blindfactor', buf, HashFunction.SHA512)
+    return tagged_hash('CCD/blindfactor', buf, hashlib.sha512)
 
 def blind_challenge_gen_internal(rand: bytes, msg: bytes, blindpubnonce: bytes, pk: PlainPk, tweaks: List[bytes], is_xonly: List[bool], extra_in: Optional[bytes]) -> Tuple[SessionContext, bytes, bool, bool]:
     if extra_in is None:
@@ -189,7 +188,7 @@ def blind_sign(sk: bytes, blindchallenge: bytes, blindsecnonce: bytearray, pk_pa
         raise ValueError('The public key cannot be infinity.')
     d = d_ if pk_parity else -d_
     e_ = Scalar.from_bytes_checked(blindchallenge)
-    k_ = Scalar.from_bytes_checked(blindsecnonce[0:32])
+    k_ = Scalar.from_bytes_checked(bytes(blindsecnonce[0:32]))
     k = k_ if nonce_parity else -k_
     # Overwrite the secnonce argument with zeros such that subsequent calls of
     # sign with the same secnonce raise a ValueError.
@@ -226,7 +225,7 @@ def pubkey_and_tweak(pk: PlainPk, tweaks: List[bytes], is_xonly: List[bool]) -> 
         tweak_ctx = apply_tweak(tweak_ctx, tweaks[i], is_xonly[i])
     return tweak_ctx
 
-def get_session_values(session_ctx: SessionContext) -> Tuple[GE, Scalar, Scalar, GE, int, int]:
+def get_session_values(session_ctx: SessionContext) -> Tuple[GE, Scalar, Scalar, GE, Scalar, Scalar]:
     (pk, blindfactor, challenge, pubnonce, tweaks, is_xonly) = session_ctx
     Q, gacc, tacc = pubkey_and_tweak(pk, tweaks, is_xonly)
     a = Scalar.from_bytes_checked(blindfactor)
@@ -245,14 +244,10 @@ def unblind_signature(session_ctx: SessionContext, blindsignature: bytes) -> byt
 # The following code is only used for testing.
 #
 
-import json
-import os
-import sys
-
 def hx(s: str) -> bytes:
     return bytes.fromhex(s)
 
-def fromhex_all(l):
+def fromhex_all(l):  # noqa: E741
     return [hx(l_i) for l_i in l]
 
 
@@ -531,7 +526,7 @@ def test_sign_and_verify_random(iters: int) -> None:
         tweaks = [secrets.token_bytes(32) for _ in range(v)]
         tweak_modes = [secrets.choice([False, True]) for _ in range(v)]
         Q, _, _ = pubkey_and_tweak(pk, tweaks, tweak_modes)
-        assert Q.infinity == False
+        assert not Q.infinity
 
         # Round 1
         # Signer
@@ -673,7 +668,7 @@ def test_compute_tweak_vectors() -> None:
 
         try:
             compute_bip32_tweak(xpub, path)
-        except exc_type as exc:  # type: ignore[misc]
+        except exc_type as exc:
             if message and message.lower() not in str(exc).lower():
                 raise AssertionError(f"expected error containing '{message}' but got '{exc}'")
         else:
@@ -766,12 +761,13 @@ def parse_tweak_map(raw: Mapping[str, object]) -> Dict[bytes, int]:
     return tweaks
 
 def resolve_error_spec(raw: object) -> Tuple[type[Exception], Optional[str]]:
-    mapping = {"value": ValueError, "assertion": AssertionError, "runtime": RuntimeError}
-    if not isinstance(raw, Mapping):
+    mapping: Dict[str, type[Exception]] = {"value": ValueError, "assertion": AssertionError, "runtime": RuntimeError}
+    if not isinstance(raw, dict):
         return ValueError, None
 
-    name = str(raw.get("type", "value")).lower()
-    message = raw.get("message")
+    raw_dict = cast(Dict[str, Any], raw)
+    name = str(raw_dict.get("type", "value")).lower()
+    message = raw_dict.get("message")
     exc_type = mapping.get(name, ValueError)
     return exc_type, None if message is None else str(message)
 
