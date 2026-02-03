@@ -21,9 +21,11 @@ Chain Code Delegation (CCD) is a method for multi-signature wallets in which a p
 In multisig deployments, sharing extended public keys (xpubs) or descriptors enables all participants to scan the chain and infer counterparties' activity. CCD limits that visibility by ensuring non-privileged participants only ever hold a non-extended keypair and only receive the minimum per-spend data needed to sign. The procedure keeps policy enforcement feasible for the non-privileged signer while preserving balance privacy, which is particularly useful in collaborative custody arrangements where the wallet owner wants balance privacy from their custodian.
 
 == Terminology ==
-* A "Delegatee" is a participant who retains a BIP32 chain code for another participant's base public key and computes derivation tweaks for that participant.
-* A "Delegator" is a participant who holds only a non-extended keypair and receives scalar tweaks from a delegatee when asked to sign.
-* A "Participant" is any key holder in the wallet quorum (including delegators and delegatees).
+In CCD, the chain code is the object of delegation—not signing authority. A participant who gives up their chain code delegates it to another.
+
+* A "Delegator" is a participant who delegates their chain code to another party. They hold only a non-extended keypair and receive scalar tweaks from the delegatee when asked to sign.
+* A "Delegatee" is a participant who receives and retains a delegated chain code for another participant's public key, and computes derivation tweaks for that participant.
+* A "Participant" is any key holder that can co-sign for UTXOs in the wallet (including delegators and delegatees).
 * A "Non-hardened derivation" is a BIP32 child derivation where index &lt; 2^31.
 
 == Overview ==
@@ -35,7 +37,7 @@ CCD operates by having Delegatees deprive Delegators of BIP32 chain codes during
 * '''Delegator key:''' Each delegator generates a standard (non-extended) secp256k1 keypair and provides the public key to the counterparties. A delegator MUST NOT retain or be provided a chain code for this key.
 * '''Delegated chain code:''' A designated delegatee computes and retains a BIP32 chain code bound to the delegator's public key, forming an xpub that MUST NOT be disclosed to the delegator. The delegatee MAY share this xpub with other delegatees.
 * '''Other participants:''' Non-delegator participants use conventional extended keys and share the public half as appropriate for the wallet descriptor.
-* '''Derivation constraints:''' All key paths used with CCD MUST be non-hardened beyond the depth visible to the delegator. Hardened steps prevent computation of the needed tweak and are therefore NOT supported.
+* '''Derivation constraints:''' The delegatee holds an extended public key for the delegator. All derivation from this extended key MUST be non-hardened, as hardened derivation requires the private key, which the delegatee does not possess.
 
 === Notation ===
 The following conventions are used, with constants as defined for [https://www.secg.org/sec2-v2.pdf secp256k1]. We note that adapting this proposal to other elliptic curves is not straightforward and can result in an insecure scheme.
@@ -93,15 +95,15 @@ Algorithm ''ComputeBIP32Tweak(P, I)'':
 Any attempt to apply a hardened derivation (index ≥ 2<sup>31</sup>) MUST fail. Delegatees MAY discard P′ after extracting t if it is not otherwise required.
 
 === Delegation Bundle ===
-CCD requires the delegatee to provide per-participant tweaks for inputs and (optionally) change outputs. Change outputs are only required if a delegator wants to be able to compute the amount of bitcoin they are spending. 
+CCD requires the delegatee to provide per-participant tweaks for inputs and (optionally) change outputs. Tweaks for change outputs are only required if a delegator wants to be able to compute the amount of bitcoin they are spending. 
 
 A delegatee MUST provide each delegator with, for every signing context, a collection of tuples (P<sub>i</sub>, t<sub>i</sub>) where P<sub>i</sub> is the participant's base public key disclosed to the delegator and t<sub>i</sub> is the aggregated tweak returned by ''ComputeBIP32Tweak''. The scalar t<sub>i</sub> MUST be encoded as a 32-byte big-endian integer. 
 
 The transport that carries this bundle is out of scope for this proposal; implementers MAY use PSBT proprietary keys, RPC payloads, or bespoke messages as long as the delegator can authenticate the origin of the data. Delegatees SHOULD attach the witness script (or sufficient script template information) built with the tweaked keys when the delegator is expected to verify the input or enforce spending policy on change outputs.
 
-Delegators use the supplied CCD tweak bundle during verification (see ''Delegator input and change verification'') and signature generation (see ''DelegatorSign'').
+Delegators use the supplied CCD tweak bundle during verification (see ''Delegator input and change verification'') and signature generation (see ''DelegatorSign''). The message to be signed is provided separately as part of the standard signing protocol and is not part of the CCD-specific bundle.
 
-=== Delegatee Signing ===
+=== Signing Modes ===
 This BIP supports two modes:
 * '''Non‑blinded.''' The delegator receives the tweak for the child public key and the message. The delegator learns only about the specific child keys and transactions it signs for; it does not learn the wider address space.
 * '''Blinded.''' The delegator receives only a blinded challenge and parity bits. The delegator learns nothing about the message or child key for which it produces a signature.
@@ -109,7 +111,7 @@ This BIP supports two modes:
 Both modes produce valid BIP340 signatures.
 
 ====Non-Blinded Signing====
-For non-blinded signing, the delegatee can apply the signatures as usual.
+For non-blinded signing, the delegator can produce signatures as usual using the tweaked key.
 
 =====Delegator input and change verification (Optional)=====
 A delegator MAY validate the data it receives before producing signatures. 
@@ -156,6 +158,8 @@ Algorithm ''ChangeOutputVerification(D, W, T)'':
 
 Successful verification ensures the change output commits to the tweaked participant keys implied by the CCD tweaks, preserving the intended policy.
 
+The delegator may perform additional application-specific verification on the transaction (e.g., recipient addresses, amounts, compliance checks) using the message ''m''. In the concurrently secure blinded mode, such policies can be enforced via zero-knowledge proofs that encode predicates about ''m''. Specification of such policies is outside the scope of this BIP.
+
 =====Delegator Signing=====
 A delegator that holds only its base secret key <code>x</code> and public key <code>P</code> uses the delegated tweak bundle to derive per-input signing keys. The delegator MAY first call ''InputVerification'' and ''ChangeOutputVerification'' on any input and change output that provides a tweak in order to confirm outflow or policy requirements before signing.
 
@@ -170,7 +174,7 @@ Algorithm ''DelegatorSign(t, x, m)'':
 * Return ''σ''.
 </div>
 
-The caller is responsible for inserting ''σ'' into the surrounding protocol (e.g., a PSBT, transaction witness, or adaptor signature exchange).
+The delegatee is responsible for inserting ''σ'' into the surrounding protocol (e.g., a PSBT, transaction witness, or adaptor signature exchange).
 
 ====Blinded Signing====
 The delegator learns neither the message, the challenge, or the public key used in the BIP340 signature, only a blinded challenge e'.
@@ -182,6 +186,8 @@ The output signature is a BIP340 Schnorr signature valid under an X‑only key o
 The plain protocol here is '''not''' concurrently secure. A signer '''MUST NOT''' run multiple blind signing sessions in parallel or interleave state across sessions. A signer '''MUST''' refuse any new blind‑nonce requests while a previous blind‑signature request is outstanding, or '''MUST''' irrevocably discard (and never reuse) any in‑flight blind nonce commitments that have not resulted in a signature, before accepting new ones.
 
 To obtain concurrency security as in ([https://eprint.iacr.org/2022/1676 ePrint 2022/1676]), the delegatee first sends an encryption of (m, a, b) before the signer commits to the blind nonce; later, the delegatee includes a zero‑knowledge proof binding the produced challenge to that encrypted tuple. That proof can additionally encode policy predicates about m (spend limits, velocity controls, etc.). A complete specification of this variant is outside the scope of this BIP.
+
+The following sections fully specify the non-concurrent blind signing protocol.
 
 ===== Overview =====
 
