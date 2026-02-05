@@ -2,14 +2,12 @@
   BIP: 110
   Layer: Consensus (soft fork)
   Title: Reduced Data Temporary Softfork
-  Author: Dathon Ohm <dathonohm+bip@proton.me>
-  Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0110
+  Authors: Dathon Ohm <dathonohm+bip@proton.me>
   Status: Draft
-  Type: Standards Track
-  Created: 2025-12-03
+  Type: Specification
+  Assigned: 2025-12-03
   License: BSD-3-Clause
-  Post-History: https://groups.google.com/g/bitcoindev/c/nOZim6FbuF8
+  Discussion: https://groups.google.com/g/bitcoindev/c/nOZim6FbuF8
 </pre>
 
 ==Abstract==
@@ -65,8 +63,9 @@ Bitcoin should "do one thing, and do it well". By rejecting data storage, this B
 
 '''Why limit scriptPubKeys to 34 bytes?'''
 
-scriptPubKeys must be stored indefinitely in quick-access memory (often RAM) by all fully validating nodes.
-They generally cannot be pruned.
+scriptPubKeys must be stored indefinitely in storage that is as fast as possible.
+Fast storage (usually RAM) is much more costly per byte than slower, non-volatile storage, so as the UTXO set size increases, this increases the burden on noderunners, harming decentralization.
+scriptPubKeys generally cannot be pruned.
 They are also a direct cost to the sender rather than the receiver.
 For these reasons, modern usage is all 34 bytes or smaller in practice; actual spending conditions have been moved to the witness, and the scriptPubKey simply commits to them in advance with a hash.
 Furthermore, large scriptPubKeys, in addition to being a data embedding vector, can be abused to create malicious transactions and blocks ("poison blocks") that take a long time to validate.
@@ -75,7 +74,7 @@ Large scriptPubKeys, thus carrying a large abuse potential and no benefit, are i
 '''What about OP_RETURN? Why not get rid of it entirely?'''
 
 OP_RETURN outputs are provably unspendable, and nodes do not need to store them in the UTXO set.
-Historically, up to 83 bytes have been tolerated only to avoid unprovably unspendable spam in other output scripts, and no legitimate uses have ever been found.
+Historically, up to 83 bytes have been tolerated only to avoid unprovably unspendable spam in other output scripts, and with the possible exception of commitment schemes that use OP_RETURN in coinbase transaction outputs (notably Segwit), using OP_RETURN is not the optimal solution to any known use case.
 With the advent of pay-to-contract and Taproot, it is now also possible to commit to external data in the Taptree, making even hypothetical use of OP_RETURN deprecated.
 However, to avoid breaking legacy protocols that still include such outputs, this proposal allows these outputs.
 
@@ -298,15 +297,36 @@ https://github.com/bitcoinknots/bitcoin/compare/29.x-knots...dathonohm:bitcoin:u
 
 ==Deployment==
 
-We propose deployment via a modified version of BIP9 with an unconditional `max_activation_height`, ~9 months from the start of the signaling period (nStartTime=1764547200 or ~December 1, 2025).
+This deployment uses a modified version of BIP9 with the following parameters:
 
-This sets max_activation_height to block 965664, which is ~2026-09-01.
+* '''name''': reduced_data
+* '''bit''': 4
+* '''starttime''': 1764547200 (~December 1, 2025)
+* '''timeout''': NO_TIMEOUT
+* '''min_activation_height''': 0
+* '''max_activation_height''': 965664 (~September 1, 2026)
+* '''active_duration''': 52416 blocks (~1 year after activation)
+* '''threshold''': 1109/2016 (55%)
 
-The expiry will be 52416 blocks (~1 year) after activation.
+===Deviations from BIP9===
 
-The deployment will be named `reduced_data` and miner signaling will use bit 4.
+This deployment deviates from standard BIP9 in five ways:
 
-The activation threshold will be 55% (1109 out of 2016 blocks in a single difficulty-adjustment period).
+'''Reduced threshold (55% instead of 95%)''': The standard BIP9 threshold of 95% is designed for permanent consensus changes where near-universal miner readiness is desirable. Since rejecting data storage is a matter of urgency, and since this softfork is temporary and expires after one year, a lower threshold is ideal.
+
+'''No timeout, using max_activation_height instead''': Standard BIP9 uses a time-based timeout that transitions to FAILED if the threshold is not reached. This deployment sets timeout to NO_TIMEOUT and instead uses a BIP8-like, height-based max_activation_height. The deployment transitions to LOCKED_IN at height 963648 (one retarget period before max_activation_height), then to ACTIVE at height 965664.
+
+'''Mandatory signaling period''': Similar to BIP8, this deployment enforces mandatory signaling during the retarget period immediately before mandatory lock-in (blocks 961632 to 963647; lock-in happens no later than block 963648). During this window, blocks that do not signal bit 4 are rejected as invalid. Mandatory signaling ends once the deployment reaches the LOCKED_IN state.
+
+'''Expiry via active_duration''': Standard BIP9 deployments are permanent once ACTIVE. This proposal includes an active_duration of 52416 blocks (~1 year), making the deployment temporary rather than permanent. The state machine remains in ACTIVE, but consensus rule enforcement is conditional: rules are only enforced for blocks with height < activation_height + active_duration. After 52416 blocks, the rules cease to be enforced and UTXOs are once again unrestricted.
+
+'''State transitions''': The state machine follows this progression:
+# DEFINED: Initial state until starttime
+# STARTED: After starttime; miners may signal with bit 4
+# LOCKED_IN: Entered when either (a) threshold is reached, or (b) height reaches 963648 (whichever comes first)
+# ACTIVE: Entered one retarget period after LOCKED_IN; rules enforced for active_duration blocks
+
+The FAILED state is never reached because timeout is disabled. ACTIVE is the final state; there are no transitions after it. Miner signaling after expiry has no effect because the deployment is no longer in the STARTED state, and miner signaling only governs the STARTED → LOCKED_IN transition. After active_duration blocks, the deployment remains in the ACTIVE state but rules are no longer enforced. There is no separate EXPIRED state in the state machine.
 
 ==Credits==
 
