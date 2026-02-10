@@ -5,11 +5,8 @@
   Author: Gregory Sanders <gsanders87@gmail.com>
           Antoine Poinsot <mail@antoinep.com>
           Steven Roose <steven@stevenroose.org>
-  Comments-Summary: No comments yet.
-  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-?
   Status: Draft
-  Type: Standards Track
-  Created: ?
+  Type: Specification
   License: CC0-1.0
 ```
 
