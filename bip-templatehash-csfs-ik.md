@@ -2,9 +2,9 @@
   BIP: ?
   Layer: Consensus (soft fork)
   Title: Next-transaction and Rebindable Signatures
-  Author: Gregory Sanders <gsanders87@gmail.com>
-          Antoine Poinsot <mail@antoinep.com>
-          Steven Roose <steven@stevenroose.org>
+  Authors: Gregory Sanders <gsanders87@gmail.com>
+           Antoine Poinsot <mail@antoinep.com>
+           Steven Roose <steven@stevenroose.org>
   Status: Draft
   Type: Specification
   License: CC0-1.0
