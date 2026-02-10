@@ -8,7 +8,7 @@
   Assigned: 2026-02-06
   License: BSD-2-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/bP6ktUyCOJI
-  Requires: 44, 341, 350, 352, 380
+  Requires: 341, 350, 352, 380
 </pre>
 
 ==Abstract==
@@ -55,24 +55,17 @@ Note: The serialization of <tt>ser<sub>256</sub>(p)</tt> and <tt>ser<sub>P</sub>
 
 ===<tt>sp()</tt>===
 
-The <tt>sp(KEY)</tt> or <tt>sp(KEY,BIRTHDAY,LABEL,...)</tt> expression can only be used as a top level descriptor.
+The <tt>sp(KEY)</tt> or <tt>sp(KEY,KEY)</tt> expression can only be used as a top level descriptor.
 
 <tt>sp(KEY)</tt> takes a single key expression as an argument, which must be either an <tt>spscan</tt> or <tt>spspend</tt> encoded key, optionally with key origin information.
-If included, the key origin information should specify the derivation path to the account level as defined in BIP44.
-When combined with sender input public keys, the descriptor produces P2TR output scripts describing silent payments made to wallets represented by the key expression.
+If included, the key origin information specifies the fingerprint and derivation path to the depth from which the scan and spend keys are derived using the child paths recommended in BIP352 (<tt>1h/0</tt> for scan, <tt>0h/0</tt> for spend).
 
-When using the minimal form <tt>sp(KEY)</tt>:
-* The birthday defaults to block height 842579 (May 8, 2024, when BIP352 was merged)
-* Only the change label (<tt>m = 0</tt>) is assumed
+<tt>sp(KEY,KEY)</tt> takes two key expressions.
+The first key expression represents the scan key and must be a single private key (e.g. a WIF compressed private key or <tt>xprv</tt> extended private key).
+The second key expression represents the spend key and may be any key expression as defined in BIP380 or other key expression BIPs (e.g. <tt>musig()</tt> as defined in BIP390) that represents a single key, public or private.
+Note however that uncompressed keys are not allowed under any <tt>sp()</tt> expression, as BIP352 only permits compressed public keys.
 
-<tt>sp(KEY,BIRTHDAY,LABEL,...)</tt> takes:
-* A key expression (first argument)
-* A birthday as a positive integer representing a block height (second argument)
-* Zero or more label integers or ranges (remaining arguments), where each label is a positive integer. A range is specified as <tt>start-end</tt> where <tt>start < end</tt>
-
-The birthday indicates the block height at which scanning should begin, and must be ≥ 842579. If the birthday is unknown, use 842579.
-Each label represents a label integer <tt>m</tt> used with the wallet, corresponding to <tt>B<sub>m</sub> = B<sub>spend</sub> + hash<sub>BIP0352/Label</sub>(ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>32</sub>(m))·G</tt> as defined in BIP352.
-When labels are specified, only those specific label integers are scanned for (in addition to the change label <tt>m = 0</tt> which is always scanned). Ranges are expanded to include all integers between start and end inclusive.
+When combined with sender input public keys, the descriptor produces P2TR output scripts describing silent payments made to wallets represented by the key expression(s).
 
 The output scripts produced are BIP341 taproot outputs as specified in BIP352.
 
@@ -80,34 +73,33 @@ The output scripts produced are BIP341 taproot outputs as specified in BIP352.
 
 Valid descriptors:
 
-* <tt>sp(spscan1q...)</tt> - Minimal form with default birthday and change label only
-* <tt>sp([deadbeef/352'/0'/0']spscan1q...,900000)</tt> - With key origin and custom birthday
-* <tt>sp(spspend1q...,842579,1-3,10)</tt> - With birthday and labels 1, 2, 3, 10
-* <tt>sp([deadbeef/352'/0'/0']spscan1q...,900000,1-5,10,15-20)</tt> - With key origin, birthday, and labels 1-5, 10, 15-20
+* <tt>sp(spscan1q...)</tt> - Using spscan encoded key (watch-only)
+* <tt>sp([deadbeef/352h/0h/0h]spscan1q...)</tt> - With key origin
+* <tt>sp(spspend1q...)</tt> - Using spspend encoded key (full wallet)
+* <tt>sp(L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1,0260b2003c386519fc9eadf2b5cf124dd8eea4c4e68d5e154050a9346ea98ce600)</tt> - WIF scan key with compressed public spend key (watch-only)
+* <tt>sp([deadbeef/352h/0h/0h]xprv.../0h,xpub.../0h)</tt> - Extended private scan key with extended public spend key (watch-only)
+* <tt>sp([deadbeef/352h/0h/0h]xprv.../0h,xprv.../0h)</tt> - Extended private keys for both scan and spend (full wallet)
 
 Invalid descriptors:
 
-* <tt>sp()</tt> requires a key expression
-* <tt>sp(xpub...)</tt> requires spscan or spspend encoded key
-* <tt>sp(spscan1q...,abc)</tt> birthday must be a positive integer
-* <tt>sp(spscan1q...,842579,10-5)</tt> range start must be less than end
+* <tt>sp()</tt> requires at least one key expression
+* <tt>sp(xpub...)</tt> single argument form requires spscan or spspend encoded key
+* <tt>sp(xpub...,xpub...)</tt> two argument form requires private scan key (e.g. WIF or xprv)
+* <tt>sp(spscan1q...,spscan1q...)</tt> two argument form requires single key expressions
+* <tt>sp(5KYZdUEo39z3FPrtuX2QbbwGnNP5zTd7yyr2SC1j299sBCnWjss,0260b2003c386519fc9eadf2b5cf124dd8eea4c4e68d5e154050a9346ea98ce600)</tt> uncompressed private key
 * <tt>sh(sp(spscan1q...))</tt> sp() is top level only
 * <tt>wsh(sp(spscan1q...))</tt> sp() is top level only
 
 ==Usage Notes==
 
-The change label (<tt>m = 0</tt>) should always be scanned for, even when not explicitly listed.
-This ensures compatibility across different wallet implementations and prevents loss of funds from change outputs.
+For watch-only wallets, use <tt>spscan</tt> encoding or the two argument form with a public spend key.
+For full wallets that can both scan and spend, use <tt>spspend</tt> encoding or the two argument form with a private spend key.
 
-When recovering a wallet from a descriptor, scanning should begin at the specified birthday block height.
-All labels specified in the descriptor must be scanned for when detecting payments.
-
-For watch-only wallets, use <tt>spscan</tt> encoding.
-For full wallets that can both scan and spend, use <tt>spspend</tt> encoding.
+When using the two argument form, the scan key must be private (e.g. WIF or <tt>xprv</tt>) since scanning requires the private scan key.
 
 ==Backwards Compatibility==
 
-<tt>sp()</tt> descriptors use the format and general operation specified in [[bip-0380.mediawiki|380]].
+<tt>sp()</tt> descriptors use the format and general operation specified in BIP380.
 As this is a wholly new descriptor, it is not compatible with any prior implementation.
 The scripts produced are BIP341 taproot outputs, making them indistinguishable from other taproot outputs on-chain.
 
