@@ -18,17 +18,17 @@
 
 === Abstract ===
 
-This document proposes an additional per input field for BIP 370 PSBTv2 that allows BIP 352 silent payment tweaks to be included in a PSBT of version 2. This field will be relevant to silent payment outputs spending.
+This document proposes additional per input fields for BIP 370 PSBTv2 that allows BIP 352 silent payment tweaks to be included in a PSBT of version 2. These fields will be relevant to Silent Payment outputs spending.
 
 === Motivation ===
 
-BIPs 352 specify silent payments protocol, which provides a new way to create P2TR outputs and spend them.
+BIP 352 specify the silent payments protocol, which provides a new way to create P2TR outputs and spend them.
 
 The existing PSBT fields are unable to support silent payments without changes, due to the new method by which outputs are created.
 
 BIP 375 and complementary BIP 374 specify how to create outputs locked with silent payment keys using PSBTs. But they don't specify how to unlock these outputs in a transaction.<ref name="why_not_adding_this_field_in_bip_375">''' Why not including this new field in BIP 375?''' Historically, Silent Payments have been categorized by the perspective of the user of the protocol: receiver or sender. BIP 375 has followed this convention, and its stated on its title: Sending Silent Payments with PSBTs. Given that spending belongs to the sphere of the receiver, and considering this convention, this specification should be a different BIP.</ref>
 
-Therefore a new field must be defined to allow PSBTs to carry the information necessary for tweaking taproot keys without following the BIP 341 tagging scheme.
+Therefore new fields must be defined to allow PSBTs to carry the information necessary for tweaking taproot keys without following the BIP 341 tagging scheme.
 
 == Specification ==
 
@@ -52,8 +52,18 @@ We use the following functions and conventions:
 ! Versions Requiring Exclusion
 ! Versions Allowing Inclusion
 |-
+| Silent Payment Spend Key BIP 32 Derivation Path<ref name="why_sticking_to_bip32_derivation">''' Why only considering BIP 32 for spend key generation?''' Although alternative key derivation methods exist (e.g., FROST) and have devised mechanisms to interact with PSBTs without modifying the format, the vast majority of hardware wallets are architected around BIP 32 derivation schemes. As primary consumers of the PSBT format, these devices have significantly influenced its design. Consequently, this BIP avoids preemptively enforcing a shift away from the established BIP 32 paradigm.</ref>
+| <tt>PSBT_IN_SP_SPEND_BIP32_DERIVATION = 0x1f</tt>
+| <tt><33-byte spend key></tt>
+| The 33-byte spend public key locking this input.
+| <tt><4-byte fingerprint> <32-bit little endian uint path element>*</tt>
+| The master key fingerprint as defined by BIP 32 concatenated with the derivation path of the spend public key. The derivation path is represented as indexed 32-bit unsigned integers concatenated with each other. Finalizers should remove this field after <tt>PSBT_IN_FINAL_SCRIPTWITNESS</tt> is constructed.
+|
+| 0
+| 2
+|-
 | Silent Payment Tweak
-| <tt>PSBT_IN_SP_TWEAK = 0x1f</tt>
+| <tt>PSBT_IN_SP_TWEAK = 0x20</tt>
 | None
 | No key data
 | <tt><32-byte hash></tt>
@@ -81,15 +91,17 @@ Once a silent payment UTXO is scanned, is easier to store the output together wi
 
 To avoid the burden on the signer it would be better to pass this data into the PSBT together with the input spending the silent payment. Currently, there is no field prescribed for this. 
 
-The <tt>PSBT_IN_BIP32_DERIVATION</tt> field cannot be used because of its different nature, neither can the <tt>PSBT_IN_TAP_MERKLE_ROOT</tt> field because of the tagged hash used for tweaking.
-
 The use of proprietary fields is possible but brittle, as one may end up having to perform extra lookups for keys that are not unified across implementations.
 
-Assuming different tweaking schemes available, <tt>PSBT_IN_TAP_RAW_TWEAK</tt> would be a more general solution. However is unclear how a hardware wallet will determine what the content of the field were in the first more general case. In addition, PSBT fields are usually specified as to the nature of the contents.
+For the Silent Payment spending tweak, the <tt>PSBT_IN_BIP32_DERIVATION</tt> field cannot be used because of its different nature, neither can the <tt>PSBT_IN_TAP_MERKLE_ROOT</tt> field because of the tagged hash used for tweaking.
+
+Assuming different tweaking schemes available, <tt>PSBT_IN_TAP_RAW_TWEAK</tt> would be a more general solution, but PSBT fields are usually specified as to the nature of the contents, and is unclear how a hardware wallet will determine what the content of the field were in the first more general case.
+
+The inclusion of the tweak in the PSBT is insufficient in isolation; it must be accompanied by the information required to derive the correct private key. Silent Payment spend public key cannot utilize <tt>PSBT_IN_TAP_BIP32_DERIVATION</tt> because BIP 352 specifies 33-byte spend keys, which do not fit within this <tt>keydata</tt> field. Furthermore, reliance on <tt>PSBT_IN_BIP32_DERIVATION</tt> is precluded because BIP 352 spending rules follow BIP 341, which mandates the use of Schnorr signatures.
 
 == Backward compatibility ==
 
-This is a new field added to the existing PSBT format. Because PSBT is designed to be extensible, old software will ignore the new fields.
+These are new fields added to the existing PSBT format. Because PSBT is designed to be extensible, old software will ignore the new fields.
 
 == Reference implementation ==
 
