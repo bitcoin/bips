@@ -1,0 +1,136 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Output Script Descriptor Annotations
+  Authors: Craig Raw <craig@sparrowwallet.com>
+  Status: Draft
+  Type: Specification
+  Assigned: ?
+  License: BSD-2-Clause
+  Requires: 380
+</pre>
+
+==Abstract==
+
+This document specifies an optional annotation syntax for output script descriptors as defined in [[bip-0380.mediawiki|BIP 380]].
+Annotations are key/value pairs appended to a descriptor expression using URL-like query string delimiters (<tt>?</tt>, <tt>&</tt>, <tt>=</tt>).
+They convey operational metadata (such as a blockchain scan start height or gap limit) that aids wallet recovery without altering the scripts produced by the descriptor.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Motivation==
+
+[[bip-0380.mediawiki|BIP 380]] introduced output script descriptors to address the insufficiency of key-only backups: given only private keys, a restored wallet cannot determine which scripts and addresses to derive.
+Descriptors solve that problem but do not carry the operational parameters that may practically be needed to recover a wallet completely.
+When restoring from a backup, a wallet may need to know where to begin scanning the blockchain, how many consecutive unused addresses to tolerate before stopping (the gap limit), or how many labels to scan for in the case of [[bip-0352.mediawiki|BIP 352]] silent payment wallets.
+Without this information, implementations must either scan the chain from a generic starting block or rely on out-of-band conventions, and may still miss funds if parameters like the gap limit are too low.
+
+Annotations provide a compact way to include such metadata directly in a descriptor string, using characters already present in the BIP 380 checksum character set.
+
+==Specification==
+
+===General Form===
+
+An annotated descriptor has the form:
+
+<pre>
+SCRIPT?key=value&key=value#CHECKSUM
+</pre>
+
+The question mark (<tt>?</tt>) separates the script expression from the annotations.
+Each annotation is a key/value pair joined by <tt>=</tt>.
+Multiple annotations are separated by <tt>&</tt>.
+The checksum is computed over the entire string preceding <tt>#</tt>, including the annotations.
+
+===Grammar===
+
+An annotation expression (<tt>ANNOT</tt>) is defined as:
+
+<pre>
+ANNOT   := '?' PAIR ('&' PAIR)*
+PAIR    := KEY '=' VALUE
+KEY     := [a-z]+
+VALUE   := [0-9]+
+</pre>
+
+Keys consist of one or more lowercase ASCII letters.
+Values are non-negative decimal integers (no leading zeros except for the value <tt>0</tt> itself).
+
+A descriptor with annotations has the form:
+
+<pre>
+SCRIPT ANNOT? ('#' CHECKSUM)?
+</pre>
+
+where <tt>ANNOT</tt> is optional (denoted <tt>?</tt> in the grammar sense), and the checksum remains optional as specified in BIP 380.
+
+===Character Set and Checksum===
+
+The delimiter characters <tt>?</tt>, <tt>=</tt>, and <tt>&</tt> are already members of the INPUT_CHARSET defined in [[bip-0380.mediawiki|BIP 380]]:
+
+<pre>
+IJKLMNOPQRSTUVWXYZ&+-.;<=>?!^_|~
+</pre>
+
+Therefore the existing checksum algorithm requires no modification.
+The checksum is computed over the full descriptor string including annotations, exactly as specified in BIP 380.
+
+===Defined Annotation Keys===
+
+Key names are abbreviated to reduce the size of descriptors encoded in QR codes and backup materials.
+
+{|
+! Key !! Value !! Description
+|-
+| <tt>bh</tt> || Block height || The block height at or after which the wallet first received funds. Implementations should begin scanning from this height.
+|-
+| <tt>gl</tt> || Gap limit || The number of consecutive unused addresses to derive before stopping, for [[bip-0032.mediawiki|BIP 32]] derived-key wallets.
+|-
+| <tt>ml</tt> || Max Label || The maximum label index to scan for, for [[bip-0352.mediawiki|BIP 352]] silent payment wallets.
+|}
+
+===Semantics===
+
+Annotation values are nominal lower bounds: they represent the minimum values required for correct recovery at the time the descriptor was exported.
+Over the lifetime of a wallet these values may increase (e.g. the gap limit may grow as more addresses are used) but should not decrease.
+
+Implementations that encounter an unknown annotation key MUST ignore it and MUST NOT reject the descriptor.
+
+==Test Vectors==
+
+The following annotated descriptors are valid.
+Checksums were computed using the BIP 380 reference code.
+
+* Descriptor with <tt>bh</tt> and <tt>gl</tt>:
+: <tt>wpkh([deadbeef/84h/0h/0h]xpub6CY2xt3mvQejPbLuDSEP6hQ1LXQNWN9JPn3TFEbBjCvNmHFiGHoRBZLEvjpcadLFgRpkUeSHFmHFBMiKLtKUE4ovbMYEKPSEyYby9matfkE/0/*)?bh=800000&gl=30#qaz40pnw</tt>
+
+* The same descriptor without annotations remains valid:
+: <tt>wpkh([deadbeef/84h/0h/0h]xpub6CY2xt3mvQejPbLuDSEP6hQ1LXQNWN9JPn3TFEbBjCvNmHFiGHoRBZLEvjpcadLFgRpkUeSHFmHFBMiKLtKUE4ovbMYEKPSEyYby9matfkE/0/*)#q5ppmz0l</tt>
+
+* Descriptor with <tt>bh</tt> only:
+: <tt>wpkh(02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9)?bh=150000#8z7yy3wl</tt>
+
+* Taproot descriptor with annotations:
+: <tt>tr(xpub6BgBgsespWvERF3LHQu6CnqdvfEvtMcQjYrcRzx53QJjSxarj2afYWcLteoGVky7D3UKDP9QyrLprQ3VCECoY49yfdDEHGCtMMj92pReUsQ/0/*)?bh=709632&gl=20#6la5jcn3</tt>
+
+The following annotated descriptors are invalid:
+
+* Uppercase key: <tt>raw(deadbeef)?Bh=1#...</tt>
+* Empty value: <tt>raw(deadbeef)?bh=#...</tt>
+* Missing value: <tt>raw(deadbeef)?bh#...</tt>
+* Negative value: <tt>raw(deadbeef)?bh=-1#...</tt>
+* Non-integer value: <tt>raw(deadbeef)?bh=abc#...</tt>
+* Leading zeros: <tt>raw(deadbeef)?bh=01#...</tt>
+* Empty key: <tt>raw(deadbeef)?=100#...</tt>
+* Trailing ampersand: <tt>raw(deadbeef)?bh=1&#...</tt>
+
+==Backward Compatibility==
+
+Annotated descriptors are a strict superset of plain descriptors.
+Any valid descriptor without annotations remains valid and unchanged.
+
+Implementations that do not support annotations cannot parse annotated descriptors directly.
+However, an annotated descriptor can be converted to a plain descriptor by stripping everything from the first <tt>?</tt> to the <tt>#</tt> (exclusive) and recomputing the checksum using the BIP 380 algorithm.
+
