@@ -1,6 +1,6 @@
-use p2tsh_ref::{ pay_to_p2wpkh_tx, verify_schnorr_signature_via_bytes, verify_slh_dsa_via_bytes, parse_leaf_script_type };
+use p2mr_ref::{ pay_to_p2wpkh_tx, verify_schnorr_signature_via_bytes, verify_slh_dsa_via_bytes, tap_tree_lock_type };
 
-use p2tsh_ref::data_structures::{SpendDetails, LeafScriptType};
+use p2mr_ref::data_structures::{SpendDetails, LeafScriptType};
 use std::env;
 use log::{info, error};
 
@@ -52,14 +52,42 @@ fn main() -> SpendDetails {
             error!("CONTROL_BLOCK_HEX environment variable is required but not set");
             std::process::exit(1);
         });
-    info!("P2TSH control block size: {}", control_block_bytes.len());
+    info!("P2MR control block size: {}", control_block_bytes.len());
 
-    // LEAF_SCRIPT_TYPE environment variable is required to determine key structure
-    let leaf_script_type: LeafScriptType = parse_leaf_script_type();
+    // TAP_TREE_LOCK_TYPE environment variable is required to determine key structure
+    let leaf_script_type: LeafScriptType = tap_tree_lock_type();
     info!("leaf_script_type: {:?}", leaf_script_type);
 
-    // Parse private keys based on script type
-    let leaf_script_priv_keys_bytes: Vec<Vec<u8>> = match leaf_script_type {
+    // For Mixed trees, we need to determine the actual leaf type via SPENDING_LEAF_TYPE
+    let effective_leaf_type: LeafScriptType = if leaf_script_type == LeafScriptType::Mixed {
+        match env::var("SPENDING_LEAF_TYPE") {
+            Ok(value) => match value.as_str() {
+                "SCHNORR_ONLY" => {
+                    info!("SPENDING_LEAF_TYPE: SCHNORR_ONLY");
+                    LeafScriptType::SchnorrOnly
+                },
+                "SLH_DSA_ONLY" => {
+                    info!("SPENDING_LEAF_TYPE: SLH_DSA_ONLY");
+                    LeafScriptType::SlhDsaOnly
+                },
+                _ => {
+                    error!("Invalid SPENDING_LEAF_TYPE '{}'. Must be SCHNORR_ONLY or SLH_DSA_ONLY", value);
+                    std::process::exit(1);
+                }
+            },
+            Err(_) => {
+                error!("SPENDING_LEAF_TYPE environment variable is required when TAP_TREE_LOCK_TYPE=MIXED");
+                error!("Set SPENDING_LEAF_TYPE to the actual type of the leaf being spent (SCHNORR_ONLY or SLH_DSA_ONLY).");
+                error!("The leaf type is returned in the 'leaf_script_type' field of the tree construction output.");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        leaf_script_type
+    };
+
+    // Parse private keys based on effective script type
+    let leaf_script_priv_keys_bytes: Vec<Vec<u8>> = match effective_leaf_type {
         LeafScriptType::SlhDsaOnly => {
             let priv_keys_hex_array = env::var("LEAF_SCRIPT_PRIV_KEYS_HEX")
                 .unwrap_or_else(|_| {
@@ -110,7 +138,7 @@ fn main() -> SpendDetails {
             }
             vec![priv_keys_bytes]
         },
-        LeafScriptType::SchnorrAndSlhDsa => {
+        LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf => {
             let priv_keys_hex_array = env::var("LEAF_SCRIPT_PRIV_KEYS_HEX")
                 .unwrap_or_else(|_| {
                     error!("LEAF_SCRIPT_PRIV_KEYS_HEX environment variable is required for SCHNORR_AND_SLH_DSA");
@@ -144,6 +172,10 @@ fn main() -> SpendDetails {
             }
             
             vec![schnorr_priv_key_bytes, slh_dsa_priv_key_bytes]
+        },
+        LeafScriptType::Mixed => {
+            // This case should never be reached because Mixed is resolved to effective_leaf_type above
+            unreachable!("Mixed should have been resolved to effective_leaf_type");
         },
         LeafScriptType::NotApplicable => {
             panic!("LeafScriptType::NotApplicable is not applicable");
@@ -179,13 +211,13 @@ fn main() -> SpendDetails {
         leaf_script_priv_keys_bytes,  // Now passing Vec<Vec<u8>> instead of Vec<u8>
         spend_output_pubkey_hash_bytes,
         spend_output_amount_sats,
-        leaf_script_type
+        effective_leaf_type  // Use effective type (resolved from SPENDING_LEAF_TYPE if Mixed)
     );
 
     // Remove first and last byte from leaf_script_bytes to get tapleaf_pubkey_bytes
     let tapleaf_pubkey_bytes: Vec<u8> = leaf_script_bytes[1..leaf_script_bytes.len()-1].to_vec();
-    
-    match leaf_script_type {
+
+    match effective_leaf_type {
         LeafScriptType::SlhDsaOnly => {
             let is_valid: bool = verify_slh_dsa_via_bytes(&result.sig_bytes, &result.sighash, &tapleaf_pubkey_bytes);
             info!("is_valid: {}", is_valid);
@@ -197,7 +229,7 @@ fn main() -> SpendDetails {
                 &tapleaf_pubkey_bytes);
             info!("is_valid: {}", is_valid);
         },
-        LeafScriptType::SchnorrAndSlhDsa => {
+        LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf => {
             // For combined scripts, we need to separate the signatures
             // The sig_bytes contains: [schnorr_sig (64 bytes), slh_dsa_sig (7856 bytes)] (raw signatures without sighash)
             let schnorr_sig_len = 64; // Schnorr signature is 64 bytes
@@ -238,6 +270,10 @@ fn main() -> SpendDetails {
             
             let both_valid = schnorr_is_valid && slh_dsa_is_valid;
             info!("Both signatures valid: {}", both_valid);
+        }
+        LeafScriptType::Mixed => {
+            // This case should never be reached because Mixed is resolved to effective_leaf_type above
+            unreachable!("Mixed should have been resolved to effective_leaf_type");
         }
         LeafScriptType::NotApplicable => {
             panic!("LeafScriptType::NotApplicable is not applicable");

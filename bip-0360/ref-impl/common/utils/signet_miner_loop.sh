@@ -2,8 +2,8 @@
 
 # Invokes mining simulator a configurable number of times
 
-if [ -z "${P2TSH_ADDR}" ]; then
-    echo "Error: Environment variable P2TSH_ADDR needs to be set"
+if [ -z "${P2MR_ADDR}" ]; then
+    echo "Error: Environment variable P2MR_ADDR needs to be set"
     exit 1
 fi
 
@@ -33,7 +33,7 @@ for ((i=1; i<=LOOP_COUNT; i++))
 do
     echo "Iteration $i of $LOOP_COUNT"
     $BITCOIN_SOURCE_DIR/contrib/signet/miner --cli "bitcoin-cli -conf=$BITCOIN_CONF_FILE_PATH" generate \
-        --address $P2TSH_ADDR \
+        --address $P2MR_ADDR \
         --grind-cmd "$BITCOIN_SOURCE_DIR/build/bin/bitcoin-util grind" \
         --poolid "$POOL_ID" \
         --min-nbits --set-block-time $(date +%s)

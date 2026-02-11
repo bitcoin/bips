@@ -5,7 +5,7 @@ use bitcoin::key::{Secp256k1};
 use bitcoin::hashes::{sha256::Hash, Hash as HashTrait};
 use bitcoin::secp256k1::{Message};
 
-use p2tsh_ref::{ acquire_schnorr_keypair, verify_schnorr_signature };
+use p2mr_ref::{ acquire_schnorr_keypair, verify_schnorr_signature };
 
 /* Secp256k1 implements the Signing trait when it's initialized in signing mode.
    It's important to note that Secp256k1 has different capabilities depending on how it's constructed:

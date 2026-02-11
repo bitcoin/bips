@@ -1,5 +1,5 @@
-// src/p2tsh-example.ts
-// Example demonstrating P2TSH (Pay-to-Taproot-Script-Hash) address construction
+// src/p2mr-example.ts
+// Example demonstrating P2MR (Pay-to-Taproot-Script-Hash) address construction
 
 import { payments } from '@jbride/bitcoinjs-lib';
 import * as bitcoinCrypto from '@jbride/bitcoinjs-lib/src/crypto';
@@ -9,7 +9,7 @@ import ECPairFactory, { type ECPairInterface } from 'ecpair';
 import * as ecc from 'tiny-secp256k1';
 import { randomBytes } from 'crypto';
 
-const { p2tsh } = payments;
+const { p2mr } = payments;
 
 // Initialize ECPair with the ECC library
 const ECPair = ECPairFactory(ecc);
@@ -37,11 +37,11 @@ function signAndVerify(
 }
 
 /**
- * Example 1: Construct a P2TSH address from a script tree with a single leaf
+ * Example 1: Construct a P2MR address from a script tree with a single leaf
  * This is the simplest case - a script tree containing one script.
  */
 function example1_simpleScriptTree() {
-  console.log('=== Example 1: P2TSH from simple script tree ===');
+  console.log('=== Example 1: P2MR from simple script tree ===');
   
   // Generate a key pair
   const keyPair = ECPair.makeRandom({ rng });
@@ -56,18 +56,18 @@ function example1_simpleScriptTree() {
     output: script,
   };
   
-  // Construct the P2TSH payment
-  const payment = p2tsh({
+  // Construct the P2MR payment
+  const payment = p2mr({
     scriptTree: scriptTree,
   });
   
   console.log('Generated compressed pubkey:', pubkey.toString('hex'));
   console.log('X-only pubkey:', Buffer.from(xOnlyPubkey).toString('hex'));
   console.log('Script tree:', { output: bscript.toASM(script) });
-  console.log('P2TSH Address:', payment.address);
+  console.log('P2MR Address:', payment.address);
   console.log('Output script:', bscript.toASM(payment.output!));
   console.log('Merkle root hash:', payment.hash ? Buffer.from(payment.hash).toString('hex') : undefined);
-  const message = Buffer.from('P2TSH demo - example 1', 'utf8');
+  const message = Buffer.from('P2MR demo - example 1', 'utf8');
   const result = signAndVerify(keyPair, xOnlyPubkey, message);
 
   console.log('Message:', result.message.toString('utf8'));
@@ -80,11 +80,11 @@ function example1_simpleScriptTree() {
 }
 
 /**
- * Example 2: Construct a P2TSH address from a script tree with multiple leaves
+ * Example 2: Construct a P2MR address from a script tree with multiple leaves
  * This demonstrates a more complex script tree structure.
  */
 function example2_multiLeafScriptTree() {
-  console.log('=== Example 2: P2TSH from multi-leaf script tree ===');
+  console.log('=== Example 2: P2MR from multi-leaf script tree ===');
   
   // Generate two different key pairs for the leaves
   const keyPair1 = ECPair.makeRandom({ rng });
@@ -103,8 +103,8 @@ function example2_multiLeafScriptTree() {
     { output: script2 },
   ];
   
-  // Construct the P2TSH payment
-  const payment = p2tsh({
+  // Construct the P2MR payment
+  const payment = p2mr({
     scriptTree: scriptTree,
   });
   
@@ -117,11 +117,11 @@ function example2_multiLeafScriptTree() {
   console.log('Script tree leaves:');
   console.log('  Leaf 1:', bscript.toASM(script1));
   console.log('  Leaf 2:', bscript.toASM(script2));
-  console.log('P2TSH Address:', payment.address);
+  console.log('P2MR Address:', payment.address);
   console.log('Output script:', bscript.toASM(payment.output!));
   console.log('Merkle root hash:', payment.hash ? Buffer.from(payment.hash).toString('hex') : undefined);
-  const message1 = Buffer.from('P2TSH demo - example 2 leaf 1', 'utf8');
-  const message2 = Buffer.from('P2TSH demo - example 2 leaf 2', 'utf8');
+  const message1 = Buffer.from('P2MR demo - example 2 leaf 1', 'utf8');
+  const message2 = Buffer.from('P2MR demo - example 2 leaf 2', 'utf8');
   const result1 = signAndVerify(keyPair1, xOnlyPubkey1, message1);
   const result2 = signAndVerify(keyPair2, xOnlyPubkey2, message2);
 
@@ -144,11 +144,11 @@ function example2_multiLeafScriptTree() {
 }
 
 /**
- * Example 4: Construct a P2TSH address from a hash and redeem script
- * This demonstrates creating a P2TSH when you have the hash directly.
+ * Example 4: Construct a P2MR address from a hash and redeem script
+ * This demonstrates creating a P2MR when you have the hash directly.
  */
 function example3_fromHashAndRedeem() {
-  console.log('=== Example 3: P2TSH from hash and redeem script ===');
+  console.log('=== Example 3: P2MR from hash and redeem script ===');
   
   // Generate a key pair
   const keyPair = ECPair.makeRandom({ rng });
@@ -162,8 +162,8 @@ function example3_fromHashAndRedeem() {
     'hex',
   );
   
-  // Construct the P2TSH payment
-  const payment = p2tsh({
+  // Construct the P2MR payment
+  const payment = p2mr({
     hash: hash,
     redeem: {
       output: redeemScript,
@@ -174,9 +174,9 @@ function example3_fromHashAndRedeem() {
   console.log('X-only pubkey:', Buffer.from(xOnlyPubkey).toString('hex'));
   console.log('Redeem script:', bscript.toASM(redeemScript));
   console.log('Hash:', hash.toString('hex'));
-  console.log('P2TSH Address:', payment.address);
+  console.log('P2MR Address:', payment.address);
   console.log('Output script:', bscript.toASM(payment.output!));
-  const message = Buffer.from('P2TSH demo - example 3', 'utf8');
+  const message = Buffer.from('P2MR demo - example 3', 'utf8');
   const result = signAndVerify(keyPair, xOnlyPubkey, message);
 
   console.log('Message:', result.message.toString('utf8'));
@@ -189,7 +189,7 @@ function example3_fromHashAndRedeem() {
 }
 
 // Run all examples
-console.log('P2TSH Address Construction Examples\n');
+console.log('P2MR Address Construction Examples\n');
 console.log('=====================================\n');
 
 example1_simpleScriptTree();

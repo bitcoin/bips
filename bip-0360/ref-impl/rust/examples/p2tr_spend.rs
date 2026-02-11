@@ -1,6 +1,6 @@
-use p2tsh_ref::{ pay_to_p2wpkh_tx , verify_schnorr_signature_via_bytes};
+use p2mr_ref::{ pay_to_p2wpkh_tx , verify_schnorr_signature_via_bytes};
 
-use p2tsh_ref::data_structures::{SpendDetails, LeafScriptType};
+use p2mr_ref::data_structures::{SpendDetails, LeafScriptType};
 use std::env;
 use log::{info, error};
 

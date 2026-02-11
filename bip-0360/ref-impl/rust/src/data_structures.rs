@@ -14,7 +14,9 @@ pub enum LeafScriptType {
     /// Script requires only Schnorr signature  
     SchnorrOnly,
     /// Script requires both Schnorr and SLH-DSA signatures (in that order)
-    SchnorrAndSlhDsa,
+    ConcatenatedSchnorrAndSlhDsaSameLeaf,
+    /// Leaves of TapTree are mixed.  Some leaves are locked using Schnorr and others are locked using SLH-DSA
+    Mixed,
     /// Script type is not applicable
     NotApplicable,
 }
@@ -22,22 +24,49 @@ pub enum LeafScriptType {
 impl LeafScriptType {
     /// Check if this script type uses SLH-DSA
     pub fn uses_slh_dsa(&self) -> bool {
-        matches!(self, LeafScriptType::SlhDsaOnly | LeafScriptType::SchnorrAndSlhDsa)
+        matches!(self, LeafScriptType::SlhDsaOnly | LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf)
     }
-    
+
     /// Check if this script type uses Schnorr
     pub fn uses_schnorr(&self) -> bool {
-        matches!(self, LeafScriptType::SchnorrOnly | LeafScriptType::SchnorrAndSlhDsa)
+        matches!(self, LeafScriptType::SchnorrOnly | LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf)
     }
-    
+
     /// Check if this script type requires both signature types
     pub fn requires_both(&self) -> bool {
-        matches!(self, LeafScriptType::SchnorrAndSlhDsa)
+        matches!(self, LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf)
     }
-    
+
+    /// Check if TapTree uses Schnorr for some leaves and SLH-DSA for others
+    pub fn uses_mixed(&self) -> bool {
+        matches!(self, LeafScriptType::Mixed)
+    }
+
     /// Check if this script type is not applicable
     pub fn is_not_applicable(&self) -> bool {
         matches!(self, LeafScriptType::NotApplicable)
+    }
+
+    /// Convert to string representation for serialization
+    pub fn to_string(&self) -> String {
+        match self {
+            LeafScriptType::SlhDsaOnly => "SLH_DSA_ONLY".to_string(),
+            LeafScriptType::SchnorrOnly => "SCHNORR_ONLY".to_string(),
+            LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf => "CONCATENATED_SCHNORR_AND_SLH_DSA".to_string(),
+            LeafScriptType::Mixed => "MIXED".to_string(),
+            LeafScriptType::NotApplicable => "NOT_APPLICABLE".to_string(),
+        }
+    }
+
+    /// Parse from string representation
+    pub fn from_string(s: &str) -> Self {
+        match s {
+            "SLH_DSA_ONLY" => LeafScriptType::SlhDsaOnly,
+            "SCHNORR_ONLY" => LeafScriptType::SchnorrOnly,
+            "CONCATENATED_SCHNORR_AND_SLH_DSA" => LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf,
+            "MIXED" => LeafScriptType::Mixed,
+            _ => LeafScriptType::NotApplicable,
+        }
     }
 }
 
@@ -88,6 +117,9 @@ pub struct TestVector {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TestVectorGiven {
+
+    #[serde(rename = "internalPubkey")]
+    pub internal_pubkey: Option<String>,
 
     #[serde(rename = "scriptTree")]
     pub script_tree: Option<TVScriptTree>,
@@ -328,6 +360,8 @@ pub struct TaptreeReturn {
     pub leaf_script_hex: String,
     pub tree_root_hex: String,
     pub control_block_hex: String,
+    /// The script type of the leaf being returned (needed for spending)
+    pub leaf_script_type: String,
 }
 
 impl std::process::Termination for TaptreeReturn {
@@ -439,6 +473,62 @@ impl MultiKeypair {
     /// Get the SLH-DSA keypair if present
     pub fn slh_dsa_keypair(&self) -> Option<&UnifiedKeypair> {
         self.slh_dsa_keypair.as_ref()
+    }
+}
+
+/// Information about a single leaf in a mixed-type tree
+/// Used when different leaves in the same tree use different algorithms
+#[derive(Debug, Clone)]
+pub struct MixedLeafInfo {
+    /// The leaf index in the tree
+    pub leaf_index: u32,
+    /// The script type for this specific leaf
+    pub leaf_script_type: LeafScriptType,
+    /// The keypairs for this leaf
+    pub keypairs: MultiKeypair,
+    /// The script for this leaf
+    pub script: Vec<u8>,
+}
+
+impl MixedLeafInfo {
+    /// Create a new MixedLeafInfo for a Schnorr-only leaf
+    pub fn new_schnorr(leaf_index: u32, keypairs: MultiKeypair, script: Vec<u8>) -> Self {
+        Self {
+            leaf_index,
+            leaf_script_type: LeafScriptType::SchnorrOnly,
+            keypairs,
+            script,
+        }
+    }
+
+    /// Create a new MixedLeafInfo for an SLH-DSA-only leaf
+    pub fn new_slh_dsa(leaf_index: u32, keypairs: MultiKeypair, script: Vec<u8>) -> Self {
+        Self {
+            leaf_index,
+            leaf_script_type: LeafScriptType::SlhDsaOnly,
+            keypairs,
+            script,
+        }
+    }
+
+    /// Create a new MixedLeafInfo for a combined Schnorr+SLH-DSA leaf
+    pub fn new_combined(leaf_index: u32, keypairs: MultiKeypair, script: Vec<u8>) -> Self {
+        Self {
+            leaf_index,
+            leaf_script_type: LeafScriptType::ConcatenatedSchnorrAndSlhDsaSameLeaf,
+            keypairs,
+            script,
+        }
+    }
+
+    /// Get the secret key bytes for this leaf
+    pub fn secret_key_bytes(&self) -> Vec<Vec<u8>> {
+        self.keypairs.secret_key_bytes()
+    }
+
+    /// Get the public key bytes for this leaf
+    pub fn public_key_bytes(&self) -> Vec<Vec<u8>> {
+        self.keypairs.public_key_bytes()
     }
 }
 
