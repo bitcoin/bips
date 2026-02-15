@@ -1,10 +1,7 @@
-use std::env;
 use log::info;
 use rand::{rng, RngCore};
 
-use bitcoinpqc::{
-    generate_keypair, public_key_size, secret_key_size, Algorithm, KeyPair,
-};
+use bitcoinpqc::{generate_keypair, public_key_size, secret_key_size, Algorithm, KeyPair};
 
 fn main() {
     let _ = env_logger::try_init();

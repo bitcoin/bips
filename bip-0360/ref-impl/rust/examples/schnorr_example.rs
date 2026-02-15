@@ -1,4 +1,3 @@
-use std::env;
 use log::info;
 use once_cell::sync::Lazy;
 use bitcoin::key::{Secp256k1};
