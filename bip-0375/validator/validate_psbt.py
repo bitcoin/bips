@@ -13,7 +13,10 @@ from deps.bitcoin_test.psbt import (
     PSBT_GLOBAL_TX_MODIFIABLE,
     PSBT_OUT_SCRIPT,
 )
+from deps.dleq import dleq_verify_proof
+from secp256k1lab.secp256k1 import GE
 
+from .inputs import is_input_eligible, pubkey_from_eligible_input
 from .psbt_bip375 import (
     PSBT_GLOBAL_SP_ECDH_SHARE,
     PSBT_GLOBAL_SP_DLEQ,
@@ -116,7 +119,131 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
 
 
 def validate_ecdh_coverage(psbt: PSBT) -> Tuple[bool, str]:
-    return False, "ECDH coverage check not implemented yet"
+    """
+    Validate ECDH share coverage and DLEQ proof correctness
+
+    Checks:
+    - Verify ECDH share coverage for each scan key associated with SP outputs
+    - Every ECDH share must have a corresponding DLEQ proof
+    - If PSBT_OUT_SCRIPT is set, all eligible inputs must have ECDH coverage
+    - DLEQ proofs must verify correctly
+    """
+    # Collect unique scan keys from SP outputs
+    scan_keys = set()
+    for output_map in psbt.o:
+        if PSBT_OUT_SP_V0_INFO in output_map:
+            sp_info = output_map[PSBT_OUT_SP_V0_INFO]
+            scan_keys.add(sp_info[:33])
+
+    if not scan_keys:
+        return True, None  # No SP outputs, nothing to check
+
+    # For each scan key, verify ECDH share coverage and DLEQ proofs
+    for scan_key in scan_keys:
+        has_global_ecdh = psbt.g.get_by_key(PSBT_GLOBAL_SP_ECDH_SHARE, scan_key)
+        has_input_ecdh = any(
+            input_map.get_by_key(PSBT_IN_SP_ECDH_SHARE, scan_key)
+            for input_map in psbt.i
+        )
+
+        scan_key_has_computed_output = any(
+            PSBT_OUT_SP_V0_INFO in om
+            and om[PSBT_OUT_SP_V0_INFO][:33] == scan_key
+            and PSBT_OUT_SCRIPT in om
+            for om in psbt.o
+        )
+        if scan_key_has_computed_output and not has_global_ecdh and not has_input_ecdh:
+            return False, "Silent payment output present but no ECDH share for scan key"
+
+        # Verify global DLEQ proof if global ECDH present
+        if has_global_ecdh:
+            ecdh_share = psbt.g.get_by_key(PSBT_GLOBAL_SP_ECDH_SHARE, scan_key)
+            dleq_proof = psbt.g.get_by_key(PSBT_GLOBAL_SP_DLEQ, scan_key)
+            if not dleq_proof:
+                return False, "Global ECDH share missing DLEQ proof"
+
+            # Compute A_sum "input public keys" for global verification
+            A_sum = None
+            for input_map in psbt.i:
+                pubkey = pubkey_from_eligible_input(input_map)
+                if pubkey is not None:
+                    A_sum = pubkey if A_sum is None else A_sum + pubkey
+            assert A_sum is not None, "No public keys found for inputs"
+
+            valid, msg = validate_dleq_proof(A_sum, scan_key, ecdh_share, dleq_proof)
+            if not valid:
+                return False, f"Global DLEQ proof invalid: {msg}"
+
+        # Verify per-input coverage for eligible inputs
+        if scan_key_has_computed_output and not has_global_ecdh:
+            for i, input_map in enumerate(psbt.i):
+                is_eligible, _ = is_input_eligible(input_map)
+                ecdh_share = input_map.get_by_key(PSBT_IN_SP_ECDH_SHARE, scan_key)
+                if not is_eligible and ecdh_share:
+                    return (
+                        False,
+                        f"Input {i} has ECDH share but is ineligible for silent payments",
+                    )
+                if is_eligible and not ecdh_share:
+                    return (
+                        False,
+                        f"Output script set but eligible input {i} missing ECDH share",
+                    )
+                if ecdh_share:
+                    # Verify per-input DLEQ proofs
+                    dleq_proof = input_map.get_by_key(PSBT_IN_SP_DLEQ, scan_key)
+                    if not dleq_proof:
+                        return False, f"Input {i} ECDH share missing DLEQ proof"
+
+                    # Get input public key A
+                    A = pubkey_from_eligible_input(input_map)
+                    if A is None:
+                        return (
+                            False,
+                            f"Input {i} missing public key for DLEQ verification",
+                        )
+
+                    valid, msg = validate_dleq_proof(
+                        A, scan_key, ecdh_share, dleq_proof
+                    )
+                    if not valid:
+                        return False, f"Input {i} DLEQ proof invalid: {msg}"
+    return True, None
+
+
+def validate_dleq_proof(
+    A: GE,
+    scan_key: bytes,
+    ecdh_share: bytes,
+    dleq_proof: bytes,
+) -> Tuple[bool, str]:
+    """
+    Verify a DLEQ proof for silent payments
+    
+    Checks:
+    - ECDH share and DLEQ proof lengths
+    - Verify DLEQ proof correctness
+    """
+    if len(ecdh_share) != 33:
+        return (
+            False,
+            f"Invalid ECDH share length: {len(ecdh_share)} bytes (expected 33)",
+        )
+
+    if len(dleq_proof) != 64:
+        return (
+            False,
+            f"Invalid DLEQ proof length: {len(dleq_proof)} bytes (expected 64)",
+        )
+
+    B_scan = GE.from_bytes(scan_key)
+    C_ecdh = GE.from_bytes(ecdh_share)
+
+    # Verify DLEQ proof using BIP-374 reference
+    result = dleq_verify_proof(A, B_scan, C_ecdh, dleq_proof)
+    if not result:
+        return False, "DLEQ proof verification failed"
+    return True, None
 
 
 def validate_input_eligibility(psbt: PSBT) -> Tuple[bool, str]:
