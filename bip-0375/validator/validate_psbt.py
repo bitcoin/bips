@@ -6,17 +6,20 @@ Provides independent checks for PSBT structure, ECDH share coverage,
 input eligibility, and output script correctness.
 """
 
+import struct
 from typing import Tuple
 
 from deps.bitcoin_test.psbt import (
     PSBT,
     PSBT_GLOBAL_TX_MODIFIABLE,
+    PSBT_IN_SIGHASH_TYPE,
+    PSBT_IN_WITNESS_UTXO,
     PSBT_OUT_SCRIPT,
 )
 from deps.dleq import dleq_verify_proof
 from secp256k1lab.secp256k1 import GE
 
-from .inputs import is_input_eligible, pubkey_from_eligible_input
+from .inputs import is_input_eligible, parse_witness_utxo, pubkey_from_eligible_input
 from .psbt_bip375 import (
     PSBT_GLOBAL_SP_ECDH_SHARE,
     PSBT_GLOBAL_SP_DLEQ,
@@ -247,7 +250,38 @@ def validate_dleq_proof(
 
 
 def validate_input_eligibility(psbt: PSBT) -> Tuple[bool, str]:
-    return False, "Input eligibility check not implemented yet"
+    """
+    Validate input eligibility constraints for silent payments
+
+    Checks:
+    - No segwit v>1 inputs when SP outputs present
+    - SIGHASH_ALL required when SP outputs present
+    """
+    # Check if SP outputs exist
+    has_sp_outputs = any(PSBT_OUT_SP_V0_INFO in om for om in psbt.o)
+    if not has_sp_outputs:
+        return True, None
+
+    # Check segwit version restrictions
+    for i, input_map in enumerate(psbt.i):
+        if PSBT_IN_WITNESS_UTXO in input_map:
+            witness_utxo = input_map[PSBT_IN_WITNESS_UTXO]
+            script = parse_witness_utxo(witness_utxo)
+            if script and 0x51 < script[0] <= 0x60:  # OP_2 or higher (segwit v2+)
+                return False, f"Input {i} uses segwit version > 1 with silent payments"
+
+    # Check SIGHASH_ALL requirement - PSBT_IN_SIGHASH_TYPE is optional, but if set it must be SIGHASH_ALL when SP outputs are present
+    for i, input_map in enumerate(psbt.i):
+        if PSBT_IN_SIGHASH_TYPE in input_map:
+            sighash = input_map[PSBT_IN_SIGHASH_TYPE]
+            if len(sighash) >= 4:
+                sighash_type = struct.unpack("<I", sighash[:4])[0]
+                if sighash_type != 1:  # SIGHASH_ALL
+                    return (
+                        False,
+                        f"Input {i} uses non-SIGHASH_ALL ({sighash_type}) with silent payments",
+                    )
+    return True, None
 
 
 def validate_output_scripts(psbt: PSBT) -> Tuple[bool, str]:
