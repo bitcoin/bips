@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 from deps.bitcoin_test.messages import CTransaction, CTxOut, from_binary
 from deps.bitcoin_test.psbt import (
+    PSBT,
     PSBT_IN_BIP32_DERIVATION,
     PSBT_IN_NON_WITNESS_UTXO,
     PSBT_IN_OUTPUT_INDEX,
@@ -17,7 +18,51 @@ from deps.bitcoin_test.psbt import (
 )
 from secp256k1lab.secp256k1 import GE
 
-from .psbt_bip375 import BIP375PSBTMap
+from .psbt_bip375 import BIP375PSBTMap, PSBT_GLOBAL_SP_ECDH_SHARE, PSBT_IN_SP_ECDH_SHARE
+
+
+def collect_input_ecdh_and_pubkey(
+    psbt: PSBT, scan_key: bytes
+) -> Tuple[Optional[bytes], Optional[bytes]]:
+    """
+    Collect combined ECDH share and summed pubkey for a scan key.
+
+    Checks global ECDH share first, falls back to per-input shares.
+    Returns (ecdh_share_bytes, summed_pubkey_bytes) or (None, None).
+    """
+    # Check for global ECDH share
+    summed_pubkey = None
+    ecdh_share = psbt.g.get_by_key(PSBT_GLOBAL_SP_ECDH_SHARE, scan_key)
+    if ecdh_share:
+        summed_pubkey = None
+        for input_map in psbt.i:
+            pubkey = pubkey_from_eligible_input(input_map)
+            if pubkey is not None:
+                summed_pubkey = (
+                    pubkey if summed_pubkey is None else summed_pubkey + pubkey
+                )
+
+        if summed_pubkey:
+            return ecdh_share, summed_pubkey.to_bytes_compressed()
+
+    # Check for per-input ECDH shares
+    combined_ecdh = None
+    for input_map in psbt.i:
+        input_ecdh = input_map.get_by_key(PSBT_IN_SP_ECDH_SHARE, scan_key)
+        if input_ecdh:
+            ecdh_point = GE.from_bytes(input_ecdh)
+            combined_ecdh = (
+                ecdh_point if combined_ecdh is None else combined_ecdh + ecdh_point
+            )
+            pubkey = pubkey_from_eligible_input(input_map)
+            if pubkey is not None:
+                summed_pubkey = (
+                    pubkey if summed_pubkey is None else summed_pubkey + pubkey
+                )
+
+    if combined_ecdh and summed_pubkey:
+        return combined_ecdh.to_bytes_compressed(), summed_pubkey.to_bytes_compressed()
+    return None, None
 
 
 def pubkey_from_eligible_input(input_map: BIP375PSBTMap) -> Optional[GE]:
