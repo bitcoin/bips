@@ -367,9 +367,14 @@ if __name__ == "__main__":
             # same sender but with different labels. Because of this, expected["outputs"] contains all possible valid output sets,
             # based on all possible permutations of recipient address orderings. Must match exactly one of the possible found output
             # sets in expected["outputs"]
-            generated_set = {frozenset(d.items()) for d in add_to_wallet}
-            expected_set = {frozenset(d.items()) for d in expected["outputs"]}
-            assert generated_set == expected_set, "Receive test failed"
+            if "outputs" in expected:  # detailed check against expected outputs
+                generated_set = {frozenset(d.items()) for d in add_to_wallet}
+                expected_set = {frozenset(d.items()) for d in expected["outputs"]}
+                assert generated_set == expected_set, "Receive test failed"
+            elif "n_outputs" in expected:  # only check the number of found outputs
+                assert len(add_to_wallet) == expected["n_outputs"], "Receive test failed"
+            else:
+                assert False, "either 'outputs' or 'n_outputs' must be specified in 'expected' field of receiving test vector"
 
 
     print("All tests passed")
