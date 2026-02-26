@@ -268,7 +268,11 @@ if __name__ == "__main__":
             sending_outputs = []
             if (len(input_pub_keys) > 0):
                 outpoints = [vin.outpoint for vin in vins]
-                sending_outputs = create_outputs(input_priv_keys, outpoints, given["recipients"], expected=expected, hrp="sp")
+                recipients = []  # expand given recipient entries to full list
+                for recipient_entry in given["recipients"]:
+                    count = recipient_entry.get("count", 1)
+                    recipients.extend([recipient_entry] * count)
+                sending_outputs = create_outputs(input_priv_keys, outpoints, recipients, expected=expected, hrp="sp")
 
                 # Note: order doesn't matter for creating/finding the outputs. However, different orderings of the recipient addresses
                 # will produce different generated outputs if sending to multiple silent payment addresses belonging to the
