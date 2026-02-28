@@ -1,0 +1,189 @@
+<pre>
+  BIP: 391
+  Layer: Applications
+  Title: Binary Output Descriptors
+  Authors: SeedHammer <team@seedhammer.com>
+  Status: Draft
+  Type: Specification
+  Assigned: 2026-01-27
+  License: BSD-2-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes an efficient container format for encoding an output
+descriptor as defined by [[bip-0380.mediawiki|BIP 380]] and its extensions.
+Based on key-value maps as defined by [[bip-0174.mediawiki|BIP 174]], the
+encoding supports descriptor and key metadata.
+
+===Copyright===
+
+This BIP is licensed under the BSD 2-clause license.
+
+===Motivation===
+
+A BIP 380 output descriptor is a textual representation of a set of output
+scripts, such that Bitcoin wallets may agree on the scripts and addresses
+to provide the user. However, a descriptor string by itself is not ideal for
+transferring between wallets: it lacks a machine-recognizable header, cannot
+represent metadata such as name and birth block, and its use of base58 for
+extended keys is inefficient.
+
+BIP 174 gives us a self-describing file format, metadata, and a compact,
+binary representation of keys. Assuming most wallets already implement the PSBT
+format, the implementation overhead of this BIP is expected to be low
+<ref> '''Why not extend BIP 174?'''
+The PSBT format is not a general-purpose container format, and descriptors
+are useful outside of signing flows (backup, initializing wallet
+software).</ref>
+<ref> '''Why not use the older Blockchain Commons BCR-2020-010 format?'''
+The format was [[https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-010-output-desc.md#deprecated-superseded-by-version-3-output-descriptors|recently deprecated]],
+due to its use of reserved CBOR tags.</ref>
+<ref>'''Why not use the new Blockchain Commons BCR-2023-010 format?'''
+The [[https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2023-010-output-descriptor.md|BCR-2023-010 format]]
+is roughly equivalent to this proposal, but was designed and released outside of
+the usual BIP proposal process.
+
+In particular, we believe BCR-2023-010 would have faced opposition
+in the BIP process because it is based on the [[https://cbor.io/spec.html|CBOR encoding]].
+CBOR is designed for generality and compactness and is therefore significantly
+more complex than the PSBT encoding. In contrast, the PSBT key-value maps are
+supported by all wallet software that interact with PSBT files, are easier to
+review, and they fit in embedded devices.
+
+Released in late 2023, BCR-2023-010 doesn't have the advantage of widespread
+support at the time of this writing.</ref>.
+
+==Specification==
+
+The Binary Output Descriptor (BOD) format consists of a fixed header, a
+key-value map describing the output descriptor, and a key-value map for
+each key. 
+
+ <bod> := <magic> <global-map> <key-map>*
+ <magic> := 0x62 0x6F 0x64 0xFF
+ <global-map> := <keypair>* 0x00
+ <key-map> := <keypair>* 0x00
+
+The definition for <tt><keypair></tt> follows [[bip-0174.mediawiki#specification|BIP 174]].
+
+The defined global types are as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Output Descriptor
+| <tt>BOD_GLOBAL_OUTPUT_DESCRIPTOR = 0x00</tt>
+| <tt><compact size uint birth block><bytes></tt>
+| The earliest block height that may contain transactions for the descriptor, optionally followed by the UTF-8 encoded name of the descriptor.
+| <tt><bytes descriptor></tt>
+| The output descriptor in BIP 380 format without inline keys<ref>'''Why not encode the descriptor in binary?'''
+Designing and maintaining a compact binary representation of the complex and evolving BIP 380 descriptor
+language entail significant effort and introduce a time lag from the introduction of new BIP 380 features
+to the specification of the binary counterpart. We don't believe the space savings outweigh the disadvantages.
+
+The major source of bloat, base58-encoded keys, are binary encoded for compactness and
+can be re-used multiple times in a single descriptor.
+</ref>.
+|-
+| Proprietary Use Type
+| <tt>BOD_GLOBAL_PROPRIETARY = 0xFC</tt>
+| <tt><compact size uint identifier length> <bytes identifier> <compact size uint subtype> <bytes subkeydata></tt>
+| A compact size unsigned integer of the length of the identifier, followed by an identifier prefix, followed by a compact size unsigned integer subtype, followed by the key data itself.
+| <tt><bytes data></tt>
+| Any value data as defined by the proprietary type user.
+|}
+
+It is an error to omit the BOD_GLOBAL_OUTPUT_DESCRIPTOR entry.
+
+All key expressions in the BOD_GLOBAL_OUTPUT_DESCRIPTOR descriptor string must be
+specified as references in the form of <tt>@<index></tt> where <tt>index</tt> is
+the 0-based index into the ordered list of <tt><key-map></tt> entries. An index
+out of range is invalid.
+
+A BOD_GLOBAL_OUTPUT_DESCRIPTOR with inline keys is invalid<ref>'''Why not allow inline
+keys?'''
+Allowing inline keys risks incompatible implementations that omit parsing of referenced
+keys.</ref><ref>'''What about named <tt>pk(NAME)</tt> references?'''
+Named references would allow Miniscript descriptors as-is in BOD_GLOBAL_OUTPUT_DESCRIPTOR.
+They are left out because they complicate decoders and can trivially be replaced by indexed
+references.</ref>.
+
+Key references may be followed by derivation paths as specified in [[bip-0389.mediawiki#specification|BIP 389]].
+
+The defined key types are as follows:
+
+{|
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+|-
+| Extended Public Key
+| <tt>BOD_KEY_XPUB = 0x00</tt>
+| <tt><bytes xpub></tt>
+| The 78-byte serialized extended public key, as defined by BIP 32.
+| <tt><4 byte fingerprint> <32-bit little endian uint path element>*</tt>
+| The master key fingerprint, as defined by BIP 32, concatenated with the derivation path of the public key. The derivation path is represented as 32-bit little endian unsigned integer indexes concatenated with each other. The number of 32-bit unsigned integer indexes must match the depth provided in the extended public key.
+|-
+| Proprietary Use Type
+| <tt>BOD_KEY_PROPRIETARY = 0xFC</tt>
+| <tt><compact size uint identifier length> <bytes identifier> <compact size uint subtype> <bytes subkeydata></tt>
+| A compact size unsigned integer of the length of the identifier, followed by an identifier prefix, followed by a compact size unsigned integer subtype, followed by the key data itself.
+| <tt><bytes data></tt>
+| Any value data as defined by the proprietary type user.
+|}
+
+==Test Vectors==
+
+===Invalid Cases===
+
+A descriptor with a key reference out of bounds.
+ Descriptor: wpkh(@0/*)
+ Hex encoded BOD: 70736274ff0207000a77706b682840302f2a29000000
+
+A descriptor with an invalid UTF-8 name.
+ Hex-encoded BOD: 70736274ff05070061c57a0a77706b682840302f2a2953010488b21e041c0ae906800000025afed56d755c088320ec9bc6acd84d33737b580083759e0a0ff8f26e429e0b77028342f5f7773f6fab374e1c2d3ccdba26bc0933fc4f63828b662b4357e4cc3791bec0fbd814c5d8729748000080000000800000008002000080000000
+
+A descriptor with an inline key.
+  Hex-encoded BOD: 70736274ff0207008e77706b68285b64633536373237362f3438682f30682f30682f32685d7870756236446959726652774e6e6a655834764873574d616a4a56464b726245456e753867415739764475517a675457457345484531367347576558585556314c42575145317943546d657072534e63715a3357373468715664674462745948557633654d3457325445556870616e2f2a29000000
+
+===Valid Cases===
+
+A 2-of-3 multisig descriptor
+ Descriptor: wsh(sortedmulti(2,@0/<0;1>/*,@1/<0;1>/*,@2/<0;1>/*))
+ Name: Satoshi's Stash
+ Birth block: 123456789012345
+ Key 0: [dc567276/48h/0h/0h/2h]xpub6DiYrfRwNnjeX4vHsWMajJVFKrbEEnu8gAW9vDuQzgTWEsEHE16sGWeXXUV1LBWQE1yCTmeprSNcqZ3W74hqVdgDbtYHUv3eM4W2TEUhpan
+ Key 1: [f245ae38/48h/0h/0h/2h]xpub6DnT4E1fT8VxuAZW29avMjr5i99aYTHBp9d7fiLnpL5t4JEprQqPMbTw7k7rh5tZZ2F5g8PJpssqrZoebzBChaiJrmEvWwUTEMAbHsY39Ge
+ Key 2: [c5d87297/48h/0h/0h/2h]xpub6DjrnfAyuonMaboEb3ZQZzhQ2ZEgaKV2r64BFmqymZqJqviLTe1JzMr2X2RfQF892RH7MyYUbcy77R7pPu1P71xoj8cDUMNhAMGYzKR4noZ
+ Hex-encoded BOD: 70736274ff1907ff79df0d86487000005361746f73686927732053746173683477736828736f727465646d756c746928322c40302f3c303b313e2f2a2c40312f3c303b313e2f2a2c40322f3c303b313e2f2a292953010488b21e0418f8c2e7800000026b3a4cfb6a45f6305efe6e0e976b5d26ba27f7c344d7fc7abef7be2d06d52dfd021c0b479ecf6e67713ddf0c43b634592f51c037b6f951fb1dc6361a98b1e5735e0f8b515314dc5672764800008000000080000000800200008053010488b21e04221eb5a080000002c887c72d9d8ac29cddd5b2b060e8b0239039a149c784abe6079e24445db4aa8a0397fcf2274abd243d42d42d3c248608c6d1935efca46138afef43af08e971289657009d2b14f245ae384800008000000080000000800200008053010488b21e041c0ae906800000025afed56d755c088320ec9bc6acd84d33737b580083759e0a0ff8f26e429e0b77028342f5f7773f6fab374e1c2d3ccdba26bc0933fc4f63828b662b4357e4cc3791bec0fbd814c5d8729748000080000000800000008002000080000000
+
+==Rationale==
+
+<references/>
+
+==Compatibility==
+
+This is a new format and as such has no compatibility burden.
+
+== Reference Implementation==
+
+There is a [https://github.com/seedhammer/bip-bod-descriptors Go implementation]
+for development and testing purposes. Don't use it in production, because it only
+validates the BOD format, not the descriptor itself.
+
+==Acknowledgments==
+
+This specification builds upon the draft BIP 388 by specifying
+a serialization format for compact descriptors. It also uses the indexed key
+references from that BIP, as well as examples and test vectors.
