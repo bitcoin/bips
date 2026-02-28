@@ -33,7 +33,7 @@ def deser_txid(txid: str):
 
 def deser_compact_size(f: BytesIO):
     view = f.getbuffer()
-    nbytes = view.nbytes;
+    nbytes = view.nbytes
     view.release()
     if (nbytes == 0):
         return 0 # end of stream
