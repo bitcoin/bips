@@ -366,30 +366,61 @@ Application number: 828365'
 
 The derivation path format is: <code>m/83696968'/828365'/{key_type}'/{key_bits}'/{key_index}'</code>
 
-The key_type values are defined as follows:
+All path components are hardened (denoted by <code>'</code>). The key_type values are plain integers:
 
 {|
 !OpenPGP Key Type
-!key_type value
+!key_type
 |-
 | RSA
-| 0'
+| 0
 |-
 | ECC(Curve25519)
-| 1'
+| 1
 |-
 | ECC(secp256k1)
-| 2'
+| 2
 |-
 | ECC(NIST)
-| 3'
+| 3
 |-
 | ECC(Brainpool)
-| 4'
+| 4
 |-
 |}
 
-The RSA key generator should use BIP85-DRNG as the input RNG function. Likewise, any ECC key types over 256 bits should use BIP85-DRNG.
+The valid key_bits values and corresponding algorithms for each key_type are:
+
+{|
+!key_type
+!key_bits
+!OpenPGP Algorithm / Curve
+|-
+| 0 (RSA)
+| 1024, 2048, 4096
+| RSA
+|-
+| 1 (Curve25519)
+| 256
+| Ed25519 (certify/sign/auth), X25519 (encrypt)
+|-
+| 2 (secp256k1)
+| 256
+| secp256k1
+|-
+| 3 (NIST)
+| 256, 384, 521
+| NIST P-256, P-384, P-521 respectively
+|-
+| 4 (Brainpool)
+| 256, 384, 512
+| brainpoolP256r1, brainpoolP384r1, brainpoolP512r1 respectively
+|-
+|}
+
+For key_types with a fixed curve (1 and 2), key_bits MUST be 256. Any other value is invalid.
+
+BIP85-DRNG MUST be used as the input RNG function when key generation requires more than 64 bytes of random input. This applies to all RSA key sizes and to NIST P-521 (key_bits=521). All other supported ECC key types use the 64-byte HMAC output directly.
 
 ====Primary Keys and Subkeys====
 
@@ -406,9 +437,15 @@ Keys allocated for GPG purposes use the following scheme:
 
 All subkeys SHOULD use the same key_type as the primary key. Mixed key types across primary and subkeys are out of scope for this specification. Additional subkeys may be added following the same role pattern, incrementing the sub_key index.
 
+For key_type 1 (Curve25519), the OpenPGP algorithm used depends on the key capability, because Curve25519 takes different forms for signing versus encryption in the OpenPGP standard:
+* CERTIFY, SIGN, and AUTHENTICATE capabilities use Ed25519 (EdDSA)
+* ENCRYPT capability uses X25519 (ECDH)
+
+This means the primary key and sub_keys 1 (auth) and 2 (sign) under key_type 1 produce Ed25519 keys, while sub_key 0 (encrypt) produces an X25519 key. The same derived entropy bytes are interpreted according to the required algorithm.
+
 <b>Note on timestamps:</b>
 
-The resulting RSA key can be used to create a GPG key where the creation date MUST be fixed to unix Epoch timestamp 1231006505 (the Bitcoin genesis block time <code>'2009-01-03 18:05:05'</code> UTC) because the key fingerprint is affected by the creation date (Epoch timestamp 0 was not chosen because of legacy behavior in GNUPG implementations for older keys). Additionally, when importing sub-keys under a key in GNUPG, the system time must be frozen to the same timestamp before importing (e.g. by use of <code>faketime</code>).
+All keys derived under this application MUST use a fixed creation date of unix Epoch timestamp 1231006505 (the Bitcoin genesis block time <code>'2009-01-03 18:05:05'</code> UTC) when constructing the OpenPGP key packet, because the key fingerprint is affected by the creation date (Epoch timestamp 0 was not chosen because of legacy behavior in GNUPG implementations for older keys). Additionally, when importing sub-keys under a key in GNUPG, the system time must be frozen to the same timestamp before importing (e.g. by use of <code>faketime</code>).
 
 <b>Note on GPG key capabilities on smartcard/hardware devices:</b>
 
@@ -469,16 +506,15 @@ BIP32, BIP39
 
 ==Changelog==
 
-===2.0.0===
+===2.0.0 (2026-02-27)===
 
 ====Added====
 
-* ECC GPG key types for OpenPGP: Curve25519 (key_type 1'), secp256k1 (key_type 2'), NIST (key_type 3'), Brainpool (key_type 4')
+* ECC GPG key types for OpenPGP under application 828365': Curve25519/key_type=1, secp256k1/key_type=2, NIST/key_type=3, Brainpool/key_type=4
 
 ====Changed====
 
-* GPG key section restructured to use a single application number (828365') with <code>key_type</code> as a path level component, replacing separate per-type application numbers
-* RSA GPG derivation path changed from <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code> to <code>m/83696968'/828365'/0'/{key_bits}'/{key_index}'</code> (breaking change)
+* RSA application 828365' (introduced in 1.1.0) extended with a <code>key_type</code> path component (key_type=0 for RSA) to unify all OpenPGP key types under a single application number; RSA derivation path changed from <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code> to <code>m/83696968'/828365'/0'/{key_bits}'/{key_index}'</code> (breaking change for existing RSA implementations)
 
 ===1.3.0 (2024-10-22)===
 
