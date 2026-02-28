@@ -358,31 +358,94 @@ OUTPUT
 * DERIVED ENTROPY=f7cfe56f63dca2490f65fcbf9ee63dcd85d18f751b6b5e1c1b8733af6459c904a75e82b4a22efff9b9e69de2144b293aa8714319a054b6cb55826a8e51425209
 * DERIVED PWD=_s`{TW89)i4`
 
-===RSA===
+===GPG Keys===
 
 Application number: 828365'
 
-The derivation path format is: <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code>
+The derivation path format is: <code>m/83696968'/828365'/{key_type}'/{key_bits}'/{key_index}'</code>
 
-The RSA key generator should use BIP85-DRNG as the input RNG function.
+All path components are hardened (denoted by <code>'</code>). The key_type values are plain integers:
 
-===RSA GPG===
+{|
+!OpenPGP Key Type
+!key_type
+|-
+| RSA
+| 0
+|-
+| ECC(Curve25519)
+| 1
+|-
+| ECC(secp256k1)
+| 2
+|-
+| ECC(NIST)
+| 3
+|-
+| ECC(Brainpool)
+| 4
+|-
+|}
 
-Keys allocated for RSA-GPG purposes use the following scheme:
+The valid key_bits values and corresponding algorithms for each key_type are:
 
- - Main key <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code>
- - Sub keys:  <code>m/83696968'/828365'/{key_bits}'/{key_index}'/{sub_key}'</code>
+{|
+!key_type
+!key_bits
+!OpenPGP Algorithm / Curve
+|-
+| 0 (RSA)
+| 1024, 2048, 4096
+| RSA
+|-
+| 1 (Curve25519)
+| 256
+| Ed25519 (certify/sign/auth), X25519 (encrypt)
+|-
+| 2 (secp256k1)
+| 256
+| secp256k1
+|-
+| 3 (NIST)
+| 256, 384, 521
+| NIST P-256, P-384, P-521 respectively
+|-
+| 4 (Brainpool)
+| 256, 384, 512
+| brainpoolP256r1, brainpoolP384r1, brainpoolP512r1 respectively
+|-
+|}
 
-    - key_index is the parent key for CERTIFY capability
-    - sub_key <code>0'</code> is used as the ENCRYPTION key
-    - sub_key <code>1'</code> is used as the AUTHENTICATION key
-    - sub_key <code>2'</code> is usually used as SIGNATURE key
+For key_types with a fixed curve (1 and 2), key_bits MUST be 256. Any other value is invalid.
 
-Note on timestamps:
+BIP85-DRNG MUST be used as the input RNG function when key generation requires more than 64 bytes of random input. This applies to all RSA key sizes and to NIST P-521 (key_bits=521). All other supported ECC key types use the 64-byte HMAC output directly.
 
-The resulting RSA key can be used to create a GPG key where the creation date MUST be fixed to UNIX Epoch timestamp 1231006505 (the Bitcoin genesis block time <code>'2009-01-03 18:15:05'</code> UTC)<ref>The human-readable datetime string was incorrectly noted as '2009-01-03 18:05:05' prior to v2.0.0 of this BIP, so implementations that relied on it rather than UNIX Epoch timestamp 1231006505 will produce different key fingerprints.</ref> because the key fingerprint is affected by the creation date (Epoch timestamp 0 was not chosen because of legacy behavior in GNUPG implementations for older keys). Additionally, when importing sub-keys under a key in GNUPG, the system time must be frozen to the same timestamp before importing (e.g. by use of <code>faketime</code>).
+====Primary Keys and Subkeys====
 
-Note on GPG key capabilities on smartcard/hardware devices:
+In OpenPGP, a key consists of a primary key used for certification and one or more subkeys for encryption, signing, and authentication. This structure separates long-term identity (the primary key) from operational keys (subkeys), allowing subkeys to expire or be revoked independently without affecting the primary key identity.
+
+Keys allocated for GPG purposes use the following scheme:
+
+* Primary key: <code>m/83696968'/828365'/{key_type}'/{key_bits}'/{key_index}'</code>
+* Sub keys: <code>m/83696968'/828365'/{key_type}'/{key_bits}'/{key_index}'/{sub_key}'</code>
+** key_index is the parent key for CERTIFY capability
+** sub_key <code>0'</code> is used as the ENCRYPTION key
+** sub_key <code>1'</code> is used as the AUTHENTICATION key
+** sub_key <code>2'</code> is usually used as SIGNATURE key
+
+All subkeys SHOULD use the same key_type as the primary key. Mixed key types across primary and subkeys are out of scope for this specification. Additional subkeys may be added following the same role pattern, incrementing the sub_key index.
+
+For key_type 1 (Curve25519), the OpenPGP algorithm used depends on the key capability, because Curve25519 takes different forms for signing versus encryption in the OpenPGP standard:
+* CERTIFY, SIGN, and AUTHENTICATE capabilities use Ed25519 (EdDSA)
+* ENCRYPT capability uses X25519 (ECDH)
+
+This means the primary key and sub_keys 1 (auth) and 2 (sign) under key_type 1 produce Ed25519 keys, while sub_key 0 (encrypt) produces an X25519 key. The same derived entropy bytes are interpreted according to the required algorithm.
+
+<b>Note on timestamps:</b>
+
+All keys derived under this application MUST use a fixed creation date of unix Epoch timestamp 1231006505 (the Bitcoin genesis block time <code>'2009-01-03 18:05:05'</code> UTC) when constructing the OpenPGP key packet, because the key fingerprint is affected by the creation date (Epoch timestamp 0 was not chosen because of legacy behavior in GNUPG implementations for older keys). Additionally, when importing sub-keys under a key in GNUPG, the system time must be frozen to the same timestamp before importing (e.g. by use of <code>faketime</code>).
+
+<b>Note on GPG key capabilities on smartcard/hardware devices:</b>
 
 GPG capable smart-cards SHOULD be loaded as follows: The encryption slot SHOULD be loaded with the ENCRYPTION capable key; the authentication slot SHOULD be loaded with the AUTHENTICATION capable key. The signature capable slot SHOULD be loaded with the SIGNATURE capable key.
 
@@ -441,11 +504,23 @@ BIP32, BIP39
 
 ==Changelog==
 
+
+===3.0.0 (2026-02-27)===
+
+====Added====
+
+* ECC GPG key types for OpenPGP under application 828365': Curve25519/key_type=1, secp256k1/key_type=2, NIST/key_type=3, Brainpool/key_type=4
+
+====Changed====
+
+* RSA application 828365' (introduced in 1.1.0) extended with a <code>key_type</code> path component (key_type=0 for RSA) to unify all OpenPGP key types under a single application number; RSA derivation path changed from <code>m/83696968'/828365'/{key_bits}'/{key_index}'</code> to <code>m/83696968'/828365'/0'/{key_bits}'/{key_index}'</code> (breaking change for existing RSA implementations)
+
 ===2.0.0 (2025-09-19)===
 
 ====Fixed====
 
 * Fixed the human-readable datetime string for BIP85 GPG Keys that was incorrectly stated as '2009-01-03 18:05:05' rather than '2009-01-03 18:15:05'. Implementations that relied on the previously incorrect datetime string instead of UNIX Epoch timestamp 1231006505 will produce different key fingerprints.
+
 
 ===1.3.0 (2024-10-22)===
 
