@@ -1,11 +1,11 @@
 ```
-BIP: TBD
+BIP: ?
 Layer: Consensus (soft fork)
 Title: OP_TWEAKADD - x-only key tweak addition
-Author: Jeremy Rubin <jeremy@char.network>
+Authors: Jeremy Rubin <jeremy@char.network>
 Status: Draft
-Type: Standards Track
-Created: 2025-08-22
+Type: Specification
+Assigned: ?
 License: BSD-3-Clause
 ```
 ## Abstract
