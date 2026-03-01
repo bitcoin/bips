@@ -218,6 +218,80 @@ Note: [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP173] im
 
 For a silent payments v0 address, this results in a 117-character address when using a 3-character HRP. Future versions of silent payment addresses may add to the payload, which is why a 1023-character limit is suggested.</ref> and allows versions up to 31. Additionally, since higher versions may add to the data field, it is recommended implementations use a limit of 1023 characters (see [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#checksum-design BIP173: Checksum design] for more details).
 
+=== Wallet key material encoding ===
+
+In addition to the silent payment address format described above, this BIP defines two additional encoding formats for encoding wallet key material. These formats are analogous to the extended public/private key (xpub/xprv) format used in BIP32 wallets, providing a standardized way to encode the necessary keys for wallet scanning and spending operations.
+
+==== Scan-only wallet encoding (spscan) ====
+
+A scan-only wallet encoding allows a wallet to scan for incoming silent payments without having the ability to spend funds. This is useful for watch-only wallets, audit purposes, or scanning on potentially insecure devices. The scan-only encoding is constructed in the following manner:
+
+* Let ''b<sub>scan</sub> = Receiver's scan private key''
+* Let ''B<sub>spend</sub> = Receiver's spend public key''
+* Let ''birthday = The block height at wallet creation''
+** If ''birthday'' is unknown or if recovering from a BIP39 seed, use block height 842579 (May 8, 2024)<ref name="why_birthday_842579">'''Why use block 842579 as the default birthday?''' Block 842579, mined on May 8, 2024, corresponds to the approximate time when BIP-352 was merged. Wallets created from BIP39 seeds or without a known birthday should use this as a safe default to ensure all potential silent payment outputs are detected during scanning. While taproot (which silent payments require) activated at block 709632 (November 12, 2021), no wallets would have created silent payment outputs before the protocol was standardized, making 842579 a more practical default that avoids unnecessary scanning of blocks where no silent payments could exist.</ref>
+* Let ''max_label = The highest label integer that has been distributed'', where ''max_label'' is a 32-bit unsigned integer in the range [0, 2<sup>32</sup> - 1]
+** If no labels have been distributed, ''max_label'' must be 0.
+** Distribution of labels should start at 1 and increase by 1 for each new label.
+* The payload is constructed as:
+** ''ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>P</sub>(B<sub>spend</sub>) || ser<sub>32</sub>(birthday) || ser<sub>32</sub>(max_label)''
+* The final encoding is a [https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki Bech32m] encoding of:
+** The human-readable part "spscan" for mainnet, "tspscan" for testnets
+** The data-part values:
+*** The character "q", to represent version 0
+*** The payload described above
+
+The scan-only encoding allows the holder to:
+* Scan the blockchain for incoming payments
+* Generate labeled addresses using ''B<sub>m</sub> = B<sub>spend</sub> + hash<sub>BIP0352/Label</sub>(ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>32</sub>(m))·G''
+* Determine the wallet birthday to avoid scanning blocks before wallet creation
+* Cannot spend any funds
+
+==== Full wallet encoding (spspend) ====
+
+A full wallet encoding contains both the scan and spend private keys, allowing the wallet to both scan for and spend incoming silent payments. This encoding should be treated with the same security considerations as a BIP32 extended private key (xprv). The full wallet encoding is constructed in the following manner:
+
+* Let ''b<sub>scan</sub> = Receiver's scan private key''
+* Let ''b<sub>spend</sub> = Receiver's spend private key''
+* Let ''birthday = The block height at wallet creation''
+** If ''birthday'' is unknown or if recovering from a BIP39 seed, use block height 842579 (May 8, 2024)<ref name="why_birthday_842579"></ref>
+* Let ''max_label = The highest label integer that has been distributed'', where ''max_label'' is a 32-bit unsigned integer in the range [0, 2<sup>32</sup> - 1]
+** If no labels have been distributed, ''max_label'' must be 0.
+** Distribution of labels should start at 1 and increase by 1 for each new label.
+* The payload is constructed as:
+** ''ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>256</sub>(b<sub>spend</sub>) || ser<sub>32</sub>(birthday) || ser<sub>32</sub>(max_label)''
+* The final encoding is a [https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki Bech32m] encoding of:
+** The human-readable part "spspend" for mainnet, "tspspend" for testnets
+** The data-part values:
+*** The character "q", to represent version 0
+*** The payload described above
+
+The full wallet encoding allows the holder to:
+* Scan the blockchain for incoming payments
+* Spend any detected funds
+* Generate labeled addresses
+* Determine the wallet birthday to avoid scanning blocks before wallet creation
+
+==== Label handling ====
+
+Both ''spscan'' and ''spspend'' encodings support encoding a ''max_label'' value to indicate the highest label that has been distributed. The ''max_label'' is encoded as a single 4-byte unsigned integer (''ser<sub>32</sub>(max_label)'') after the birthday field and if set to 0, no labels have been distributed. (0 should not be distributed as a label, as it is reserved for change outputs.)
+
+When scanning for payments, wallets MUST always check for label ''m = 0'' (the change label), regardless of the ''max_label'' value. This ensures compatibility across different wallet implementations and prevents loss of funds if the wallet has generated change outputs using the reserved change label.
+
+When a ''max_label'' value is present in the encoding, wallets MUST scan for all labels in the range [0, ''max_label''], inclusive. This design encourages users to use a dense range of labels (e.g., 1, 2, 3, 4, 5) rather than sparse labels (e.g., 1, 100, 1000), resulting in more efficient scanning and a fixed-size encoding.
+
+Wallet implementations SHOULD set ''max_label'' to the highest label integer that has been distributed when exporting wallet key material. If additional labeled addresses are generated after export, the wallet MAY rescan with a higher label range to detect payments to those labels.
+
+==== Birthday handling ====
+
+The birthday field encodes the block height at which the wallet was created. This allows wallets to optimize scanning by skipping blocks before the wallet existed, significantly reducing the computational burden for new wallets.
+
+* When creating a new wallet, set the birthday to the current block height
+* When recovering from a BIP39 seed phrase without a known birthday, use block height 842579 (May 8, 2024)
+* When importing an ''spscan'' or ''spspend'' encoding, the birthday is read from the encoding
+* When scanning, wallets SHOULD start from the birthday block height
+* Wallet implementations MAY provide users with the option to override the birthday for earlier scanning if needed
+
 === Inputs For Shared Secret Derivation ===
 
 While any UTXO with known output scripts can be used to fund the transaction, the sender and receiver MUST use inputs from the following list when deriving the shared secret:
@@ -367,7 +441,27 @@ Recall that a silent payment output is of the form ''B<sub>spend</sub> + t<sub>k
 
 Since each silent payment output address is derived independently, regular backups are recommended. When recovering from a backup, the wallet will need to scan since the last backup to detect new payments.
 
-If using a seed/seed phrase only style backup, the user can recover the wallet's unspent outputs from the UTXO set (i.e. only scanning transactions with at least one unspent taproot output) and can recover the full wallet history by scanning the blockchain starting from the wallet birthday. If a wallet uses labels, this information SHOULD be included in the backup. If the user does not know whether labels were used, it is strongly recommended they always precompute and check a large number of labels (e.g. 100k labels) to use when re-scanning. This ensures that the wallet can recover all funds from only a seed/seed phrase backup. The change label should simply always be scanned for, even when no other labels were used. This ensures the use of a change label is not critical for backups and maximizes cross-compatibility.
+Wallets have several options for backing up silent payment key material:
+
+''' Using spscan or spspend encodings '''
+
+The ''spscan'' and ''spspend'' encodings provide a comprehensive backup solution that includes:
+* The necessary key material for scanning (''spscan'') or scanning and spending (''spspend'')
+* The wallet birthday, allowing efficient scanning from the point of wallet creation
+* ''max_label'' value indicating the highest label that has been distributed
+
+When recovering from an ''spscan'' or ''spspend'' encoding:
+* Start scanning from the birthday block height specified in the encoding
+* Scan for all labels in the range [0, ''max_label''], inclusive (the change label ''m = 0'' is always included)
+* If uncertain whether additional labels beyond ''max_label'' may have been distributed, scan for a larger label range to ensure all funds are recovered
+
+The ''spspend'' encoding provides a complete backup solution similar to a BIP32 xprv and should be treated with the same security considerations. The ''spscan'' encoding is suitable for watch-only wallets or for sharing with trusted scanning services, as it cannot be used to spend funds.
+
+''' Using BIP39 seed phrase '''
+
+If using a seed/seed phrase only style backup (without ''spscan'' or ''spspend'' encoding), the user can recover the wallet's unspent outputs from the UTXO set (i.e. only scanning transactions with at least one unspent taproot output) and can recover the full wallet history by scanning the blockchain starting from block height 842579 (May 8, 2024), which serves as the default birthday for BIP39 seed recovery. 
+
+If a wallet uses labels, this information SHOULD be included in the backup through an ''spscan'' or ''spspend'' encoding. If the user does not know whether labels were used, it is strongly recommended they always precompute and check a large number of labels (e.g. 100k labels) when re-scanning. The change label (''m = 0'') should always be scanned for, even when no other labels were used. This ensures the use of a change label is not critical for backups and maximizes cross-compatibility.
 
 == Backward Compatibility ==
 
