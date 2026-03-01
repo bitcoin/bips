@@ -2,15 +2,19 @@
 # For running the test vectors, run this script:
 # ./reference.py send_and_receive_test_vectors.json
 
-import hashlib
 import json
+from pathlib import Path
+import sys
 from typing import List, Tuple, Dict, cast
-from sys import argv, exit
-from functools import reduce
 
-# local files
+# import the vendored copy of secp256k1lab
+sys.path.insert(0, str(Path(__file__).parent / "secp256k1lab/src"))
+from secp256k1lab.bip340 import schnorr_sign, schnorr_verify
+from secp256k1lab.secp256k1 import G, GE, Scalar
+from secp256k1lab.util import tagged_hash, hash_sha256
+
+
 from bech32m import convertbits, bech32_encode, decode, Encoding
-from secp256k1 import ECKey, ECPubKey, TaggedHash, NUMS_H
 from bitcoin_utils import (
         deser_txid,
         from_hex,
@@ -26,7 +30,10 @@ from bitcoin_utils import (
     )
 
 
-def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
+NUMS_H = 0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0
+
+
+def get_pubkey_from_input(vin: VinInfo) -> GE:
     if is_p2pkh(vin.prevout):
         # skip the first 3 op_codes and grab the 20 byte hash
         # from the scriptPubKey
@@ -44,20 +51,22 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
                 pubkey_bytes = vin.scriptSig[i - 33:i]
                 pubkey_hash = hash160(pubkey_bytes)
                 if pubkey_hash == spk_hash:
-                    pubkey = ECPubKey().set(pubkey_bytes)
-                    if (pubkey.valid) & (pubkey.compressed):
-                        return pubkey
+                    try:
+                        return GE.from_bytes_compressed(pubkey_bytes)
+                    except ValueError:
+                        pass
     if is_p2sh(vin.prevout):
         redeem_script = vin.scriptSig[1:]
         if is_p2wpkh(redeem_script):
-            pubkey = ECPubKey().set(vin.txinwitness.scriptWitness.stack[-1])
-            if (pubkey.valid) & (pubkey.compressed):
-                return pubkey
+            try:
+                return GE.from_bytes_compressed(vin.txinwitness.scriptWitness.stack[-1])
+            except (ValueError, AssertionError):
+                pass
     if is_p2wpkh(vin.prevout):
-        txin = vin.txinwitness
-        pubkey = ECPubKey().set(txin.scriptWitness.stack[-1])
-        if (pubkey.valid) & (pubkey.compressed):
-            return pubkey
+        try:
+            return GE.from_bytes_compressed(vin.txinwitness.scriptWitness.stack[-1])
+        except (ValueError, AssertionError):
+            pass
     if is_p2tr(vin.prevout):
         witnessStack = vin.txinwitness.scriptWitness.stack
         if (len(witnessStack) >= 1):
@@ -72,71 +81,69 @@ def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
                 internal_key = control_block[1:33]
                 if (internal_key == NUMS_H.to_bytes(32, 'big')):
                     # Skip if NUMS_H
-                    return ECPubKey()
+                    return GE()
 
-            pubkey = ECPubKey().set(vin.prevout[2:])
-            if (pubkey.valid) & (pubkey.compressed):
-                return pubkey
+            try:
+                return GE.from_bytes_xonly(vin.prevout[2:])
+            except ValueError:
+                pass
+
+    return GE()
 
 
-    return ECPubKey()
-
-
-def get_input_hash(outpoints: List[COutPoint], sum_input_pubkeys: ECPubKey) -> bytes:
+def get_input_hash(outpoints: List[COutPoint], sum_input_pubkeys: GE) -> bytes:
     lowest_outpoint = sorted(outpoints, key=lambda outpoint: outpoint.serialize())[0]
-    return TaggedHash("BIP0352/Inputs", lowest_outpoint.serialize() + cast(bytes, sum_input_pubkeys.get_bytes(False)))
+    return tagged_hash("BIP0352/Inputs", lowest_outpoint.serialize() + sum_input_pubkeys.to_bytes_compressed())
 
 
 
-def encode_silent_payment_address(B_scan: ECPubKey, B_m: ECPubKey, hrp: str = "tsp", version: int = 0) -> str:
-    data = convertbits(cast(bytes, B_scan.get_bytes(False)) + cast(bytes, B_m.get_bytes(False)), 8, 5)
+def encode_silent_payment_address(B_scan: GE, B_m: GE, hrp: str = "tsp", version: int = 0) -> str:
+    data = convertbits(B_scan.to_bytes_compressed() + B_m.to_bytes_compressed(), 8, 5)
     return bech32_encode(hrp, [version] + cast(List[int], data), Encoding.BECH32M)
 
 
-def generate_label(b_scan: ECKey, m: int) -> bytes:
-    return TaggedHash("BIP0352/Label", b_scan.get_bytes() + ser_uint32(m))
+def generate_label(b_scan: Scalar, m: int) -> Scalar:
+    return Scalar.from_bytes_checked(tagged_hash("BIP0352/Label", b_scan.to_bytes() + ser_uint32(m)))
 
 
-def create_labeled_silent_payment_address(b_scan: ECKey, B_spend: ECPubKey, m: int, hrp: str = "tsp", version: int = 0) -> str:
-    G = ECKey().set(1).get_pubkey()
-    B_scan = b_scan.get_pubkey()
+def create_labeled_silent_payment_address(b_scan: Scalar, B_spend: GE, m: int, hrp: str = "tsp", version: int = 0) -> str:
+    B_scan = b_scan * G
     B_m = B_spend + generate_label(b_scan, m) * G
     labeled_address = encode_silent_payment_address(B_scan, B_m, hrp, version)
 
     return labeled_address
 
 
-def decode_silent_payment_address(address: str, hrp: str = "tsp") -> Tuple[ECPubKey, ECPubKey]:
+def decode_silent_payment_address(address: str, hrp: str = "tsp") -> Tuple[GE, GE]:
     _, data = decode(hrp, address)
     if data is None:
-        return ECPubKey(), ECPubKey()
-    B_scan = ECPubKey().set(data[:33])
-    B_spend = ECPubKey().set(data[33:])
+        return GE(), GE()
+    B_scan = GE.from_bytes_compressed(data[:33])
+    B_spend = GE.from_bytes_compressed(data[33:])
 
     return B_scan, B_spend
 
 
-def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[COutPoint], recipients: List[str], expected: Dict[str, any] = None, hrp="tsp") -> List[str]:
-    G = ECKey().set(1).get_pubkey()
+def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[COutPoint], recipients: List[str], expected: Dict[str, any] = None, hrp="tsp") -> List[str]:
     negated_keys = []
     for key, is_xonly in input_priv_keys:
-        k = ECKey().set(key.get_bytes())
-        if is_xonly and k.get_pubkey().get_y() % 2 != 0:
-            k.negate()
+        k = Scalar.from_bytes_checked(key.to_bytes())
+        if is_xonly and not (k * G).has_even_y():
+            k = -k
         negated_keys.append(k)
 
-    a_sum = sum(negated_keys)
-    if not a_sum.valid:
+    a_sum = Scalar.sum(*negated_keys)
+    if a_sum == 0:
         # Input privkeys sum is zero -> fail
         return []
-    assert ECKey().set(bytes.fromhex(expected.get("input_private_key_sum"))) == a_sum, "a_sum did not match expected input_private_key_sum"
-    input_hash = get_input_hash(outpoints, a_sum * G)
-    silent_payment_groups: Dict[ECPubKey, List[ECPubKey]] = {}
+    assert Scalar.from_bytes_checked(bytes.fromhex(expected.get("input_private_key_sum"))) == a_sum, "a_sum did not match expected input_private_key_sum"
+    input_hash_scalar = Scalar.from_bytes_checked(get_input_hash(outpoints, a_sum * G))
+    silent_payment_groups: Dict[GE, List[GE]] = {}
     for recipient in recipients:
         B_scan, B_m = decode_silent_payment_address(recipient["address"], hrp=hrp)
         # Verify decoded intermediate keys for recipient
-        expected_B_scan = ECPubKey().set(bytes.fromhex(recipient["scan_pub_key"]))
-        expected_B_m = ECPubKey().set(bytes.fromhex(recipient["spend_pub_key"]))
+        expected_B_scan = GE.from_bytes_compressed(bytes.fromhex(recipient["scan_pub_key"]))
+        expected_B_m = GE.from_bytes_compressed(bytes.fromhex(recipient["spend_pub_key"]))
         assert expected_B_scan == B_scan, "B_scan did not match expected recipient.scan_pub_key"
         assert expected_B_m == B_m, "B_m did not match expected recipient.spend_pub_key"
         if B_scan in silent_payment_groups:
@@ -146,66 +153,65 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
 
     outputs = []
     for B_scan, B_m_values in silent_payment_groups.items():
-        ecdh_shared_secret = input_hash * a_sum * B_scan
+        ecdh_shared_secret = input_hash_scalar * a_sum * B_scan
         expected_shared_secrets = expected.get("shared_secrets", {})
         # Find the recipient address that corresponds to this B_scan and get its index
         for recipient_idx, recipient in enumerate(recipients):
-            recipient_B_scan = ECPubKey().set(bytes.fromhex(recipient["scan_pub_key"]))
+            recipient_B_scan = GE.from_bytes_compressed(bytes.fromhex(recipient["scan_pub_key"]))
             if recipient_B_scan == B_scan:
                 expected_shared_secret_hex = expected_shared_secrets[recipient_idx]
-                assert ecdh_shared_secret.get_bytes(False).hex() == expected_shared_secret_hex, f"ecdh_shared_secret did not match expected, recipient {recipient_idx} ({recipient['address']}): expected={expected_shared_secret_hex}"
+                assert ecdh_shared_secret.to_bytes_compressed().hex() == expected_shared_secret_hex, f"ecdh_shared_secret did not match expected, recipient {recipient_idx} ({recipient['address']}): expected={expected_shared_secret_hex}"
                 break
         k = 0
         for B_m in B_m_values:
-            t_k = TaggedHash("BIP0352/SharedSecret", ecdh_shared_secret.get_bytes(False) + ser_uint32(k))
+            t_k = Scalar.from_bytes_checked(tagged_hash("BIP0352/SharedSecret", ecdh_shared_secret.to_bytes_compressed() + ser_uint32(k)))
             P_km = B_m + t_k * G
-            outputs.append(P_km.get_bytes().hex())
+            outputs.append(P_km.to_bytes_xonly().hex())
             k += 1
 
     return list(set(outputs))
 
 
-def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: bytes, outputs_to_check: List[ECPubKey], labels: Dict[str, str] = None, expected: Dict[str, any] = None) -> List[Dict[str, str]]:
-    G = ECKey().set(1).get_pubkey()
-    input_hash_key = ECKey().set(input_hash)
-    computed_tweak_point = input_hash_key * A_sum
-    assert computed_tweak_point.get_bytes(False).hex() == expected.get("tweak"), "tweak did not match expected"
-    ecdh_shared_secret = input_hash * b_scan * A_sum
-    assert ecdh_shared_secret.get_bytes(False).hex() == expected.get("shared_secret"), "ecdh_shared_secret did not match expected shared_secret"
+def scanning(b_scan: Scalar, B_spend: GE, A_sum: GE, input_hash: bytes, outputs_to_check: List[bytes], labels: Dict[str, str] = None, expected: Dict[str, any] = None) -> List[Dict[str, str]]:
+    input_hash_scalar = Scalar.from_bytes_checked(input_hash)
+    computed_tweak_point = input_hash_scalar * A_sum
+    assert computed_tweak_point.to_bytes_compressed().hex() == expected.get("tweak"), "tweak did not match expected"
+    ecdh_shared_secret = input_hash_scalar * b_scan * A_sum
+    assert ecdh_shared_secret.to_bytes_compressed().hex() == expected.get("shared_secret"), "ecdh_shared_secret did not match expected shared_secret"
     k = 0
     wallet = []
     while True:
-        t_k = TaggedHash("BIP0352/SharedSecret", ecdh_shared_secret.get_bytes(False) + ser_uint32(k))
+        t_k = Scalar.from_bytes_checked(tagged_hash("BIP0352/SharedSecret", ecdh_shared_secret.to_bytes_compressed() + ser_uint32(k)))
         P_k = B_spend + t_k * G
         for output in outputs_to_check:
-            if P_k == output:
-                wallet.append({"pub_key": P_k.get_bytes().hex(), "priv_key_tweak": t_k.hex()})
+            output_ge = GE.from_bytes_xonly(output)
+            if P_k.to_bytes_xonly() == output:
+                wallet.append({"pub_key": P_k.to_bytes_xonly().hex(), "priv_key_tweak": t_k.to_bytes().hex()})
                 outputs_to_check.remove(output)
                 k += 1
                 break
             elif labels:
-                m_G_sub = output - P_k
-                if m_G_sub.get_bytes(False).hex() in labels:
+                m_G_sub = output_ge - P_k
+                if m_G_sub.to_bytes_compressed().hex() in labels:
                     P_km = P_k + m_G_sub
                     wallet.append({
-                        "pub_key": P_km.get_bytes().hex(),
-                        "priv_key_tweak": (ECKey().set(t_k).add(
-                            bytes.fromhex(labels[m_G_sub.get_bytes(False).hex()])
-                        )).get_bytes().hex(),
+                        "pub_key": P_km.to_bytes_xonly().hex(),
+                        "priv_key_tweak": (t_k + Scalar.from_bytes_checked(
+                            bytes.fromhex(labels[m_G_sub.to_bytes_compressed().hex()])
+                        )).to_bytes().hex(),
                     })
                     outputs_to_check.remove(output)
                     k += 1
                     break
                 else:
-                    output.negate()
-                    m_G_sub = output - P_k
-                    if m_G_sub.get_bytes(False).hex() in labels:
+                    m_G_sub = -output_ge - P_k
+                    if m_G_sub.to_bytes_compressed().hex() in labels:
                         P_km = P_k + m_G_sub
                         wallet.append({
-                            "pub_key": P_km.get_bytes().hex(),
-                            "priv_key_tweak": (ECKey().set(t_k).add(
-                                bytes.fromhex(labels[m_G_sub.get_bytes(False).hex()])
-                            )).get_bytes().hex(),
+                            "pub_key": P_km.to_bytes_xonly().hex(),
+                            "priv_key_tweak": (t_k + Scalar.from_bytes_checked(
+                                bytes.fromhex(labels[m_G_sub.to_bytes_compressed().hex()])
+                            )).to_bytes().hex(),
                         })
                         outputs_to_check.remove(output)
                         k += 1
@@ -216,15 +222,13 @@ def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: byte
 
 
 if __name__ == "__main__":
-    if len(argv) != 2 or argv[1] in ('-h', '--help'):
+    if len(sys.argv) != 2 or sys.argv[1] in ('-h', '--help'):
         print("Usage: ./reference.py send_and_receive_test_vectors.json")
-        exit(0)
+        sys.exit(0)
 
-    with open(argv[1], "r") as f:
+    with open(sys.argv[1], "r") as f:
         test_data = json.loads(f.read())
 
-    # G , needed for generating the labels "database"
-    G = ECKey().set(1).get_pubkey()
     for case in test_data:
         print(case["comment"])
         # Test sending
@@ -238,7 +242,7 @@ if __name__ == "__main__":
                     scriptSig=bytes.fromhex(input["scriptSig"]),
                     txinwitness=CTxInWitness().deserialize(from_hex(input["txinwitness"])),
                     prevout=bytes.fromhex(input["prevout"]["scriptPubKey"]["hex"]),
-                    private_key=ECKey().set(bytes.fromhex(input["private_key"])),
+                    private_key=Scalar.from_bytes_checked(bytes.fromhex(input["private_key"])),
                 )
                 for input in given["vin"]
             ]
@@ -247,14 +251,14 @@ if __name__ == "__main__":
             input_pub_keys = []
             for vin in vins:
                 pubkey = get_pubkey_from_input(vin)
-                if not pubkey.valid:
+                if pubkey.infinity:
                     continue
                 input_priv_keys.append((
                     vin.private_key,
                     is_p2tr(vin.prevout),
                 ))
                 input_pub_keys.append(pubkey)
-            assert [pk.get_bytes(False).hex() for pk in input_pub_keys] == expected.get("input_pub_keys"), "input_pub_keys did not match expected"
+            assert [pk.to_bytes_compressed().hex() for pk in input_pub_keys] == expected.get("input_pub_keys"), "input_pub_keys did not match expected"
 
             sending_outputs = []
             if (len(input_pub_keys) > 0):
@@ -270,13 +274,13 @@ if __name__ == "__main__":
                 assert(sending_outputs == expected["outputs"][0] == []), "Sending test failed"
 
         # Test receiving
-        msg = hashlib.sha256(b"message").digest()
-        aux = hashlib.sha256(b"random auxiliary data").digest()
+        msg = hash_sha256(b"message")
+        aux = hash_sha256(b"random auxiliary data")
         for receiving_test in case["receiving"]:
             given = receiving_test["given"]
             expected = receiving_test["expected"]
             outputs_to_check = [
-                ECPubKey().set(bytes.fromhex(p)) for p in given["outputs"]
+                bytes.fromhex(p) for p in given["outputs"]
             ]
             vins = [
                 VinInfo(
@@ -289,12 +293,10 @@ if __name__ == "__main__":
             ]
             # Check that the given inputs for the receiving test match what was generated during the sending test
             receiving_addresses = []
-            b_scan = ECKey().set(bytes.fromhex(given["key_material"]["scan_priv_key"]))
-            b_spend = ECKey().set(
-                bytes.fromhex(given["key_material"]["spend_priv_key"])
-            )
-            B_scan = b_scan.get_pubkey()
-            B_spend = b_spend.get_pubkey()
+            b_scan = Scalar.from_bytes_checked(bytes.fromhex(given["key_material"]["scan_priv_key"]))
+            b_spend = Scalar.from_bytes_checked(bytes.fromhex(given["key_material"]["spend_priv_key"]))
+            B_scan = b_scan * G
+            B_spend = b_spend * G
             receiving_addresses.append(
                 encode_silent_payment_address(B_scan, B_spend, hrp="sp")
             )
@@ -311,21 +313,21 @@ if __name__ == "__main__":
             input_pub_keys = []
             for vin in vins:
                 pubkey = get_pubkey_from_input(vin)
-                if not pubkey.valid:
+                if pubkey.infinity:
                     continue
                 input_pub_keys.append(pubkey)
 
             add_to_wallet = []
             if (len(input_pub_keys) > 0):
-                A_sum = reduce(lambda x, y: x + y, input_pub_keys)
-                if A_sum.get_bytes() is None:
+                A_sum = GE.sum(*input_pub_keys)
+                if A_sum.infinity:
                     # Input pubkeys sum is point at infinity -> skip tx
                     assert expected["outputs"] == []
                     continue
-                assert A_sum.get_bytes(False).hex() == expected.get("input_pub_key_sum"), "A_sum did not match expected input_pub_key_sum"
+                assert A_sum.to_bytes_compressed().hex() == expected.get("input_pub_key_sum"), "A_sum did not match expected input_pub_key_sum"
                 input_hash = get_input_hash([vin.outpoint for vin in vins], A_sum)
                 pre_computed_labels = {
-                    (generate_label(b_scan, label) * G).get_bytes(False).hex(): generate_label(b_scan, label).hex()
+                    (generate_label(b_scan, label) * G).to_bytes_compressed().hex(): generate_label(b_scan, label).to_bytes().hex()
                     for label in given["labels"]
                 }
                 add_to_wallet = scanning(
@@ -340,13 +342,13 @@ if __name__ == "__main__":
 
             # Check that the private key is correct for the found output public key
             for output in add_to_wallet:
-                pub_key = ECPubKey().set(bytes.fromhex(output["pub_key"]))
-                full_private_key = b_spend.add(bytes.fromhex(output["priv_key_tweak"]))
-                if full_private_key.get_pubkey().get_y() % 2 != 0:
-                    full_private_key.negate()
+                pub_key = GE.from_bytes_xonly(bytes.fromhex(output["pub_key"]))
+                full_private_key = b_spend + Scalar.from_bytes_checked(bytes.fromhex(output["priv_key_tweak"]))
+                if not (full_private_key * G).has_even_y():
+                    full_private_key = -full_private_key
 
-                sig = full_private_key.sign_schnorr(msg, aux)
-                assert pub_key.verify_schnorr(sig, msg), f"Invalid signature for {pub_key}"
+                sig = schnorr_sign(msg, full_private_key.to_bytes(), aux)
+                assert schnorr_verify(msg, pub_key.to_bytes_xonly(), sig), f"Invalid signature for {pub_key}"
                 output["signature"] = sig.hex()
 
             # Note: order doesn't matter for creating/finding the outputs. However, different orderings of the recipient addresses

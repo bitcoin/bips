@@ -2,7 +2,7 @@ import hashlib
 import struct
 from io import BytesIO
 from ripemd160 import ripemd160
-from secp256k1 import ECKey
+from secp256k1lab.secp256k1 import Scalar
 from typing import Union
 
 
@@ -93,7 +93,7 @@ class VinInfo:
         else:
             self.txinwitness = txinwitness
         if private_key is None:
-            self.private_key = ECKey()
+            self.private_key = Scalar()
         else:
             self.private_key = private_key
         self.scriptSig = scriptSig
