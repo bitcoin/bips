@@ -26,6 +26,9 @@ from bitcoin_utils import (
     )
 
 
+K_max = 2323  # per-group recipient limit
+
+
 def get_pubkey_from_input(vin: VinInfo) -> ECPubKey:
     if is_p2pkh(vin.prevout):
         # skip the first 3 op_codes and grab the 20 byte hash
@@ -144,6 +147,10 @@ def create_outputs(input_priv_keys: List[Tuple[ECKey, bool]], outpoints: List[CO
         else:
             silent_payment_groups[B_scan] = [B_m]
 
+    # Fail if per-group recipient limit (K_max) is exceeded
+    if any([len(group) > K_max for group in silent_payment_groups.values()]):
+        return []
+
     outputs = []
     for B_scan, B_m_values in silent_payment_groups.items():
         ecdh_shared_secret = input_hash * a_sum * B_scan
@@ -175,6 +182,8 @@ def scanning(b_scan: ECKey, B_spend: ECPubKey, A_sum: ECPubKey, input_hash: byte
     k = 0
     wallet = []
     while True:
+        if k == K_max:  # Don't look further than the per-group recipient limit (K_max)
+            break
         t_k = TaggedHash("BIP0352/SharedSecret", ecdh_shared_secret.get_bytes(False) + ser_uint32(k))
         P_k = B_spend + t_k * G
         for output in outputs_to_check:
@@ -259,7 +268,11 @@ if __name__ == "__main__":
             sending_outputs = []
             if (len(input_pub_keys) > 0):
                 outpoints = [vin.outpoint for vin in vins]
-                sending_outputs = create_outputs(input_priv_keys, outpoints, given["recipients"], expected=expected, hrp="sp")
+                recipients = []  # expand given recipient entries to full list
+                for recipient_entry in given["recipients"]:
+                    count = recipient_entry.get("count", 1)
+                    recipients.extend([recipient_entry] * count)
+                sending_outputs = create_outputs(input_priv_keys, outpoints, recipients, expected=expected, hrp="sp")
 
                 # Note: order doesn't matter for creating/finding the outputs. However, different orderings of the recipient addresses
                 # will produce different generated outputs if sending to multiple silent payment addresses belonging to the
@@ -354,9 +367,14 @@ if __name__ == "__main__":
             # same sender but with different labels. Because of this, expected["outputs"] contains all possible valid output sets,
             # based on all possible permutations of recipient address orderings. Must match exactly one of the possible found output
             # sets in expected["outputs"]
-            generated_set = {frozenset(d.items()) for d in add_to_wallet}
-            expected_set = {frozenset(d.items()) for d in expected["outputs"]}
-            assert generated_set == expected_set, "Receive test failed"
+            if "outputs" in expected:  # detailed check against expected outputs
+                generated_set = {frozenset(d.items()) for d in add_to_wallet}
+                expected_set = {frozenset(d.items()) for d in expected["outputs"]}
+                assert generated_set == expected_set, "Receive test failed"
+            elif "n_outputs" in expected:  # only check the number of found outputs
+                assert len(add_to_wallet) == expected["n_outputs"], "Receive test failed"
+            else:
+                assert False, "either 'outputs' or 'n_outputs' must be specified in 'expected' field of receiving test vector"
 
 
     print("All tests passed")
