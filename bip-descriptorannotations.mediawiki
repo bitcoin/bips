@@ -1,0 +1,130 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Output Script Descriptor Annotations
+  Authors: Craig Raw <craig@sparrowwallet.com>
+  Status: Draft
+  Type: Specification
+  Assigned: ?
+  License: BSD-2-Clause
+  Discussion: https://groups.google.com/g/bitcoindev/c/ozjr1lF3Rkc
+  Requires: 380
+</pre>
+
+==Abstract==
+
+This document specifies an optional annotation syntax for output script descriptors as defined in [[bip-0380.mediawiki|BIP 380]].
+Annotations are key/value pairs appended to a descriptor expression using URL-like query string delimiters (<tt>?</tt>, <tt>&</tt>, <tt>=</tt>).
+They convey operational metadata (such as a blockchain scan start height or gap limit) to aid recovery of funds without altering the scripts produced by the descriptor.
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Motivation==
+
+[[bip-0380.mediawiki|BIP 380]] introduced output script descriptors to address the insufficiency of key-only backups: given only private keys, a restored wallet cannot determine which scripts and addresses to derive.
+Descriptors solve that problem but do not carry the operational parameters that may practically be required to recover the funds in a wallet.
+When restoring from a backup, a wallet may need to know where to begin scanning the blockchain, how many consecutive unused addresses to tolerate before stopping (the gap limit), or the maximum label index to scan for in the case of [[bip-0352.mediawiki|BIP 352]] silent payment wallets.
+Without this information, implementations must either scan the chain from a generic starting block or rely on out-of-band conventions, and may still miss funds if parameters like the gap limit are too low.
+
+Annotations provide a compact way to include such metadata directly in a descriptor string, using characters already present in the BIP 380 checksum character set.
+
+==Specification==
+
+===General Form===
+
+An annotated descriptor has the form:
+
+<pre>
+SCRIPT?key=value&key=value#CHECKSUM
+</pre>
+
+The question mark (<tt>?</tt>) separates the script expression from the annotations.
+Each annotation is a key/value pair joined by <tt>=</tt>.
+Multiple annotations are separated by <tt>&</tt>.
+The checksum is computed over the entire string preceding <tt>#</tt>, including the annotations.
+
+===Annotation Expressions===
+
+An annotation expression (<tt>ANNOT</tt>) consists of:
+* A question mark <tt>?</tt>
+* Followed by one or more key/value pairs (<tt>PAIR</tt>), separated by <tt>&</tt>
+
+Each key MUST appear at most once in an annotation expression.
+Only one <tt>?</tt> delimiter is permitted per descriptor.
+
+Each <tt>PAIR</tt> consists of:
+* A key: one or more lowercase ASCII letters (<tt>a</tt>–<tt>z</tt>)
+* An equals sign <tt>=</tt>
+* A value: a non-negative decimal integer (no leading zeros except for the value <tt>0</tt> itself)
+
+A descriptor with annotations has the form <tt>SCRIPT</tt> <tt>ANNOT</tt>, optionally followed by <tt>#CHECKSUM</tt> as specified in BIP 380.
+
+===Character Set and Checksum===
+
+The delimiter characters <tt>?</tt>, <tt>=</tt>, and <tt>&</tt> are already members of the INPUT_CHARSET defined in [[bip-0380.mediawiki|BIP 380]], so the existing checksum algorithm requires no modification.
+The checksum is computed over the full descriptor string including annotations, exactly as specified in BIP 380.
+
+===Defined Annotation Keys===
+
+Key names are abbreviated to reduce the size of descriptors encoded in QR codes and backup materials.
+
+{|
+! Key !! Value !! Description
+|-
+| <tt>bh</tt> || Block height || The block height at or after which the wallet first received funds. Implementations should begin scanning from this height.
+|-
+| <tt>gl</tt> || Gap limit || The number of consecutive unused addresses to derive before stopping, for [[bip-0032.mediawiki|BIP 32]] derived-key wallets.
+|-
+| <tt>ml</tt> || Max Label || The maximum label index to scan for, for [[bip-0352.mediawiki|BIP 352]] silent payment wallets.
+|}
+
+===Semantics===
+
+Annotation values are declared lower bounds: they represent the minimum values required to recover all funds at the time the descriptor was exported.
+Over the lifetime of a wallet these values may increase (e.g. the gap limit may grow as more addresses are used) but SHOULD NOT decrease.
+
+The order of annotation pairs is not significant for interpretation, but because the checksum is computed over the literal string, reordering pairs produces a different checksum.
+
+Implementations that encounter an unknown annotation key MUST ignore it and MUST NOT reject the descriptor.
+
+==Test Vectors==
+
+The following annotated descriptors are valid.
+Checksums were computed using the BIP 380 reference code.
+
+* Descriptor with <tt>bh</tt> and <tt>gl</tt>:
+: <tt>wpkh([deadbeef/84h/0h/0h]xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0/*)?bh=800000&gl=30#v35n46d2</tt>
+
+* The same descriptor without annotations remains valid:
+: <tt>wpkh([deadbeef/84h/0h/0h]xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL/0/*)#kf3v6fpx</tt>
+
+* Descriptor with <tt>bh</tt> only:
+: <tt>wpkh(0260b2003c386519fc9eadf2b5cf124dd8eea4c4e68d5e154050a9346ea98ce600)?bh=150000#8kehtsrj</tt>
+
+* Taproot descriptor with annotations:
+: <tt>tr(xpub6BgBgsespWvERF3LHQu6CnqdvfEvtMcQjYrcRzx53QJjSxarj2afYWcLteoGVky7D3UKDP9QyrLprQ3VCECoY49yfdDEHGCtMMj92pReUsQ/0/*)?bh=709632&gl=20#6la5jcn3</tt>
+
+The following annotated descriptors are invalid:
+
+* Uppercase key: <tt>raw(deadbeef)?Bh=1#...</tt>
+* Empty value: <tt>raw(deadbeef)?bh=#...</tt>
+* Missing value: <tt>raw(deadbeef)?bh#...</tt>
+* Negative value: <tt>raw(deadbeef)?bh=-1#...</tt>
+* Non-integer value: <tt>raw(deadbeef)?bh=abc#...</tt>
+* Leading zeros: <tt>raw(deadbeef)?bh=01#...</tt>
+* Empty key: <tt>raw(deadbeef)?=100#...</tt>
+* Trailing ampersand: <tt>raw(deadbeef)?bh=1&#...</tt>
+* No annotation pairs: <tt>raw(deadbeef)?#...</tt>
+* Duplicate key: <tt>raw(deadbeef)?bh=1&bh=2#...</tt>
+* Multiple question marks: <tt>raw(deadbeef)?bh=1?gl=2#...</tt>
+
+==Backward Compatibility==
+
+Annotated descriptors are a strict superset of plain descriptors.
+Any valid descriptor without annotations remains valid and unchanged.
+
+Existing parser implementations that do not support annotations may not be able to parse annotated descriptors directly.
+However, an annotated descriptor can be converted to a plain descriptor by stripping everything from the first <tt>?</tt> to the <tt>#</tt> (exclusive) and recomputing the checksum using the BIP 380 algorithm.
+
