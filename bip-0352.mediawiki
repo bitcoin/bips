@@ -301,6 +301,8 @@ After the inputs have been selected, the sender can create one or more outputs f
 * Let ''input_hash = hash<sub>BIP0352/Inputs</sub>(outpoint<sub>L</sub> || A)'', where ''outpoint<sub>L</sub>'' is the smallest ''outpoint'' lexicographically used in the transaction<ref name="why_smallest_outpoint"></ref> and ''A = a·G''
 ** If ''input_hash'' is not a valid scalar, i.e., if ''input_hash = 0'' or ''input_hash'' is larger or equal to the secp256k1 group order, fail
 * Group receiver silent payment addresses by ''B<sub>scan</sub>'' (e.g. each group consists of one ''B<sub>scan</sub>'' and one or more ''B<sub>m</sub>'')
+* If any of the groups exceed the limit of ''K<sub>max</sub>'' (=2323) silent payment addresses, fail.<ref name="why_limit_k">'''Why is the size of groups (i.e. silent payment addresses sharing the same scan public key) limited by ''K<sub>max</sub>''?''' An adversary could construct a block filled with a single transaction consisting of N=23255 outputs (that's the theoretical maximum under current consensus rules, w.r.t. the block weight limit) that all target the same entity, consisting of one large group. Without a limit on the group size, scanning such a block with the algorithm described in this document would have a complexity of ''O(N<sup>2</sup>)'' for that entity, taking several minutes on modern systems. By capping the group size at ''K<sub>max</sub>'', we reduce the inner loop iterations to ''K<sub>max</sub>'', thereby decreasing the worst-case block scanning complexity to ''O(N·K<sub>max</sub>)''. This cuts down the scanning cost to the order of tens of seconds. The chosen value of ''K<sub>max</sub>'' = 2323 represents the maximum number of P2TR outputs that can fit into a 100kvB transaction, meaning a transaction that adheres to the current standardness rules is guaranteed to be within the limit. This ensures flexibility and also mitigates potential fingerprinting issues.</ref>
+
 * For each group:
 ** Let ''ecdh_shared_secret = input_hash·a·B<sub>scan</sub>''
 ** Let ''k = 0''
@@ -340,6 +342,7 @@ If each of the checks in ''[[#scanning-silent-payment-eligible-transactions|Scan
 * Check for outputs:
 ** Let ''outputs_to_check'' be the taproot output keys from all taproot outputs in the transaction (spent and unspent).
 ** Starting with ''k = 0'':
+*** If ''k == K<sub>max</sub>'' (=2323), stop scanning.<ref name="why_limit_k"></ref>
 *** Let ''t<sub>k</sub> = hash<sub>BIP0352/SharedSecret</sub>(ser<sub>P</sub>(ecdh_shared_secret) || ser<sub>32</sub>(k))''
 **** If ''t<sub>k</sub>'' is not a valid scalar, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
 *** Compute ''P<sub>k</sub> = B<sub>spend</sub> + t<sub>k</sub>·G''
@@ -390,7 +393,15 @@ A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JS
     {
         "given": {
             "vin": [<array of vin objects with an added field for the private key. These objects are structured to match the `vin` output field from `getrawtransaction verbosity=2`>],
-            "recipients": [<array of strings, where each string is a bech32m encoding representing a silent payment address>]
+            "recipients": [<array of recipient objects, consisting of the address and its contained scan/spend public keys each>
+                {
+                    "address": <bech32m encoding representing a silent payment address>,
+                    "scan_pub_key": <hex encoded scan public key>,
+                    "spend_pub_key": <hex encoded spend public key>,
+                    "count": <optional integer for specifying the same recipient repeatedly (1 by default)>
+                },
+                ...
+            ]
         },
         "expected": {
             "outputs": [<array of strings, where each string is a hex encoding of 32-byte X-only public key; contains all possible output sets, test must match a subset of size `n_outputs`>],
@@ -411,7 +422,7 @@ A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JS
          },
          "expected": {
              "addresses": [<array of bech32m strings, one for the silent payment address and each labeled address (if used)>],
-             "outputs": [<array of outputs with tweak and signature; contains all possible output sets, tester must match a subset of size `n_outputs`>
+             "outputs": [<optional array of outputs with tweak and signature, tester must match this set (alternatively, "n_outputs" can be specified)>
                  {
                      "priv_key_tweak": <hex encoded private key tweak data>,
                      "pub_key": <hex encoded X-only public key>,
@@ -419,7 +430,7 @@ A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JS
                  },
                  ...
              ],
-             "n_outputs": <integer for the exact number of expected outputs>
+             "n_outputs": <optional integer for the number of expected found outputs (alternative to "outputs")>
          }
      }
 
@@ -489,6 +500,8 @@ The <code>MAJOR</code> version is incremented if changes to the BIP are introduc
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.1.0''' (2026-03-02):
+** Introduce per-group recipient limit ''K<sub>max</sub>'' to mitigate quadratic scanning behavior for adversarial transactions.<ref name="why_limit_k"></ref>
 * '''1.0.2''' (2025-07-25):
 ** Clarify how to handle the improbable corner case where the output of SHA256 is equal to 0 or greater than or equal to the secp256k1 curve order.
 * '''1.0.1''' (2024-06-22):
