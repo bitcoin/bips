@@ -1,0 +1,105 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Internet Payment Protocol for Bitcoin Payments
+  Authors: Shiva Sitamraju <webmaster@blockonomics.co>
+  Status: Draft
+  Type: Specification
+  Assigned: ?
+  License: MIT  
+  Version: 1.0.0  
+</pre>
+
+==Abstract==
+
+This BIP defines a protocol for any actor to perform ecommerce over HTTP using bitcoin payments
+
+==Motivation==
+
+[https://www.coinbase.com/en-sg/developer-platform/discover/launches/x402 x402 Protocol] was announced in May 2025. It allows APIs, apps, and AI agents to transact seamlessly, unlocking a faster, automated internet economy. It has been widely adopted in the crypto / ecommerce ecosystem validating the need of crypto powered internet payment protocol. However, bitcoin support has been missing.
+
+Given some historical context, support of HTTP status code 402 has been discussion in bitcoin since 2011 [https://bitcointalk.org/index.php?topic=3895.0 [1]] [https://www.reddit.com/r/Bitcoin/comments/27g1z0/402_payment_required_this_code_is_reserved_for/ [2]]. The community though hasn't formally published a protocol thus impeding its usage.
+
+==Challenges==
+Implementing x402 in bitcoin has various challenges, which we delve into: 
+
+# Address Generation:
+## In bitcoin wallets, unique address is generated for each ecommerce order. This doesn't scale in case of agentic payments as in a hour there could be thousands of order requests that cannot be rate limited with human captcha. Adddress generation without actual payments can only continue till BIP44 gap limit (default 20). High gap limit values result in slowing down funds discovery of the BIP44 wallet. 
+## Single address for all orders is bad for privacy. It is also difficult to track which order was paid for without a wallet connect mechanism.
+# Confirmation Time: Merchant has to wait for the unconfirmed bitcoin payment to confirm before returning the requested resource. Due to average 10 minute block confirmation time, synchronous return of the HTTP request is not possible. Instead an asynchronous flow must be designed.
+
+==Specification==
+
+===Core Payment Flow===
+We retain the core concepts and nomenclature of [https://github.com/coinbase/x402/blob/main/specs/x402-specification-v1.md x402 specification] making modifications where necessary. This helps existing x402 clients to easily add bitcoin support
+
+# Client Request: Client makes a request to a resource server
+# Payment Required Response: If no valid payment is attached, the server responds with a payment required signal and payment requirements
+# Payment Payload Request: Client submits hex encoded data of bitcoin transaction signed with SIGHASH_SINGLE flag in the subsequent request. All inputs and one change output is signed. Client doesn't broadcast the transaction. Client also adds a unique nonce to uniquely identify the request 
+# SettlementResponse: Server adds its output address to the transaction. Broadcasts the signed transaction to the network and returns a bitcoin transaction id
+# Payment Completed: Client listens to the bitcoin network for bitcoin transaction to confirm. After transaction confirms it reinitiates Step 1 using its unique nonce in header, resulting in successfully fetching the server resource
+
+
+===PaymentRequirementsResponse Schema===
+
+When a resource server requires payment, it responds with a payment required signal and a JSON payload containing payment requirements. Example:
+
+<code>
+{
+  "x402Version": 1,
+  "error": "X-PAYMENT header is required",
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "bitcoin",
+      "maxAmountRequired": "10000",
+      "resource": "https://api.example.com/premium-data",
+      "description": "Access to premium market data",
+      "mimeType": "application/json",
+      "outputSchema": null,
+      "maxTimeoutSeconds": 60,
+      "extra": {
+        "name": "custom data",
+        "version": "1"
+      }
+    }
+  ]
+}
+</code>
+
+===PaymentPayload Schema===
+
+The client includes payment details as JSON in the payment payload field:
+
+<code>
+{
+  "x402Version": 1,
+  "scheme": "exact",
+  "network": "bitcoin",
+  "payload": {
+    "signature": "02000000000101ea3a95ec1aade7afe079a08ec0107661db016df656462b269839c08643096dde0000000000fdffffff02cb0803000000000016001480958a7af89ba717eb298c0e6752244379c636eae8030000000000001600149c4bacb5b286f194e08b5f9dcde3aa0c1be9ffc9024730440220207f25dc1d3cd8e843bd56dd6e3d16a432c8b84f57f86c83d7ced2085a8f73c802200dca28a781641df8d6ce83012e42f8f066be3b4fcdf06e6f0d5344ad501ecee0032103e5a5074c9a09eef17f4cdb0174b38a61ced2eaef87df87f9c06257e0a119a3e800000000",
+    "authorization": {
+      "nonce": "YXVIW70jezn6WtkQbzMQGu4XFj4sEsCic041Aprc874"
+    }
+  }
+}
+</code>
+
+===SettlementResponsedResponse Schema===
+
+Server broadcasts the transaction on the bitcoin network and sends transaction details in the payment response field as JSON:
+
+<code>
+{
+  "success": true,
+  "transaction": "846e3318ca4617628ed6581c7f40b6b0636167f99c68d8d77d6616658f3058ca",
+  "network": "bitcoin",
+}
+</code>
+
+==Flow Diagram==
+[[File:x402bflow-1.png|640px|x402bFlow]]
+
+==References==
+* [https://github.com/coinbase/x402 x402 protocol documentation]   
+* [https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki BIP44-Multi-Account Hierarchy for Deterministic Wallets]
