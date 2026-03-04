@@ -23,7 +23,7 @@ This document is licensed under the 3-clause BSD license.
 Blocks during a temporary, one-year deployment are checked with these additional rules:
 
 # New output scriptPubKeys exceeding 34 bytes are invalid, unless the first opcode is OP_RETURN, in which case up to 83 bytes are valid.
-# OP_PUSHDATA* payloads and witness stack elements exceeding 256 bytes are invalid, except for the redeemScript push in BIP16 scriptSigs.
+# OP_PUSHDATA* payloads and [[#script-argument-witness-items|script argument witness items]] exceeding 256 bytes are invalid, except for the redeemScript push in BIP16 scriptSigs.
 # Spending undefined witness (or Tapleaf) versions (ie, not Witness v0/BIP 141, Taproot/BIP 341, or P2A) is invalid. (Creating outputs with undefined witness versions is still valid.)
 # Witness stacks with a Taproot annex are invalid.
 # Taproot control blocks larger than 257 bytes (a merkle tree with 128 script leaves) are invalid.
@@ -90,11 +90,27 @@ As far as Bitcoin is concerned, the data has some meaning other than the spammer
 (it is possible to write code that transforms *any* data into any other data - what matters is that Bitcoin has a well-defined meaning that is distinct from the unsupported one).
 Requiring users to divide their files into chunks of at most 256 bytes, raising the cost both in fees and in effort, sends a clear message that data storage abuses in general are unwelcome rather than sanctioned or supported.
 
-'''Why is there an exception for BIP16 redeemScripts?'''
+<span id="script-argument-witness-items"></span>
+'''What are "script argument witness items", referred to in rule 2?'''
 
-The content of redeemScripts are another script, which is then executed.
-Its contents are then also subject to the same OP_PUSHDATA* restrictions.
-Restricting it is not only unnecessary, but would reduce the ability to make use of the intended script capabilities, and could impact legitimate real-world usage.
+Script argument witness items are the witness stack elements that are placed on the script interpreter's stack as inputs before the script is executed - the witness equivalent of data pushes in scriptSigs.
+
+The following witness stack elements are '''not''' script argument witness items, and are thus excluded from rule 2 (though some are limited/invalidated by other rules):
+
+* Some items are part of a spend that invokes the script interpreter, but are popped from the witness stack before the remaining elements are passed to it as inputs:
+** Witness scripts and Tapleaf scripts (not limited)
+** Control blocks (limited by rule 5)
+** Annexes (invalidated by rule 4)
+* Others are not part of a script-path spend at all, so the script interpreter is not invoked:
+** Taproot key path signatures (limited to exactly 64 or 65 bytes by BIP 341 signature validation)
+** Witness stacks in spends of undefined witness versions (invalidated by rule 3)
+
+All '''other''' witness stack elements are script argument witness items, and are thus limited to 256 bytes by rule 2.
+
+'''Why are BIP16 redeemScripts, witness scripts, and Tapleaf scripts exempt from rule 2?'''
+
+BIP16 redeemScripts, witness scripts, and Tapleaf scripts are scripts, not data. Their contents are subject to the same OP_PUSHDATA* restrictions during execution.
+Restricting them is not only unnecessary, but would reduce the ability to make use of the intended script capabilities, and could impact legitimate real-world usage.
 
 '''Why make spending undefined witness/Tapleaf versions invalid?'''
 
