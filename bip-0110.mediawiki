@@ -33,6 +33,10 @@ Blocks during a temporary, one-year deployment are checked with these additional
 Inputs spending UTXOs that were created before the activation height are exempt from the new rules.
 Once the softfork expires, UTXOs of all heights are once again unrestricted.
 
+===GetBlockTemplate===
+
+This deployment uses the GBT deployment name "reduced_data" as defined in [[bip-0009.mediawiki#getblocktemplate_changes|BIP 9]]. During mandatory signaling, the deployment's bit is included in "vbrequired".
+
 ==Motivation==
 
 In order to protect Bitcoin's intended function as the Internet's native money, the Bitcoin community has historically treated techniques for embedding arbitrary data into Bitcoin transactions with antagonism.
@@ -333,15 +337,16 @@ This deployment deviates from standard BIP9 in five ways:
 
 '''Mandatory signaling period''': Similar to BIP8, this deployment enforces mandatory signaling during the retarget period immediately before mandatory lock-in (blocks 961632 to 963647; lock-in happens no later than block 963648). During this window, blocks that do not signal bit 4 are rejected as invalid. Mandatory signaling ends once the deployment reaches the LOCKED_IN state.
 
-'''Expiry via active_duration''': Standard BIP9 deployments are permanent once ACTIVE. This proposal includes an active_duration of 52416 blocks (~1 year), making the deployment temporary rather than permanent. The state machine remains in ACTIVE, but consensus rule enforcement is conditional: rules are only enforced for blocks with height < activation_height + active_duration. After 52416 blocks, the rules cease to be enforced and UTXOs are once again unrestricted.
+'''Expiry via active_duration''': Standard BIP9 deployments are permanent once ACTIVE. This proposal includes an active_duration of 52416 blocks (~1 year), making the deployment temporary rather than permanent. After active_duration blocks, the state machine transitions from ACTIVE to EXPIRED, a new terminal state. Once EXPIRED, the rules cease to be enforced and UTXOs are once again unrestricted.
 
 '''State transitions''': The state machine follows this progression:
 # DEFINED: Initial state until starttime
 # STARTED: After starttime; miners may signal with bit 4
 # LOCKED_IN: Entered at the start of the first retarget period where the threshold was reached in the previous period; mandatory signaling (blocks 961632-963647) ensures this happens no later than height 963648
 # ACTIVE: Entered one retarget period after LOCKED_IN; rules enforced for active_duration blocks
+# EXPIRED: Entered when block height >= activation_height + active_duration; rules no longer enforced (terminal state)
 
-The FAILED state is never reached because timeout is disabled. ACTIVE is the final state; there are no transitions after it. Miner signaling after expiry has no effect because the deployment is no longer in the STARTED state, and miner signaling only governs the STARTED → LOCKED_IN transition. After active_duration blocks, the deployment remains in the ACTIVE state but rules are no longer enforced. There is no separate EXPIRED state in the state machine.
+The FAILED state is never reached because timeout is disabled. EXPIRED is the final state; there are no transitions after it. Miner signaling after expiry has no effect because the deployment is no longer in the STARTED state, and miner signaling only governs the STARTED -> LOCKED_IN transition.
 
 ==Credits==
 
