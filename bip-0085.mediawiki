@@ -422,7 +422,57 @@ For key_types with a fixed curve (1 and 2), key_bits MUST be 256. Any other valu
 
 BIP85-DRNG MUST be used as the input RNG function when key generation requires more than 64 bytes of random input. This applies to all RSA key sizes and to NIST P-521 (key_bits=521). All other supported ECC key types use the 64-byte HMAC output directly.
 
-====Primary Keys and Subkeys====
+<b>ECC Scalar Derivation for Curves Exceeding 64 Bytes</b>
+
+For elliptic curves whose base length (⌈log₂(order) / 8⌉) exceeds the
+64-byte HMAC-SHA512 entropy output — currently only NIST P-521 (base
+length 66 bytes) — the private scalar MUST be derived using the
+BIP85-DRNG (SHAKE256) as follows:
+
+1. Read `baselen` bytes from the DRNG (66 bytes for P-521).
+
+2. Interpret the bytes as a big-endian unsigned integer.
+
+3. Mask the integer to `order.bit_length()` bits:
+   `scalar = raw_int & ((1 << bit_length) - 1)`
+
+4. If `scalar == 0` or `scalar >= order`, apply the fallback:
+   `scalar = (scalar % (order - 1)) + 1`
+
+Implementations MUST use bit masking (step 3) rather than direct
+modular reduction (`raw_int % order`).  The two methods produce
+different scalars when the raw integer has more bits than the curve
+order, because bit masking discards the top bits while modular
+reduction folds them in.
+
+For curves with base length ≤ 64 bytes (all others in this spec),
+the scalar is derived directly from the first `baselen` bytes of the
+64-byte HMAC-SHA512 entropy, reduced modulo the curve order with the
+same fallback.
+
+<b>RSA Key Generation Algorithm</b>
+
+RSA key generation from the BIP85-DRNG MUST use the FIPS 186-4 (§B.3.1,
+§C.3.1) algorithm for probable prime generation.  Specifically, the
+Miller-Rabin primality test MUST use random bases drawn from the same
+DRNG (randfunc) that generates prime candidates — NOT fixed or
+deterministic witnesses.
+
+The reference algorithm is PyCryptodome's `RSA.generate(key_bits,
+randfunc=drng.read)`, which implements FIPS 186-4 with random
+Miller-Rabin witnesses drawn from the provided `randfunc`.
+
+Implementations that use fixed Miller-Rabin witnesses (e.g., small
+primes 2, 3, 5, …) will consume DRNG bytes at a different rate than
+the reference algorithm, producing different primes and therefore
+different RSA keys from the same entropy.  Such implementations are
+NOT compliant with this specification.
+
+The use of random witnesses is also cryptographically stronger, as
+fixed small-prime witnesses cannot detect Carmichael numbers that are
+strong pseudoprimes to all tested bases.
+
+<b>Primary Keys and Subkeys</b>
 
 In OpenPGP, a key consists of a primary key used for certification and one or more subkeys for encryption, signing, and authentication. This structure separates long-term identity (the primary key) from operational keys (subkeys), allowing subkeys to expire or be revoked independently without affecting the primary key identity.
 
