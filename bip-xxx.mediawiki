@@ -1,0 +1,244 @@
+<pre>
+BIP: TBD
+Layer: Applications
+Title: Deterministic Satoshi Indexing (Ordinal Scheme)
+Author: Warlock <thewrlck@proton.me>
+Comments-Summary: No comments yet
+Comments-URI: https://github.com/ordinals/ord/discussions/126
+Status: Draft
+Type: Informational
+Created: 2026-XX-XX
+License: CC0-1.0
+</pre>
+
+== Abstract ==
+
+This document specifies a deterministic scheme for assigning serial numbers
+to satoshis (sats) and tracking their movement across transactions.
+
+The scheme enables independent implementations to consistently identify and
+track individual sats without requiring changes to Bitcoin consensus rules,
+transaction formats, or network behavior.
+
+== Motivation ==
+
+Bitcoin does not define persistent identifiers for individual satoshis.
+Applications that require stable, transferable identifiers must therefore
+define their own conventions.
+
+Without a standardized scheme, different implementations may assign
+inconsistent identifiers to sats, leading to fragmentation and reduced
+interoperability between wallets, indexers, and other software.
+
+This document specifies a deterministic indexing method so that independent
+implementations can arrive at identical results when assigning and tracking
+satoshis.
+
+== Scope ==
+
+This proposal:
+
+* Defines a deterministic numbering scheme for sats
+* Defines how sats are assigned to transaction outputs
+* Enables consistent cross-implementation behavior
+
+This proposal does NOT:
+
+* Modify Bitcoin consensus rules
+* Require changes to transaction validation
+* Introduce new script or transaction types
+* Require adoption by nodes or wallets
+
+== Specification ==
+
+=== Satoshi Numbering ===
+
+Each satoshi is assigned a unique ordinal number based on the order in which
+it is mined.
+
+Numbering begins at 0 and increases sequentially with each satoshi created
+via block subsidies.
+
+The ordinal numbers assigned to sats depend only on the theoretical issuance
+schedule defined by Bitcoin, not on actual miner behavior.
+
+=== Block Subsidy ===
+
+<code>
+def subsidy(height):
+  return 50 * 100_000_000 >> height // 210_000
+</code>
+
+=== First Ordinal in Block ===
+
+<code>
+def first_ordinal(height):
+  start = 0
+  for h in range(height):
+    start += subsidy(h)
+  return start
+</code>
+
+=== Ordinal Assignment ===
+
+For each block:
+
+1. Generate ordinals for newly created sats from the subsidy.
+2. Process transactions in block order.
+3. For each transaction:
+
+   * Collect input sats in input order
+   * Assign sats to outputs in output order (FIFO)
+
+<code>
+def assign_ordinals(block):
+  first = first_ordinal(block.height)
+  last = first + subsidy(block.height)
+  coinbase_ordinals = list(range(first, last))
+
+  for transaction in block.transactions[1:]:
+    ordinals = []
+    for input in transaction.inputs:
+      ordinals.extend(input.ordinals)
+
+    for output in transaction.outputs:
+      output.ordinals = ordinals[:output.value]
+      del ordinals[:output.value]
+
+    coinbase_ordinals.extend(ordinals)
+
+  for output in block.transactions[0].outputs:
+    output.ordinals = coinbase_ordinals[:output.value]
+    del coinbase_ordinals[:output.value]
+</code>
+
+=== Coinbase Handling ===
+
+The coinbase transaction is treated as having:
+
+* An implicit input equal to the block subsidy
+* Additional implicit inputs representing transaction fees, ordered by
+  transaction position in the block
+
+If a miner underclaims the subsidy, unassigned sats are considered destroyed.
+
+=== Duplicate Transaction IDs ===
+
+In the event of duplicate transaction IDs, newer outputs replace older ones,
+consistent with Bitcoin Core behavior. Sats contained in displaced outputs are
+considered destroyed.
+
+=== Satpoint Notation ===
+
+A sat can be identified by its position within an output:
+
+<code>
+<txid>:<output_index>:<offset>
+</code>
+
+Example:
+
+<code>
+680df1e4...:0:6
+</code>
+
+== Rationale ==
+
+This design is intended to:
+
+* Be deterministic and reproducible
+* Require no changes to Bitcoin consensus
+* Allow independent implementations to interoperate
+
+The FIFO transfer rule follows naturally from Bitcoin’s transaction structure
+and avoids ambiguity in assignment.
+
+== Deployment Experience ==
+
+As of 2026, implementations of this scheme have been deployed on:
+
+* Bitcoin mainnet
+* Signet
+* Testnet
+
+These implementations include:
+
+* Indexers tracking sat locations
+* Wallets supporting sat-level control
+* Block explorers exposing sat positions
+
+Observed properties:
+
+* Transactions using this scheme remain valid standard Bitcoin transactions
+* No consensus or relay changes are required
+* Edge cases (e.g., dust handling, fee assignment) are manageable with careful construction
+
+== Interoperability Considerations ==
+
+Without a shared specification:
+
+* Different systems may assign different ordinals
+* Wallets may not correctly transfer intended sats
+* Indexers may disagree on sat locations
+
+This specification enables consistent behavior across implementations.
+
+== Privacy Considerations ==
+
+This scheme is opt-in at the application level.
+
+Tracking individual sats may reduce privacy for users who rely on such
+tracking, but does not affect users who do not adopt it.
+
+Implementations should avoid mixing tracked sats with unrelated funds where
+privacy is a concern.
+
+== Fungibility Considerations ==
+
+This proposal does not alter Bitcoin’s consensus-level fungibility.
+
+Any sat can still be spent to any address, and all sats remain equivalent
+within the protocol.
+
+== Drawbacks ==
+
+=== Large Index Size ===
+
+Indexes tracking sat positions may require significant storage.
+
+As of 2026:
+
+* UTXO → ordinal mappings require substantial disk space
+* Reverse mappings may be computationally expensive
+
+=== Transaction Complexity ===
+
+Constructing transactions that move specific sats may require:
+
+* Careful input/output ordering
+* Handling of dust limits
+* Accurate fee estimation
+
+== Security Considerations ==
+
+Tracking sats requires following the full transaction history.
+
+Implementations must ensure that:
+
+* Intended sats are not lost as fees
+* Sats are not accidentally transferred to unintended outputs
+
+== Backward Compatibility ==
+
+This proposal is fully backward compatible.
+
+It does not require:
+
+* Consensus changes
+* Network upgrades
+* Changes to existing wallets or nodes
+
+== Reference Implementation ==
+
+A reference implementation is available at:
+[https://github.com/casey/ord](https://github.com/casey/ord)
