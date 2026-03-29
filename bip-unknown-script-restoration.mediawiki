@@ -9,7 +9,7 @@
   Assigned: ?
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
-  Version: 0.1.0
+  Version: 0.2.1
   Requires: Varops BIP
 </pre>
 
@@ -624,6 +624,7 @@ Work in progress:
 
 ==Changelog==
 
+* 0.2.1: 2023-03-27: fix OP_MUL cost to round length(B) up
 * 0.2.0: 2025-02-21: change costs to match those in varops budget
 * 0.1.0: 2025-09-27: first public posting
 
@@ -659,18 +660,22 @@ using multiple instructions).
 For multiplication, the steps break down like so:
 # Allocate and zero the result: cost = (length(A) + length(B)) * 2 (ZEROING)
 # For each word in A:
-#* Multiply by each word in B, into a scratch vector: cost = 6 * length(B) (ARITH)
-#* Sum scratch vector at the word offset into the result: cost = 6 * length(B) (ARITH)
+#* Multiply by each word in B, into a scratch vector: cost = 6 * ((length(B) + 7) / 8) * 8 (ARITH)
+#* Sum scratch vector at the word offset into the result: cost = 6 * ((length(B) + 7) / 8) * 8 (ARITH)
+
+We increase the length of B here to the next word boundary, using
+"((length(B) + 7) / 8) * 8", as the multiplication below makes the
+difference of that from the simple "length(B)" significant.
 
 Note: we do not assume Karatsuba, Toom-Cook or other optimizations.
 
-The theoretical cost is: (length(A) + length(B)) * 2 + (length(A) + 7) / 8 * length(B) * 12.
+The theoretical cost is: (length(A) + length(B)) * 2 + (length(A) + 7) / 8 * ((length(B) + 7) / 8) * 8 * 12.
 
 However, benchmarking reveals that the inner loop overhead (branch
 misprediction, cache effects on small elements) is undercosted by the
 theoretical model.  A 2.25× multiplier on the quadratic term accounts for
 this, giving a cost of: (length(A) + length(B)) * 3 + (length(A) + 7) / 8 *
-length(B) * 27.
+((length(B) + 7) / 8) * 8 * 27.
 
 This is slightly asymmetric: in practice an implementation usually finds that
 CPU pipelining means choosing B as the larger operand is optimal.
