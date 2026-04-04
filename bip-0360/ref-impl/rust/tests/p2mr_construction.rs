@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use bitcoin::{Network, ScriptBuf};
 use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch, TapNodeHash};
 use bitcoin::p2mr::{P2mrBuilder, P2mrControlBlock, P2mrSpendInfo};
@@ -136,7 +136,7 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
     // Use of TaprootBuilder avoids user error in constructing branches manually and ensures Merkle tree correctness and determinism
     let mut p2mr_builder: P2mrBuilder = P2mrBuilder::new();
 
-    let mut control_block_data: Vec<(ScriptBuf, LeafVersion)> = Vec::new();
+    let mut script_to_id: HashMap<ScriptBuf, u8> = HashMap::new();
 
     // 1)  traverse test vector script tree and add leaves to P2MR builder
     if let Some(script_tree) = tv_script_tree {
@@ -144,13 +144,12 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
         script_tree.traverse_with_right_subtree_first(0, Direction::Root,&mut |node, depth, direction| {
 
             if let TVScriptTree::Leaf(tv_leaf) = node {
-                
+
                 let tv_leaf_script_bytes = hex::decode(&tv_leaf.script).unwrap();
-    
-                // NOTE:  IOT to execute script_info.control_block(..), will add these to a vector
+
                 let tv_leaf_script_buf = ScriptBuf::from_bytes(tv_leaf_script_bytes.clone());
                 let tv_leaf_version = LeafVersion::from_consensus(tv_leaf.leaf_version).unwrap();
-                control_block_data.push((tv_leaf_script_buf.clone(), tv_leaf_version));
+                script_to_id.insert(tv_leaf_script_buf.clone(), tv_leaf.id);
                 
                 let mut modified_depth = depth + 1;
                 if direction == Direction::Root {
@@ -194,14 +193,10 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
     );
     debug!("just passed merkle root validation: {}", test_vector_merkle_root);
 
-    let test_vector_leaf_hashes_vec: Vec<String> = test_vector.intermediary.leaf_hashes.clone();
-    let test_vector_leaf_hash_set: HashSet<String> = test_vector_leaf_hashes_vec.iter().cloned().collect();
-    let test_vector_control_blocks_vec = &test_vector.expected.script_path_control_blocks;
-    let test_vector_control_blocks_set: HashSet<String> = test_vector_control_blocks_vec.as_ref().unwrap().iter().cloned().collect();
+    let expected_control_blocks = test_vector.expected.script_path_control_blocks.as_ref().unwrap();
     let tap_tree: TapTree = p2mr_builder.clone().into_inner().try_into_taptree().unwrap();
     let script_leaves: ScriptLeaves = tap_tree.script_leaves();
 
-    // TO-DO:  Investigate why the ordering of script leaves seems to be reverse of test vectors.
     // 3) Iterate through leaves of derived script tree and verify both script leaf hashes and control blocks
     for derived_leaf in script_leaves {
 
@@ -211,34 +206,21 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
 
         let derived_leaf_hash: TapLeafHash = TapLeafHash::from_script(script, version);
         let leaf_hash = hex::encode(derived_leaf_hash.as_raw_hash().to_byte_array());
-        assert!(
-            test_vector_leaf_hash_set.contains(&leaf_hash),
-            "Leaf hash not found in expected set for {}", leaf_hash
-        );
-        debug!("just passed leaf_hash validation: {}", leaf_hash);
-    
-        // Each leaf in the script tree has a corresponding control block.
-        // Specific to P2TR, the 3 sections of the control block (control byte, public key & merkle path) are highlighted here:
-        //    https://learnmeabitcoin.com/technical/upgrades/taproot/#script-path-spend-control-block
-        // The control block, which includes the Merkle path, must be 33 + 32 * n bytes, where n is the number of Merkle path hashes (n ≥ 0).
-        // There is no consensus limit on n, but large Merkle trees increase the witness size, impacting block weight.
-        // NOTE:  Control blocks could have also been obtained from spend_info.control_block(..) using the data in control_block_data
-        debug!("merkle_branch nodes: {:?}", merkle_branch);
+
+        let leaf_id = script_to_id.get(script)
+            .unwrap_or_else(|| panic!("leaf script not found in script_to_id map: {}", hex::encode(script.as_bytes())));
+
         let derived_control_block: P2mrControlBlock = P2mrControlBlock{
             merkle_branch: merkle_branch.clone(),
         };
-        let serialized_control_block = derived_control_block.serialize();
-        debug!("derived_control_block: {:?}, merkle_branch size: {}, control_block size: {}, serialized size: {}", 
-            derived_control_block,
-            merkle_branch.len(),
-            derived_control_block.size(),
-            serialized_control_block.len());
-        let derived_serialized_control_block = hex::encode(serialized_control_block);
-        assert!(
-            test_vector_control_blocks_set.contains(&derived_serialized_control_block),
-            "Control block mismatch: {}, expected: {:?}", derived_serialized_control_block, test_vector_control_blocks_set
+        let derived_serialized_control_block = hex::encode(derived_control_block.serialize());
+
+        let expected_cb = &expected_control_blocks[*leaf_id as usize];
+        assert_eq!(
+            derived_serialized_control_block, *expected_cb,
+            "Control block mismatch for leaf id {}: derived {}, expected {}", leaf_id, derived_serialized_control_block, expected_cb
         );
-        debug!("leaf_hash: {}, derived_serialized_control_block: {}", leaf_hash, derived_serialized_control_block);
+        debug!("leaf_id: {}, leaf_hash: {}, derived_serialized_control_block: {}", leaf_id, leaf_hash, derived_serialized_control_block);
 
     }
 
