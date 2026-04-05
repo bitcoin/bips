@@ -50,6 +50,8 @@ def collect_input_ecdh_and_pubkey(
     for input_map in psbt.i:
         input_ecdh = input_map.get_by_key(PSBT_IN_SP_ECDH_SHARE, scan_key)
         if input_ecdh:
+            if not is_input_eligible(input_map):
+                continue # skip ineligible inputs
             ecdh_point = GE.from_bytes(input_ecdh)
             combined_ecdh = (
                 ecdh_point if combined_ecdh is None else combined_ecdh + ecdh_point
@@ -71,7 +73,7 @@ def pubkey_from_eligible_input(input_map: BIP375PSBTMap) -> Optional[GE]:
 
     Returns a GE point (public key), or None if not found
     """
-    if not is_input_eligible(input_map)[0]:
+    if not is_input_eligible(input_map):
         return None
 
     # Try BIP32 derivation first (key_data is the pubkey)
@@ -131,7 +133,7 @@ def _parse_non_witness_utxo(non_witness_utxo: bytes, output_index: int) -> bytes
 # ============================================================================
 
 
-def is_input_eligible(input_map: BIP375PSBTMap) -> Tuple[bool, str]:
+def is_input_eligible(input_map: BIP375PSBTMap) -> bool:
     """Check if input is eligible for silent payments"""
     script_pubkey = _script_pubkey_from_psbt_input(input_map)
     assert script_pubkey is not None, (
@@ -139,7 +141,7 @@ def is_input_eligible(input_map: BIP375PSBTMap) -> Tuple[bool, str]:
     )
 
     if not _has_eligible_script_type(script_pubkey):
-        return False, "ineligible input type"
+        return False
 
     NUMS_H = bytes.fromhex(
         "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
@@ -147,16 +149,16 @@ def is_input_eligible(input_map: BIP375PSBTMap) -> Tuple[bool, str]:
     if _is_p2tr(script_pubkey):
         tap_internal_key = input_map.get(PSBT_IN_TAP_INTERNAL_KEY)
         if tap_internal_key == NUMS_H:
-            return False, "P2TR uses NUMS point H as internal key"
+            return False
 
     if _is_p2sh(script_pubkey):
         if PSBT_IN_REDEEM_SCRIPT in input_map:
             redeem_script = input_map[PSBT_IN_REDEEM_SCRIPT]
             if not _is_p2wpkh(redeem_script):
-                return False, "P2SH is not P2SH-P2WPKH"
+                return False
         else:
-            assert False, "P2SH input missing PSBT_IN_REDEEM_SCRIPT"
-    return True, None
+            assert False
+    return True
 
 
 def _has_eligible_script_type(script_pubkey: bytes) -> bool:

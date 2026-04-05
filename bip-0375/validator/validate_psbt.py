@@ -185,22 +185,15 @@ def validate_ecdh_coverage(psbt: PSBT) -> Tuple[bool, str]:
         # Verify per-input coverage for eligible inputs
         if scan_key_has_computed_output and not has_global_ecdh:
             for i, input_map in enumerate(psbt.i):
-                is_eligible, _ = is_input_eligible(input_map)
-                ecdh_share = input_map.get_by_key(PSBT_IN_SP_ECDH_SHARE, scan_key)
-                # Disabled this check for now since it is not strictly forbidden by BIP-375
-                if not is_eligible:
+                if not is_input_eligible(input_map):
                     continue
-                # if not is_eligible and ecdh_share:
-                #     return (
-                #         False,
-                #         f"Input {i} has ECDH share but is ineligible for silent payments",
-                #     )
-                if is_eligible and not ecdh_share:
+                ecdh_share = input_map.get_by_key(PSBT_IN_SP_ECDH_SHARE, scan_key)
+                if not ecdh_share:
                     return (
                         False,
                         f"Output script set but eligible input {i} missing ECDH share",
                     )
-                if ecdh_share:
+                else:
                     # Verify per-input DLEQ proofs
                     dleq_proof = input_map.get_by_key(PSBT_IN_SP_DLEQ, scan_key)
                     if not dleq_proof:
