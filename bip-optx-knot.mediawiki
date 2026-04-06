@@ -1,0 +1,256 @@
+<pre>
+  BIP: TBD
+  Layer: Consensus (soft fork)
+  Title: OP_OPTX_KNOT -- Topological Witness Extension for ML-DSA
+  Author: Jett Optx <founder@jettoptics.ai>
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-04-05
+  Requires: BIP-360
+  License: MIT
+  Post-History:
+  Discussions-To: https://github.com/jettoptx/astroknots/discussions
+</pre>
+
+==Abstract==
+
+This BIP defines <code>OP_OPTX_KNOT</code> (0xc0) and <code>OP_OPTX_KNOT_VERIFY</code> (0xc1), new script opcodes that verify knot-theoretic proof data appended to SegWit v2 P2MR transactions (BIP-360). The opcodes implement the GENSYS OPTX Topological Key Derivation Function (TKDF), which augments ML-DSA (CRYSTALS-Dilithium) signatures with a topologically-orthogonal hardness layer based on knot polynomial invariants.
+
+==Motivation==
+
+ML-DSA (CRYSTALS-Dilithium) signatures resist Shor's algorithm by reducing to the Module Learning With Errors (MLWE) and Module Short Integer Solution (MSIS) problems. However, a future quantum adversary that solves MLWE would break ML-DSA alone. <code>OP_OPTX_KNOT</code> adds a second cryptographic dimension: verification of knot polynomial invariants whose computation is PSPACE-hard in general, with no known quantum reduction to lattice problems.
+
+This creates a composite security assumption: breaking OPTX requires simultaneously solving a lattice problem AND computing a non-trivial ambient-group isotopy invariant.
+
+==Specification==
+
+===Opcodes===
+
+{| class="wikitable"
+|-
+! Opcode
+! Hex
+! Behavior
+|-
+| <code>OP_OPTX_KNOT</code>
+| 0xc0
+| Verify knot proof, push result to stack
+|-
+| <code>OP_OPTX_KNOT_VERIFY</code>
+| 0xc1
+| Verify knot proof, fail script if invalid
+|}
+
+===Stack Layout===
+
+<pre>
+<spatial_sig> <knot_data> <mldsa_pubkey> OP_OPTX_KNOT
+</pre>
+
+Where:
+
+* <code><spatial_sig></code>: Serialized <code>SpatialSignature</code> (braid word + invariant suite + AGT tensor + commitment)
+* <code><knot_data></code>: Serialized <code>KnotWitnessData</code> (see below)
+* <code><mldsa_pubkey></code>: ML-DSA public key (1,312 bytes for Dilithium2)
+
+===Knot Witness Data Format===
+
+Wire format (all multi-byte integers are big-endian):
+
+<pre>
+[dt_code_len : 2 bytes] [dt_code : variable] [alpha_K : 16 bytes] [nu_K : 16 bytes] [writhe : 4 bytes]
+</pre>
+
+{| class="wikitable"
+|-
+! Field
+! Size
+! Description
+|-
+| <code>dt_code_len</code>
+| 2 bytes
+| Length of DT code in bytes (uint16 BE)
+|-
+| <code>dt_code</code>
+| variable
+| Dowker-Thistlethwaite encoding of knot K
+|-
+| <code>alpha_K</code>
+| 16 bytes
+| Alexander polynomial eval at e<sup>2{pi}i/n</sup> (IEEE 754 complex128 BE)
+|-
+| <code>nu_K</code>
+| 16 bytes
+| Jones polynomial eval at e<sup>2{pi}i/n</sup> (IEEE 754 complex128 BE)
+|-
+| <code>writhe</code>
+| 4 bytes
+| Writhe number w(K) (int32 BE)
+|}
+
+Total additional witness overhead per input: ~48 bytes (+1.27% over baseline 3,772-byte Dilithium payload).
+
+===Topological Key Derivation Function (TKDF)===
+
+The TKDF computes:
+
+<pre>
+OPTX-KeyGen(K, s, n) = ML-DSA.KeyGen(H(alpha_K || nu_K || omega_K || s), n)
+</pre>
+
+Where:
+
+* <code>alpha_K = Alexander(K, e<sup>2{pi}i/n</sup>)</code> -- Alexander polynomial evaluation
+* <code>nu_K = Jones(K, e<sup>2{pi}i/n</sup>)</code> -- Jones polynomial evaluation
+* <code>omega_K = writhe(K)</code> -- Writhe number
+* <code>s</code> -- 256-bit entropy seed
+* <code>H = SHAKE-256</code> with 512-bit output
+* <code>n</code> -- ML-DSA security level (2, 3, or 5)
+
+A domain separator <code>"OPTX-TKDF-v1.0\x00"</code> is prepended to the hash input to prevent cross-protocol attacks.
+
+===Verification Rules===
+
+Nodes running OPTX-aware software verify:
+
+# <code>alpha_K == Alexander(parse_dt(dt_code), e<sup>2{pi}i/n</sup>)</code>
+# <code>nu_K == Jones(parse_dt(dt_code), e<sup>2{pi}i/n</sup>)</code>
+# <code>writhe == compute_writhe(parse_dt(dt_code))</code>
+# <code>H(alpha_K || nu_K || writhe || seed)</code> matches TKDF output
+# Spatial signature invariant suite is internally consistent
+# Complexity score >= MIN_MAINNET_COMPLEXITY (50)
+
+===DoS Protection Bounds===
+
+{| class="wikitable"
+|-
+! Parameter
+! Limit
+! Rationale
+|-
+| Max crossings
+| 16
+| Bounds polynomial evaluation time
+|-
+| Max strands
+| 7
+| Limits braid group complexity
+|-
+| Max word length
+| 128
+| Prevents oversized braid words
+|-
+| Max knot data
+| 512 bytes
+| Total witness data cap
+|-
+| Max spatial sig
+| 4,096 bytes
+| Full signature cap
+|-
+| Validation weight
+| 750
+| Per-opcode weight cost
+|}
+
+===Activation===
+
+Deployment via BIP-9 version bits:
+
+{| class="wikitable"
+|-
+! Parameter
+! Value
+|-
+| Deployment name
+| <code>optxknot</code>
+|-
+| Bit
+| (assigned at deployment)
+|-
+| Start time
+| (testnet: immediate; mainnet: TBD)
+|-
+| Timeout
+| (TBD)
+|}
+
+Pre-activation behavior: <code>OP_OPTX_KNOT</code> and <code>OP_OPTX_KNOT_VERIFY</code> always consume their three stack items (<code><spatial_sig></code>, <code><knot_data></code>, <code><pubkey></code>) and push TRUE. This ensures identical stack state between upgraded and non-upgraded nodes. Stack items are consumed unconditionally; only the cryptographic verification is gated by the activation flag. This follows the same soft-fork pattern as OP_CHECKLOCKTIMEVERIFY (BIP-65).
+
+Post-activation: full knot invariant verification is enforced. Invalid proofs cause the opcode to push FALSE (<code>OP_OPTX_KNOT</code>) or fail the script (<code>OP_OPTX_KNOT_VERIFY</code>).
+
+===Script Verification Flag===
+
+<code>SCRIPT_VERIFY_OPTX_KNOT</code> (bit 22) controls whether knot proof verification is performed. When unset, the opcodes act as NOP.
+
+==Security Considerations==
+
+===Composite Hardness (Theorem 1, GENSYS v2.2.2)===
+
+Breaking OPTX requires either:
+
+# Solving MLWE/MSIS (breaking ML-DSA), OR
+# Computing a non-trivial isotopy invariant of K without knowledge of the DT code (solving the unknotting decision problem)
+
+Since no polynomial-time quantum algorithm is known for (2), and (1) is assumed hard under standard lattice assumptions, OPTX achieves composite post-quantum security.
+
+===Witness Malleability===
+
+Braid words admit multiple representations for the same knot (Reidemeister moves, Markov moves). The spatial signature commits to a canonical braid form (Garside normal form) and the SHA-256 commitment covers the full invariant suite, preventing witness mutation that preserves validity.
+
+===DoS via Polynomial Computation===
+
+HOMFLY-PT polynomial computation is #P-hard in general. The MAX_OPTX_CROSSINGS bound (16) ensures worst-case evaluation remains bounded. The validation weight cost (750) provides economic DoS protection via fee markets.
+
+===AGT Tensor Replay===
+
+The AGT biometric binding is cryptographically bound to the transaction sighash, preventing replay of captured gaze tensors across transactions.
+
+==Backwards Compatibility==
+
+Pre-activation, the opcodes consume stack items and push TRUE, producing identical stack state on upgraded and non-upgraded nodes. This is the standard BIP-9 soft-fork NOP-expansion pattern used by BIP-65 (OP_CHECKLOCKTIMEVERIFY) and BIP-112 (OP_CHECKSEQUENCEVERIFY).
+
+No existing transactions use opcodes 0xc0 or 0xc1. The opcodes are drawn from the reserved NOP range.
+
+==Reference Implementation==
+
+* C++: <code>src/crypto/knot_invariant.h</code>, <code>src/crypto/knot_invariant.cpp</code>
+* Knot proof library: <code>src/crypto/knotproof/</code> (Jones, Alexander, Conway, HOMFLY-PT, braid, AGT)
+* Script integration: <code>src/script/interpreter.cpp</code> (OP_OPTX_KNOT handler)
+* Python bindings: <code>test/functional/test_framework/optx_knot.py</code>
+* Tests: <code>test/functional/feature_optx_knot.py</code>
+* Repository: [https://github.com/jettoptx/astroknots jettoptx/astroknots]
+* Upstream: [https://github.com/btq-ag/btq-core btq-ag/btq-core] (Phase 7 branch)
+
+==Test Vectors==
+
+===Trefoil Knot (3<sub>1</sub>)===
+
+<pre>
+DT code:       040602000000
+Writhe:         -3
+Alexander eval: (complex128, see reference impl)
+Jones eval:     (complex128, see reference impl)
+TKDF output:    b3f0f4bb3220d077eaffab9f811d3833c494481be91e21c2b97d1d5ef774bd30 (32 bytes, truncated)
+</pre>
+
+===Figure-Eight Knot (4<sub>1</sub>)===
+
+<pre>
+DT code:        0406080200000000
+Writhe:          0
+TKDF output:    d70ceb6f4f7f4bba7952b20992ed1c9335cfa005c2f365c90ac800f46a97cc32 (32 bytes, truncated)
+Distinct from trefoil: True
+</pre>
+
+==References==
+
+* GENSYS OPTX btQ v1.0 Whitepaper (Jett Optx, April 2026)
+* GENSYS OPTX v2.2.2 Knot Proofs (22-level proof chain)
+* [https://github.com/bitcoin/bips/blob/master/bip-0360.mediawiki BIP-360]: Pay to Quantum Resistant Hash
+* NIST FIPS 204: ML-DSA (CRYSTALS-Dilithium)
+* US Patent Application No. 20250392457A1
+
+==Copyright==
+
+This BIP is licensed under the MIT License.
