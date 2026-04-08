@@ -80,7 +80,7 @@ this will cause any non-PSBT unserializer to fail to properly unserialize the PS
 as a normal transaction. Likewise, since the 5 byte header is fixed, no transaction
 in the non-PSBT format will be able to be unserialized by a PSBT unserializer.</ref>. This integer must be serialized in most significant byte order.
 
-The currently defined global types are as follows:
+The global types are defined as follows:
 
 {|
 ! Name
@@ -92,7 +92,6 @@ The currently defined global types are as follows:
 ! Versions Requiring Inclusion
 ! Versions Requiring Exclusion
 ! Versions Allowing Inclusion
-! Parent BIP
 |-
 | Unsigned Transaction
 | <tt>PSBT_GLOBAL_UNSIGNED_TX = 0x00</tt>
@@ -103,7 +102,6 @@ The currently defined global types are as follows:
 | 0
 | 2
 | 0
-| 174
 |-
 | Extended Public Key
 | <tt>PSBT_GLOBAL_XPUB = 0x01</tt>
@@ -114,84 +112,6 @@ The currently defined global types are as follows:
 |
 |
 | 0, 2
-| 174
-|-
-| Transaction Version
-| <tt>PSBT_GLOBAL_TX_VERSION = 0x02</tt>
-| None
-| No key data
-| <tt><32-bit little endian int version></tt>
-| The 32-bit little endian signed integer representing the version number of the transaction being created. Note that this is not the same as the PSBT version number specified by the PSBT_GLOBAL_VERSION field.
-| 2
-| 0
-| 2
-| [[bip-0370.mediawiki|370]]
-|-
-| Fallback Locktime
-| <tt>PSBT_GLOBAL_FALLBACK_LOCKTIME = 0x03</tt>
-| None
-| No key data
-| <tt><32-bit little endian uint locktime></tt>
-| The 32-bit little endian unsigned integer representing the transaction locktime to use if no inputs specify a required locktime.
-|
-| 0
-| 2
-| [[bip-0370.mediawiki|370]]
-|-
-| Input Count
-| <tt>PSBT_GLOBAL_INPUT_COUNT = 0x04</tt>
-| None
-| No key data
-| <tt><compact size uint input count></tt>
-| Compact size unsigned integer representing the number of inputs in this PSBT.
-| 2
-| 0
-| 2
-| [[bip-0370.mediawiki|370]]
-|-
-| Output Count
-| <tt>PSBT_GLOBAL_OUTPUT_COUNT = 0x05</tt>
-| None
-| No key data
-| <tt><compact size uint input count></tt>
-| Compact size unsigned integer representing the number of outputs in this PSBT.
-| 2
-| 0
-| 2
-| [[bip-0370.mediawiki|370]]
-|-
-| Transaction Modifiable Flags
-| <tt>PSBT_GLOBAL_TX_MODIFIABLE = 0x06</tt>
-| None
-| No key data
-| <tt><8-bit uint flags></tt>
-| An 8 bit little endian unsigned integer as a bitfield for various transaction modification flags. Bit 0 is the Inputs Modifiable Flag and indicates whether inputs can be modified. Bit 1 is the Outputs Modifiable Flag and indicates whether outputs can be modified. Bit 2 is the Has SIGHASH_SINGLE flag and indicates whether the transaction has a SIGHASH_SINGLE signature who's input and output pairing must be preserved. Bit 2 essentially indicates that the Constructor must iterate the inputs to determine whether and how to add an input.
-|
-| 0
-| 2
-| [[bip-0370.mediawiki|370]]
-|-
-| Silent Payment Global ECDH Share
-| <tt>PSBT_GLOBAL_SP_ECDH_SHARE = 0x07</tt>
-| <tt><33 byte scan key></tt>
-| The scan key that this ECDH share is for.
-| <tt><33 byte share></tt>
-| An ECDH share for a scan key. The ECDH shared is computed with ''a * B_scan'', where ''a'' is the sum of all private keys of all eligible inputs, and ''B_scan'' is the scan key of a recipient.
-|
-| 0
-| 2
-| [[bip-0375.mediawiki|375]]
-|-
-| Silent Payment Global DLEQ Proof
-| <tt>PSBT_GLOBAL_SP_DLEQ = 0x08</tt>
-| <tt><33 byte scan key></tt>
-| The scan key that this proof covers.
-| <tt><64-byte proof></tt>
-| A BIP374 DLEQ proof computed for the matching ECDH share.
-|
-| 0
-| 2
-| [[bip-0375.mediawiki|375]]
 |-
 | PSBT Version Number
 | <tt>PSBT_GLOBAL_VERSION = 0xFB</tt>
@@ -202,7 +122,6 @@ The currently defined global types are as follows:
 | 2
 |
 | 0, 2
-| 174
 |-
 | Proprietary Use Type
 | <tt>PSBT_GLOBAL_PROPRIETARY = 0xFC</tt>
@@ -213,7 +132,6 @@ The currently defined global types are as follows:
 |
 |
 | 0, 2
-| 174
 |}
 
 The currently defined per-input types are defined as follows:
@@ -782,6 +700,8 @@ specified format for that type, the PSBT must be considered invalid. For example
 key that has no data except for the type specifier must only have the type specifier in
 the key.
 
+Additional types may be defined by other BIPs. They should be added to the accompanying [[bip-0174/type-registry.mediawiki|type registry tables]] to ease coordination.
+
 ===Handling Duplicated Keys===
 
 Keys within each scope should never be duplicated; all keys in the format are unique. PSBTs containing duplicate keys are invalid. However implementers
@@ -976,9 +896,9 @@ If an updater is updating a PSBT and needs to add a field that is only available
 
 ===Procedure For New Fields===
 
-New fields should first be proposed on the bitcoin-dev mailing list.
-If a field requires significant description as to its usage, it should be accompanied by a separate BIP.
-The field must be added to the field listing tables in the Specification section.
+New fields should first be proposed on the bitcoin-dev mailing list,
+and their usage should then be defined in a separate BIP.
+New fields must be added to the [[bip-0174/type-registry.mediawiki|type registry tables]].
 Although some PSBT version 0 implementations encode types as uint8_t rather than compact size,
 it is still safe to add >0xFD fields to PSBT 0, because these old parsers ignore
 unknown fields, and <keytype> is prefixed by its length.
@@ -986,8 +906,8 @@ unknown fields, and <keytype> is prefixed by its length.
 ===Procedure For New Versions===
 
 New PSBT versions must be described in a separate BIP.
-The BIP may reference this BIP and any components of PSBT version 0 that are retained in the new version.
-Any new fields described in the new version must be added to the field listing tables in the Specification section.
+Such new BIPs may reference this BIP and any components of PSBT version 0 that are retained in the new version.
+Any new fields described in a new version must be added to the [[bip-0174/type-registry.mediawiki|type registry tables]].
 
 ==Compatibility==
 
