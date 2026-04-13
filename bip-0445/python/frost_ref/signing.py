@@ -8,7 +8,7 @@
 # be used in production environments. The code is vulnerable to timing attacks,
 # for example.
 
-from typing import List, Optional, Tuple, NewType, NamedTuple, Sequence, Literal
+from typing import List, Optional, Tuple, NewType, NamedTuple, Literal
 import secrets
 
 from secp256k1lab.secp256k1 import G, GE, Scalar
@@ -37,10 +37,9 @@ ContribKind = Literal[
 # values. Actual implementations should not crash when receiving invalid
 # contributions. Instead, they should hold the offending party accountable.
 class InvalidContributionError(Exception):
-    def __init__(self, signer_id: Optional[int], contrib: ContribKind) -> None:
-        # participant identifier of the signer who sent the invalid value
-        self.id = signer_id
-        # contrib is one of "pubkey", "pubnonce", "aggnonce", or "psig".
+    def __init__(self, signer_index: Optional[int], contrib: ContribKind) -> None:
+        # index of the signer who sent the invalid value, or None for coordinator
+        self.signer_index = signer_index
         self.contrib = contrib
 
 
@@ -60,11 +59,11 @@ def derive_interpolating_value(ids: List[int], my_id: int) -> Scalar:
 
 def derive_thresh_pubkey(ids: List[int], pubshares: List[PlainPk]) -> PlainPk:
     Q = GE()
-    for my_id, pubshare in zip(ids, pubshares):
+    for idx, (my_id, pubshare) in enumerate(zip(ids, pubshares)):
         try:
             X_i = GE.from_bytes_compressed(pubshare)
         except ValueError:
-            raise InvalidContributionError(my_id, "pubshare")
+            raise InvalidContributionError(idx, "pubshare")
         lam_i = derive_interpolating_value(ids, my_id)
         Q = Q + lam_i * X_i
     # Q is not the point at infinity except with negligible probability.
@@ -88,13 +87,13 @@ def validate_signers_ctx(signers_ctx: SignersContext) -> None:
         raise ValueError("The number of signers must be between t and n.")
     if len(pubshares) != len(ids):
         raise ValueError("The pubshares and ids arrays must have the same length.")
-    for i, pubshare in zip(ids, pubshares):
+    for idx, (i, pubshare) in enumerate(zip(ids, pubshares)):
         if not 0 <= i <= n - 1:
             raise ValueError(f"The participant identifier {i} is out of range.")
         try:
             _ = GE.from_bytes_compressed(pubshare)
         except ValueError:
-            raise InvalidContributionError(i, "pubshare")
+            raise InvalidContributionError(idx, "pubshare")
     if len(set(ids)) != len(ids):
         raise ValueError("The participant identifier list contains duplicate elements.")
     if derive_thresh_pubkey(ids, pubshares) != thresh_pk:
@@ -235,20 +234,15 @@ def nonce_gen(
 # in each function that takes `ids` as argument?
 
 
-# `ids` is typed as Sequence[Optional[int]] so that callers can pass either
-# List[int] or List[Optional[int]] without triggering mypy invariance errors.
-# Sequence is read-only and covariant.
-def nonce_agg(pubnonces: List[bytes], ids: Sequence[Optional[int]]) -> bytes:
-    if len(pubnonces) != len(ids):
-        raise ValueError("The pubnonces and ids arrays must have the same length.")
+def nonce_agg(pubnonces: List[bytes]) -> bytes:
     aggnonce = b""
     for j in (1, 2):
         R_j = GE()
-        for my_id, pubnonce in zip(ids, pubnonces):
+        for idx, pubnonce in enumerate(pubnonces):
             try:
                 R_ij = GE.from_bytes_compressed(pubnonce[(j - 1) * 33 : j * 33])
             except ValueError:
-                raise InvalidContributionError(my_id, "pubnonce")
+                raise InvalidContributionError(idx, "pubnonce")
             R_j = R_j + R_ij
         aggnonce += R_j.to_bytes_compressed_with_infinity()
     return aggnonce
@@ -375,9 +369,6 @@ def det_nonce_hash(
     return tagged_hash("FROST/deterministic/nonce", buf)
 
 
-COORDINATOR_ID = None
-
-
 def deterministic_sign(
     secshare: bytes,
     my_id: int,
@@ -414,11 +405,10 @@ def deterministic_sign(
     pubnonce = R1_partial.to_bytes_compressed() + R2_partial.to_bytes_compressed()
     secnonce = bytearray(k_1.to_bytes() + k_2.to_bytes())
     try:
-        aggnonce = nonce_agg([pubnonce, aggothernonce], [my_id, COORDINATOR_ID])
+        aggnonce = nonce_agg([pubnonce, aggothernonce])
     except Exception:
-        # Since `pubnonce` can never be invalid, blame coordinator's pubnonce.
-        # REVIEW: should we introduce an unknown participant or coordinator error?
-        raise InvalidContributionError(COORDINATOR_ID, "aggothernonce")
+        # pubnonce is always valid, so any failure is due to aggothernonce.
+        raise InvalidContributionError(None, "aggothernonce")
     session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
     psig = sign(secnonce, secshare, my_id, session_ctx)
     return (pubnonce, psig)
@@ -439,7 +429,7 @@ def partial_sig_verify(
         raise ValueError("The pubnonces and ids arrays must have the same length.")
     if len(tweaks) != len(is_xonly):
         raise ValueError("The tweaks and is_xonly arrays must have the same length.")
-    aggnonce = nonce_agg(pubnonces, ids)
+    aggnonce = nonce_agg(pubnonces)
     session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
     return partial_sig_verify_internal(
         psig, ids[i], pubnonces[i], pubshares[i], session_ctx
@@ -480,19 +470,16 @@ def partial_sig_verify_internal(
     return s * G == Re_s + (e * a * g_) * P
 
 
-def partial_sig_agg(
-    psigs: List[bytes], ids: List[int], session_ctx: SessionContext
-) -> bytes:
-    assert COORDINATOR_ID not in ids
+def partial_sig_agg(psigs: List[bytes], session_ctx: SessionContext) -> bytes:
+    (Q, _, tacc, ids, _, _, R, e) = get_session_values(session_ctx)
     if len(psigs) != len(ids):
         raise ValueError("The psigs and ids arrays must have the same length.")
-    (Q, _, tacc, _, _, _, R, e) = get_session_values(session_ctx)
     s = Scalar(0)
-    for my_id, psig in zip(ids, psigs):
+    for idx, psig in enumerate(psigs):
         try:
             s_i = Scalar.from_bytes_checked(psig)
         except ValueError:
-            raise InvalidContributionError(my_id, "psig")
+            raise InvalidContributionError(idx, "psig")
         s = s + s_i
     g = Scalar(1) if Q.has_even_y() else Scalar(-1)
     s = s + e * g * tacc

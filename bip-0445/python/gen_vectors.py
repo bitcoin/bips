@@ -301,24 +301,20 @@ def generate_nonce_agg_vectors():
     # --- Valid Test Case 1 ---
     pubnonce_indices = [0, 1]
     curr_pubnonces = [pubnonces[i] for i in pubnonce_indices]
-    pids = [0, 1]
-    aggnonce = nonce_agg(curr_pubnonces, pids)
+    aggnonce = nonce_agg(curr_pubnonces)
     vectors["valid_test_cases"].append(
         {
             "pubnonce_indices": pubnonce_indices,
-            "participant_identifiers": pids,
             "expected_aggnonce": bytes_to_hex(aggnonce),
         }
     )
     # --- Valid Test Case 2 ---
     pubnonce_indices = [2, 3]
     curr_pubnonces = [pubnonces[i] for i in pubnonce_indices]
-    pids = [0, 1]
-    aggnonce = nonce_agg(curr_pubnonces, pids)
+    aggnonce = nonce_agg(curr_pubnonces)
     vectors["valid_test_cases"].append(
         {
             "pubnonce_indices": pubnonce_indices,
-            "participant_identifiers": pids,
             "expected_aggnonce": bytes_to_hex(aggnonce),
             "comment": "Sum of second points encoded in the nonces is point at infinity which is serialized as 33 zero bytes",
         }
@@ -328,14 +324,12 @@ def generate_nonce_agg_vectors():
     # --- Error Test Case 1 ---
     pubnonce_indices = [0, INVALID_TAG_IDX]
     curr_pubnonces = [pubnonces[i] for i in pubnonce_indices]
-    pids = [0, 1]
     error = expect_exception(
-        lambda: nonce_agg(curr_pubnonces, pids), InvalidContributionError
+        lambda: nonce_agg(curr_pubnonces), InvalidContributionError
     )
     vectors["error_test_cases"].append(
         {
             "pubnonce_indices": pubnonce_indices,
-            "participant_identifiers": pids,
             "error": error,
             "comment": "Public nonce from signer 1 is invalid due wrong tag, 0x04, in the first half",
         }
@@ -343,14 +337,12 @@ def generate_nonce_agg_vectors():
     # --- Error Test Case 2 ---
     pubnonce_indices = [INVALID_XCOORD_IDX, 1]
     curr_pubnonces = [pubnonces[i] for i in pubnonce_indices]
-    pids = [0, 1]
     error = expect_exception(
-        lambda: nonce_agg(curr_pubnonces, pids), InvalidContributionError
+        lambda: nonce_agg(curr_pubnonces), InvalidContributionError
     )
     vectors["error_test_cases"].append(
         {
             "pubnonce_indices": pubnonce_indices,
-            "participant_identifiers": pids,
             "error": error,
             "comment": "Public nonce from signer 0 is invalid because the second half does not correspond to an X coordinate",
         }
@@ -358,14 +350,12 @@ def generate_nonce_agg_vectors():
     # --- Error Test Case 3 ---
     pubnonce_indices = [INVALID_EXCEEDS_FIELD_IDX, 1]
     curr_pubnonces = [pubnonces[i] for i in pubnonce_indices]
-    pids = [0, 1]
     error = expect_exception(
-        lambda: nonce_agg(curr_pubnonces, pids), InvalidContributionError
+        lambda: nonce_agg(curr_pubnonces), InvalidContributionError
     )
     vectors["error_test_cases"].append(
         {
             "pubnonce_indices": pubnonce_indices,
-            "participant_identifiers": pids,
             "error": error,
             "comment": "Public nonce from signer 0 is invalid because second half exceeds field size",
         }
@@ -409,7 +399,7 @@ def generate_sign_verify_vectors():
     ]
     vectors["secnonces_p0"] = bytes_list_to_hex(secnonces_p0)
     # compute -(pubnonce[0] + pubnonce[1])
-    tmp = nonce_agg(pubnonces[:2], ids[:2])
+    tmp = nonce_agg(pubnonces[:2])
     R1 = GE.from_bytes_compressed_with_infinity(tmp[0:33])
     R2 = GE.from_bytes_compressed_with_infinity(tmp[33:66])
     neg_R1 = -R1
@@ -431,10 +421,7 @@ def generate_sign_verify_vectors():
     # 5 -> invalid x coordinate in second half
     # 6 -> second half exceeds field size
     indices_grp = [[0, 1], [0, 2], [0, 1, 2]]
-    aggnonces = [
-        nonce_agg([pubnonces[i] for i in indices], [ids[i] for i in indices])
-        for indices in indices_grp
-    ]
+    aggnonces = [nonce_agg([pubnonces[i] for i in indices]) for indices in indices_grp]
     # aggnonce with inf points
     aggnonces.append(
         nonce_agg(
@@ -443,7 +430,6 @@ def generate_sign_verify_vectors():
                 pubnonces[1],
                 pubnonces[-1],
             ],  # pubnonces[-1] is inv_pubnonce
-            [ids[0], ids[1], ids[2]],
         )
     )
     # invalid aggnonces
@@ -738,18 +724,6 @@ def generate_sign_verify_vectors():
     # --- Verify Fail Test Cases 3 ---
     vectors["verify_fail_test_cases"].append(
         {
-            "psig": bytes_to_hex(psig),
-            "id_indices": id_indices,
-            "pubshare_indices": [2] + pubshare_indices[1:],
-            "pubnonce_indices": pubnonce_indices,
-            "msg_index": msg_idx,
-            "signer_index": signer_idx,
-            "comment": "The signer's pubshare is not in the list of pubshares",
-        }
-    )
-    # --- Verify Fail Test Cases 4 ---
-    vectors["verify_fail_test_cases"].append(
-        {
             "psig": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
             "id_indices": id_indices,
             "pubshare_indices": pubshare_indices,
@@ -789,6 +763,15 @@ def generate_sign_verify_vectors():
             "signer": 0,
             "error": "value",
             "comment": "public nonces count is greater than ids and pubshares",
+        },
+        {
+            "ids": [0, 1],
+            "pubshares": [2, 1],
+            "pubnonces": [0, 1],
+            "msg": 0,
+            "signer": 0,
+            "error": "value",
+            "comment": "The signer's pubshare is not in the list of pubshares",
         },
     ]
     for case in verify_error_cases:
@@ -849,15 +832,11 @@ def generate_tweak_vectors():
 
     # create valid aggnonces
     indices_grp = [[0, 1], [0, 1, 2]]
-    aggnonces = [
-        nonce_agg([pubnonces[i] for i in indices], [ids[i] for i in indices])
-        for indices in indices_grp
-    ]
+    aggnonces = [nonce_agg([pubnonces[i] for i in indices]) for indices in indices_grp]
     # aggnonce with inf points
     aggnonces.append(
         nonce_agg(
             [pubnonces[0], pubnonces[1], pubnonces[-1]],
-            [ids[0], ids[1], ids[2]],
         )
     )
     vectors["aggnonces"] = bytes_list_to_hex(aggnonces)
@@ -1093,7 +1072,6 @@ def generate_det_sign_vectors():
         curr_tweak_modes = case.get("is_xonly", [])
 
         # generate `aggothernonce`
-        other_ids = curr_ids[:signer_index] + curr_ids[signer_index + 1 :]
         other_pubnonces = []
         for i in case["indices"]:
             if i == signer_index:
@@ -1103,7 +1081,7 @@ def generate_det_sign_vectors():
                 tmp, secshares[i], pubshares[i], xonly_thresh_pk, curr_msg, None
             )
             other_pubnonces.append(pub)
-        curr_aggothernonce = nonce_agg(other_pubnonces, other_ids)
+        curr_aggothernonce = nonce_agg(other_pubnonces)
 
         curr_signers = SignersContext(n, t, curr_ids, curr_pubshares, thresh_pk)
         expected = deterministic_sign(
@@ -1232,10 +1210,6 @@ def generate_det_sign_vectors():
         # generate `aggothernonce`
         is_aggothernonce = case.get("aggothernonce", None)
         if is_aggothernonce is None:
-            if signer_index is None:
-                other_ids = curr_ids[1:]
-            else:
-                other_ids = curr_ids[:signer_index] + curr_ids[signer_index + 1 :]
             other_pubnonces = []
             for i in case["ids"]:
                 if i == signer_index:
@@ -1245,7 +1219,7 @@ def generate_det_sign_vectors():
                     tmp, secshares[i], pubshares[i], xonly_thresh_pk, curr_msg, None
                 )
                 other_pubnonces.append(pub)
-            curr_aggothernonce = nonce_agg(other_pubnonces, other_ids)
+            curr_aggothernonce = nonce_agg(other_pubnonces)
         else:
             curr_aggothernonce = bytes.fromhex(is_aggothernonce)
 
@@ -1339,7 +1313,7 @@ def generate_sig_agg_vectors():
         curr_ids = [ids[i] for i in case["indices"]]
         curr_pubshares = [pubshares[i] for i in case["indices"]]
         curr_pubnonces = [pubnonces[i] for i in case["indices"]]
-        curr_aggnonce = nonce_agg(curr_pubnonces, curr_ids)
+        curr_aggnonce = nonce_agg(curr_pubnonces)
         curr_msg = msg
         tweak_indices = case.get("tweaks", [])
         curr_tweaks = [SIG_AGG_TWEAKS[i] for i in tweak_indices]
@@ -1358,7 +1332,7 @@ def generate_sig_agg_vectors():
             sig = sign(bytearray(secnonces[i]), secshares[i], my_id, session_ctx)
             psigs.append(sig)
             # TODO: verify the signatures here
-        bip340_sig = partial_sig_agg(psigs, curr_ids, session_ctx)
+        bip340_sig = partial_sig_agg(psigs, session_ctx)
         vectors["valid_test_cases"].append(
             {
                 "id_indices": case["indices"],
@@ -1391,7 +1365,7 @@ def generate_sig_agg_vectors():
         curr_ids = [ids[i] for i in case["indices"]]
         curr_pubshares = [pubshares[i] for i in case["indices"]]
         curr_pubnonces = [pubnonces[i] for i in case["indices"]]
-        curr_aggnonce = nonce_agg(curr_pubnonces, curr_ids)
+        curr_aggnonce = nonce_agg(curr_pubnonces)
         curr_msg = msg
         psigs = []
         curr_signers = SignersContext(n, t, curr_ids, curr_pubshares, thresh_pk)
@@ -1414,7 +1388,7 @@ def generate_sig_agg_vectors():
             ValueError if case["error"] == "value" else InvalidContributionError
         )
         error = expect_exception(
-            lambda: partial_sig_agg(psigs, curr_ids, session_ctx), expected_exception
+            lambda: partial_sig_agg(psigs, session_ctx), expected_exception
         )
         vectors["error_test_cases"].append(
             {

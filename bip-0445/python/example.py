@@ -160,7 +160,7 @@ async def coordinator(
         pubnonces.append(pubnonce)
 
     # Aggregate nonces
-    aggnonce = nonce_agg(pubnonces, signer_ids)
+    aggnonce = nonce_agg(pubnonces)
     chans.send_all(aggnonce)
 
     # Round 2: Collect partial signatures
@@ -174,7 +174,7 @@ async def coordinator(
         psigs.append(psig)
 
     # Aggregate partial signatures
-    final_sig = partial_sig_agg(psigs, signer_ids, session_ctx)
+    final_sig = partial_sig_agg(psigs, session_ctx)
     chans.send_all(final_sig)
 
     return final_sig

@@ -8,7 +8,6 @@ import time
 from typing import List, Optional, Tuple
 
 from frost_ref.signing import (
-    COORDINATOR_ID,
     InvalidContributionError,
     PlainPk,
     SessionContext,
@@ -60,11 +59,14 @@ def get_error_details(test_case):
         if "contrib" in error:
 
             def except_fn(e):
-                return e.id == error["id"] and e.contrib == error["contrib"]
+                return (
+                    e.signer_index == error["signer_index"]
+                    and e.contrib == error["contrib"]
+                )
         else:
 
             def except_fn(e):
-                return e.id == error["id"]
+                return e.signer_index == error["signer_index"]
     elif error["type"] == "ValueError":
         exception = ValueError
 
@@ -134,18 +136,14 @@ def test_nonce_agg_vectors():
     error_test_cases = test_data["error_test_cases"]
 
     for test_case in valid_test_cases:
-        # todo: assert the t <= len(pubnonces, ids) <= n
-        # todo: assert the values of ids too? 1 <= id <= n?
         pubnonces = [pubnonces_list[i] for i in test_case["pubnonce_indices"]]
-        ids = test_case["participant_identifiers"]
         expected_aggnonce = bytes.fromhex(test_case["expected_aggnonce"])
-        assert nonce_agg(pubnonces, ids) == expected_aggnonce
+        assert nonce_agg(pubnonces) == expected_aggnonce
 
     for test_case in error_test_cases:
         exception, except_fn = get_error_details(test_case)
         pubnonces = [pubnonces_list[i] for i in test_case["pubnonce_indices"]]
-        ids = test_case["participant_identifiers"]
-        assert_raises(exception, lambda: nonce_agg(pubnonces, ids), except_fn)
+        assert_raises(exception, lambda: nonce_agg(pubnonces), except_fn)
 
 
 # todo: include vectors from the frost draft too
@@ -187,7 +185,7 @@ def test_sign_verify_vectors():
         pubnonces_tmp = [pubnonces[i] for i in test_case["pubnonce_indices"]]
         aggnonce_tmp = aggnonces[test_case["aggnonce_index"]]
         # Make sure that pubnonces and aggnonce in the test vector are consistent
-        assert nonce_agg(pubnonces_tmp, ids_tmp) == aggnonce_tmp
+        assert nonce_agg(pubnonces_tmp) == aggnonce_tmp
         msg = msgs[test_case["msg_index"]]
         signer_index = test_case["signer_index"]
         my_id = ids_tmp[signer_index]
@@ -233,12 +231,14 @@ def test_sign_verify_vectors():
         signer_index = test_case["signer_index"]
 
         signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
-        assert not partial_sig_verify_internal(
+        assert not partial_sig_verify(
             psig,
-            ids_tmp[signer_index],
-            pubnonces_tmp[signer_index],
-            pubshares_tmp[signer_index],
-            session_ctx,
+            pubnonces_tmp,
+            signers_tmp,
+            [],
+            [],
+            msg,
+            signer_index,
         )
 
     for test_case in verify_error_test_cases:
@@ -297,7 +297,7 @@ def test_tweak_vectors():
         pubnonces_tmp = [pubnonces[i] for i in test_case["pubnonce_indices"]]
         aggnonce_tmp = aggnonces[test_case["aggnonce_index"]]
         # Make sure that pubnonces and aggnonce in the test vector are consistent
-        assert nonce_agg(pubnonces_tmp, ids_tmp) == aggnonce_tmp
+        assert nonce_agg(pubnonces_tmp) == aggnonce_tmp
         tweaks_tmp = [tweaks[i] for i in test_case["tweak_indices"]]
         tweak_modes_tmp = test_case["is_xonly"]
         signer_index = test_case["signer_index"]
@@ -391,7 +391,7 @@ def test_det_sign_vectors():
         assert psig == expected[1]
 
         pubnonces = [aggothernonce, pubnonce]
-        aggnonce_tmp = nonce_agg(pubnonces, [COORDINATOR_ID, my_id])
+        aggnonce_tmp = nonce_agg(pubnonces)
         session_ctx = SessionContext(aggnonce_tmp, signers_tmp, tweaks, is_xonly, msg)
         assert partial_sig_verify_internal(
             psig, my_id, pubnonce, pubshares_tmp[signer_index], session_ctx
@@ -455,7 +455,7 @@ def test_sig_agg_vectors():
         pubnonces_tmp = [pubnonces[i] for i in test_case["pubnonce_indices"]]
         aggnonce_tmp = bytes.fromhex(test_case["aggnonce"])
         # Make sure that pubnonces and aggnonce in the test vector are consistent
-        assert aggnonce_tmp == nonce_agg(pubnonces_tmp, ids_tmp)
+        assert aggnonce_tmp == nonce_agg(pubnonces_tmp)
 
         tweaks_tmp = [tweaks[i] for i in test_case["tweak_indices"]]
         tweak_modes_tmp = test_case["is_xonly"]
@@ -478,7 +478,7 @@ def test_sig_agg_vectors():
                 i,
             )
 
-        bip340sig = partial_sig_agg(psigs_tmp, ids_tmp, session_ctx)
+        bip340sig = partial_sig_agg(psigs_tmp, session_ctx)
         assert bip340sig == expected
         tweaked_thresh_pk = get_xonly_pk(
             thresh_pubkey_and_tweak(thresh_pk, tweaks_tmp, tweak_modes_tmp)
@@ -503,7 +503,7 @@ def test_sig_agg_vectors():
         )
         assert_raises(
             exception,
-            lambda: partial_sig_agg(psigs_tmp, ids_tmp, session_ctx),
+            lambda: partial_sig_agg(psigs_tmp, session_ctx),
             except_fn,
         )
 
@@ -578,7 +578,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
             )
             signer_secnonces.append(secnonce_final)
         else:
-            aggothernonce = nonce_agg(signer_pubnonces, signer_ids[:-1])
+            aggothernonce = nonce_agg(signer_pubnonces)
             rand = secrets.token_bytes(32)
             pubnonce_final, psig_final = deterministic_sign(
                 signer_secshares[-1],
@@ -592,7 +592,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
             )
 
         signer_pubnonces.append(pubnonce_final)
-        aggnonce = nonce_agg(signer_pubnonces, signer_ids)
+        aggnonce = nonce_agg(signer_pubnonces)
         session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, tweak_modes, msg)
 
         signer_psigs = []
@@ -644,7 +644,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
             0,
         )
 
-        bip340sig = partial_sig_agg(signer_psigs, signer_ids, session_ctx)
+        bip340sig = partial_sig_agg(signer_psigs, session_ctx)
         assert schnorr_verify(msg, tweaked_thresh_pk, bip340sig)
 
 
