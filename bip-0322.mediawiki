@@ -65,28 +65,37 @@ UTXOs.
 |- style="font-weight:bold;"
 !
 ! Compatible script types
+! Signature prefix
 ! Signature format
 |-
 | Legacy
 | <code>P2PKH</code>, <code>P2SH-P2WPKH</code><sup>1</sup>, <code>P2WPKH</code><sup>1</sup>
+| n/a
 | compact, public key recoverable ECDSA signature, base64-encoded
 |-
 | Simple
 | <code>P2WPKH</code>, <code>P2WSH</code><sup>2</sup>, <code>P2TR</code><sup>2</sup> <br/>
+| <code>smp</code>
 | witness stack, consensus encoded and base64-encoded
 |-
 | Full
 | <code>all</code>
+| <code>ful</code>
 | full <code>to_sign</code> transaction, consensus and base64-encoded
 |-
 | Full (Proof of Funds)
 | <code>all</code>
+| <code>pof</code>
 | full finalized PSBT of the <code>to_sign</code> transaction, consensus and base64-encoded
 |}
 
 <sup>1</sup>: Possible on a technical level but should NOT be used anymore in the context of this
 BIP.<br/>
 <sup>2</sup>: Excluding time lock scripts.
+
+Signers must prefix the signature with the variant that was used to create the signature.
+To support backward compatibility with implementations of this BIP before it was finalized, a
+verifier might assume the ''simple'' variant in the absence of a prefix.
 
 === Legacy ===
 
@@ -97,8 +106,9 @@ The legacy format MAY be used, but must be restricted to the legacy P2PKH invoic
 === Simple ===
 
 A ''simple'' signature consists of a witness stack, consensus encoded as a vector of vectors of
-bytes, and base64-encoded. Validators should construct <code>to_spend</code> and
-<code>to_sign</code> as defined below, with default values for all fields except that
+bytes, and base64-encoded, prefixed by the variant (<code>smp</code>). Validators should construct
+<code>to_spend</code> and <code>to_sign</code> as defined below, with default values for all fields
+except that
 
 <ul>
 <li>
@@ -151,8 +161,8 @@ The <code>to_sign</code> transaction is:
     vout[0].nValue = 0
     vout[0].scriptPubKey = OP_RETURN
 
-A full signature consists of the base64-encoding of the <code>to_sign</code> transaction in standard
-network serialisation once it has been signed.
+A ''full'' signature consists of the variant-prefixed (<code>ful</code>) base64-encoding of the
+<code>to_sign</code> transaction in standard network serialisation once it has been signed.
 
 === Full (Proof of Funds) ===
 
@@ -181,8 +191,8 @@ full signature as above, with the following modifications.
 </li>
 </ul>
 
-A ''full Proof of Funds'' signature consists of the base64-encoding of the finalized PSBT once it
-has been signed.
+A ''full Proof of Funds'' signature consists of the variant-prefixed (<code>pof</code>)
+base64-encoding of the finalized PSBT once it has been signed.
 
 Unlike an ordinary signature, validators of a proof of funds need access to the current UTXO set, to
 learn that the claimed inputs exist on the blockchain and remain unspent.
@@ -267,19 +277,21 @@ Signers who control an address ''A'' who wish to sign a message ''m'' act as fol
 </li>
 </ol>
 
-They then encode their signature, choosing either ''simple'' or ''full'' as follows:
+They then encode their signature, choosing either ''simple'', ''full'' or ''full-pof'' as follows:
 
 <ul>
 <li>
   If they added no inputs to <code>to_sign</code>, left nVersion, nSequence and nLockTime at 0, and
   ''A'' is a "native" Segwit address (P2WPKH, P2WSH, P2TR), then they may base64-encode
-  <code>message_signature</code>
+  <code>message_signature</code>  with <code>smp</code> as prefix.
 </li>
 <li>
-  If they added no inputs to <code>to_sign</code>, they may base64-encode <code>to_sign</code>
+  If they added no inputs to <code>to_sign</code>, they may base64-encode <code>to_sign</code> with
+  <code>ful</code> as prefix.
 </li>
 <li>
-  Otherwise, they must base64-encode the finalized PSBT of <code>to_sign</code>
+  Otherwise, they must base64-encode the finalized PSBT of <code>to_sign</code> with
+  <code>pof</code> as prefix.
 </li>
 </ul>
 
@@ -287,6 +299,8 @@ They then encode their signature, choosing either ''simple'' or ''full'' as foll
 
 This specification is backwards compatible with the legacy signmessage/verifymessage specification
 through the special case as described above.
+To support backward compatibility with implementations of this BIP before it was finalized, a
+verifier might assume the ''simple' variant in the absence of a prefix.
 
 == Reference implementation ==
 
