@@ -594,7 +594,7 @@ def generate_sign_verify_vectors():
             "msg": 0,
             "signer_idx": 0,
             "secnonce": 0,
-            "error": "invalid_contrib",
+            "error": "value",
             "comment": "Signer 1 provided an invalid participant public share",
         },
         {
@@ -752,7 +752,7 @@ def generate_sign_verify_vectors():
             "pubnonces": [0, 1],
             "msg": 0,
             "signer": 0,
-            "error": "invalid_contrib",
+            "error": "value",
             "comment": "Invalid pubshare",
         },
         {
@@ -1006,14 +1006,14 @@ def generate_det_sign_vectors():
             "signer": 1,
             "msg": 0,
             "rand": 0,
-            "comment": "Partial-signature shouldn't change if the order of signers set changes. Note: The deterministic sign will generate the same secnonces due to unchanged parameters",
+            "comment": "Partial signature and secnonce are invariant under reordering of ids (serialize_ids sorts first).",
         },
         {
             "indices": [0, 2],
             "signer": 0,
             "msg": 0,
             "rand": 0,
-            "comment": "Partial-signature changes if the members of signers set changes",
+            "comment": "Partial signature and secnonce change when the signer subset changes, ids is bound into det_nonce_hash.",
         },
         {
             "indices": [0, 1],
@@ -1158,7 +1158,7 @@ def generate_det_sign_vectors():
             "signer_idx": 0,
             "msg": 0,
             "rand": 0,
-            "error": "invalid_contrib",
+            "error": "value",
             "comment": "Signer 1 provided an invalid participant public share",
         },
         {

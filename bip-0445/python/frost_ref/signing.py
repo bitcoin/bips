@@ -71,7 +71,6 @@ def derive_thresh_pubkey(ids: List[int], pubshares: List[PlainPk]) -> PlainPk:
     return PlainPk(Q.to_bytes_compressed())
 
 
-# REVIEW: should we remove n and t from this struct?
 class SignersContext(NamedTuple):
     n: int
     t: int
@@ -89,11 +88,11 @@ def validate_signers_ctx(signers_ctx: SignersContext) -> None:
         raise ValueError("The pubshares and ids arrays must have the same length.")
     for idx, (i, pubshare) in enumerate(zip(ids, pubshares)):
         if not 0 <= i <= n - 1:
-            raise ValueError(f"The participant identifier {i} is out of range.")
+            raise ValueError(f"Invalid participant identifier at index {idx}.")
         try:
             _ = GE.from_bytes_compressed(pubshare)
         except ValueError:
-            raise InvalidContributionError(idx, "pubshare")
+            raise ValueError(f"Invalid pubshare at index {idx}.")
     if len(set(ids)) != len(ids):
         raise ValueError("The participant identifier list contains duplicate elements.")
     if derive_thresh_pubkey(ids, pubshares) != thresh_pk:
@@ -207,9 +206,6 @@ def nonce_gen_internal(
     return secnonce, pubnonce
 
 
-# think: can msg & extra_in be of any length here?
-# think: why doesn't musig2 ref code check for `pk` length here?
-# REVIEW: Why should thresh_pk be XOnlyPk here? Shouldn't it be PlainPk?
 def nonce_gen(
     secshare: Optional[bytes],
     pubshare: Optional[PlainPk],
@@ -223,15 +219,8 @@ def nonce_gen(
         raise ValueError("The optional byte array pubshare must have length 33.")
     if thresh_pk is not None and len(thresh_pk) != 32:
         raise ValueError("The optional byte array thresh_pk must have length 32.")
-    # bench: will adding individual_pk(secshare) == pubshare check, increase the execution time significantly?
     rand_ = secrets.token_bytes(32)
     return nonce_gen_internal(rand_, secshare, pubshare, thresh_pk, msg, extra_in)
-
-
-# REVIEW should we raise value errors for:
-#     (1) duplicate ids
-#     (2) 0 <= id < max_participants < 2^32
-# in each function that takes `ids` as argument?
 
 
 def nonce_agg(pubnonces: List[bytes]) -> bytes:
@@ -298,7 +287,6 @@ def get_session_values(
 
 
 def serialize_ids(ids: List[int]) -> bytes:
-    # REVIEW assert for ids not being unsigned values?
     sorted_ids = sorted(ids)
     ser_ids = b"".join(i.to_bytes(4, byteorder="big", signed=False) for i in sorted_ids)
     return ser_ids
@@ -307,7 +295,9 @@ def serialize_ids(ids: List[int]) -> bytes:
 def sign(
     secnonce: bytearray, secshare: bytes, my_id: int, session_ctx: SessionContext
 ) -> bytes:
-    (Q, gacc, _, ids, pubshares, b, R, e) = get_session_values(session_ctx)
+    (Q, gacc, _, ids, pubshares, b, R, e) = get_session_values(
+        session_ctx
+    )  # internally validates signers_ctx
     try:
         k_1_ = Scalar.from_bytes_nonzero_checked(bytes(secnonce[0:32]))
     except ValueError:
@@ -316,7 +306,7 @@ def sign(
         k_2_ = Scalar.from_bytes_nonzero_checked(bytes(secnonce[32:64]))
     except ValueError:
         raise ValueError("second secnonce value is out of range.")
-    # Overwrite the secnonce argument with zeros such that subsequent calls of
+    # Overwrite the secnonce argument with zeros, so the subsequent calls of
     # sign with the same secnonce raise a ValueError.
     secnonce[:] = bytearray(b"\x00" * 64)
     k_1 = k_1_ if R.has_even_y() else -k_1_
@@ -327,15 +317,10 @@ def sign(
     P = d_ * G
     assert not P.infinity
     my_pubshare = P.to_bytes_compressed()
-    # REVIEW: do we actually need this check? Musig2 embeds pk in secnonce to prevent
-    # the wagner's attack related to tweaked pubkeys, but here we don't have that issue.
-    # If we don't need to worry about that attack, we remove pubshare from get_session_values
-    # return values
     if my_pubshare not in pubshares:
         raise ValueError(
             "The signer's pubshare must be included in the list of pubshares."
         )
-    # REVIEW: do we actually need this check?
     if my_id not in ids:
         raise ValueError(
             "The signer's id must be present in the participant identifier list."
@@ -355,12 +340,20 @@ def sign(
     return psig
 
 
-# REVIEW should we hash the signer set (or pubshares) too? Otherwise same nonce will be generate even if the signer set changes
 def det_nonce_hash(
-    secshare_: bytes, aggothernonce: bytes, tweaked_tpk: bytes, msg: bytes, i: int
+    secshare_: bytes,
+    my_id: int,
+    ids: List[int],
+    aggothernonce: bytes,
+    tweaked_tpk: bytes,
+    msg: bytes,
+    i: int,
 ) -> bytes:
     buf = b""
     buf += secshare_
+    buf += my_id.to_bytes(4, "big")
+    buf += len(ids).to_bytes(4, "big")
+    buf += serialize_ids(ids)
     buf += aggothernonce
     buf += tweaked_tpk
     buf += len(msg).to_bytes(8, "big")
@@ -385,14 +378,14 @@ def deterministic_sign(
         secshare_ = secshare
     # REVIEW: do we need to add any check for ids & pubshares (in signers_ctx context) here?
     validate_signers_ctx(signers_ctx)
-    _, _, _, _, thresh_pk = signers_ctx
+    _, _, ids, _, thresh_pk = signers_ctx
     tweaked_tpk = get_xonly_pk(thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly))
 
     k_1 = Scalar.from_bytes_wrapping(
-        det_nonce_hash(secshare_, aggothernonce, tweaked_tpk, msg, 0)
+        det_nonce_hash(secshare_, my_id, ids, aggothernonce, tweaked_tpk, msg, 0)
     )
     k_2 = Scalar.from_bytes_wrapping(
-        det_nonce_hash(secshare_, aggothernonce, tweaked_tpk, msg, 1)
+        det_nonce_hash(secshare_, my_id, ids, aggothernonce, tweaked_tpk, msg, 1)
     )
     # k_1 == 0 or k_2 == 0 cannot occur except with negligible probability.
     assert k_1 != 0
@@ -436,7 +429,6 @@ def partial_sig_verify(
     )
 
 
-# REVIEW: catch `cpoint` ValueError and return false
 def partial_sig_verify_internal(
     psig: bytes,
     my_id: int,
