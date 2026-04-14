@@ -79,9 +79,9 @@ UTXOs.
 | <code>all</code>
 | full <code>to_sign</code> transaction, consensus and base64-encoded
 |-
-| Full (PoF)
+| Full (Proof of Funds)
 | <code>all</code>
-| full <code>to_sign</code> transaction, consensus and base64-encoded
+| full finalized PSBT of the <code>to_sign</code> transaction, consensus and base64-encoded
 |}
 
 <sup>1</sup>: Possible on a technical level but should NOT be used anymore in the context of this
@@ -161,11 +161,28 @@ full signature as above, with the following modifications.
 
 <ul>
 <li>
-  All outputs that the signer wishes to demonstrate control of are included as additional inputs
-  of <code>to_sign</code>, and their witness and scriptSig data should be set as though these
-  outputs were actually being spent.
+  The <code>to_spend</code> transaction is represented as a finalized PSBT instead of a raw
+  transaction (see [[bip-0174.mediawiki#input-finalizer|BIP-0174]] for details on the finalization
+  process).
+</li>
+<li>
+  All outputs that the signer wishes to demonstrate control of are included as additional inputs of
+  <code>to_sign</code>, and their witness and scriptSig data should be set as though these outputs
+  were actually being spent.
+</li>
+<li>
+  The Non-Witness or Witness UTXO fields (as appropriate for the type) of each additional input must
+  be set to the corresponding UTXO.
+</li>
+<li>
+  As an optimization for large sets of Non-Witness UTXOs that spend outputs from the same
+  transaction, the Non-Witness UTXO field may be omitted for any input that spends an output from
+  the same transaction as an input earlier in the list.
 </li>
 </ul>
+
+A ''full Proof of Funds'' signature consists of the base64-encoding of the finalized PSBT once it
+has been signed.
 
 Unlike an ordinary signature, validators of a proof of funds need access to the current UTXO set, to
 learn that the claimed inputs exist on the blockchain and remain unspent.
@@ -205,8 +222,10 @@ Validation consists of the following steps:
 # Basic validation
 ## Compute the transaction <code>to_spend</code> from ''m'' and ''A''
 ## Decode ''s'' as the transaction <code>to_sign</code>
-## If ''s'' was a full transaction, confirm all fields are set as specified above; in particular that
+## If ''s'' was a full transaction or PSBT, confirm all fields are set as specified above; in particular that
 ##* <code>to_sign</code> has at least one input and its first input spends the output of </code>to_spend</code>
+##* <code>to_sign</code> with more than one input has an appropriate Witness UTXO or Non-Witness UTXO for each input
+##** If (based on the input type) a Non-Witness UTXO is required but not provided, check if the first input with the same transaction ID has a Non-Witness UTXO set and use that; fail validation if no such Non-Witness UTXO can be found
 ##* <code>to_sign</code> has exactly one output, as specified above
 ## Confirm that the two transactions together satisfy all consensus rules, except for <code>to_spend</code>'s missing input, and except that ''nSequence'' of <code>to_sign</code>'s first input and ''nLockTime'' of <code>to_sign</code> are not checked.
 # (Optional) If the validator does not have a full script interpreter, it should check that it understands all scripts being satisfied. If not, it should stop here and output ''inconclusive''.
@@ -257,7 +276,10 @@ They then encode their signature, choosing either ''simple'' or ''full'' as foll
   <code>message_signature</code>
 </li>
 <li>
-  Otherwise they must base64-encode <code>to_sign</code>.
+  If they added no inputs to <code>to_sign</code>, they may base64-encode <code>to_sign</code>
+</li>
+<li>
+  Otherwise, they must base64-encode the finalized PSBT of <code>to_sign</code>
 </li>
 </ul>
 
