@@ -295,6 +295,155 @@ They then encode their signature, choosing either ''simple'', ''full'' or ''full
 </li>
 </ul>
 
+=== PSBT-based signing ===
+
+A valid witness stack for a multisig address must be constructed by coordinating different signers
+to produce a partial signature each.
+The coordination procedure is not specified by this BIP, but due to the use of PSBTs it should
+closely resemble the coordination of signing a multisig transaction for publishing to the network.
+
+The main difference is a new global PSBT field and the way a signer presents the transaction signing
+request to the user. The new global type is defined as follows:
+
+{| class="wikitable"
+! Name
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><keydata></tt> Description
+! <tt><valuedata></tt>
+! <tt><valuedata></tt> Description
+! Versions Requiring Inclusion
+! Versions Requiring Exclusion
+! Versions Allowing Inclusion
+|-
+| Generic Signed Message
+| <tt>PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE = 0x09</tt>
+| None
+| No key data
+| <tt><bytes message></tt>
+| The UTF-8 encoded message to be signed.
+|
+|
+| 0, 2
+|}
+
+=== PSBT creator ===
+
+The '''transaction creator''' of a BIP-0322 PSBT must follow these steps:
+
+<ol>
+<li>
+  They construct <code>to_spend</code> and <code>to_sign</code> as specified above, using the
+  scriptPubKey of ''A'' for <code>message_challenge</code> and tagged hash of ''m'' as
+  <code>message_hash</code>.
+</li>
+<li>
+  Optionally, they may set nVersion/nLockTime of <code>to_sign</code> or nSequence of its first
+  input.
+</li>
+<li>
+  Optionally, they may add any additional inputs to <code>to_sign</code> that they wish to prove
+  control of.
+</li>
+<li>
+  They set the appropriate <code>witness_utxo</code> and <code>non_witness_utxo</code> fields of the
+  first input, using the <code>to_spend</code> transaction as a <code>non_witness_utxo</code> or
+  the first output of the <code>to_spend</code> transaction as <code>witness_utxo</code>.
+</li>
+<li>
+  They set the appropriate <code>witness_utxo</code> and <code>non_witness_utxo</code> fields of
+  each additional input.
+</li>
+<li>
+  They set the appropriate PSBT input and global fields as required by the signers(s) to produce a
+  partial signature.
+</li>
+<li>
+  They set the <code>PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE</code> field, using the full UTF-8 encoded
+  message as the <code>valuedata</code>.
+  <ol>
+  <li>
+  There is no specified maximum length of an input's <code>valuedata</code> or a PSBT as a whole in
+  [[bip-0174.mediawiki|BIP-0174]], but different signers might impose safety limits. It is
+  recommended to use a maximum length of a few kilobytes to maximize compatibility. Very large
+  messages should be committed to by hash instead.
+  </li>
+  </ol>
+</li>
+</ol>
+
+=== PSBT signer ===
+
+A '''transaction signer''' of a BIP-0322 PSBT must follow these steps:
+
+<ol>
+<li>
+  They decode the base64-encoded PSBT as specified in [[bip-0174.mediawiki|BIP-0174]].
+</li>
+<li>
+  If they detect the following properties (all must be true, otherwise this is NOT a BIP-0322 PSBT
+  and they should treat it as an ordinary PSBT):
+  <ol>
+  <li>
+  The PSBT has the <code>PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE</code> field set. Extract and use as
+  <code>message</code> in the next steps.
+  </li>
+  <li>
+  The first PSBT input has either a <code>witness_utxo</code> or a <code>non_witness_utxo</code>
+  field set and the <code>scriptPubKey</code> can be extracted, then use as
+  <code>message_challenge</code> in the next steps.
+  </li>
+  <li>
+  The first PSBT input has <code>prevout.n = 0</code>.
+  </li>
+  <li>
+  The first PSBT input has <code>prevout.hash = to_spend.txid</code> where
+  <code>to_spend.txid</code> is constructed using the rules described above using the
+  <code>message</code> and <code>message_challenge</code> from the previous steps.
+  </li>
+  <li>
+  The PSBT's unsigned transaction has a single output with a value of <code>0</code> and the
+  <code>scriptPubKey</code> set to <code>OP_RETURN</code> (<code>0x6a</code>).
+  </li>
+  </ol>
+</li>
+<li>
+  If all of the above steps are true, the signer must inform the user about the message they are
+  signing and the address they are signing for.
+  <ol>
+  <li>
+  Even though the message being signed is a transaction, the user interaction (e.g. the steps and
+  messages shown on a hardware signing device's screen) should resemble the steps to sign a legacy
+  message, not the steps for signing a transaction.
+  </li>
+  <li>
+  Example: Instead of showing "spending 0 satoshi from address &lt;challenge_address&gt;" the
+  device should show "signing message &lt;message&gt; for address &lt;challenge_address&gt;".
+  </li>
+  </ol>
+</li>
+<li>
+  Upon user approval, the signer adds a partial signature for each input it is capable of signing.
+</li>
+</ol>
+
+=== PSBT finalizer ===
+
+A '''transaction finalizer''' of a BIP-0322 PSBT must follow these steps:
+
+<ol>
+<li>
+  They decode the base64-encoded PSBT as specified in [[bip-0174.mediawiki|BIP-0174]].
+</li>
+<li>
+  They finalize the PSBT as specified in [[bip-0174.mediawiki#input-finalizer|BIP-0174]].
+</li>
+<li>
+  They then encode the signature following the same steps as described in
+ [[bip-0322.mediawiki#signing|Signing]] above.
+</li>
+</ol>
+
 == Compatibility ==
 
 This specification is backwards compatible with the legacy signmessage/verifymessage specification
