@@ -52,6 +52,9 @@ fn test_p2mr_pqc_single_leaf_script_tree() {
     process_test_vector_p2mr(test_vector).unwrap();
 }
 
+/// Verifies that P2MR construction succeeds when leaves carry non-standard leaf versions (e.g. 0xfa).
+/// Unknown leaf versions are accepted: the TapLeaf hash is computed using the supplied version,
+/// and the resulting merkle root and control blocks are valid.
 #[test]
 fn test_p2mr_pqc_different_version_leaves() {
 
