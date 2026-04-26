@@ -16,19 +16,18 @@
 
 ==Abstract==
 
-This BIP describes an expansion of BIP-0039 for the generation of deterministic
-wallets. Where BIP-0039 uses a flat list of unrelated words, Formosa organizes
-mnemonic words into themed sentences with syntactic structure and semantic
-coherence, substantially improving memorability while retaining all properties
-of the original scheme.
+This BIP describes Formosa, an expansion of BIP-0039 for the generation of
+deterministic wallets. Where BIP-0039 maps each 11 bits of entropy to one word
+drawn from a single 2048-word list, Formosa maps each 33 bits of entropy to a
+short ''themed sentence'' built from several smaller, syntactically-typed
+wordlists. The sentences carry grammatical structure and semantic coherence,
+substantially improving memorability while retaining all cryptographic
+properties of the original scheme.
 
-It consists of two parts: generating the mnemonic and converting it into a
-binary seed. This seed can be later used to generate deterministic wallets using
-BIP-0032 or similar methods.
-
-Full forward and backward compatibility with BIP-0039 is maintained: seed
-derivation internally converts any Formosa mnemonic back to its equivalent
-BIP-0039 representation, so existing keys and addresses are preserved.
+The proposal is fully forward- and backward-compatible with BIP-0039: BIP-0039
+is itself a Formosa theme, and seed derivation re-encodes any Formosa mnemonic
+through the BIP-0039 English wordlist before applying PBKDF2, so existing keys
+and addresses are preserved.
 
 ==Copyright==
 
@@ -36,48 +35,78 @@ This BIP is licensed under the BSD 2-clause license.
 
 ==Motivation==
 
-A mnemonic code or sentence is superior for human interaction compared to the
-handling of raw binary or hexadecimal representations of a wallet seed. The
-sentence could be written on paper or spoken over the telephone.
+A mnemonic is superior for human interaction compared to handling raw binary or
+hexadecimal representations of a wallet seed. It can be written on paper or
+spoken over the telephone.
 
-However, human memory is an associative process: information is more readily
-retained when it can be linked to existing knowledge through semantic
-associations, visual imagery, and narrative context. A BIP-0039 mnemonic is a
-sequence of unrelated words with no syntactic or semantic relationship, making
-it difficult to form the mental associations that aid long-term retention.
+However, human memory is associative: information is more readily retained when
+it can be linked to existing knowledge through semantic associations, visual
+imagery, and narrative context. A BIP-0039 mnemonic is a sequence of unrelated
+words with no syntactic or semantic relationship, making it difficult to form
+the mental associations that aid long-term retention.
 
 Formosa builds upon BIP-0039 by organizing mnemonic words into themed sentences
-with syntactic roles (e.g., subject, adjective, object, location). Each sentence
-draws vocabulary from a coherent semantic domain --- medieval fantasy, science
-fiction, nature, finance, or any custom theme --- enabling the user to form vivid
-mental images that reduce memorization effort per bit of entropy.
+with syntactic roles (e.g., subject, verb, adjective, object, place). Each
+sentence draws vocabulary from a coherent semantic domain --- medieval fantasy,
+science fiction, nature, finance, or any custom theme --- enabling the user to
+form vivid mental images that reduce memorization effort per bit of entropy.
 
 This guide is meant to be a way to transport computer-generated randomness with
-a human-readable transcription. It's not a way to process user-created
+a human-readable transcription. It is not a way to process user-created
 sentences (also known as brainwallets) into a wallet seed.
 
-==Generating the mnemonic==
+==Specification==
+
+===Terminology===
+
+To avoid the ambiguity of using the word "sentence" at two different scales,
+this document fixes the following vocabulary:
+
+* '''word''': a single token drawn from a category's wordlist (e.g. ''dragon'').
+* '''category''': a syntactic role (e.g. ''SUBJECT'', ''VERB'', ''PLACE'') with its own wordlist and a fixed bit-width.
+* '''theme''': the full set of categories, wordlists, bit-widths, ordering rules and constraints that defines one Formosa dialect. A theme is the Formosa equivalent of a BIP-0039 wordlist.
+* '''sentence''': the words selected from one theme by encoding a single 33-bit block of entropy. A sentence is the Formosa equivalent of three consecutive BIP-0039 words.
+* '''mnemonic''' (or '''mnemonic story'''): the ordered concatenation of all sentences that together encode the entropy plus checksum.
+
+Wherever BIP-0039 speaks of a "mnemonic sentence" composed of words, Formosa
+speaks of a "mnemonic" (or, informally, a "mnemonic story") composed of
+sentences.
+
+===Theme structure===
+
+A theme is a JSON document that defines:
+
+# An ordered list of '''categories'''. For each category:
+#* a wordlist;
+#* a '''BIT_LENGTH''', i.e. the number of bits this category encodes (the wordlist MUST contain exactly <code>2^BIT_LENGTH</code> entries);
+#* an optional '''LED_BY''' field naming another category. When present, the wordlist of this category is not a single flat list but a mapping from each word of the leading category to a sub-list of <code>2^BIT_LENGTH</code> entries.
+# A '''FILLING_ORDER''': the order in which categories consume bits from the entropy stream.
+# A '''NATURAL_ORDER''': the order in which the selected words are spoken or written.
+
+The sum of all <code>BIT_LENGTH</code> values in a theme MUST equal 33.
+
+The '''LED_BY''' relation MUST be acyclic and a leading category MUST appear
+before its dependent category in <code>FILLING_ORDER</code>, so that the
+leader's word is already known when the dependent category is filled.
+
+Wordlist entries MAY contain native characters; they MUST be encoded in UTF-8
+using Normalization Form Compatibility Decomposition (NFKD).
+
+===Generating the mnemonic===
 
 The mnemonic must encode entropy in a multiple of 32 bits. With more entropy
-security is improved but the sentence length increases. We refer to the
+security is improved but the mnemonic length increases. We refer to the
 initial entropy length as ENT. The allowed size of ENT is 128-256 bits.
 
 First, an initial entropy of ENT bits is generated. A checksum is generated by
 taking the first <code>ENT / 32</code> bits of its SHA256 hash. This checksum is
-appended to the end of the initial entropy. Next, these concatenated bits
-are split into groups of 33 bits, which we call '''sentences'''. Each sentence is
-further subdivided into variable-length bit fields, one per syntactic category,
-whose lengths are defined by the active theme. Each bit field encodes an index
-into the corresponding category's word list. Finally, we convert these indices
-into words and use the joined words as a mnemonic sentence.
+appended to the end of the initial entropy. The concatenated bits are then
+split into groups of 33 bits; each group encodes one '''sentence'''.
 
-BIP-0039 is a special case where each sentence contains three 11-bit fields
-indexing a single 2048-word list (3 x 11 = 33).
-
-The following table describes the relation between the initial entropy
-length (ENT), the checksum length (CS), the number of 33-bit sentences (S),
-and the length of the generated mnemonic sentence (MS) in words. The word
-count assumes a 6-word theme; for BIP-0039 (3 words per sentence), divide by 2.
+The following table describes the relation between the initial entropy length
+(ENT), the checksum length (CS), the number of 33-bit sentences (S), and the
+length of the mnemonic (MS) in words. The word count assumes a 6-word theme;
+for BIP-0039 (3 words per sentence), divide by 2.
 
 <pre>
 CS = ENT / 32
@@ -92,47 +121,65 @@ S  = (ENT + CS) / 33
 |  256  |  8 |   264  |  8  |     48      |      24       |
 </pre>
 
-For each 33-bit sentence, the word selection algorithm proceeds as follows:
+For each 33-bit block, the sentence is built as follows:
 
-# Initialize an empty sentence array with one slot per category.
-# For each category in the theme's ''filling order'':
-## Extract <code>BIT_LENGTH</code> bits from the current position in the bit stream.
-## Interpret them as an unsigned integer index.
-## If the category is ''led by'' another category, look up the appropriate sub-list from the leading category's mapping using the already-selected leading word. Otherwise, use the category's total word list.
-## Select the word at the computed index from the resolved word list.
-## Place the word into the sentence array at the position given by the theme's ''natural order''.
-# Output the words in natural order.
+# Initialize an empty array with one slot per category in the theme.
+# For each category <code>C</code> in the theme's <code>FILLING_ORDER</code>:
+## Read the next <code>C.BIT_LENGTH</code> bits from the block and interpret them as an unsigned big-endian integer <code>i</code>.
+## Resolve <code>C</code>'s wordlist:
+##* if <code>C</code> has no <code>LED_BY</code> field, use <code>C</code>'s flat wordlist;
+##* if <code>C</code> has <code>LED_BY = L</code>, look up the word already chosen for <code>L</code> in <code>C</code>'s mapping and use the corresponding sub-list of <code>2^C.BIT_LENGTH</code> entries.
+## Select the word at index <code>i</code> from the resolved wordlist and place it in the slot of <code>C</code>.
+# Emit the slots in <code>NATURAL_ORDER</code>; the resulting word sequence is the sentence.
+
+The mnemonic is the concatenation, in order, of the sentences produced from
+all 33-bit blocks.
+
+BIP-0039 is a special case: a single category named ''WORD'' with
+<code>BIT_LENGTH = 11</code>, a 2048-entry wordlist, no <code>LED_BY</code>
+relation, and trivial <code>FILLING_ORDER</code> = <code>NATURAL_ORDER</code> =
+<code>[WORD, WORD, WORD]</code>.
+
+===From mnemonic to seed===
+
+A user may protect their mnemonic with a passphrase. If a passphrase is not
+present, an empty string <code>""</code> is used instead.
+
+To ensure forward and backward compatibility with BIP-0039, seed derivation
+proceeds in two steps:
+
+# '''Decode''' the Formosa mnemonic against its theme to recover the original entropy and checksum. Verify the checksum; if it does not match, software MUST issue a warning.
+# '''Re-encode''' the entropy as a BIP-0039 mnemonic using the BIP-0039 English wordlist.
+
+A binary seed is then produced from the BIP-0039 mnemonic exactly as in
+BIP-0039: PBKDF2 with the BIP-0039 mnemonic (UTF-8 NFKD) as password and the
+string <code>"mnemonic"</code> + passphrase (UTF-8 NFKD) as salt, with 2048
+iterations of HMAC-SHA512, producing a 512-bit key.
+
+The same entropy therefore always yields the same seed, keys and addresses,
+regardless of which Formosa theme was used for the mnemonic.
+
+The decoding step MUST use the same theme that was used for encoding;
+implementations SHOULD detect the active theme by attempting to parse the
+mnemonic against each known theme and selecting the one whose words and
+checksum match.
 
 ==Themes==
 
-The Formosa equivalent to a BIP-0039 wordlist is a '''theme'''. A theme is a JSON
-document that defines syntactic categories, their word lists, bit-widths, and
-optional semantic restrictions between categories. The sum of all category
-bit-widths in a theme MUST equal 33.
+A theme is the Formosa equivalent of a BIP-0039 wordlist. Theme designers
+SHOULD aim for the following properties:
 
-An ideal theme has the following characteristics:
+# '''Specific semantic scope'''. The whole vocabulary should adhere to a single coherent topic, so the user can form a unified mental scene per sentence.
+# '''Concrete imagery'''. Categories should consist of elements easily associated with mental images. Concrete nouns and tangible adjectives are preferred over abstract terms.
+# '''Sorted wordlists'''. Wordlists should be sorted to allow binary-search lookup.
+# '''First-letters uniqueness'''. Wordlists should be constructed so that a short prefix (e.g. the first two letters) uniquely identifies each word.
+# '''Optional semantic restrictions'''. Themes MAY use the <code>LED_BY</code> mechanism so that the wordlist available for one category depends on the word chosen in a leading category, producing more semantically coherent sentences. Restriction relations MUST be acyclic.
 
-a) specific semantic scope (memory block)
-   - the entire vocabulary should adhere to a single coherent topic, enabling
-     the user to form a unified mental scene
-
-b) concrete imagery
-   - categories should consist of elements easily associated with mental images.
-     Prefer concrete nouns and tangible adjectives over abstract terms
-
-c) sorted wordlists
-   - the wordlist is sorted which allows for more efficient lookup of the code words
-     (i.e. implementations can use binary search instead of linear search)
-
-d) first-letters uniqueness
-   - the wordlist is created in such a way that it's enough to type the first two
-     letters to unambiguously identify the word
-
-The first-letters uniqueness property yields higher information density than
-BIP-0039. In BIP-0039, four characters are needed to identify each word,
-encoding 11 bits per 4 characters = 2.75 bits/character. In Formosa, two
-characters suffice per word. The achievable density depends on the theme's
-category bit-widths:
+The first-letters-uniqueness property yields higher information density than
+BIP-0039. In BIP-0039 four characters are needed to identify each word,
+encoding 11 bits per 4 characters = 2.75 bits/character. In a Formosa theme
+with smaller wordlists, two characters typically suffice per word. The
+achievable density depends on the bit-width of each category:
 
 <pre>
 | List size | Bits | Chars to identify | Density (bits/char) |
@@ -143,77 +190,153 @@ category bit-widths:
 |   128     |   7  |        2          |   3.50              |
 </pre>
 
-As an example, the ''nationalities'' theme uses four 7-bit nationality
-categories (128 entries each) and one 5-bit profession category (32 entries),
-yielding 33 bits per 5-word sentence. A user typing only the first two
-characters of each word types 10 characters to encode 33 bits, achieving an
-information density of 33 / 10 = 3.30 bits/character --- a 20% improvement
-over BIP-0039's 2.75 bits/character
+For example, a ''nationalities'' theme using four 7-bit nationality categories
+(128 entries each) and one 5-bit profession category (32 entries) yields 33
+bits per 5-word sentence. A user typing only the first two characters of each
+word types 10 characters to encode 33 bits, achieving 33 / 10 = 3.30
+bits/character --- a 20% improvement over BIP-0039.
 
-e) semantic restrictions (optional)
-   - themes may define restrictions between categories so that the available word list
-     for one category changes depending on the word selected in a leading category,
-     producing more semantically coherent sentences. Restriction relationships MUST
-     be acyclic
+==Rationale==
 
-The wordlist can contain native characters, but they must be encoded in UTF-8
-using Normalization Form Compatibility Decomposition (NFKD).
+'''Why 33-bit sentences?''' BIP-0039 uses an 11-bit word and a checksum that
+is a multiple of <code>ENT/32</code> bits, which means valid concatenated
+lengths are always multiples of 33 bits. Choosing 33 bits as the Formosa
+sentence size is therefore the smallest unit that lets any theme map
+losslessly onto the same entropy + checksum boundaries used by BIP-0039,
+which is what enables full backward compatibility.
 
-==From mnemonic to seed==
+'''Why themed sentences?''' Cognitive-psychology research on mnemonic
+techniques (the method of loci, peg systems, story mnemonics) consistently
+shows that vivid, syntactically-structured imagery is recalled more reliably
+than disconnected lists. A themed sentence engages this machinery directly:
+"a ''brave knight slays the green dragon in the castle''" is easier to recall
+than six unrelated BIP-0039 words encoding the same 33 bits.
 
-A user may decide to protect their mnemonic with a passphrase. If a passphrase is not
-present, an empty string "" is used instead.
+'''Why a free-form theme schema rather than a fixed grammar?''' Different
+languages, cultures and use-cases benefit from different syntactic templates
+and vocabulary. Encoding the structure as data (categories, bit-widths,
+filling/natural orders, optional <code>LED_BY</code> mapping) rather than as
+hard-coded code keeps the specification small while letting communities
+contribute themes without protocol changes.
 
-To ensure forward and backward compatibility with BIP-0039, seed derivation first
-converts any Formosa mnemonic back to its equivalent BIP-0039 mnemonic by extracting
-the underlying entropy and re-encoding it using the BIP-0039 English word list. This
-guarantees that the same entropy always produces the same seed, keys, and addresses
-regardless of which theme was used.
+'''Why the LED_BY mechanism?''' Semantic restrictions (a ''dragon'' can be
+''ancient'' but not ''retired'') make sentences sound natural and far easier
+to memorize. Encoding such restrictions as an explicit acyclic
+leader/dependent relation, evaluated at fill time, lets themes express
+constraints without sacrificing the bijection between entropy and mnemonic:
+each leader's chosen word selects a sub-list of exactly
+<code>2^BIT_LENGTH</code> entries, so every bit pattern still decodes to
+exactly one word.
 
-To create a binary seed from the resulting BIP-0039 mnemonic, we use the PBKDF2 function
-with a mnemonic sentence (in UTF-8 NFKD) used as the password and the string "mnemonic" +
-passphrase (again in UTF-8 NFKD) used as the salt. The iteration count is set to 2048 and
-HMAC-SHA512 is used as the pseudo-random function. The length of the derived key is 512
-bits (= 64 bytes).
+'''Why re-encode through BIP-0039 for seed derivation?''' Re-encoding makes
+the seed a function of the entropy alone, not of the theme. This guarantees
+that:
 
-This seed can be later used to generate deterministic wallets using BIP-0032 or
-similar methods.
+* a user can switch themes (or fall back to BIP-0039) without losing access to existing wallets;
+* a Formosa-aware wallet and a BIP-0039-only wallet derive the same keys from the same entropy;
+* the security analysis of BIP-0039 (PBKDF2 parameters, salt construction) carries over unchanged.
 
-The conversion of the mnemonic sentence to a binary seed is completely independent
-from generating the sentence. This results in a rather simple code; there are no
-constraints on sentence structure and clients are free to implement their own
-themes or even whole sentence generators, allowing for flexibility in wordlists
-for typo detection or other purposes.
+'''Why discourage custom themes?''' A mnemonic is only useful if the theme
+that produced it is still available at recovery time. Standard themes shipped
+by reference implementations enjoy that guarantee; one-off custom themes do
+not, and the user assumes responsibility for preserving the theme file.
 
-Although using a mnemonic not generated by the algorithm described in "Generating the
-mnemonic" section is possible, this is not advised and software must compute a
-checksum for the mnemonic sentence using a wordlist and issue a warning if it is
-invalid.
+==Backwards Compatibility==
 
-The described method also provides plausible deniability, because every passphrase
-generates a valid seed (and thus a deterministic wallet) but only the correct one
-will make the desired wallet available.
+Formosa is a strict superset of BIP-0039. Compatibility is achieved on three
+levels:
+
+# '''Mnemonic level.''' BIP-0039 itself is expressible as a Formosa theme (one category, 11-bit wordlist of 2048 entries, three repetitions per 33-bit sentence). Existing BIP-0039 mnemonics are therefore valid Formosa mnemonics under the BIP-0039 theme without any change.
+# '''Entropy level.''' Encoding and decoding are bijective with respect to entropy: the same 128-256 bits encode under any theme to a different mnemonic but back to the same entropy.
+# '''Seed level.''' Because seed derivation re-encodes the recovered entropy through the BIP-0039 English wordlist before PBKDF2, the resulting seed --- and therefore all derived BIP-0032 keys and addresses --- is identical to what BIP-0039 would have produced for the same entropy. A user can move between Formosa-aware and BIP-0039-only wallets without losing funds.
+
+Wallets that do not implement Formosa continue to operate exactly as before;
+they cannot decode non-BIP-0039 themes but are not affected by their
+existence.
+
+==Example==
+
+The following worked example illustrates the encoding of a 128-bit entropy
+under a small hypothetical theme. The theme has 5 categories, with the
+following <code>BIT_LENGTH</code>s and ordering:
+
+<pre>
+Categories       : VERB(6) SUBJECT(7) ADJECTIVE(5) OBJECT(7) PLACE(8)
+Sum of bit widths: 6 + 7 + 5 + 7 + 8 = 33
+FILLING_ORDER    : [SUBJECT, VERB, OBJECT, ADJECTIVE, PLACE]
+NATURAL_ORDER    : [SUBJECT, VERB, ADJECTIVE, OBJECT, PLACE]
+LED_BY           : ADJECTIVE LED_BY OBJECT
+</pre>
+
+Take the entropy (hex):
+
+<pre>
+ENT (128 bits) = 0x8d96 8174 c2cd 0e2c 6f47 e7d6 1bd5 a341
+</pre>
+
+The SHA-256 of this entropy starts with the byte <code>0xA0</code>; the
+first <code>ENT/32 = 4</code> bits of that byte are <code>1010</code>, which
+is the checksum. Appending the checksum yields 132 bits, split into
+<code>S = 4</code> blocks of 33 bits. The first 33-bit block is:
+
+<pre>
+1000 1101 1001 0110 1000 0001 0111 0100 1
+                                       ^
+binary block (33 bits): 100011011 00101101 0000001 0111010 01
+                        SUBJECT   OBJECT   ADJ.    PLACE   VERB padding...
+</pre>
+
+(Bit assignment follows <code>FILLING_ORDER</code>; the table above is purely
+illustrative of how the bit string is consumed.)
+
+For each category in <code>FILLING_ORDER</code>:
+
+# <code>SUBJECT</code>: read 7 bits → index <code>i_S</code>; pick word from the SUBJECT wordlist (e.g. ''knight'').
+# <code>VERB</code>: read 6 bits → index <code>i_V</code>; pick word from the VERB wordlist (e.g. ''slays'').
+# <code>OBJECT</code>: read 7 bits → index <code>i_O</code>; pick word from the OBJECT wordlist (e.g. ''dragon'').
+# <code>ADJECTIVE</code>: read 5 bits → index <code>i_A</code>; because <code>ADJECTIVE LED_BY OBJECT</code>, look up the sub-list keyed by ''dragon'' and pick at index <code>i_A</code> (e.g. ''ancient'').
+# <code>PLACE</code>: read 8 bits → index <code>i_P</code>; pick word from the PLACE wordlist (e.g. ''castle'').
+
+Emitting the slots in <code>NATURAL_ORDER</code> yields the sentence:
+
+<pre>
+knight slays ancient dragon castle
+</pre>
+
+Repeating this procedure for the remaining three 33-bit blocks produces a
+4-sentence mnemonic story (24 words total for ENT=128). Decoding inverts the
+process: each word is mapped back to its index in the resolved wordlist, the
+indices are concatenated in <code>FILLING_ORDER</code>, and the resulting
+132-bit string is split into 128 entropy bits + 4 checksum bits and
+verified.
+
+For seed derivation, the recovered entropy <code>0x8d96…a341</code> is
+re-encoded with the BIP-0039 English wordlist into the standard 12-word
+BIP-0039 mnemonic, which is then passed to PBKDF2 exactly as specified by
+BIP-0039. The resulting seed is identical to the seed a pure BIP-0039 wallet
+would derive from the same entropy.
 
 ==Standard themes==
 
-The reference implementation ships with standard themes listed at the link below.
-Since BIP-0039 is a valid Formosa theme, all existing BIP-0039 mnemonics work
-without modification.
+The reference implementation ships with standard themes listed at the link
+below. Since BIP-0039 is a valid Formosa theme, all existing BIP-0039
+mnemonics work without modification.
 
-It is '''strongly discouraged''' to use non-standard custom themes for generating
-mnemonic sentences, as the user assumes responsibility for ensuring the theme file
-remains available and structurally valid. Users with proper training in security
-protocols who understand these risks may benefit from custom themes through higher
-memorization efficiency or an additional layer of obscurity.
+It is '''strongly discouraged''' to use non-standard custom themes for
+generating mnemonic sentences, as the user assumes responsibility for
+ensuring the theme file remains available and structurally valid. Users with
+proper training in security protocols who understand these risks may benefit
+from custom themes through higher memorization efficiency or an additional
+layer of obscurity.
 
 * [[https://github.com/Yuri-SVB/formosa/tree/master/src/mnemonic/themes|Standard Formosa Themes]]
 
 ==Test vectors==
 
-The test vectors include input entropy, mnemonic and seed. The
-passphrase "TREZOR" is used for all vectors. Since Formosa converts back to
-BIP-0039 before seed derivation, the same test vectors apply to all themes
-given the same underlying entropy.
+The test vectors include input entropy, mnemonic and seed. The passphrase
+"TREZOR" is used for all vectors. Since Formosa converts back to BIP-0039
+before seed derivation, the same seed test vectors apply to all themes given
+the same underlying entropy.
 
 https://github.com/Yuri-SVB/formosa/blob/master/vectors.json
 
