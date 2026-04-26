@@ -10,6 +10,7 @@
   Assigned: 2025-01-08
   License: BSD-2-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/5G5wzqUXyk4
+  Version: 0.1.1
   Requires: 352, 370, 374
 </pre>
 
@@ -177,7 +178,7 @@ All rules must be followed from PSBTv2 for this role. If there are any outputs w
 If any input is spending an output with script using Segwit version > 1, the Signer must fail.
 
 For each output with PSBT_OUT_SP_V0_INFO set, the Signer should:
-* Compute and set an ECDH share and DLEQ proof for each input it has the private key for, or set a global ECDH share and DLEQ proof if it has private keys for all eligible inputs.
+* Compute and set an ECDH share and DLEQ proof for each eligible input it has the private key for, or set a global ECDH share and DLEQ proof if it has private keys for all eligible inputs.
 * Verify the DLEQ proofs for all inputs it does not have the private keys for, or the global DLEQ proof if it is set.
 * If all eligible inputs have an ECDH share or the global ECDH share is set, compute and set the PSBT_OUT_SCRIPT.
 
@@ -235,7 +236,7 @@ Using [https://github.com/bitcoin/bips/blob/master/bip-0374.mediawiki#dleq-proof
 
 ====Computing the Output Scripts====
 
-Compute the PSBT_OUT_SCRIPT using the procedure in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#user-content-Creating_outputs BIP352] but substituting ''a·B<sub>scan</sub>'' with the PSBT_GLOBAL_SP_ECDH_SHARE for that scan key if available, or the sum of all PSBT_IN_SP_ECDH_SHAREs for that scan key.
+Compute the PSBT_OUT_SCRIPT using the procedure in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#user-content-Creating_outputs BIP352] but substituting ''a·B<sub>scan</sub>'' with the PSBT_GLOBAL_SP_ECDH_SHARE for that scan key if available, or the sum of all PSBT_IN_SP_ECDH_SHAREs from eligible inputs for that scan key.
 If there are multiple silent payment codes with the same scan key, sort the codes lexicographically in ascending order to determine the ordering of the ''k'' value.
 If there are multiple silent payment codes with both the same scan and spend keys, sort the subgroup by output index in ascending order.
 
@@ -249,7 +250,163 @@ Silent payment capable PSBTs are backwards compatible with PSBTv2 once all outpu
 
 ==Test Vectors==
 
-Todo
+A [[bip-0375/bip375_test_vectors.json|collection of test vectors in JSON format]] is provided. Each test vector contains a base64-encoded PSBT string, which alone can be used to verify sending Silent Payments with PSBTs.
+Validation is performed in 4 sequential checks. This [[bip-0375/validator/validate_psbt.py|Python implementation]] demonstrates the validation logic for each:
+
+# '''PSBT Structure''' - Verify BIP375 field requirements
+# '''ECDH Coverage''' - Verify ECDH share presence and correctness using BIP374 DLEQ
+# '''Input Eligibility''' - Verify input constraints when silent payment outputs are present
+# '''Output Scripts''' - Verify output scripts match silent payment derivation
+
+Valid PSBTs are organized into 2 categories:
+# '''Can Finalize''' - Signed and ready to finalize
+# '''In Progress''' - Incomplete but valid
+
+Use the provided [[bip-0375/test_runner.py|test runner]] to validate each test vector. See the [[bip-0375/README.md|README]] for more details.
+
+===Invalid PSBTs===
+
+{|
+! Category
+! Description
+|-
+| PSBT Structure
+| missing PSBT_OUT_SP_V0_INFO field when PSBT_OUT_SP_V0_LABEL set
+|-
+| PSBT Structure
+| incorrect byte length for PSBT_OUT_SP_V0_INFO field
+|-
+| PSBT Structure
+| incorrect byte length for PSBT_IN_SP_ECDH_SHARE field
+|-
+| PSBT Structure
+| incorrect byte length for PSBT_IN_SP_DLEQ field
+|-
+| PSBT Structure
+| PSBT_GLOBAL_TX_MODIFIABLE field is non-zero when PSBT_OUT_SCRIPT set for sp output
+|-
+| PSBT Structure
+| missing PSBT_OUT_SCRIPT field when sending to non-sp output
+|-
+| ECDH Coverage
+| only one ineligible P2SH multisig input when PSBT_OUT_SCRIPT set for sp output
+|-
+| ECDH Coverage
+| missing PSBT_IN_SP_ECDH_SHARE field for input 0 when PSBT_OUT_SCRIPT set for sp output
+|-
+| ECDH Coverage
+| missing PSBT_IN_SP_DLEQ field for input when PSBT_IN_SP_ECDH_SHARE set
+|-
+| ECDH Coverage
+| missing PSBT_GLOBAL_SP_DLEQ field when PSBT_GLOBAL_SP_ECDH_SHARE set
+|-
+| ECDH Coverage
+| invalid proof in PSBT_IN_SP_DLEQ field
+|-
+| ECDH Coverage
+| invalid proof in PSBT_GLOBAL_SP_DLEQ field
+|-
+| ECDH Coverage
+| missing PSBT_IN_BIP32_DERIVATION field for input when PSBT_IN_SP_DLEQ set
+|-
+| ECDH Coverage
+| output 1 missing ECDH share for scan key with one input / three sp outputs (different scan keys)
+|-
+| ECDH Coverage
+| input 1 missing ECDH share for output 1 with two inputs / two sp outputs (different scan keys)
+|-
+| ECDH Coverage
+| input 1 missing ECDH share for scan key with two inputs / one sp output
+|-
+| Input Eligibility
+| segwit version greater than 1 in transaction inputs with sp output
+|-
+| Input Eligibility
+| non-SIGHASH_ALL signature on input with sp output
+|-
+| Output Scripts
+| P2TR input with NUMS internal key cannot derive sp output
+|-
+| Output Scripts
+| PSBT_OUT_SCRIPT does not match derived sp output
+|-
+| Output Scripts
+| two sp outputs (same scan / different spend keys) not sorted lexicographically by spend key
+|-
+| Output Scripts
+| k values assigned to wrong output indices with three sp outputs (same scan / spend keys)
+|}
+
+===Valid PSBTs===
+
+{|
+! State
+! Description
+|-
+| Can Finalize
+| one P2PKH input single-signer
+|-
+| Can Finalize
+| two inputs single-signer using global ECDH share
+|-
+| Can Finalize
+| two inputs single-signer using per-input ECDH shares
+|-
+| Can Finalize
+| two inputs / two sp outputs with mixed global and per-input ECDH shares
+|-
+| Can Finalize
+| one input / one sp output with both global and per-input ECDH shares
+|-
+| Can Finalize
+| three sp outputs (different scan keys) with multiple global ECDH shares
+|-
+| Can Finalize
+| one P2WPKH input / two mixed outputs - labeled sp output and BIP 32 change
+|-
+| Can Finalize
+| one input / two sp outputs - output 0 has no label / output 1 uses label=0 convention for sp change
+|-
+| Can Finalize
+| two sp outputs - output 0 uses label=3 / output 1 uses label=1
+|-
+| Can Finalize
+| two inputs using per-input ECDH shares - only eligible inputs contribute shares (P2SH excluded)
+|-
+| Can Finalize
+| two inputs using global ECDH share - only eligible inputs contribute shares (P2SH excluded)
+|-
+| Can Finalize
+| two mixed input types - only eligible inputs contribute ECDH shares (NUMS internal key excluded)
+|-
+| Can Finalize
+| three sp outputs (same scan key) - each output has distinct k value
+|-
+| Can Finalize
+| three sp outputs (same scan key) / two regular outputs - k values assigned independently of output index
+|-
+| In Progress
+| two P2TR inputs, neither is signed
+|-
+| In Progress
+| one P2TR input / one sp output with no ECDH shares when PSBT_OUT_SCRIPT field is not set
+|-
+| In Progress
+| two inputs / one sp output, input 1 missing ECDH share when PSBT_OUT_SCRIPT field is not set
+|-
+| In Progress
+| one input / two sp outputs, input 0 missing ECDH share for output 0 when PSBT_OUT_SCRIPT field is not set
+|-
+| In Progress
+| large PSBT with nine mixed inputs / six outputs - some inputs signed
+|}
+
+== Changelog ==
+
+* '''0.1.1''' (2026-04-16):
+** Add test vectors and reference for validating Sending Silent Payments with PSBTs.
+* '''0.1.0''' (2025-01-13):
+** Initial version, merged as BIP-375.
 
 ==Rationale==
 
