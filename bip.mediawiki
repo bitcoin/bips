@@ -257,65 +257,76 @@ existence.
 
 ==Example==
 
-The following worked example illustrates the encoding of a 128-bit entropy
-under a small hypothetical theme. The theme has 5 categories, with the
-following <code>BIT_LENGTH</code>s and ordering:
+The following worked example illustrates one sentence under the standard
+''medieval_fantasy'' theme shipped with the reference implementation. The
+theme has 6 categories with the following bit widths, filling order, natural
+order and lead relations:
 
 <pre>
-Categories       : VERB(6) SUBJECT(7) ADJECTIVE(5) OBJECT(7) PLACE(8)
-Sum of bit widths: 6 + 7 + 5 + 7 + 8 = 33
-FILLING_ORDER    : [SUBJECT, VERB, OBJECT, ADJECTIVE, PLACE]
-NATURAL_ORDER    : [SUBJECT, VERB, ADJECTIVE, OBJECT, PLACE]
-LED_BY           : ADJECTIVE LED_BY OBJECT
+Category   | BIT_LENGTH | LED_BY    | LEADS
+-----------+------------+-----------+--------------------
+VERB       |     5      |  (root)   | SUBJECT
+SUBJECT    |     6      |  VERB     | OBJECT, WILDCARD
+OBJECT     |     6      |  SUBJECT  | ADJECTIVE
+ADJECTIVE  |     5      |  OBJECT   | (none)
+WILDCARD   |     6      |  SUBJECT  | PLACE
+PLACE      |     5      |  WILDCARD | (none)
+-----------+------------+-----------+--------------------
+Sum of bit widths: 5 + 6 + 6 + 5 + 6 + 5 = 33
+
+FILLING_ORDER : [VERB, SUBJECT, OBJECT, ADJECTIVE, WILDCARD, PLACE]
+NATURAL_ORDER : [SUBJECT, VERB, ADJECTIVE, OBJECT, WILDCARD, PLACE]
 </pre>
 
-Take the initial entropy (hex):
+Note that the lead relations form a tree rooted at <code>VERB</code>: each
+non-root category's wordlist is a sub-list selected by the word already
+chosen in its leader. For instance, the wordlist for <code>OBJECT</code>
+depends on which <code>SUBJECT</code> was selected, and the wordlist for
+<code>ADJECTIVE</code> depends on which <code>OBJECT</code> was selected.
+
+Take the following 33-bit block as the first sentence to encode:
 
 <pre>
-initial entropy (128 bits) = 0x8d96 8174 c2cd 0e2c 6f47 e7d6 1bd5 a341
+binary block (33 bits): 11100 100000 111111 11011 101110 11101
+                        VERB  SUBJECT OBJECT ADJ.  WILDCARD PLACE
+                        (5)   (6)     (6)    (5)   (6)      (5)
 </pre>
 
-The SHA-256 of this entropy starts with the byte <code>0xA0</code>; the
-first <code>128 / 32 = 4</code> bits of that byte are <code>1010</code>,
-which is the checksum. Appending the checksum yields 132 bits, split into
-<code>132 / 33 = 4</code> blocks of 33 bits. The first 33-bit block is:
+Bits are consumed in <code>FILLING_ORDER</code>:
+
+# <code>VERB</code>: read 5 bits = <code>11100</code> = 28; the VERB wordlist has 32 (= 2^5) entries, so index 28 selects ''unveil''.
+# <code>SUBJECT</code>: read 6 bits = <code>100000</code> = 32; because <code>SUBJECT LED_BY VERB</code>, look up the sub-list keyed by ''unveil'' (a list of 64 = 2^6 entries) and pick index 32 → ''king''.
+# <code>OBJECT</code>: read 6 bits = <code>111111</code> = 63; because <code>OBJECT LED_BY SUBJECT</code>, look up the sub-list keyed by ''king'' (64 entries) and pick index 63 → ''wine''.
+# <code>ADJECTIVE</code>: read 5 bits = <code>11011</code> = 27; because <code>ADJECTIVE LED_BY OBJECT</code>, look up the sub-list keyed by ''wine'' (32 entries) and pick index 27 → ''sweet''.
+# <code>WILDCARD</code>: read 6 bits = <code>101110</code> = 46; because <code>WILDCARD LED_BY SUBJECT</code>, look up the sub-list keyed by ''king'' (64 entries) and pick index 46 → ''queen''.
+# <code>PLACE</code>: read 5 bits = <code>11101</code> = 29; because <code>PLACE LED_BY WILDCARD</code>, look up the sub-list keyed by ''queen'' (32 entries) and pick index 29 → ''throne_room''.
+
+Emitting the selected words in <code>NATURAL_ORDER</code>
+([SUBJECT, VERB, ADJECTIVE, OBJECT, WILDCARD, PLACE]) yields the sentence:
 
 <pre>
-1000 1101 1001 0110 1000 0001 0111 0100 1
-
-binary block (33 bits): 100011011 00101101 0000001 0111010 01
-                        SUBJECT   OBJECT   ADJECTIVE PLACE  VERB (truncated)
+king unveil sweet wine queen throne_room
 </pre>
 
-(Bit assignment follows <code>FILLING_ORDER</code>; the table above is purely
-illustrative of how the bit string is consumed.)
+Read with the implicit articles supplied by the theme this becomes
+"the ''king'' ''unveil''(s) ''sweet'' ''wine'' (to the) ''queen'' (in the)
+''throne_room''" --- a vivid scene that encodes 33 bits of entropy.
 
-For each category in <code>FILLING_ORDER</code>:
+For an initial entropy of 128 bits, the procedure above is repeated for each
+of the four 33-bit blocks (128 entropy bits + 4 checksum bits = 132 = 4 × 33),
+producing a 4-sentence mnemonic story of 24 words.
 
-# <code>SUBJECT</code>: read 7 bits → index <code>i_S</code>; pick word from the SUBJECT wordlist (e.g. ''knight'').
-# <code>VERB</code>: read 6 bits → index <code>i_V</code>; pick word from the VERB wordlist (e.g. ''slays'').
-# <code>OBJECT</code>: read 7 bits → index <code>i_O</code>; pick word from the OBJECT wordlist (e.g. ''dragon'').
-# <code>ADJECTIVE</code>: read 5 bits → index <code>i_A</code>; because <code>ADJECTIVE LED_BY OBJECT</code>, look up the sub-list keyed by ''dragon'' and pick at index <code>i_A</code> (e.g. ''ancient'').
-# <code>PLACE</code>: read 8 bits → index <code>i_P</code>; pick word from the PLACE wordlist (e.g. ''castle'').
+Decoding inverts the process: each word is mapped back to its index in the
+resolved sub-list (using the already-decoded leader to pick the right
+sub-list), the indices are concatenated in <code>FILLING_ORDER</code>, and
+the resulting 132-bit string is split into 128 entropy bits and 4 checksum
+bits, which are verified against SHA-256 of the entropy.
 
-Emitting the slots in <code>NATURAL_ORDER</code> yields the sentence:
-
-<pre>
-knight slays ancient dragon castle
-</pre>
-
-Repeating this procedure for the remaining three 33-bit blocks produces a
-4-sentence mnemonic story (24 words total for an initial entropy of 128
-bits). Decoding inverts the process: each word is mapped back to its index in the resolved wordlist, the
-indices are concatenated in <code>FILLING_ORDER</code>, and the resulting
-132-bit string is split into 128 entropy bits + 4 checksum bits and
-verified.
-
-For seed derivation, the recovered entropy <code>0x8d96…a341</code> is
-re-encoded with the BIP-0039 English wordlist into the standard 12-word
-BIP-0039 mnemonic, which is then passed to PBKDF2 exactly as specified by
-BIP-0039. The resulting seed is identical to the seed a pure BIP-0039 wallet
-would derive from the same entropy.
+For seed derivation, the recovered entropy is re-encoded with the BIP-0039
+English wordlist into the standard 12-word BIP-0039 mnemonic, which is then
+passed to PBKDF2 exactly as specified by BIP-0039. The resulting seed is
+identical to the seed a pure BIP-0039 wallet would derive from the same
+entropy.
 
 ==Standard themes==
 
