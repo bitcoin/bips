@@ -174,7 +174,7 @@ fn parse_inout_selection(
                 (current_input_idx as isize + rel) as usize
             };
 
-            if idx > nb_items {
+            if idx >= nb_items {
                 return Err("selected index out of bounds");
             }
             if let Some(last) = selected.last() {
