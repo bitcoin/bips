@@ -213,10 +213,15 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
         let leaf_id = script_to_id.get(script)
             .unwrap_or_else(|| panic!("leaf script not found in script_to_id map: {}", hex::encode(script.as_bytes())));
 
-        let derived_control_block: P2mrControlBlock = P2mrControlBlock{
-            merkle_branch: merkle_branch.clone(),
-        };
-        let derived_serialized_control_block = hex::encode(derived_control_block.serialize());
+        // BIP341 control byte layout: bits 7..1 = leaf_version, bit 0 = parity.
+        // `& 0xfe` (11111110) masks off bit 0, isolating the leaf version in the upper 7 bits.
+        // `| 0x01` sets bit 0 to 1: P2MR has no key-spend path, so parity is always 1.
+        let control_byte = (version.to_consensus() & 0xfe) | 0x01u8;
+        let mut cb_buf = vec![control_byte];
+        merkle_branch
+            .encode(&mut cb_buf)
+            .expect("encode should not fail");
+        let derived_serialized_control_block = hex::encode(&cb_buf);
 
         let expected_cb = &expected_control_blocks[*leaf_id as usize];
         assert_eq!(
