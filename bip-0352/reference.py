@@ -175,6 +175,10 @@ def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[C
                 P_km = B_m + t_k * G
                 outputs.append(P_km.to_bytes_xonly().hex())
                 k += 1
+                # Should not exceed K_max keys/outputs
+                if k > K_max:
+                    outputs = []
+                    return list(set(outputs))
 
     return list(set(outputs))
 
