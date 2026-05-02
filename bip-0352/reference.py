@@ -147,10 +147,11 @@ def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[C
         expected_B_m = GE.from_bytes_compressed(bytes.fromhex(recipient["spend_pub_key"]))
         assert expected_B_scan == B_scan, "B_scan did not match expected recipient.scan_pub_key"
         assert expected_B_m == B_m, "B_m did not match expected recipient.spend_pub_key"
+        count = recipient.get("count", 1)
         if B_scan in silent_payment_groups:
-            silent_payment_groups[B_scan].append(B_m)
+            silent_payment_groups[B_scan].append((B_m, count))
         else:
-            silent_payment_groups[B_scan] = [B_m]
+            silent_payment_groups[B_scan] = [(B_m, count)]
 
     # Fail if per-group recipient limit (K_max) is exceeded
     if any([len(group) > K_max for group in silent_payment_groups.values()]):
@@ -168,11 +169,12 @@ def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[C
                 assert ecdh_shared_secret.to_bytes_compressed().hex() == expected_shared_secret_hex, f"ecdh_shared_secret did not match expected, recipient {recipient_idx} ({recipient['address']}): expected={expected_shared_secret_hex}"
                 break
         k = 0
-        for B_m in B_m_values:
-            t_k = Scalar.from_bytes_checked(tagged_hash("BIP0352/SharedSecret", ecdh_shared_secret.to_bytes_compressed() + ser_uint32(k)))
-            P_km = B_m + t_k * G
-            outputs.append(P_km.to_bytes_xonly().hex())
-            k += 1
+        for B_m, count in B_m_values:
+            for _ in range(count):
+                t_k = Scalar.from_bytes_checked(tagged_hash("BIP0352/SharedSecret", ecdh_shared_secret.to_bytes_compressed() + ser_uint32(k)))
+                P_km = B_m + t_k * G
+                outputs.append(P_km.to_bytes_xonly().hex())
+                k += 1
 
     return list(set(outputs))
 
@@ -270,10 +272,7 @@ if __name__ == "__main__":
             sending_outputs = []
             if (len(input_pub_keys) > 0):
                 outpoints = [vin.outpoint for vin in vins]
-                recipients = []  # expand given recipient entries to full list
-                for recipient_entry in given["recipients"]:
-                    count = recipient_entry.get("count", 1)
-                    recipients.extend([recipient_entry] * count)
+                recipients = given["recipients"]
                 sending_outputs = create_outputs(input_priv_keys, outpoints, recipients, expected=expected, hrp="sp")
 
                 # Note: order doesn't matter for creating/finding the outputs. However, different orderings of the recipient addresses
