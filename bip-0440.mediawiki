@@ -1,0 +1,353 @@
+<pre>
+  BIP: 440
+  Layer: Consensus (soft fork)
+  Title: Varops Budget For Script Runtime Constraint
+  Authors: Rusty Russell <rusty@rustcorp.com.au>
+           Julian Moik <julianmoik@gmail.com>
+  Status: Draft
+  Type: Specification
+  Assigned: 2026-03-25
+  License: BSD-3-Clause
+  Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
+              https://delvingbitcoin.org/t/benchmarking-bitcoin-script-evaluation-for-the-varops-budget-great-script-restoration/2094
+  Version: 0.2.0
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This BIP defines a "varops budget", which generalizes the "sigops budget" introduced in [[bip-0342.mediawiki|BIP342]] to non-signature operations.
+
+This BIP is a useful framework for other BIPs to draw upon, and provides opcode examples which are always less restrictive than current rules.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+Since Bitcoin v0.3.1 (addressing CVE-2010-5137), Bitcoin's scripting capabilities have been significantly restricted to mitigate known vulnerabilities related to excessive computational time and memory usage.  These early safeguards were necessary to prevent denial-of-service attacks and ensure the stability and reliability of the Bitcoin network.
+
+However, as Bitcoin usage becomes more sophisticated, these limitations are becoming more salient.  New proposals often must explicitly address potential performance pitfalls by severely limiting their scope, introducing specialized caching strategies to mitigate execution costs, or using the existing sigops budget in ad-hoc ways to enforce dynamic execution limits.
+
+This BIP introduces a simple, systematic and explicit cost framework for evaluating script operations based on stack data interactions, using worst-case behavior as the limiting factor.  Even with these pessimistic assumptions, large classes of scripts can be shown to be within budget (for all possible inputs) by static analysis.
+
+===A Model For Opcodes Dealing With Stack Data===
+
+Without an explicit and low limit on the size of stack operands, the bottleneck for script operations is based on the time taken to process the stack data it accesses (with the exception of signature operations).  The cost model uses the length of the stack inputs (or occasionally, outputs), hence the term "varops".
+
+* We assume that the manipulation of the stack vector itself (e.g. OP_DROP) is negligible (with the exception of OP_ROLL)
+* We assume that memory allocation and deallocation overhead is negligible.
+* We do not consider the cost of the script interpretation itself, which is necessarily limited by block size.
+* We assume implementations use simple linear arrays/vectors of contiguous memory.
+* We assume implementations use linear accesses to stack data (perhaps multiple times): random accesses would require an extension to the model.
+* We assume object size is limited to the entire transaction (4,000,000 bytes, worst-case).
+* Costs are based on the worst-case behavior of each opcode.
+
+The last two assumptions make a large difference in practice: normal usage on small, cache-hot objects is much faster than this model suggests.  But an implementation which is more efficient than the versions modeled does not introduce any problems (though a future soft-fork version may want to reflect this in reduced costings): only an implementation with a significantly worse worst-case behavior would be problematic.
+
+==Design==
+
+A per-transaction integer "varops budget" is determined by multiplying the total transaction weight by the fixed factor 10,000 (chosen to make operation costs all integer values). The budget is transaction-wide (rather than per-input) to allow for cross-input introspection: a small input may reasonably access larger inputs.
+
+Opcodes consume budget as they are executed, based on the length (not generally the value) of their parameters as detailed below.  A transaction which exceeds its budget fails to validate.
+
+===Derivation of Costs===
+
+The costs of opcodes were determined by benchmarking on a variety of platforms.  
+
+As each block can contain 80,000 Schnorr signature checks, we used this as a reasonable upper bound for maximally slow block processing.
+
+To estimate a conservative maximum runtime for each opcode, we consider scripts with two constraints:
+# the script size is limited by the existing weight limit of 4,000,000 units and
+# the script can only consume the varops budget of a whole block: 10,000 * 4,000,000 (40b).
+
+The script is assumed to execute in a single thread and acts on initial stack elements that are not included in the limits for conservatism.
+
+Ideally, on each platform we tested, the worst case time for each opcode would be no worse than the Schnorr signature upper bound: i.e. the block would get no slower.  And while CHECKSIG can be batched and/or done in parallel, it also involves hashing, which is not taken into account here (the worst-case being significantly slower than the signature validations themselves).
+
+The signature cost is simply carried across from the existing [[bip-0342.mediawiki|BIP-342]] limit: 50 weight units allow you one signature.  Since each transaction gets varops budget for the entire transaction (not just the current input's witness), and each input has at least 41 bytes (164 weight), this is actually slightly more generous than the sigops budget (which was 50 + witness weight), but still limits the entire block to 80,000 signatures.
+
+===Benchmarks===
+
+The costs were validated by constructing maximally expensive scripts for every opcode (filling a full block with worst-case operands) and measuring wall-clock execution time across 14 machines spanning x86_64, ARM64, Linux, macOS, and Windows:
+
+Apple M1 Pro, Apple M2, Apple M4 Pro (macOS + Linux/Docker), AMD Ryzen 5 3600, AMD Ryzen 7 5800U, AMD Ryzen 9 9950X, Intel i5-12500, Intel i7-7700, Intel i7-8700, Intel i9-9900K, Intel N150 (Umbrel), Raspberry Pi 5.
+
+For each machine, the ratio of the GSR worst-case block time to the existing (pre-GSR) worst-case block time was computed.  A ratio below 1.0 means GSR does not introduce a new worst case.  On all 14 tested machines, the ratio is below 1.0.
+
+Without GSR, the slowest blocks are dominated by:
+* Schnorr signature validation (80,000 signatures per block)
+* Repeated hashing of 520-byte elements (3DUP + HASH256, 3DUP + RIPEMD160)
+
+With GSR enabled, the slowest blocks restricted by the varops budget depend on the machine but usually include:
+* Schnorr signature validation (80,000 signatures per block)
+* Repeated hashing of 520-byte elements (3DUP + HASH256, 3DUP + RIPEMD160)
+* Small-element multiplication (MUL on 1-byte operands)
+* Large-element left-shift with copying (2DUP + LSHIFT on 10KB elements)
+* Hashing of 1KB elements (HASH256)
+* Stack rolling at maximum depth (ROLL)
+* Large-element copying (TUCK, CAT on 100KB–2MB elements)
+
+The raw benchmark data, analysis scripts, and visualized results are available at https://github.com/jmoik/varopsData. This repository also provides instructions for running the benchmarks on your own machine.
+
+
+===Cost Categories===
+
+We divided operations into six speed categories:
+
+# Signature operations.
+# Hashing operations.
+# OP_ROLL, which does a large-scale stack movement.
+# Fast operations: comparing bytes, comparing bytes against zero, and zeroing bytes.  Empirically, these have been shown to be well-optimized.
+# Copying bytes: slightly more expensive than fast operations due to memory allocation overhead.
+# Everything else.
+
+Each class then has the following costs.
+
+# Signature operations cost 500,000 (10,000 * 50) units each, this resembles the cost of the existing sigops budget.
+# Hashing costs 50 units per byte hashed.
+# OP_ROLL costs an additional 48 units (24 bytes per std::vector * 2 units per byte) per stack entry moved (i.e. the value of its operand).
+# Fast operations cost 2 units per byte output.
+# Copying operations cost 3 units per byte output.
+# Arithmetic operations (which don't pipeline as well due to the overflow between words) cost 6 units per byte output.
+# Other operations cost 4 units per byte output.
+
+===Variable Opcode Budget===
+
+We use the following annotations to indicate the derivation for each opcode:
+
+;COMPARING
+: Comparing two objects: cost = 2 per byte compared.
+;COMPARINGZERO
+: Comparing an object against zeroes: cost = 2 per byte compared.
+;ZEROING
+: Zeroing out bytes: cost = 2 per byte zeroed.
+;COPYING
+: Copying bytes: cost = 3 per byte copied.
+;LENGTHCONV
+: Converting an operand to a length value, including verifying that trailing bytes are zero: cost = 2 per byte examined.
+;ARITH
+: Arithmetic operations which have carry operations: cost = 6 per byte examined.
+;SIGCHECK
+: Checking a signature is a flat cost: cost = 500,000.
+;HASH
+: cost = 50 per byte hashed.
+;ROLL
+: cost = 48 per stack element moved.
+;OTHER
+: all other operations which take a variable-length parameter: cost = 4 per byte written.
+
+Note that COMPARINGZERO is a subset of COMPARING: an implementation must examine every byte of a stack element to determine if the value is 0.  This can be done efficiently using existing comparison techniques, e.g. check the first byte, then `memcmp(first, first+1, len-1)`.
+
+Note that LENGTHCONV is used where script interprets a value as a length.  Without explicit limits on number size, such (little-endian) values might have to be examined in their entirety to ensure any trailing bytes are zero, implying a COMPARINGZERO operation after the first few bytes.
+
+The top of stack is labeled A, with successive values B, C, etc.
+
+==Example Opcodes==
+
+The following opcodes demonstrate the approach, with an analysis of how the costs apply:
+
+===Example: Control And Simple Examination Opcodes===
+
+{|
+! Opcode
+! Varops Budget Cost
+! Reason
+|-
+|OP_VERIFY
+|length(A) * 2
+|COMPARINGZERO
+|-
+|OP_NOT
+|length(A) * 2
+|COMPARINGZERO
+|-
+|OP_0NOTEQUAL
+|length(A) * 2
+|COMPARINGZERO
+|-
+|OP_EQUAL
+|If length(A) != length(B): 0, otherwise length(A) * 2
+|COMPARING
+|-
+|OP_EQUALVERIFY
+|If length(A) != length(B): 0, otherwise length(A) * 2
+|COMPARING
+|}
+
+====Rationale====
+
+OP_IF and OP_NOTIF in Tapscript require minimal values, so do not take variable length parameters, hence are not considered here.
+
+OP_EQUAL and OP_EQUALVERIFY don't have to examine any data (and the Bitcoin Core implementation does not) if the lengths are different.
+
+===Example: Stack Manipulation===
+
+{|
+! Opcode
+! Varops Budget Cost
+! Reason
+|-
+|OP_2DUP
+|(length(A) + length(B)) * 3
+|COPYING
+|-
+|OP_3DUP
+|(length(A) + length(B) + length(C)) * 3
+|COPYING
+|-
+|OP_2OVER
+|(length(C) + length(D)) * 3
+|COPYING
+|-
+|OP_IFDUP
+|length(A) * 5
+|COMPARINGZERO + COPYING
+|-
+|OP_DUP
+|length(A) * 3
+|COPYING
+|-
+|OP_OVER
+|length(B) * 3
+|COPYING
+|-
+|OP_PICK
+|length(A) * 2 + length(A-th-from-top) * 3
+|LENGTHCONV + COPYING
+|-
+|OP_TUCK
+|length(A) * 3
+|COPYING
+|-
+|OP_ROLL
+|length(A) * 2 + 48 * Value of A
+|LENGTHCONV + ROLL
+|-
+|}
+
+====Rationale====
+
+These operators copy a stack entry and write to another.  OP_IFDUP has the same worst-case cost as OP_IF + OP_DUP.
+
+OP_ROLL needs to read its operand, then move that many elements on the stack.  It is the only opcode for which the stack manipulation cost is variable (and, regretfully, non-trivial), so we need to limit it.
+
+A reasonable implementation (and the current bitcoind C++ implementation) is to use 24 bytes for each stack element (a pointer, a size and a maximum capacity), and this value works reasonably in practice.
+
+===Example: Comparison Operators===
+
+{|
+! Opcode
+! Varops Budget Cost
+|-
+|OP_BOOLAND
+|(length(A) + length(B)) * 2
+|COMPARINGZERO
+|-
+|OP_BOOLOR
+|(length(A) + length(B)) * 2
+|COMPARINGZERO
+|-
+|OP_NUMEQUAL
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_NUMEQUALVERIFY
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_NUMNOTEQUAL
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_LESSTHAN
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_GREATERTHAN
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_LESSTHANOREQUAL
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_GREATERTHANOREQUAL
+|MAX(length(A), length(B)) * 2
+|COMPARING + COMPARINGZERO
+|-
+|OP_MIN
+|MAX(length(A), length(B)) * 4
+|OTHER
+|-
+|OP_MAX
+|MAX(length(A), length(B)) * 4
+|OTHER
+|-
+|OP_WITHIN
+|(MAX(length(C), length(B)) + MAX(length(C), length(A))) * 2
+|COMPARING + COMPARINGZERO
+|}
+
+====Rationale====
+
+Numerical comparison in little-endian numbers involves a byte-by-byte comparison, then if one is longer, checking that the remainder is all zero bytes.
+
+However, OP_MAX and OP_MIN also normalize their result, which means they can't use the optimized comparison routine but must instead track the final non-zero byte to perform truncation.
+
+===Example: Hash Operators===
+
+{|
+! Opcode
+! Varops Budget Cost
+| Reason
+|-
+|OP_SHA256
+|(Length of the operand) * 50
+|HASH
+|-
+|OP_HASH160
+|(Length of the operand) * 50
+|HASH
+|-
+|OP_HASH256
+|(Length of the operand) * 50
+|HASH
+|}
+
+====Rationale====
+
+SHA256 has been well-optimized for current hardware, as it is already critical to Bitcoin's operation.  Additional once-off steps such as the final SHA round, and RIPEMD or a second SHA256 are not proportional to the input, so are not included in the cost model.
+
+A model for other hash operations (OP_SHA1, OP_RIPEMD160) is possible, but we have not done so.  They are not generally optimized, and if they were permitted on large inputs, this would have to be done.
+
+==Reference Implementation==
+
+Work in progress:
+
+	https://github.com/jmoik/bitcoin/tree/gsr
+
+==Changelog==
+
+* 0.2.0: 2026-02-21: increase in cost for hashing and copying based on benchmark results.
+* 0.1.0: 2025-09-27: first public posting
+
+==Thanks==
+
+This BIP would not exist without the thoughtful contributions of coders who considered all the facets carefully and thoroughly, and also my inspirational wife Alex and my kids who have been tirelessly supportive of my esoteric-seeming endeavors such as this!
+
+In alphabetical order:
+* Anthony Towns
+* Brandon Black (aka Reardencode)
+* John Light
+* Jonas Nick
+* Mark "Murch" Erhardt 
+* Rijndael (aka rot13maxi)
+* Steven Roose
+* FIXME: your name here!
+
+== Footnotes ==
+
+<references />
