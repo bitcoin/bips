@@ -68,13 +68,9 @@ Since ''a·B == b·A'' ([https://en.wikipedia.org/wiki/Elliptic-curve_Diffie%E2%
 
 ''' Creating more than one output '''
 
-In order to allow Alice to create more than one output for Bob<ref name="why_more_than_one_output">'''Why allow for more than one output?''' Allowing Alice to break her payment to Bob into multiple amounts opens up a number of privacy improving techniques for Alice, making the transaction look like a CoinJoin or better hiding the change amount by splitting both the payment and change outputs into multiple amounts. It also allows for Alice and Carol to both have their own unique output paying Bob in the event they are in a collaborative transaction and both paying Bob's silent payment address.</ref>, we include an integer in the following manner:
+In order to allow Alice to create more than one output for Bob<ref name="why_more_than_one_output">'''Why allow for more than one output?''' Allowing Alice to break her payment to Bob into multiple amounts opens up a number of privacy improving techniques for Alice, making the transaction look like a CoinJoin or better hiding the change amount by splitting both the payment and change outputs into multiple amounts. It also allows for Alice and Carol to both have their own unique output paying Bob in the event they are in a collaborative transaction and both paying Bob's silent payment address.</ref>, we include an integer ''k'' in the following manner:
 
-* Let ''k = 0''
-* Let ''P<sub>0</sub> = B + hash(a·B || k)·G''
-* For additional outputs:
-** Increment ''k'' by one (''k++'')
-** Let ''P<sub>i</sub> = B + hash(a·B || k)·G''
+* Let ''P<sub>k</sub> = B + hash(a·B || k)·G = B + hash(b.A || k).G''
 
 Bob detects this output the same as before by searching for ''P<sub>0</sub> = B + hash(b·A || 0)·G''. Once he detects the first output, he must:
 
@@ -86,7 +82,7 @@ Since Bob will only perform these subsequent checks after a transaction with at 
 
 ''' Preventing address reuse '''
 
-If Alice were to use a different UTXO from the same public key ''A'' for a subsequent payment to Bob, she would end up deriving the same destinations ''P<sub>i</sub>''. To prevent this, Alice should include an input hash in the following manner:
+If Alice were to use a different UTXO from the same public key ''A'' for a subsequent payment to Bob, she would end up deriving the same destinations ''P<sub>k</sub>''. To prevent this, Alice should include an input hash in the following manner:
 
 * Let ''input_hash = hash(outpoint || A)''<ref name="why_include_A">'''Why include A in the input hash calculation?''' By committing to A in input hash, this ensures that the sender cannot maliciously choose a private key ''a&prime;'' in a subsequent transaction where ''a&prime; = input_hash·a / input_hash&prime;'', which would force address reuse in the protocol.</ref>
 * Let ''P<sub>0</sub> = B + hash(input_hash·a·B || 0)·G''
@@ -101,15 +97,15 @@ Alice performs the tweak with the sum of her input private keys in the following
 
 * Let ''a = a<sub>1</sub> + a<sub>2</sub> + ... + a<sub>n</sub>''
 * Let ''input_hash = hash(outpoint<sub>L</sub> || (a·G))'', where ''outpoint<sub>L</sub>'' is the smallest outpoint lexicographically<ref name="why_smallest_outpoint">'''Why use the lexicographically smallest outpoint for the hash?''' Recall that the purpose of including the input hash is so that the sender and receiver can both come up with a deterministic nonce that ensures that a unique address is generated each time, even when reusing the same scriptPubKey as an input. Choosing the smallest outpoint lexicographically satisfies this requirement, while also ensuring that the generated output is not dependent on the final ordering of inputs in the transaction. Using a single outpoint also works well with memory constrained devices (such as hardware signing devices) as it does not require the device to have the entire transaction in memory in order to generate the silent payment output.</ref>
-* Let ''P<sub>0</sub> = B + hash(input_hash·a·B || 0)·G''
+* Let ''P<sub>k</sub> = B + hash(input_hash·a·B || k)·G''
 
 ''' Spend and Scan Key '''
 
 Since Bob needs his private key ''b'' to check for incoming payments, this requires ''b'' to be exposed to an online device. To minimize the risks involved, Bob can instead publish an address of the form ''(B<sub>scan</sub>, B<sub>spend</sub>)''. This allows Bob to keep ''b<sub>spend</sub>'' in offline cold storage and perform the scanning with the public key ''B<sub>spend</sub>'' and private key ''b<sub>scan</sub>''. Alice performs the tweak using both of Bob's public keys in the following manner:
 
-* Let ''P<sub>0</sub> = B<sub>spend</sub> + hash(input_hash·a·B<sub>scan</sub> || 0)·G''
+* Let ''P<sub>k</sub> = B<sub>spend</sub> + hash(input_hash·a·B<sub>scan</sub> || k)·G''
 
-Bob detects this payment by calculating ''P<sub>0</sub> = B<sub>spend</sub> + hash(input_hash·b<sub>scan</sub>·A || 0)·G'' with his online device and can spend from his cold storage signing device using ''(b<sub>spend</sub> + hash(input_hash·b<sub>scan</sub>·A || 0)) mod n'' as the private key.
+Bob detects this payment by calculating ''P<sub>k</sub> = B<sub>spend</sub> + hash(input_hash·b<sub>scan</sub>·A || k)·G'' with his online device and can spend from his cold storage signing device using ''(b<sub>spend</sub> + hash(input_hash·b<sub>scan</sub>·A || k)) mod n'' as the private key.
 
 ''' Labels '''
 
@@ -120,8 +116,8 @@ For a single silent payment address of the form ''(B<sub>scan</sub>, B<sub>spend
 
 Alice performs the tweak as before using one of the published ''(B<sub>scan</sub>, B<sub>m</sub>)'' pairs. Bob detects the labeled payment in the following manner:
 
-* Let ''P<sub>0</sub> = B<sub>spend</sub> + hash(input_hash·b<sub>scan</sub>·A || 0)·G''
-* Subtract ''P<sub>0</sub>'' from each of the transaction outputs and check if the remainder matches any of the labels (''hash(b<sub>scan</sub> || 1)·G'', ''hash(b<sub>scan</sub> || 2)·G'' etc.) that the wallet has previously used
+* Let ''P<sub>k</sub> = B<sub>spend</sub> + hash(input_hash·b<sub>scan</sub>·A || k)·G''
+* Subtract ''P<sub>k</sub>'' from each of the transaction outputs and check if the remainder matches any of the labels (''hash(b<sub>scan</sub> || 1)·G'', ''hash(b<sub>scan</sub> || 2)·G'' etc.) that the wallet has previously used
 
 It is important to note that an outside observer can easily deduce that each published ''(B<sub>scan</sub>, B<sub>m</sub>)'' pair is owned by the same entity as each published address will have ''B<sub>scan</sub>'' in common. As such, labels are not meant as a way for Bob to manage separate identities, but rather a way for Bob to determine the source of an incoming payment.
 
@@ -136,9 +132,9 @@ While the use of labels is optional, every receiving silent payments wallet shou
 We use the following functions and conventions:
 
 * ''outpoint'' (36 bytes): the <code>COutPoint</code> of an input (32-byte txid, least significant byte first || 4-byte vout, least significant byte first)<ref name="why_little_endian">'''Why are outpoints little-endian?''' Despite using big endian throughout the rest of the BIP, outpoints are sorted and hashed matching their transaction serialization, which is little-endian. This allows a wallet to parse a serialized transaction for use in silent payments without needing to re-order the bytes when computing the input hash. Note: despite outpoints being stored and serialized as little-endian, the transaction hash (txid) is always displayed as big-endian.</ref>
-* ser<sub>32</sub>(i): serializes a 32-bit unsigned integer ''i'' as a 4-byte sequence, most significant byte first.
-* ser<sub>256</sub>(p): serializes the integer p as a 32-byte sequence, most significant byte first.
-* ser<sub>P</sub>(P): serializes the coordinate pair P = (x,y) as a byte sequence using SEC1's compressed form: (0x02 or 0x03) || ser<sub>256</sub>(x), where the header byte depends on the parity of the omitted Y coordinate.
+* ''ser<sub>32</sub>(i)'': serializes a 32-bit unsigned integer ''i'' as a 4-byte sequence, most significant byte first.
+* ''ser<sub>256</sub>(p)'': serializes the integer ''p'' as a 32-byte sequence, most significant byte first.
+* ''ser<sub>P</sub>(P)'': serializes the coordinate pair P = (x,y) as a byte sequence using SEC1's compressed form: ''(0x02 or 0x03) || ser<sub>256</sub>(x)'', where the header byte depends on the parity of the omitted Y coordinate.
 
 For everything not defined above, we use the notation from [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#specification BIP340]. This includes the ''hash<sub>tag</sub>(x)'' notation to refer to ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
 
@@ -198,10 +194,10 @@ A silent payment address is constructed in the following manner:
 
 * Let ''B<sub>scan</sub>, b<sub>scan</sub> = Receiver's scan public key and corresponding private key''
 * Let ''B<sub>spend</sub>, b<sub>spend</sub> = Receiver's spend public key and corresponding private key''
-* Let ''B<sub>m</sub> = B<sub>spend</sub> + hash<sub>BIP0352/Label</sub>(ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>32</sub>(m))·G'', where ''hash<sub>BIP0352/Label</sub>(ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>32</sub>(m))·G'' is an optional integer tweak for labeling
+* Let ''B<sub>m</sub> = B<sub>spend</sub> + label_tweak.G'', where ''label_tweak = hash<sub>BIP0352/Label</sub>(ser<sub>256</sub>(b<sub>scan</sub>) || ser<sub>32</sub>(m))'' is an optional integer tweak for labeling
 ** If no label is applied then ''B<sub>m</sub> = B<sub>spend</sub>''
 * The final address is a [https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki Bech32m] encoding of:
-** The human-readable part "sp" for mainnet, "tsp" for testnets (e.g.  signet, testnet)
+** The human-readable part "sp" for mainnet, "tsp" for testnets (e.g. signet, testnet)
 ** The data-part values:
 *** The character "q", to represent a silent payment address of version 0
 *** The 66-byte concatenation of the receiver's public keys, ''ser<sub>P</sub>(B<sub>scan</sub>) || ser<sub>P</sub>(B<sub>m</sub>)''
@@ -212,7 +208,7 @@ Note: [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP173] im
 * HRP [2-3 characters]
 * separator [1 character]
 * version [1-2 characters]
-* payload, 66 bytes concatenated pubkeys [ceil(66*8/5) = 106 characters]
+* payload, 66 bytes concatenated pubkeys ''[ceil(66*8/5) = 106'' characters]
 * checksum [6 characters]
 
 
@@ -240,7 +236,7 @@ For all of the output types listed, only X-only and compressed public keys are p
     scriptPubKey: 1 <32-byte-x-only-key>
                   (0x5120{32-byte-x-only-key})
 
-The sender uses the private key corresponding to the taproot output key (i.e. the tweaked private key). This can be a single private key or an aggregate key (e.g. taproot outputs using MuSig or FROST)<ref name="musig_frost_support">'''Are key aggregation techniques like FROST and MuSig supported?''' While we do not recommend it due to lack of a security proof (except if all participants are trusted or are the same entity), any taproot output able to do a key path theoretically is supported. Any offline key aggregation technique can be used, such as FROST or MuSig. This would require participants to perform the ECDH step collaboratively e.g. ''ECDH = a<sub>1</sub>·B<sub>scan</sub> + a<sub>2</sub>·B<sub>scan</sub> + ... + a<sub>t</sub>·B<sub>scan</sub>'' and ''P = B<sub>spend</sub> + hash(input_hash·ECDH || 0)·G''. Additionally, it may be necessary for the participants to provide a DLEQ proof to ensure they are not acting maliciously.</ref>. The receiver obtains the public key from the ''scriptPubKey'' (i.e. the taproot output key).
+The sender uses the private key corresponding to the taproot output key (i.e. the tweaked private key). This can be a single private key or an aggregate key (e.g. taproot outputs using MuSig or FROST)<ref name="musig_frost_support">'''Are key aggregation techniques like FROST and MuSig supported?''' While we do not recommend it due to lack of a security proof (except if all participants are trusted or are the same entity), any taproot output able to do a key path theoretically is supported. Any offline key aggregation technique can be used, such as FROST or MuSig. This would require participants to perform the ECDH step collaboratively, e.g. ''ECDH = a<sub>1</sub>·B<sub>scan</sub> + a<sub>2</sub>·B<sub>scan</sub> + ... + a<sub>t</sub>·B<sub>scan</sub>'' and ''P<sub0</sub> = B<sub>spend</sub> + hash(input_hash·ECDH || 0)·G''. Additionally, it may be necessary for the participants to provide a DLEQ proof to ensure they are not acting maliciously.</ref>. The receiver obtains the public key from the ''scriptPubKey'' (i.e. the taproot output key).
 
 '' Script path spend ''
 
@@ -251,7 +247,7 @@ The sender uses the private key corresponding to the taproot output key (i.e. th
 
 Same as a keypath spend, the sender MUST use the private key corresponding to the taproot output key. If this key is not available, the output cannot be included as an input to the transaction. Same as a keypath spend, the receiver obtains the public key from the ''scriptPubKey'' (i.e. the taproot output key)<ref name="why_always_output_pubkey">''' Why not skip all taproot script path spends? ''' This causes malleability issues for CoinJoins. If the silent payments protocol skipped taproot script path spends, this would allow an attacker to join a CoinJoin round, participate in deriving the silent payment address using the tweaked private key for a key path spend, and then broadcast their own version of the transaction using the script path spend. If the receiver were to only consider key path spends, they would skip the attacker's script path spend input when deriving the shared secret and not be able to find the funds. Additionally, there may be scenarios where the sender can perform ECDH with the key path private key but spends the output using the script path.</ref>.
 
-The one exception is script path spends that use NUMS point ''H'' as their internal key (where ''H'' is constructed by taking the hash of the standard uncompressed encoding of the secp256k1 base point ''G'' as X coordinate, see [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs BIP341: Constructing and spending Taproot outputs] for more details), in which case the input will be skipped for the purposes of shared secret derivation<ref name="why_ignore_h">'''Why skip outputs with H as the internal taproot key?''' If use cases get popularized where the taproot key path cannot be used, these outputs can still be included without getting in the way of making a silent payment, provided they specifically use H as their internal taproot key.</ref>. The receiver determines whether or not to skip the input by checking in the control block if the taproot internal key is equal to ''H''.
+The one exception is script path spends that use the NUMS point ''H'' as their internal key (where ''H'' is constructed by taking the hash of the standard uncompressed encoding of the secp256k1 base point ''G'' as X coordinate, see [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs BIP341: Constructing and spending Taproot outputs] for more details), in which case the input will be skipped for the purposes of shared secret derivation<ref name="why_ignore_h">'''Why skip outputs with H as the internal taproot key?''' If use cases get popularized where the taproot key path cannot be used, these outputs can still be included without getting in the way of making a silent payment, provided they specifically use H as their internal taproot key.</ref>. The receiver determines whether or not to skip the input by checking in the control block if the taproot internal key is equal to ''H''.
 
 ''' P2WPKH '''
 
@@ -300,8 +296,8 @@ After the inputs have been selected, the sender can create one or more outputs f
 ** If ''a = 0'', fail
 * Let ''input_hash = hash<sub>BIP0352/Inputs</sub>(outpoint<sub>L</sub> || A)'', where ''outpoint<sub>L</sub>'' is the smallest ''outpoint'' lexicographically used in the transaction<ref name="why_smallest_outpoint"></ref> and ''A = a·G''
 ** If ''input_hash'' is not a valid scalar, i.e., if ''input_hash = 0'' or ''input_hash'' is larger or equal to the secp256k1 group order, fail
-* Group receiver silent payment addresses by ''B<sub>scan</sub>'' (e.g. each group consists of one ''B<sub>scan</sub>'' and one or more ''B<sub>m</sub>'')
-* If any of the groups exceed the limit of ''K<sub>max</sub>'' (=2323) silent payment addresses, fail.<ref name="why_limit_k">'''Why is the size of groups (i.e. silent payment addresses sharing the same scan public key) limited by ''K<sub>max</sub>''?''' An adversary could construct a block filled with a single transaction consisting of N=23255 outputs (that's the theoretical maximum under current consensus rules, w.r.t. the block weight limit) that all target the same entity, consisting of one large group. Without a limit on the group size, scanning such a block with the algorithm described in this document would have a complexity of ''O(N<sup>2</sup>)'' for that entity, taking several minutes on modern systems. By capping the group size at ''K<sub>max</sub>'', we reduce the inner loop iterations to ''K<sub>max</sub>'', thereby decreasing the worst-case block scanning complexity to ''O(N·K<sub>max</sub>)''. This cuts down the scanning cost to the order of tens of seconds. The chosen value of ''K<sub>max</sub>'' = 2323 represents the maximum number of P2TR outputs that can fit into a 100kvB transaction, meaning a transaction that adheres to the current standardness rules is guaranteed to be within the limit. This ensures flexibility and also mitigates potential fingerprinting issues.</ref>
+* Group receiver silent payment addresses by ''B<sub>scan</sub>'', where each group consists of one ''B<sub>scan</sub>'' and one or more ''B<sub>m</sub>''
+* If any of the groups exceed the limit of ''K<sub>max</sub> = 2323'' silent payment addresses, fail.<ref name="why_limit_k">'''Why is the size of groups (i.e. silent payment addresses sharing the same scan public key) limited by ''K<sub>max</sub>''?''' An adversary could construct a block filled with a single transaction consisting of N=23255 outputs (that's the theoretical maximum under current consensus rules, w.r.t. the block weight limit) that all target the same entity, consisting of one large group. Without a limit on the group size, scanning such a block with the algorithm described in this document would have a complexity of ''O(N<sup>2</sup>)'' for that entity, taking several minutes on modern systems. By capping the group size at ''K<sub>max</sub>'', we reduce the inner loop iterations to ''K<sub>max</sub>'', thereby decreasing the worst-case block scanning complexity to ''O(N·K<sub>max</sub>)''. This cuts down the scanning cost to the order of tens of seconds. The chosen value of ''K<sub>max</sub> = 2323'' represents the maximum number of P2TR outputs that can fit into a 100kvB transaction, meaning a transaction that adheres to the current standardness rules is guaranteed to be within the limit. This ensures flexibility and also mitigates potential fingerprinting issues.</ref>
 
 * For each group:
 ** Let ''ecdh_shared_secret = input_hash·a·B<sub>scan</sub>''
@@ -309,9 +305,9 @@ After the inputs have been selected, the sender can create one or more outputs f
 ** For each ''B<sub>m</sub>'' in the group:
 *** Let ''t<sub>k</sub> = hash<sub>BIP0352/SharedSecret</sub>(ser<sub>P</sub>(ecdh_shared_secret) || ser<sub>32</sub>(k))''
 **** If ''t<sub>k</sub>'' is not a valid scalar, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
-*** Let ''P<sub>mn</sub> = B<sub>m</sub> + t<sub>k</sub>·G''
-*** Encode ''P<sub>mn</sub>'' as a [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] taproot output
-*** Optionally, repeat with k++ to create additional outputs for the current ''B<sub>m</sub>''
+*** Let ''P<sub>km</sub> = B<sub>m</sub> + t<sub>k</sub>·G''
+*** Encode ''P<sub>km</sub>'' as a [https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki BIP341] taproot output
+*** Optionally, repeat with ''k++'' to create additional outputs for the current ''B<sub>m</sub>''
 *** If no additional outputs are required, continue to the next ''B<sub>m</sub>'' with ''k++''<ref name="why_not_the_same_tn">''' Why not re-use ''t<sub>k</sub>'' when paying different labels to the same receiver?''' If paying the same entity but to two separate labeled addresses in the same transaction without incrementing ''k'', an outside observer could subtract the two output values and observe that this value is the same as the difference between two published silent payment addresses and learn who the recipient is.</ref>
 ** Optionally, if the sending wallet implements receiving silent payments, it can create change outputs by sending to its own silent payment address using label ''m = 0'', following the steps above
 ** If ''k > K<sub>max</sub>'', fail.<ref name="why_limit_number_of_outs>'''Why limit the number of outputs the sender can create for a single group?''' This specification limits the amount of keys the receiver is allowed to scan to ''K<sub>max</sub>''<ref name="why_limit_k"></ref>. Thus, any transaction that generates more than this many keys for a single receiver is to be considered invalid under this specification. We achieve this by mandating the sender to keep track of the number of keys ''k'' they generated for a single group and fail whenever ''k'' exceeds ''K<sub>max</sub>''.</ref>
