@@ -2,7 +2,7 @@ import hashlib
 import struct
 from io import BytesIO
 from ripemd160 import ripemd160
-from secp256k1 import ECKey
+from secp256k1lab.secp256k1 import Scalar
 from typing import Union
 
 
@@ -33,7 +33,7 @@ def deser_txid(txid: str):
 
 def deser_compact_size(f: BytesIO):
     view = f.getbuffer()
-    nbytes = view.nbytes;
+    nbytes = view.nbytes
     view.release()
     if (nbytes == 0):
         return 0 # end of stream
@@ -93,7 +93,7 @@ class VinInfo:
         else:
             self.txinwitness = txinwitness
         if private_key is None:
-            self.private_key = ECKey()
+            self.private_key = Scalar()
         else:
             self.private_key = private_key
         self.scriptSig = scriptSig

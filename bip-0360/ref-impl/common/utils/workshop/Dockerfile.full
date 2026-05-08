@@ -1,0 +1,115 @@
+# podman build -f Dockerfile.full -t quay.io/jbride2000/p2mr_demo:0.1 .
+# podman run -it --entrypoint /bin/bash quay.io/jbride2000/p2mr_demo:0.1
+
+FROM rust:1-slim-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    zlib1g-dev \
+    libevent-dev \
+    libboost-dev \
+    libzmq3-dev \
+    bash \
+    python3 \
+    python3-pip \
+    libclang-dev \
+    clang \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /bitcoin
+
+# Copy Bitcoin Core source (or clone)
+# COPY . /bitcoin
+RUN git clone --branch p2mr-pqc --single-branch https://github.com/jbride/bitcoin.git
+
+# Environment variables for musl
+ENV CC=gcc
+ENV CXX=g++
+
+# Build Bitcoin Core
+WORKDIR bitcoin
+
+RUN apt-get update && apt-get install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir build && cd build && \
+    cmake .. \
+        -DWITH_ZMQ=ON \
+        -DBUILD_BENCH=ON \
+        -DBUILD_DAEMON=ON && \
+    make -j$(nproc) bitcoin-cli
+
+# Runtime stage with Debian Slim
+FROM rust:1-slim-bookworm
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    libevent-core-2.1-7 \
+    libevent-pthreads-2.1-7 \
+    libevent-extra-2.1-7 \
+    libboost-filesystem1.74.0 \
+    libboost-thread1.74.0 \
+    libzmq5 \
+    libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy bitcoin-cli from builder
+COPY --from=builder /bitcoin/bitcoin/build/bin/bitcoin-cli /usr/local/bin/bitcoin-cli
+
+# Create non-root user and set permissions
+RUN groupadd --system bip360 && \
+    useradd --system --gid bip360 --shell /bin/bash --create-home bip360 && \
+    chmod +x /usr/local/bin/bitcoin-cli && \
+    ln -s /usr/local/bin/bitcoin-cli /usr/local/bin/b-cli && \
+    echo 'b-cli() { /usr/local/bin/bitcoin-cli -rpcconnect=${RPC_CONNECT:-192.168.122.1} -rpcport=${RPC_PORT:-18443} -rpcuser=${RPC_USER:-signet} -rpcpassword=${RPC_PASSWORD:-signet} "$@"; }' >> /home/bip360/.bashrc
+
+# Install additional tools needed for building Rust code (before switching to non-root user)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libclang-dev \
+    clang \
+    git \
+    curl \
+    cmake \
+    build-essential \
+    jq \
+    gawk \
+    telnet \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set default environment variables (can be overridden at runtime)
+ENV RPC_CONNECT=192.168.122.1 \
+    RPC_PORT=38332 \
+    RPC_USER=signet \
+    RPC_PASSWORD=signet
+
+# Switch to non-root user
+USER bip360
+
+WORKDIR /home/bip360
+
+RUN git clone --no-checkout --depth 1 --branch p2mr-pqc \
+    --single-branch https://github.com/jbride/bips.git bips && \
+    cd bips && \
+    git sparse-checkout init --cone && \
+    git sparse-checkout set bip-0360 && \
+    git checkout && \
+    cd bip-0360/ref-impl/rust && \
+    cargo build && \
+    rm -rf target
+
+WORKDIR /home/bip360/bips/bip-0360/ref-impl/rust
+
+ENV BITCOIN_NETWORK=signet \
+    USE_PQC=true
+
+ENTRYPOINT ["/usr/local/bin/bitcoin-cli"]
+

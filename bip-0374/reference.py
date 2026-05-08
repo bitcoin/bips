@@ -2,28 +2,20 @@
 
 """Reference implementation of DLEQ BIP for secp256k1 with unit tests."""
 
-from hashlib import sha256
+from pathlib import Path
 import random
-from secp256k1 import G, GE
 import sys
 import unittest
+
+# Prefer the vendored copy of secp256k1lab
+sys.path.insert(0, str(Path(__file__).parent / "secp256k1lab/src"))
+from secp256k1lab.secp256k1 import G, GE
+from secp256k1lab.util import tagged_hash, xor_bytes
 
 
 DLEQ_TAG_AUX = "BIP0374/aux"
 DLEQ_TAG_NONCE = "BIP0374/nonce"
 DLEQ_TAG_CHALLENGE = "BIP0374/challenge"
-
-
-def TaggedHash(tag: str, data: bytes) -> bytes:
-    ss = sha256(tag.encode()).digest()
-    ss += ss
-    ss += data
-    return sha256(ss).digest()
-
-
-def xor_bytes(lhs: bytes, rhs: bytes) -> bytes:
-    assert len(lhs) == len(rhs)
-    return bytes([lhs[i] ^ rhs[i] for i in range(len(lhs))])
 
 
 def dleq_challenge(
@@ -33,7 +25,7 @@ def dleq_challenge(
         assert len(m) == 32
     m = bytes([]) if m is None else m
     return int.from_bytes(
-        TaggedHash(
+        tagged_hash(
             DLEQ_TAG_CHALLENGE,
             A.to_bytes_compressed()
             + B.to_bytes_compressed()
@@ -59,9 +51,9 @@ def dleq_generate_proof(
         assert len(m) == 32
     A = a * G
     C = a * B
-    t = xor_bytes(a.to_bytes(32, "big"), TaggedHash(DLEQ_TAG_AUX, r))
+    t = xor_bytes(a.to_bytes(32, "big"), tagged_hash(DLEQ_TAG_AUX, r))
     m_prime = bytes([]) if m is None else m
-    rand = TaggedHash(
+    rand = tagged_hash(
         DLEQ_TAG_NONCE, t + A.to_bytes_compressed() + C.to_bytes_compressed() + m_prime
     )
     k = int.from_bytes(rand, "big") % GE.ORDER
@@ -144,5 +136,5 @@ class DLEQTests(unittest.TestCase):
                 proof_damaged[random.randrange(len(proof))] ^= 1 << (
                     random.randrange(8)
                 )
-                success = dleq_verify_proof(A, B, C, bytes(proof_damaged))
+                success = dleq_verify_proof(A, B, C, bytes(proof_damaged), m=message)
                 self.assertFalse(success)

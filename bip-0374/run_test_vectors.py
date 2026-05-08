@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Run the BIP-DLEQ test vectors."""
 import csv
-import os
+from pathlib import Path
 import sys
 from reference import (
     dleq_generate_proof,
     dleq_verify_proof,
 )
-from secp256k1 import GE
+from secp256k1lab.secp256k1 import GE
 
 
-FILENAME_GENERATE_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_generate_proof.csv')
-FILENAME_VERIFY_PROOF_TEST = os.path.join(sys.path[0], 'test_vectors_verify_proof.csv')
+FILENAME_GENERATE_PROOF_TEST = Path(__file__).parent / 'test_vectors_generate_proof.csv'
+FILENAME_VERIFY_PROOF_TEST = Path(__file__).parent / 'test_vectors_verify_proof.csv'
 
 
 all_passed = True
