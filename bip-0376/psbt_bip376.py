@@ -5,14 +5,14 @@ from io import BytesIO
 import struct
 from typing import Optional
 
-from deps.bitcoin_test.messages import CTransaction, CTxOut, deser_compact_size, from_binary
+from deps.bitcoin_test.messages import CTxOut, deser_compact_size, from_binary
 from deps.bitcoin_test.psbt import (
     PSBT,
     PSBTMap,
     PSBT_GLOBAL_INPUT_COUNT,
     PSBT_GLOBAL_OUTPUT_COUNT,
-    PSBT_GLOBAL_UNSIGNED_TX,
     PSBT_GLOBAL_VERSION,
+    PSBT_IN_FINAL_SCRIPTWITNESS,
     PSBT_IN_TAP_KEY_SIG,
     PSBT_IN_WITNESS_UTXO,
 )
@@ -46,34 +46,37 @@ class BIP376PSBTMap(PSBTMap):
 
 
 class BIP376PSBT(PSBT):
-    """PSBT that deserializes maps as BIP376PSBTMap instances."""
+    """PSBTv2 that deserializes maps as BIP376PSBTMap instances."""
 
     def deserialize(self, f):
         assert f.read(5) == b"psbt\xff"
         self.g = from_binary(BIP376PSBTMap, f)
 
-        self.version = 0
-        if PSBT_GLOBAL_VERSION in self.g.map:
-            assert PSBT_GLOBAL_INPUT_COUNT in self.g.map
-            assert PSBT_GLOBAL_OUTPUT_COUNT in self.g.map
-            self.version = struct.unpack("<I", self.g.map[PSBT_GLOBAL_VERSION])[0]
-            assert self.version in [0, 2]
-        if self.version == 2:
-            self.in_count = deser_compact_size(
-                BytesIO(self.g.map[PSBT_GLOBAL_INPUT_COUNT])
-            )
-            self.out_count = deser_compact_size(
-                BytesIO(self.g.map[PSBT_GLOBAL_OUTPUT_COUNT])
-            )
-        else:
-            assert PSBT_GLOBAL_UNSIGNED_TX in self.g.map
-            tx = from_binary(CTransaction, self.g.map[PSBT_GLOBAL_UNSIGNED_TX])
-            self.in_count = len(tx.vin)
-            self.out_count = len(tx.vout)
+        if PSBT_GLOBAL_VERSION not in self.g.map:
+            raise ValueError("BIP-376 requires PSBTv2")
+        assert PSBT_GLOBAL_INPUT_COUNT in self.g.map
+        assert PSBT_GLOBAL_OUTPUT_COUNT in self.g.map
+        self.version = struct.unpack("<I", self.g.map[PSBT_GLOBAL_VERSION])[0]
+        if self.version != 2:
+            raise ValueError("BIP-376 requires PSBTv2")
+
+        self.in_count = deser_compact_size(
+            BytesIO(self.g.map[PSBT_GLOBAL_INPUT_COUNT])
+        )
+        self.out_count = deser_compact_size(
+            BytesIO(self.g.map[PSBT_GLOBAL_OUTPUT_COUNT])
+        )
 
         self.i = [from_binary(BIP376PSBTMap, f) for _ in range(self.in_count)]
         self.o = [from_binary(BIP376PSBTMap, f) for _ in range(self.out_count)]
         return self
+
+    def to_hex(self):
+        return self.serialize().hex()
+
+    @classmethod
+    def from_hex(cls, hex_psbt):
+        return from_binary(cls, bytes.fromhex(hex_psbt))
 
 
 def get_p2tr_witness_utxo_output_key(input_map: BIP376PSBTMap) -> bytes:
@@ -101,3 +104,20 @@ def set_tap_key_sig(input_map: BIP376PSBTMap, signature: bytes) -> None:
     if len(signature) not in (64, 65):
         raise ValueError("PSBT_IN_TAP_KEY_SIG must be 64 or 65 bytes")
     input_map.set_by_key(PSBT_IN_TAP_KEY_SIG, signature)
+
+
+def remove_sp_finalized_fields(input_map: BIP376PSBTMap) -> None:
+    if input_map.get(PSBT_IN_FINAL_SCRIPTWITNESS) is None:
+        return
+
+    for key in (
+        PSBT_IN_SP_TWEAK,
+        PSBT_IN_TAP_KEY_SIG,
+        PSBT_IN_WITNESS_UTXO,
+    ):
+        input_map.map.pop(key, None)
+
+    derivation_prefix = bytes([PSBT_IN_SP_SPEND_BIP32_DERIVATION])
+    for key in list(input_map.map):
+        if isinstance(key, bytes) and key.startswith(derivation_prefix):
+            input_map.map.pop(key, None)
