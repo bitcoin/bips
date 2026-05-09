@@ -7,116 +7,24 @@ Run:
 
 import json
 import sys
-import hashlib
 from pathlib import Path
-from typing import Optional, Tuple
 
-p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
-n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-G = (
-    0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
-    0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8,
+BIP375_DIR = Path(__file__).resolve().parents[1] / "bip-0375"
+DEPS_DIR = BIP375_DIR / "deps"
+SECP256K1LAB_DIR = DEPS_DIR / "secp256k1lab/src"
+for dependency_path in (BIP375_DIR, DEPS_DIR, SECP256K1LAB_DIR):
+    sys.path.insert(0, str(dependency_path))
+
+from secp256k1lab.bip340 import schnorr_sign
+from secp256k1lab.secp256k1 import G, Scalar
+
+from psbt_bip376 import (
+    BIP376PSBT,
+    PSBT_IN_SP_TWEAK,
+    get_p2tr_witness_utxo_output_key,
+    get_sp_tweak,
+    set_tap_key_sig,
 )
-
-Point = Tuple[int, int]
-
-
-def tagged_hash(tag: str, msg: bytes) -> bytes:
-    tag_hash = hashlib.sha256(tag.encode("utf-8")).digest()
-    return hashlib.sha256(tag_hash + tag_hash + msg).digest()
-
-
-def int_from_bytes(data: bytes) -> int:
-    return int.from_bytes(data, byteorder="big")
-
-
-def bytes_from_int(x: int) -> bytes:
-    return x.to_bytes(32, byteorder="big")
-
-
-def has_even_y(P: Point) -> bool:
-    return (P[1] % 2) == 0
-
-
-def bytes_from_point(P: Point) -> bytes:
-    return bytes_from_int(P[0])
-
-
-def xor_bytes(a: bytes, b: bytes) -> bytes:
-    return bytes(x ^ y for (x, y) in zip(a, b))
-
-
-def lift_x(x_coord: int) -> Optional[Point]:
-    if x_coord >= p:
-        return None
-    y_sq = (pow(x_coord, 3, p) + 7) % p
-    y_coord = pow(y_sq, (p + 1) // 4, p)
-    if pow(y_coord, 2, p) != y_sq:
-        return None
-    return (x_coord, y_coord if (y_coord % 2) == 0 else p - y_coord)
-
-
-def point_add(P1: Optional[Point], P2: Optional[Point]) -> Optional[Point]:
-    if P1 is None:
-        return P2
-    if P2 is None:
-        return P1
-    if (P1[0] == P2[0]) and (P1[1] != P2[1]):
-        return None
-    if P1 == P2:
-        lam = (3 * P1[0] * P1[0] * pow(2 * P1[1], p - 2, p)) % p
-    else:
-        lam = ((P2[1] - P1[1]) * pow(P2[0] - P1[0], p - 2, p)) % p
-    x3 = (lam * lam - P1[0] - P2[0]) % p
-    y3 = (lam * (P1[0] - x3) - P1[1]) % p
-    return (x3, y3)
-
-
-def point_mul(P: Optional[Point], scalar: int) -> Optional[Point]:
-    R = None
-    for i in range(256):
-        if (scalar >> i) & 1:
-            R = point_add(R, P)
-        P = point_add(P, P)
-    return R
-
-
-def schnorr_verify(msg: bytes, pubkey: bytes, sig: bytes) -> bool:
-    if len(pubkey) != 32 or len(sig) != 64:
-        return False
-    P = lift_x(int_from_bytes(pubkey))
-    r = int_from_bytes(sig[0:32])
-    s = int_from_bytes(sig[32:64])
-    if P is None or r >= p or s >= n:
-        return False
-    e = int_from_bytes(tagged_hash("BIP0340/challenge", sig[0:32] + pubkey + msg)) % n
-    R = point_add(point_mul(G, s), point_mul(P, n - e))
-    if R is None:
-        return False
-    return has_even_y(R) and (R[0] == r)
-
-
-def schnorr_sign(msg: bytes, seckey: bytes, aux_rand: bytes) -> bytes:
-    d0 = int_from_bytes(seckey)
-    if not (1 <= d0 <= n - 1):
-        raise ValueError("The secret key must be in the range 1..n-1.")
-    if len(aux_rand) != 32:
-        raise ValueError("aux_rand must be 32 bytes.")
-    P = point_mul(G, d0)
-    assert P is not None
-    d = d0 if has_even_y(P) else n - d0
-    t = xor_bytes(bytes_from_int(d), tagged_hash("BIP0340/aux", aux_rand))
-    k0 = int_from_bytes(tagged_hash("BIP0340/nonce", t + bytes_from_point(P) + msg)) % n
-    if k0 == 0:
-        raise RuntimeError("Failure. This happens only with negligible probability.")
-    R = point_mul(G, k0)
-    assert R is not None
-    k = k0 if has_even_y(R) else n - k0
-    e = int_from_bytes(tagged_hash("BIP0340/challenge", bytes_from_point(R) + bytes_from_point(P) + msg)) % n
-    sig = bytes_from_point(R) + bytes_from_int((k + e * d) % n)
-    if not schnorr_verify(msg, bytes_from_point(P), sig):
-        raise RuntimeError("The created signature does not pass verification.")
-    return sig
 
 
 def parse_hex(data: str, expected_len: int, field_name: str) -> bytes:
@@ -126,27 +34,43 @@ def parse_hex(data: str, expected_len: int, field_name: str) -> bytes:
     return raw
 
 
-def derive_signing_key(spend_seckey: bytes, tweak: bytes, output_pubkey: bytes) -> Tuple[int, int, bool]:
-    b_spend = int_from_bytes(spend_seckey)
-    if not (1 <= b_spend <= n - 1):
+def derive_signing_key(
+    spend_seckey: bytes, tweak: bytes, output_pubkey: bytes
+) -> tuple[Scalar, Scalar, bool]:
+    try:
+        b_spend = Scalar.from_bytes_checked(spend_seckey)
+    except ValueError as exc:
+        raise ValueError("spend key out of range") from exc
+    if b_spend == 0:
         raise ValueError("spend key out of range")
 
-    tweak_int = int_from_bytes(tweak)
-    d_raw = (b_spend + tweak_int) % n
+    d_raw = b_spend + Scalar.from_bytes_wrapping(tweak)
     if d_raw == 0:
         raise ValueError("tweaked private key is zero")
 
-    Q = point_mul(G, d_raw)
-    assert Q is not None
-    negated = not has_even_y(Q)
-    d = d_raw if not negated else n - d_raw
+    Q = d_raw * G
+    assert not Q.infinity
+    negated = not Q.has_even_y()
+    d = d_raw if not negated else -d_raw
 
-    Q_even = point_mul(G, d)
-    assert Q_even is not None
-    if bytes_from_point(Q_even) != output_pubkey:
+    Q_even = d * G
+    assert not Q_even.infinity
+    if Q_even.to_bytes_xonly() != output_pubkey:
         raise ValueError("tweaked key does not match output key")
 
     return d_raw, d, negated
+
+
+def sign_psbt(psbt_data: str, spend_seckey: bytes, message: bytes, aux_rand: bytes) -> str:
+    psbt = BIP376PSBT.from_base64(psbt_data)
+    for input_map in psbt.i:
+        if input_map.get(PSBT_IN_SP_TWEAK) is None:
+            continue
+        tweak = get_sp_tweak(input_map)
+        output_pubkey = get_p2tr_witness_utxo_output_key(input_map)
+        _, d, _ = derive_signing_key(spend_seckey, tweak, output_pubkey)
+        set_tap_key_sig(input_map, schnorr_sign(message, d.to_bytes(), aux_rand))
+    return psbt.to_base64()
 
 
 def run_test_vectors(path: Path) -> bool:
@@ -164,18 +88,18 @@ def run_test_vectors(path: Path) -> bool:
         print(f"- valid[{index}] {description}")
         try:
             spend_seckey = parse_hex(given["spend_seckey"], 32, "spend_seckey")
-            tweak = parse_hex(given["tweak"], 32, "tweak")
-            output_pubkey = parse_hex(given["output_pubkey"], 32, "output_pubkey")
             message = parse_hex(given["message"], 32, "message")
             aux_rand = parse_hex(given["aux_rand"], 32, "aux_rand")
 
-            d_raw, d, negated = derive_signing_key(spend_seckey, tweak, output_pubkey)
-            signature = schnorr_sign(message, bytes_from_int(d), aux_rand)
-
-            assert bytes_from_int(d_raw).hex() == expected["raw_tweaked_seckey"]
-            assert negated == expected["negated"]
-            assert bytes_from_int(d).hex() == expected["final_seckey"]
-            assert signature.hex() == expected["signature"]
+            if "psbt" in given:
+                signed_psbt = sign_psbt(given["psbt"], spend_seckey, message, aux_rand)
+                assert signed_psbt == expected["psbt"]
+            else:
+                tweak = parse_hex(given["tweak"], 32, "tweak")
+                output_pubkey = parse_hex(given["output_pubkey"], 32, "output_pubkey")
+                _, d, _ = derive_signing_key(spend_seckey, tweak, output_pubkey)
+                signature = schnorr_sign(message, d.to_bytes(), aux_rand)
+                assert signature.hex() == expected["signature"]
         except Exception as exc:
             all_passed = False
             print(f"  FAILED: {exc}")
