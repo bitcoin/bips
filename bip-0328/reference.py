@@ -1,8 +1,7 @@
 #! /usr/bin/env python3
 
 import json
-import os
-import sys
+from pathlib import Path
 
 from _base58 import xpub_to_pub_hex
 from _bip327 import cbytes, key_agg
@@ -14,7 +13,7 @@ def aggregate_to_xpub(aggregate: bytes) -> ExtendedKey:
     return ExtendedKey(ExtendedKey.MAINNET_PUBLIC, 0, b"\x00\x00\x00\x00", 0, CHAINCODE, None, aggregate)
 
 def test_aggregate_to_xpub():
-    with open(os.path.join(sys.path[0], "vectors.json"), "r") as f:
+    with open(Path(__file__).parent / "vectors.json", "r") as f:
         test_data = json.load(f)
 
     for test_case in test_data:
