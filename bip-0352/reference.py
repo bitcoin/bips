@@ -5,7 +5,7 @@
 import json
 from pathlib import Path
 import sys
-from typing import List, Tuple, Dict, cast
+from typing import Any, List, Tuple, Dict, cast
 
 # import the vendored copy of secp256k1lab
 sys.path.insert(0, str(Path(__file__).parent / "secp256k1lab/src"))
@@ -125,7 +125,7 @@ def decode_silent_payment_address(address: str, hrp: str = "tsp") -> Tuple[GE, G
     return B_scan, B_spend
 
 
-def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[COutPoint], recipients: List[str], expected: Dict[str, any] = None, hrp="tsp") -> List[str]:
+def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[COutPoint], recipients: List[Dict[str, str]], expected: Dict[str, Any] = None, hrp="tsp") -> List[str]:
     negated_keys = []
     for key, is_xonly in input_priv_keys:
         k = Scalar.from_bytes_checked(key.to_bytes())
@@ -177,7 +177,7 @@ def create_outputs(input_priv_keys: List[Tuple[Scalar, bool]], outpoints: List[C
     return list(set(outputs))
 
 
-def scanning(b_scan: Scalar, B_spend: GE, A_sum: GE, input_hash: bytes, outputs_to_check: List[bytes], labels: Dict[str, str] = None, expected: Dict[str, any] = None) -> List[Dict[str, str]]:
+def scanning(b_scan: Scalar, B_spend: GE, A_sum: GE, input_hash: bytes, outputs_to_check: List[bytes], labels: Dict[str, str] = None, expected: Dict[str, Any] = None) -> List[Dict[str, str]]:
     input_hash_scalar = Scalar.from_bytes_checked(input_hash)
     computed_tweak_point = input_hash_scalar * A_sum
     assert computed_tweak_point.to_bytes_compressed().hex() == expected.get("tweak"), "tweak did not match expected"
