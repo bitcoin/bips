@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -164,7 +163,7 @@ func main() {
 
 	writerFile = writer
 
-	cert, err := ioutil.ReadFile(defaultBtcdRPCCertFile)
+	cert, err := os.ReadFile(defaultBtcdRPCCertFile)
 	if err != nil {
 		fmt.Println("Couldn't read RPC cert: ", err.Error())
 		return

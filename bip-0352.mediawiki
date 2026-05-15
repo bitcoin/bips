@@ -95,7 +95,7 @@ Bob must calculate the same ''input_hash'' when scanning.
 
 ''' Using all inputs '''
 
-In our simplified example we have been referring to Alice's transactions as having only one input ''A'', but in reality a Bitcoin transaction can have many inputs. Instead of requiring Alice to pick a particular input and requiring Bob to check each input separately, we can instead require Alice to perform the tweak with the sum of the input public keys<ref name="other_inputs">'''What about inputs without public keys?''' Inputs without public keys can still be spent in the transaction but are simply ignored in the silent payments protocol.</ref>. This significantly reduces Bob's scanning requirement, makes light client support more feasible<ref name="using_all_inputs">'''How does using all inputs help light clients?''' If Alice uses a random input for the tweak, Bob necessarily has to have access to and check all transaction inputs, which requires performing an ECC multiplication per input. If instead Alice performs the tweak with the sum of the input public keys, Bob only needs the summed 33 byte public key per transaction and only does one ECC multiplication per transaction. Bob can then use BIP158 block filters to determine if any of the outputs exist in a block and thus avoids downloading transactions which don't belong to him. It is still an open question as to how Bob can source the 33 bytes per transaction in a trustless manner, see [[#appendix-a-light-client-support|Appendix A: Light Client Support]] for more details.</ref>, and protects Alice's privacy in collaborative transaction protocols such as CoinJoin<ref name=""all_inputs_and_coinjoin">'''Why does using all inputs matter for CoinJoin?''' If Alice uses a random input to create the output for Bob, this necessarily reveals to Bob which input Alice has control of. If Alice is paying Bob as part of a CoinJoin, this would reveal which input belongs to her, degrading the anonymity set of the CoinJoin and giving Bob more information about Alice. If instead all inputs are used, Bob has no way of knowing which input(s) belong to Alice. This comes at the cost of increased complexity as the CoinJoin participants now need to coordinate to create the silent payment output and would need to use [https://gist.github.com/RubenSomsen/be7a4760dd4596d06963d67baf140406 Blind Diffie–Hellman] to prevent the other participants from learning who Alice is paying. Note it is currently not recommended to use this protocol for CoinJoins due to a lack of a formal security proof.</ref>.
+In our simplified example we have been referring to Alice's transactions as having only one input ''A'', but in reality a Bitcoin transaction can have many inputs. Instead of requiring Alice to pick a particular input and requiring Bob to check each input separately, we can instead require Alice to perform the tweak with the sum of the input public keys<ref name="other_inputs">'''What about inputs without public keys?''' Inputs without public keys can still be spent in the transaction but are simply ignored in the silent payments protocol.</ref>. This significantly reduces Bob's scanning requirement, makes light client support more feasible<ref name="using_all_inputs">'''How does using all inputs help light clients?''' If Alice uses a random input for the tweak, Bob necessarily has to have access to and check all transaction inputs, which requires performing an ECC multiplication per input. If instead Alice performs the tweak with the sum of the input public keys, Bob only needs the summed 33 byte public key per transaction and only does one ECC multiplication per transaction. Bob can then use BIP158 block filters to determine if any of the outputs exist in a block and thus avoids downloading transactions which don't belong to him. It is still an open question as to how Bob can source the 33 bytes per transaction in a trustless manner, see [[#appendix-a-light-client-support|Appendix A: Light Client Support]] for more details.</ref>, and protects Alice's privacy in collaborative transaction protocols such as CoinJoin<ref name="all_inputs_and_coinjoin">'''Why does using all inputs matter for CoinJoin?''' If Alice uses a random input to create the output for Bob, this necessarily reveals to Bob which input Alice has control of. If Alice is paying Bob as part of a CoinJoin, this would reveal which input belongs to her, degrading the anonymity set of the CoinJoin and giving Bob more information about Alice. If instead all inputs are used, Bob has no way of knowing which input(s) belong to Alice. This comes at the cost of increased complexity as the CoinJoin participants now need to coordinate to create the silent payment output and would need to use [https://gist.github.com/RubenSomsen/be7a4760dd4596d06963d67baf140406 Blind Diffie–Hellman] to prevent the other participants from learning who Alice is paying. Note it is currently not recommended to use this protocol for CoinJoins due to a lack of a formal security proof.</ref>.
 
 Alice performs the tweak with the sum of her input private keys in the following manner:
 
@@ -301,6 +301,8 @@ After the inputs have been selected, the sender can create one or more outputs f
 * Let ''input_hash = hash<sub>BIP0352/Inputs</sub>(outpoint<sub>L</sub> || A)'', where ''outpoint<sub>L</sub>'' is the smallest ''outpoint'' lexicographically used in the transaction<ref name="why_smallest_outpoint"></ref> and ''A = a·G''
 ** If ''input_hash'' is not a valid scalar, i.e., if ''input_hash = 0'' or ''input_hash'' is larger or equal to the secp256k1 group order, fail
 * Group receiver silent payment addresses by ''B<sub>scan</sub>'' (e.g. each group consists of one ''B<sub>scan</sub>'' and one or more ''B<sub>m</sub>'')
+* If any of the groups exceed the limit of ''K<sub>max</sub>'' (=2323) silent payment addresses, fail.<ref name="why_limit_k">'''Why is the size of groups (i.e. silent payment addresses sharing the same scan public key) limited by ''K<sub>max</sub>''?''' An adversary could construct a block filled with a single transaction consisting of N=23255 outputs (that's the theoretical maximum under current consensus rules, w.r.t. the block weight limit) that all target the same entity, consisting of one large group. Without a limit on the group size, scanning such a block with the algorithm described in this document would have a complexity of ''O(N<sup>2</sup>)'' for that entity, taking several minutes on modern systems. By capping the group size at ''K<sub>max</sub>'', we reduce the inner loop iterations to ''K<sub>max</sub>'', thereby decreasing the worst-case block scanning complexity to ''O(N·K<sub>max</sub>)''. This cuts down the scanning cost to the order of tens of seconds. The chosen value of ''K<sub>max</sub>'' = 2323 represents the maximum number of P2TR outputs that can fit into a 100kvB transaction, meaning a transaction that adheres to the current standardness rules is guaranteed to be within the limit. This ensures flexibility and also mitigates potential fingerprinting issues.</ref>
+
 * For each group:
 ** Let ''ecdh_shared_secret = input_hash·a·B<sub>scan</sub>''
 ** Let ''k = 0''
@@ -340,6 +342,7 @@ If each of the checks in ''[[#scanning-silent-payment-eligible-transactions|Scan
 * Check for outputs:
 ** Let ''outputs_to_check'' be the taproot output keys from all taproot outputs in the transaction (spent and unspent).
 ** Starting with ''k = 0'':
+*** If ''k == K<sub>max</sub>'' (=2323), stop scanning.<ref name="why_limit_k"></ref>
 *** Let ''t<sub>k</sub> = hash<sub>BIP0352/SharedSecret</sub>(ser<sub>P</sub>(ecdh_shared_secret) || ser<sub>32</sub>(k))''
 **** If ''t<sub>k</sub>'' is not a valid scalar, i.e., if ''t<sub>k</sub> = 0'' or ''t<sub>k</sub>'' is larger or equal to the secp256k1 group order, fail
 *** Compute ''P<sub>k</sub> = B<sub>spend</sub> + t<sub>k</sub>·G''
@@ -354,7 +357,7 @@ If each of the checks in ''[[#scanning-silent-payment-eligible-transactions|Scan
 ****** Add ''P<sub>k</sub> + label'' to the wallet
 ****** Remove ''output'' from ''outputs_to_check'' and rescan ''outputs_to_check'' with ''k++''
 ***** If a label is not found, negate ''output'' and check a second time<ref name="negate_output">''' Why negate the output?''' Unfortunately taproot outputs are X-only, meaning we don't know what the correct Y coordinate is. This causes this specific calculation to fail 50% of the time, so we need to repeat it with the other Y coordinate by negating the output.</ref>
-*** If no matches are found, stop
+*** If no matches are found, stop<ref name="always_continue_scanning_after_match">'''WARNING:''' The decision to continue scanning (increment ''k'') must be based on whether a cryptographic match was found, not on whether the wallet considers the output spendable or relevant. A match that is later filtered by wallet policy (e.g. dust) must still trigger a rescan with ''k++''; stopping early may cause subsequent outputs for the same sender to be missed.</ref>
 
 ==== Spending ====
 
@@ -375,7 +378,10 @@ Silent payments introduces a new address format and protocol for sending and as 
 
 == Test Vectors ==
 
-A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JSON format]] are provided, along with a [[bip-0352/reference.py|python reference implementation]]. Each test vector consists of a sending test case and corresponding receiving test case. This is to allow sending and receiving to be implemented separately. To ensure determinism while testing, sort the array of ''B<sub>m</sub>'' by amount (see the [[bip-0352/reference.py|reference implementation]]). Test cases use the following schema:
+A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JSON format]] is provided, along with a [[bip-0352/reference.py|python reference implementation]]. It uses a vendored copy of the [https://github.com/secp256k1lab/secp256k1lab/ secp256k1lab] library at version 1.0.0
+(commit [https://github.com/secp256k1lab/secp256k1lab/commit/44dc4bd893b8f03e621585e3bf255253e0e0fbfb 44dc4bd893b8f03e621585e3bf255253e0e0fbfb]).
+
+Each test vector consists of a sending test case and corresponding receiving test case. This is to allow sending and receiving to be implemented separately. To ensure determinism while testing, sort the array of ''B<sub>m</sub>'' by amount (see the [[bip-0352/reference.py|reference implementation]]). Test cases use the following schema:
 
 ''' test_case '''
 
@@ -390,7 +396,15 @@ A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JS
     {
         "given": {
             "vin": [<array of vin objects with an added field for the private key. These objects are structured to match the `vin` output field from `getrawtransaction verbosity=2`>],
-            "recipients": [<array of strings, where each string is a bech32m encoding representing a silent payment address>]
+            "recipients": [<array of recipient objects, consisting of the address and its contained scan/spend public keys each>
+                {
+                    "address": <bech32m encoding representing a silent payment address>,
+                    "scan_pub_key": <hex encoded scan public key>,
+                    "spend_pub_key": <hex encoded spend public key>,
+                    "count": <optional integer for specifying the same recipient repeatedly (1 by default)>
+                },
+                ...
+            ]
         },
         "expected": {
             "outputs": [<array of strings, where each string is a hex encoding of 32-byte X-only public key; contains all possible output sets, test must match a subset of size `n_outputs`>],
@@ -411,7 +425,7 @@ A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JS
          },
          "expected": {
              "addresses": [<array of bech32m strings, one for the silent payment address and each labeled address (if used)>],
-             "outputs": [<array of outputs with tweak and signature; contains all possible output sets, tester must match a subset of size `n_outputs`>
+             "outputs": [<optional array of outputs with tweak and signature, tester must match this set (alternatively, "n_outputs" can be specified)>
                  {
                      "priv_key_tweak": <hex encoded private key tweak data>,
                      "pub_key": <hex encoded X-only public key>,
@@ -419,7 +433,7 @@ A [[bip-0352/send_and_receive_test_vectors.json|collection of test vectors in JS
                  },
                  ...
              ],
-             "n_outputs": <integer for the exact number of expected outputs>
+             "n_outputs": <optional integer for the number of expected found outputs (alternative to "outputs")>
          }
      }
 
@@ -489,6 +503,10 @@ The <code>MAJOR</code> version is incremented if changes to the BIP are introduc
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.1.1''' (2026-04-16):
+** Add test vector "Input keys intermediate sum is zero but final sum is non-zero"
+* '''1.1.0''' (2026-03-02):
+** Introduce per-group recipient limit ''K<sub>max</sub>'' to mitigate quadratic scanning behavior for adversarial transactions.<ref name="why_limit_k"></ref>
 * '''1.0.2''' (2025-07-25):
 ** Clarify how to handle the improbable corner case where the output of SHA256 is equal to 0 or greater than or equal to the secp256k1 curve order.
 * '''1.0.1''' (2024-06-22):
