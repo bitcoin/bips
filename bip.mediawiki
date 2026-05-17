@@ -1,0 +1,319 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Great Wall—Tacit-knowledge seed derivation by fractal recall
+  Authors: Yuri S Villas Boas <yuri@t3infosecurity.com>
+  Status: Draft
+  Type: Specification
+  Assigned: ?
+  License: BSD-2-Clause
+  Discussion: https://github.com/Yuri-SVB/Great-Wallet
+  Requires: 32, 39
+</pre>
+
+==Abstract==
+
+This BIP describes Great Wall, a procedure for deriving a BIP-0032 master
+seed from a secret that exists only in the user's memory. Instead of writing
+down a BIP-0039 mnemonic, the user memorizes a sequence of locations on a
+deterministically rendered fractal. The recalled locations are decoded by a
+bijective bisection algorithm into raw entropy, which is then re-encoded as a
+BIP-0039 mnemonic and stretched into a seed exactly as in BIP-0039, so all
+derived keys and addresses are identical to those a BIP-0039 wallet would
+produce from the same entropy.
+
+The scheme is built around ''Tacit Knowledge-Based Authentication'' (TKBA):
+the secret is held as non-verbalizable procedural memory and its deployment is
+gated by a tunable memory-hard key-derivation function, so that the secret
+cannot be extracted under coercion and brute-force search is computationally
+expensive. The proposal is forward- and backward-compatible with BIP-0039 and
+composes with Formosa (BIP-0450).
+
+==Copyright==
+
+This BIP is licensed under the BSD 2-clause license.
+
+==Motivation==
+
+Every conventional Bitcoin backup is a physical artifact: a seed phrase on
+paper or metal, a hardware wallet, an encrypted file. Each can be stolen,
+seized, photographed, destroyed, or surrendered under a "$5 wrench" coercion
+attack. A seed that exists ''only'' in memory removes the artifact, but naive
+memorization of 128–256 bits is unreliable, and a secret that can be recited
+can be extracted under duress.
+
+Great Wall addresses both problems at once. The secret is a set of locations
+on a fractal that the user learns through spaced repetition until recall
+becomes ''tacit'' — procedural knowledge that the user can reproduce by doing
+but cannot accurately dictate from memory. Recovery additionally requires
+running a deliberately slow, memory-hard key-derivation function, so even a
+coerced user cannot produce the seed faster than that function allows, and an
+attacker who learns the entire method gains nothing without both the tacit
+recall and the computation time.
+
+This document specifies only how computer-generated entropy is transported
+through human tacit memory into a BIP-0032 seed. It is not a scheme for
+turning user-invented passphrases or pictures into keys (a "brainwallet").
+
+==Specification==
+
+===Terminology===
+
+* '''mathematics-canonical fractal''': the bare Burning Ship escape-time set defined by its mathematical formula alone.
+* '''app-canonical fractal''': the fractal the application actually renders for stage 1 — the mathematics-canonical Burning Ship with a fixed baseline perturbation always applied (see below). It is identical for every user and is what is meant by "canonical fractal" elsewhere in this document.
+* '''perturbed fractal''': the stage-2 user-specific Burning Ship variant produced by perturbation parameters derived from the user's stage-1 recall.
+* '''bisection algorithm''': the deterministic procedure that, given a fractal, recursively splits the current area into exactly two valid halves plus one discarded area; one entropy bit selects which valid half to descend into.
+* '''binary area tree''': the regular binary tree induced by the bisection algorithm over a fractal; each node is an area, each node has exactly two valid children, and the recursion ends at a leaf area.
+* '''leaf area''': the terminal area a finite bit string decodes to; the visual region the user must recognize from memory.
+* '''point''': one memorized location, i.e. one leaf area; each point encodes a fixed 32 bits of entropy.
+* '''stage-1 bits''' / '''stage-2 bits''': the entropy shares decoded from the points on the app-canonical and perturbed fractals respectively.
+* '''raw entropy''': the concatenation <code>stage-1 bits || stage-2 bits</code>, of length 128–256 bits, equal to a BIP-0039 entropy.
+* '''KDF''': the memory-hard key-derivation function (Argon2) whose runtime is calibrated by the user.
+
+===Deterministic arithmetic===
+
+All fractal mathematics MUST be evaluated in a fixed-point format,
+hereafter '''I4F60''': one sign bit, three integer bits and sixty
+fractional bits, representing values in the half-open interval
+<code>[-8, +8)</code> with uniform precision <code>2^-60</code>
+(approximately <code>8.67 x 10^-19</code>). IEEE-754 floating point MUST NOT be used for
+any value that influences the bisection path, because rounding modes,
+denormals and NaN handling vary across platforms and would break the
+bijection between entropy and locations. The escape-time iteration, the
+contraction/zoom math, the neighbor ordering and the bisection algorithm
+MUST all be specified and implemented bit-for-bit identically; any deviation
+invalidates previously encoded secrets.
+
+===The bisection algorithm and binary area tree===
+
+Each fractal is navigated by a '''bisection algorithm''' that lives up to
+its name: at every step it splits the current area into '''exactly two'''
+valid sub-areas. The cut is made across whichever dimension is currently the
+'''largest''' (a vertical cut when the area is wider than tall, a horizontal
+cut when it is taller than wide), so successive descents alternate between a
+left/right choice and an up/down choice as the area's aspect ratio changes.
+The split is governed by two deterministic heuristics:
+
+# '''Weighted median placement.''' The cut is not placed at the geometric centre but at the weighted median of the sample distribution of "good islands" found within the current area. This typically yields one larger and one smaller valid half.
+# '''Contraction of the larger half.''' The span between the weighted median and the larger half's opposing edge is shortened by an amount proportional to how much larger that half is than the smaller one. The shortened-away strip becomes a '''discarded area'''.
+
+Each step therefore produces exactly two valid halves plus one discarded
+area. A single entropy bit selects which of the two valid halves the
+algorithm descends into; the recursion continues until it reaches a
+'''leaf area''', the region the bit string for that '''point''' decodes to
+and which the user must recognise from memory.
+
+Applied recursively, the bisection algorithm associates to each fractal a
+'''regular binary area tree''': every node is an area, every internal node
+has exactly two valid children (the discarded area is not a child), and the
+leaves are the recognisable leaf areas. Reading a memorized point as the
+sequence of binary descents — each taken along the current area's largest
+dimension, hence alternating between left/right and up/down — yields its
+bits; concatenating the points in order yields the stage bits. The mapping between bit strings and leaf areas
+is bijective.
+
+The discarded areas give the scheme a '''checksum-like effect''': a randomly
+or wrongly recalled coordinate frequently lands in a discarded area and is
+rejected outright rather than silently decoding to wrong entropy.
+
+===Stage 1: the app-canonical fractal===
+
+The underlying mathematics-canonical fractal is the Burning Ship set,
+
+<pre>
+z_{n+1} = ( |Re(z_n)| + i|Im(z_n)| )^2 + c
+</pre>
+
+The fractal rendered for stage 1 is, however, the '''app-canonical'''
+fractal: the mathematics-canonical Burning Ship with a '''fixed baseline
+value of the perturbation parameter <code>p</code> always applied'''. This
+baseline is a protocol constant present even in the canonical case (it is
+not the all-zero perturbation). Its purpose is to '''rule out a thin tail
+region of the mathematics-canonical Burning Ship that is prone to yielding
+bad (degenerate or non-recognisable) leaf areas'''; excluding it keeps every
+leaf area navigable and memorable. The app-canonical fractal is rendered
+over a fixed viewport in I4F60 arithmetic with a fixed escape radius and
+iteration cap that are protocol constants, and is identical for every user.
+
+The user memorizes an ordered sequence of points on the app-canonical
+fractal; decoding them through the binary area tree yields the
+'''stage-1 bits'''. Stage 1 is reproducible from memory alone and requires
+no stored state.
+
+===Stage 2: the perturbed fractal===
+
+The stage-1 bits are passed through the KDF to derive the perturbation
+parameters <code>(o, p, q)</code>. Whereas the app-canonical fractal applies
+only the fixed baseline value of <code>p</code>, stage 2 applies the full
+user-specific <code>(o, p, q)</code>, producing a visually distinct Burning
+Ship landscape unique to that user, rendered with the same I4F60 rules and
+navigated by the same bisection algorithm and binary area tree. The user
+memorizes a second sequence of points on this '''perturbed fractal''';
+decoding them yields the '''stage-2 bits'''. The parameters
+<code>(o, p, q)</code> are never stored; they exist only ephemerally while
+the perturbed fractal is being rendered, so the stage-2 landscape cannot
+materialize until the KDF over the stage-1 recall has completed.
+
+===Sizing===
+
+Each point encodes exactly 32 bits. Entropy is split evenly between the two
+stages, so the number of points memorized per stage is
+<code>(entropy bits) / 2 / 32</code>. For the BIP-0039-valid entropy lengths
+this gives:
+
+<pre>
+| Raw entropy bits | Points per stage | Total points | BIP-0039 words |
++------------------+------------------+--------------+----------------+
+|       128        |        2         |      4       |       12       |
+|       192        |        3         |      6       |       18       |
+|       256        |        4         |      8       |       24       |
+</pre>
+
+Implementations MAY offer intermediate BIP-0039 lengths (160, 224 bits) by
+allowing the per-stage split to differ by at most one point. Larger entropy
+increases security at the cost of more points to memorize and train.
+
+===From recall to seed===
+
+<pre>
+raw entropy            = stage-1 bits || stage-2 bits        (128–256 bits)
+BIP-0039 mnemonic      = BIP-0039-encode(raw entropy + checksum)
+seed (512 bits)        = PBKDF2-HMAC-SHA512(
+                             password = BIP-0039 mnemonic (UTF-8 NFKD),
+                             salt     = "mnemonic" + passphrase (UTF-8 NFKD),
+                             c        = 2048,
+                             dkLen    = 64 )
+</pre>
+
+The raw entropy MUST be a valid BIP-0039 entropy length (128, 160, 192, 224
+or 256 bits). A checksum of <code>(entropy bits)/32</code> bits, taken from
+SHA-256 of the entropy, is appended before BIP-0039 word encoding, exactly
+as in BIP-0039. The resulting seed is fed to BIP-0032 unchanged. Because the
+seed is a function of the raw entropy only, the same recall always yields
+the same keys and addresses, and the entropy MAY equivalently be rendered as
+a Formosa (BIP-0450) mnemonic or a plain BIP-0039 mnemonic for backup or
+migration without changing any derived key.
+
+The master secret MUST NOT be displayed; all derived material SHOULD exist
+only as ephemeral application state during a recall session.
+
+===Computational gating and time-lock===
+
+The KDF runtime is NOT a protocol constant; the user calibrates it to a
+target attack model (e.g. hours to defeat opportunistic robbery, about a
+week to defeat multi-day coercion). Larger runtime increases
+coercion-resistance at the cost of longer legitimate recovery.
+
+Implementations MAY additionally seal session state (the perturbation
+parameters, encoded locations and scheduler data) under a key derived from
+the solution of an RSW (Rivest–Shamir–Wagner) time-lock puzzle. The puzzle
+requires <code>t</code> sequential modular squarings
+<code>x -> x^(2^t) mod N</code> with O(1) setup for any chosen delay
+<code>t</code>. Only the puzzle operands <code>(N, x, t)</code> — never the
+ciphertext — may be handed to a third party for paid solving, so puzzle
+solving can be outsourced (e.g. over Lightning) without surrendering
+custody. A time-lock longer than the KDF runtime provides no extra
+protection and SHOULD NOT be used, since a holder of the stage-1 recall can
+re-derive faster through the KDF.
+
+===Optional inheritance===
+
+An OPTIONAL dead-man's-switch inheritance protocol MAY be layered on top.
+The testator periodically rotates time-lock-gated channels; if rotation
+stops, an heir may claim only after observed silence lasting one full
+time-lock epoch plus a grace period, and any later rotation by a
+still-living testator revokes an in-progress heir solve. The heir-branch
+spending key is <code>MuSig2(s_i·G, h·G)</code>, combining a per-epoch
+testator hand-off scalar <code>s_i</code> (encrypted under the hash of the
+time-lock solution) with an heir channel share <code>h</code> derived from
+the heir's own Great Wall secret, so neither coercing the testator nor
+robbing the heir alone suffices. Channel keys are deterministically derived
+from each party's master secret, derivation path and epoch number, so no
+channel state need be stored. Cascading inheritance is expressed with opaque
+taproot fallback addresses, one independent leaf per next-generation heir.
+The full inheritance construction is OPTIONAL and not required for the core
+seed-derivation scheme.
+
+==Rationale==
+
+'''Why a fractal rather than a word list?''' A fractal provides an
+effectively unbounded, navigable space whose locations can be rehearsed as
+motor/visual procedure. Spaced repetition turns navigation into tacit
+recall: reliable to reproduce, hard to verbalize, and therefore resistant
+to coerced disclosure in a way a recitable word list is not.
+
+'''Why a baseline perturbation in the app-canonical fractal?''' The bare
+mathematics-canonical Burning Ship has a thin tail region that produces
+degenerate, hard-to-recognise leaf areas. Always applying a fixed baseline
+value of <code>p</code> — even in the "canonical" stage-1 case — excludes
+that tail so that every leaf area the user might memorize is navigable and
+memorable. This is why the app renders an app-canonical fractal rather than
+the raw mathematical set.
+
+'''Why a binary (not n-ary) bisection?''' A strictly binary split makes each
+fractal a regular binary area tree, so one entropy bit maps to one
+left/right descent and the entropy-to-location mapping is an exact
+bijection. The weighted-median split with contraction additionally carves
+out a discarded area at every step, giving a checksum-like effect: most
+mis-recalled coordinates fall into discarded areas and are rejected instead
+of silently decoding to the wrong key.
+
+'''Why two stages?''' Splitting entropy across a canonical fractal and a
+KDF-perturbed personal fractal means the second landscape cannot even be
+rendered until the slow KDF over the first stage has run. This binds the
+computational gate to the recall itself: a coerced user cannot shortcut the
+delay, and an attacker who records the screen learns nothing about stage 2
+before the KDF completes.
+
+'''Why fixed-point I4F60 arithmetic?''' The mapping from entropy to
+locations must be a stable bijection across every platform and every future
+re-derivation. Floating point is not portable at the bit level; a fixed-point
+format with explicitly specified rounding makes the encoding reproducible
+forever, which is mandatory for a memory-only backup.
+
+'''Why re-encode through BIP-0039?''' Deriving the seed from the raw entropy
+via the BIP-0039 word encoding and PBKDF2 makes the seed a function of the
+entropy alone. This guarantees that the security analysis of BIP-0039 and
+BIP-0032 carries over unchanged, that the same entropy can be backed up as a
+BIP-0039 or Formosa (BIP-0450) mnemonic, and that a Great Wall user and a
+plain BIP-0039 wallet derive identical keys from the same entropy.
+
+'''Why a tunable KDF instead of a fixed cost?''' Coercion-resistance is a
+function of how slow recovery is for everyone, including the legitimate user
+under duress. The right cost depends on the user's personal threat model, so
+the runtime is a user-calibrated parameter, not a protocol constant. The
+optional time-lock puzzle adds a per-session, outsourceable delay that can be
+aligned to spaced-repetition review intervals without weakening custody.
+
+'''Why MuSig2 for the heir branch?''' Requiring a 2-of-2 of a testator
+per-epoch share and an heir share — each independently protected by its
+owner's tacit knowledge and KDF — means no single coerced party can move
+inherited funds, closing the "kill the testator then rob the heir" attack.
+
+==Backwards Compatibility==
+
+Great Wall does not change BIP-0039 or BIP-0032; it only specifies an
+alternative way to obtain the entropy that feeds them. Any entropy produced
+by a Great Wall recall is an ordinary BIP-0039 entropy and can be exported
+as a BIP-0039 or Formosa (BIP-0450) mnemonic at any time. Wallets that do
+not implement Great Wall are unaffected and continue to operate exactly as
+before; they simply cannot perform fractal recall, but can spend from a seed
+exported from Great Wall as a standard mnemonic.
+
+==Security Considerations==
+
+* The bijection between entropy and fractal locations — and therefore the I4F60 arithmetic, the baseline value of <code>p</code> in the app-canonical fractal, the weighted-median and contraction heuristics, and the bisection ordering — MUST be specified and frozen; any change silently invalidates existing secrets.
+* The discarded-area "checksum-like" effect is a usability aid that rejects many mis-recalls early; it is NOT a cryptographic integrity check and does not replace the BIP-0039 checksum, which is still computed and verified on the raw entropy.
+* The KDF runtime is the dominant security parameter against both brute force and coercion and MUST be chosen deliberately; the optional time-lock puzzle MUST NOT exceed it.
+* Perturbation parameters and the master secret MUST remain ephemeral and MUST NOT be persisted or displayed.
+* RSW time-lock security relies on the hardness of factoring; a break (e.g. by a large quantum computer) requires migrating the inheritance gating from off-chain decryption to an on-chain relative timelock (OP_CHECKSEQUENCEVERIFY), preserving the dead-man's-switch and MuSig2 semantics.
+* Tacit recall must be maintained by regular spaced-repetition practice; loss of practice can cause permanent loss of funds, the same risk profile as losing a written seed.
+
+==Reference Implementation==
+
+A reference fractal encoder (<code>great-wall-core</code>) and accompanying
+documentation are available from
+
+https://github.com/Yuri-SVB/Great-Wallet
+</content>
+</invoke>
