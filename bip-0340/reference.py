@@ -140,12 +140,11 @@ def schnorr_verify(msg: bytes, pubkey: bytes, sig: bytes) -> bool:
 # The following code is only used to verify the test vectors.
 #
 import csv
-import os
-import sys
+from pathlib import Path
 
 def test_vectors() -> bool:
     all_passed = True
-    with open(os.path.join(sys.path[0], 'test-vectors.csv'), newline='') as csvfile:
+    with open(Path(__file__).parent / 'test-vectors.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
         reader.__next__()
         for row in reader:

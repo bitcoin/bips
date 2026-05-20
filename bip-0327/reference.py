@@ -462,8 +462,7 @@ def partial_sig_agg(psigs: List[bytes], session_ctx: SessionContext) -> bytes:
 #
 
 import json
-import os
-import sys
+from pathlib import Path
 
 def fromhex_all(l):
     return [bytes.fromhex(l_i) for l_i in l]
@@ -497,7 +496,7 @@ def get_error_details(test_case):
     return exception, except_fn
 
 def test_key_sort_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'key_sort_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'key_sort_vectors.json') as f:
         test_data = json.load(f)
 
     X = fromhex_all(test_data["pubkeys"])
@@ -506,7 +505,7 @@ def test_key_sort_vectors() -> None:
     assert key_sort(X) == X_sorted
 
 def test_key_agg_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'key_agg_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'key_agg_vectors.json') as f:
         test_data = json.load(f)
 
     X = fromhex_all(test_data["pubkeys"])
@@ -530,7 +529,7 @@ def test_key_agg_vectors() -> None:
         assert_raises(exception, lambda: key_agg_and_tweak(pubkeys, tweaks, is_xonly), except_fn)
 
 def test_nonce_gen_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'nonce_gen_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'nonce_gen_vectors.json') as f:
         test_data = json.load(f)
 
     for test_case in test_data["test_cases"]:
@@ -557,7 +556,7 @@ def test_nonce_gen_vectors() -> None:
         assert nonce_gen_internal(rand_, sk, pk, aggpk, msg, extra_in) == (expected_secnonce, expected_pubnonce)
 
 def test_nonce_agg_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'nonce_agg_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'nonce_agg_vectors.json') as f:
         test_data = json.load(f)
 
     pnonce = fromhex_all(test_data["pnonces"])
@@ -575,7 +574,7 @@ def test_nonce_agg_vectors() -> None:
         assert_raises(exception, lambda: nonce_agg(pubnonces), except_fn)
 
 def test_sign_verify_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'sign_verify_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'sign_verify_vectors.json') as f:
         test_data = json.load(f)
 
     sk = bytes.fromhex(test_data["sk"])
@@ -658,7 +657,7 @@ def test_sign_verify_vectors() -> None:
         assert_raises(exception, lambda: partial_sig_verify(sig, pubnonces, pubkeys, [], [], msg, signer_index), except_fn)
 
 def test_tweak_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'tweak_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'tweak_vectors.json') as f:
         test_data = json.load(f)
 
     sk = bytes.fromhex(test_data["sk"])
@@ -715,7 +714,7 @@ def test_tweak_vectors() -> None:
         assert_raises(exception, lambda: sign(secnonce, sk, session_ctx), except_fn)
 
 def test_det_sign_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'det_sign_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'det_sign_vectors.json') as f:
         test_data = json.load(f)
 
     sk = bytes.fromhex(test_data["sk"])
@@ -762,7 +761,7 @@ def test_det_sign_vectors() -> None:
         assert_raises(exception, try_fn, except_fn)
 
 def test_sig_agg_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'sig_agg_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'sig_agg_vectors.json') as f:
         test_data = json.load(f)
 
     X = fromhex_all(test_data["pubkeys"])

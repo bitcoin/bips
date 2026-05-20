@@ -7,9 +7,8 @@
 from typing import Dict, Mapping, Optional, Sequence, Tuple, NewType, NamedTuple, List, Callable, Any, cast
 import hashlib
 import json
-import os
+from pathlib import Path
 import secrets
-import sys
 
 from bip32 import (
     CURVE_N,
@@ -280,7 +279,7 @@ def build_session_ctx(obj):
     return (pk, a, e, R, tweaks, is_xonly)
 
 def test_blind_nonce_gen_vectors():
-    with open(os.path.join(sys.path[0], 'vectors', 'blind_nonce_gen_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'blind_nonce_gen_vectors.json') as f:
         tv = json.load(f)
 
     for tc in tv["test_cases"]:
@@ -311,7 +310,7 @@ def test_blind_nonce_gen_vectors():
         assert len(expected_blindpubnonce) == 33
 
 def test_blind_challenge_gen_vectors():
-    with open(os.path.join(sys.path[0], 'vectors', 'blind_challenge_gen_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'blind_challenge_gen_vectors.json') as f:
         tv = json.load(f)
 
     # ---------- Valid cases ----------
@@ -388,7 +387,7 @@ def test_blind_challenge_gen_vectors():
         assert raised, "Expected an exception but none was raised"
 
 def test_blind_sign_and_verify_vectors():
-    with open(os.path.join(sys.path[0], 'vectors', 'blind_sign_and_verify_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'blind_sign_and_verify_vectors.json') as f:
         tv = json.load(f)
 
     # ------------------ Valid ------------------
@@ -479,7 +478,7 @@ def test_blind_sign_and_verify_vectors():
         assert_raises(exception, lambda: verify_blind_signature(pk, blindpubnonce, blindchallenge, blindsignature, pk_parity, nonce_parity), except_fn)
 
 def test_unblind_signature_vectors():
-    with open(os.path.join(sys.path[0], 'vectors', 'unblind_signature_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'unblind_signature_vectors.json') as f:
         tv = json.load(f)
 
     # ---------- Valid ----------
@@ -619,7 +618,7 @@ def delegator_sign(
     return signature
 
 def test_compute_tweak_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'compute_bip32_tweak_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'compute_bip32_tweak_vectors.json') as f:
         data = json.load(f)
 
     default_xpub_data = data.get("xpub")
@@ -675,7 +674,7 @@ def test_compute_tweak_vectors() -> None:
             raise AssertionError("expected failure but case succeeded")
 
 def test_delegator_sign_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'delegator_sign_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'delegator_sign_vectors.json') as f:
         data = json.load(f)
 
     for case in data.get("test_cases", []):
@@ -706,7 +705,7 @@ def test_delegator_sign_vectors() -> None:
 
 
 def test_input_verification_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'input_verification_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'input_verification_vectors.json') as f:
         data = json.load(f)
 
 
@@ -729,7 +728,7 @@ def test_input_verification_vectors() -> None:
             )
 
 def test_change_output_verification_vectors() -> None:
-    with open(os.path.join(sys.path[0], 'vectors', 'change_output_verification_vectors.json')) as f:
+    with open(Path(__file__).parent / 'vectors' / 'change_output_verification_vectors.json') as f:
         data = json.load(f)
 
     for case in data.get("test_cases", []):
