@@ -1,7 +1,7 @@
 ## BIP54 test vectors
 
-This folder contains a set of test vectors for each mitigation introduced in the BIP. This document
-presents them in more detail.
+This folder contains a set of test vectors for each mitigation activated by the BIP54 bundle. This
+document presents them in more detail.
 
 The code used to generate half of the test vectors is included with the implementation and available
 [here][other-vectors]. The other half requires mining mainnet blocks and is [published
@@ -23,21 +23,21 @@ some of the last headers without having to re-generate the whole chain.
 ### Difficulty adjustment exploits
 
 The [`timestamps.json`](./timestamps.json) test vectors exercise the two constraints on block header
-timestamps introduced by BIP54 to mitigate the Timewarp and Murch-Zawy attacks. Each test case
+timestamps introduced by TBD-1 to mitigate the Timewarp and Murch-Zawy attacks. Each test case
 features a chain of mainnet headers starting from the genesis block, and whether this header chain
-is valid by BIP54 rules. Each test case also contains a comment describing why this particular chain
-is (in)valid according to BIP54.  All test cases are valid according to current Bitcoin consensus
-rules. It is intended to be used to test a BIP54 implementation by feeding the header chain to a
-Bitcoin node implementation, enforcing the BIP54 rules on this chain from genesis.
+is valid by TBD-1 rules. Each test case also contains a comment describing why this particular chain
+is (in)valid according to TBD-1. All test cases are valid according to current Bitcoin consensus
+rules. It is intended to be used to test a TBD-1 implementation by feeding the header chain to a
+Bitcoin node implementation, enforcing the TBD-1 rules on this chain from genesis.
 
 The test vector file features a JSON array of JSON objects, each corresponding to a test case. Each
 JSON object features the following entries:
 - `header_chain`: a JSON array of strings. An ordered list of hex-encoded mainnet block headers.
-- `valid`: a JSON boolean. Whether this chain of headers is valid according to BIP54.
+- `valid`: a JSON boolean. Whether this chain of headers is valid according to TBD-1.
 - `comment`: a JSON string. Description of the test case.
 
 For the purpose of testing a Timewarp fix, a Timewarp attack was included early on in the history of
-testnet3. An implementer of BIP54 may want to ensure that syncing testnet3 by enforcing BIP54 since
+testnet3. An implementer of TBD-1 may want to ensure that syncing testnet3 by enforcing TBD-1 since
 genesis will treat block `00000000118da1e2165a19307b86f87eba814845e8a0f99734dce279ca3fb029` as
 invalid.
 
@@ -45,14 +45,14 @@ invalid.
 ### Long block validation time
 
 The [`sigops.json`](sigops.json) file contains test vectors for the limit on the number of
-potentially-executed legacy signature operations in a single transaction, introduced by BIP54 in
+potentially-executed legacy signature operations in a single transaction, introduced by TBD-2 in
 order to mitigate long block validation times. Each test case represents a transaction and whether a
-block containing it would be valid according to BIP54. The test cases feature an extensive set of
+block containing it would be valid according to TBD-2. The test cases feature an extensive set of
 combinations of inputs and output types, ways to run into the limit, historical violations and some
 pathological transactions exhibiting the specific implementation details. All test cases but those
 belonging to this last category feature transactions that are valid under current Bitcoin consensus
 rules. Each test case also features a comment describing why the transaction is (in)valid according
-to BIP54.
+to TBD-2.
 
 The test vector file features a JSON array of JSON objects, each corresponding to a test case. Each
 JSON object features the following entries:
@@ -60,30 +60,30 @@ JSON object features the following entries:
   transaction outputs spent by each input of this test case's transaction.
 - `tx`: a JSON string. A hex-encoded Bitcoin-serialized transaction to be evaluated.
 - `valid`: a JSON boolean. Whether this transaction is valid according to current consensus rules
-  supplemented by BIP54.
+  supplemented by TBD-2.
 - `comment`: a JSON string. Description of the test case.
 
 
 ### Merkle tree malleability with 64-byte transactions
 
 The [`txsize.json`](./txsize.json) file contains test cases exercising the new constraint on
-non-witness transaction size introduced in BIP54. Each test case contains a transaction and whether
-it would be valid according to BIP54, as well as a comment describing why it is (in)valid. All test
+non-witness transaction size introduced in BIP53. Each test case contains a transaction and whether
+it would be valid according to BIP53, as well as a comment describing why it is (in)valid. All test
 cases are otherwise valid according to current Bitcoin consensus rules.
 
 The test vector file features a JSON array of JSON objects, each corresponding to a test case. Each
 JSON object features the following entries:
 - `tx`: a JSON string. A hex-encoded Bitcoin-serialized transaction to be evaluated.
-- `valid`: a JSON boolean. Whether this transaction is valid according to BIP54.
+- `valid`: a JSON boolean. Whether this transaction is valid according to BIP53.
 - `comment`: a JSON string. Description of the test case.
 
 
 ### Possibility of duplicate coinbase transactions
 
 The [`coinbases.json`](./coinbases.json) file contains test cases exercising the new restrictions on
-coinbase transactions introduced in BIP54 to prevent duplicate coinbase transactions without
+coinbase transactions introduced in TBD-3 to prevent duplicate coinbase transactions without
 resorting to BIP30 validation. Each test case contains a chain of mainnet blocks (including the
-genesis block), and whether this block chain is valid according to BIP54. All test cases are valid
+genesis block), and whether this block chain is valid according to TBD-3. All test cases are valid
 according to current Bitcoin's consensus rules, except one that features a block containing a
 coinbase transaction timelocked to a future block height.
 
@@ -91,7 +91,7 @@ The test vector file features a JSON array of JSON objects, each corresponding t
 JSON object features the following entries:
 - `block_chain`: a JSON array of strings. An ordered list of hex-encoded mainnet blocks.
 - `valid`: a JSON boolean. Whether this block chain is valid according to current Bitcoin consensus
-  rules supplemented by BIP54.
+  rules supplemented by TBD-3.
 - `comment`: a JSON string. Description of the test case.
 
 
