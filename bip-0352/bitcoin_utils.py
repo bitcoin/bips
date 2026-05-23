@@ -3,10 +3,10 @@ import struct
 from io import BytesIO
 from ripemd160 import ripemd160
 from secp256k1lab.secp256k1 import Scalar
-from typing import Union
+from typing import List, Union
 
 
-def from_hex(hex_string):
+def from_hex(hex_string: str) -> BytesIO:
     """Deserialize from a hex string representation (e.g. from RPC)"""
     return BytesIO(bytes.fromhex(hex_string))
 
@@ -15,15 +15,15 @@ def ser_uint32(u: int) -> bytes:
     return u.to_bytes(4, "big")
 
 
-def ser_uint256(u):
+def ser_uint256(u: int) -> bytes:
     return u.to_bytes(32, 'little')
 
 
-def deser_uint256(f):
+def deser_uint256(f: BytesIO) -> int:
     return int.from_bytes(f.read(32), 'little')
 
 
-def deser_txid(txid: str):
+def deser_txid(txid: str) -> bytes:
     # recall that txids are serialized little-endian, but displayed big-endian
     # this means when converting from a human readable hex txid, we need to first
     # reverse it before deserializing it
@@ -31,7 +31,7 @@ def deser_txid(txid: str):
     return bytes.fromhex(dixt)
 
 
-def deser_compact_size(f: BytesIO):
+def deser_compact_size(f: BytesIO) -> int:
     view = f.getbuffer()
     nbytes = view.nbytes
     view.release()
@@ -48,12 +48,12 @@ def deser_compact_size(f: BytesIO):
     return nit
 
 
-def deser_string(f: BytesIO):
+def deser_string(f: BytesIO) -> bytes:
     nit = deser_compact_size(f)
     return f.read(nit)
 
 
-def deser_string_vector(f: BytesIO):
+def deser_string_vector(f: BytesIO) -> List[bytes]:
     nit = deser_compact_size(f)
     r = []
     for _ in range(nit):
