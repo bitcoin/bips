@@ -12,13 +12,19 @@ from typing import List, Optional, Tuple, NewType, NamedTuple, Literal
 import secrets
 
 from secp256k1lab.secp256k1 import G, GE, Scalar
-from secp256k1lab.util import int_from_bytes, tagged_hash, xor_bytes
+from secp256k1lab.util import tagged_hash, xor_bytes
 
 PlainPk = NewType("PlainPk", bytes)
 XonlyPk = NewType("XonlyPk", bytes)
-ContribKind = Literal[
-    "aggothernonce", "aggnonce", "psig", "pubkey", "pubnonce", "pubshare"
-]
+ContribKind = Literal["aggothernonce", "aggnonce", "psig", "pubnonce", "pubshare"]
+
+# Tagged hash domain-separation tags. The challenge tag is inherited from
+# BIP340 for signature compatibility; the rest are specific to this BIP.
+FROST_TAG_AUX = "BIP0445/aux"
+FROST_TAG_NONCE = "BIP0445/nonce"
+FROST_TAG_NONCECOEF = "BIP0445/noncecoef"
+FROST_TAG_DETERMINISTIC_NONCE = "BIP0445/deterministic/nonce"
+BIP340_TAG_CHALLENGE = "BIP0340/challenge"
 
 # There are two types of exceptions that can be raised by this implementation:
 #   - ValueError for indicating that an input doesn't conform to some function
@@ -57,15 +63,12 @@ def derive_interpolating_value(ids: List[int], my_id: int) -> Scalar:
     return num / deno
 
 
-def derive_thresh_pubkey(ids: List[int], pubshares: List[PlainPk]) -> PlainPk:
+def derive_thresh_pubkey(ids: List[int], pubshares: List[GE]) -> PlainPk:
+    assert len(ids) == len(pubshares)
     Q = GE()
-    for idx, (my_id, pubshare) in enumerate(zip(ids, pubshares)):
-        try:
-            X_i = GE.from_bytes_compressed(pubshare)
-        except ValueError:
-            raise InvalidContributionError(idx, "pubshare")
+    for my_id, X_i in zip(ids, pubshares):
         lam_i = derive_interpolating_value(ids, my_id)
-        Q = Q + lam_i * X_i
+        Q += lam_i * X_i
     # Q is not the point at infinity except with negligible probability.
     assert not Q.infinity
     return PlainPk(Q.to_bytes_compressed())
@@ -81,21 +84,26 @@ class SignersContext(NamedTuple):
 
 def validate_signers_ctx(signers_ctx: SignersContext) -> None:
     n, t, ids, pubshares, thresh_pk = signers_ctx
-    assert t <= n
+    if t < 1 or t > n:
+        raise ValueError("The threshold must be 1 <= t <= n.")
     if not t <= len(ids) <= n:
         raise ValueError("The number of signers must be between t and n.")
     if len(pubshares) != len(ids):
         raise ValueError("The pubshares and ids arrays must have the same length.")
+    pubshare_points = []
     for idx, (i, pubshare) in enumerate(zip(ids, pubshares)):
         if not 0 <= i <= n - 1:
-            raise ValueError(f"Invalid participant identifier at index {idx}.")
+            raise ValueError(
+                f"The participant identifier at index {idx} is out of range."
+            )
         try:
-            _ = GE.from_bytes_compressed(pubshare)
+            P = GE.from_bytes_compressed(pubshare)
         except ValueError:
             raise ValueError(f"Invalid pubshare at index {idx}.")
+        pubshare_points.append(P)
     if len(set(ids)) != len(ids):
         raise ValueError("The participant identifier list contains duplicate elements.")
-    if derive_thresh_pubkey(ids, pubshares) != thresh_pk:
+    if derive_thresh_pubkey(ids, pubshare_points) != thresh_pk:
         raise ValueError("The provided key material is incorrect.")
 
 
@@ -133,7 +141,7 @@ def apply_tweak(tweak_ctx: TweakContext, tweak: bytes, is_xonly: bool) -> TweakC
     try:
         twk = Scalar.from_bytes_checked(tweak)
     except ValueError:
-        raise ValueError("The tweak must be less than n.")
+        raise ValueError("The tweak value is out of range.")
     Q_ = g * Q + twk * G
     if Q_.infinity:
         raise ValueError("The result of tweaking cannot be infinity.")
@@ -160,7 +168,7 @@ def nonce_hash(
     buf += len(extra_in).to_bytes(4, "big")
     buf += extra_in
     buf += i.to_bytes(1, "big")
-    return tagged_hash("FROST/nonce", buf)
+    return tagged_hash(FROST_TAG_NONCE, buf)
 
 
 def nonce_gen_internal(
@@ -172,7 +180,7 @@ def nonce_gen_internal(
     extra_in: Optional[bytes],
 ) -> Tuple[bytearray, bytes]:
     if secshare is not None:
-        rand = xor_bytes(secshare, tagged_hash("FROST/aux", rand_))
+        rand = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, rand_))
     else:
         rand = rand_
     if pubshare is None:
@@ -232,7 +240,7 @@ def nonce_agg(pubnonces: List[bytes]) -> bytes:
                 R_ij = GE.from_bytes_compressed(pubnonce[(j - 1) * 33 : j * 33])
             except ValueError:
                 raise InvalidContributionError(idx, "pubnonce")
-            R_j = R_j + R_ij
+            R_j += R_ij
         aggnonce += R_j.to_bytes_compressed_with_infinity()
     return aggnonce
 
@@ -267,7 +275,7 @@ def get_session_values(
     # sort the ids before serializing because ROAST paper considers them as a set
     ser_ids = serialize_ids(ids)
     b = Scalar.from_bytes_wrapping(
-        tagged_hash("FROST/noncecoef", ser_ids + aggnonce + Q.to_bytes_xonly() + msg)
+        tagged_hash(FROST_TAG_NONCECOEF, ser_ids + aggnonce + Q.to_bytes_xonly() + msg)
     )
     assert b != 0
     try:
@@ -280,7 +288,7 @@ def get_session_values(
     R = R_ if not R_.infinity else G
     assert not R.infinity
     e = Scalar.from_bytes_wrapping(
-        tagged_hash("BIP0340/challenge", R.to_bytes_xonly() + Q.to_bytes_xonly() + msg)
+        tagged_hash(BIP340_TAG_CHALLENGE, R.to_bytes_xonly() + Q.to_bytes_xonly() + msg)
     )
     assert e != 0
     return (Q, gacc, tacc, ids, pubshares, b, R, e)
@@ -311,8 +319,9 @@ def sign(
     secnonce[:] = bytearray(b"\x00" * 64)
     k_1 = k_1_ if R.has_even_y() else -k_1_
     k_2 = k_2_ if R.has_even_y() else -k_2_
-    d_ = int_from_bytes(secshare)
-    if not 0 < d_ < GE.ORDER:
+    try:
+        d_ = Scalar.from_bytes_nonzero_checked(secshare)
+    except ValueError:
         raise ValueError("The signer's secret share value is out of range.")
     P = d_ * G
     assert not P.infinity
@@ -359,7 +368,7 @@ def det_nonce_hash(
     buf += len(msg).to_bytes(8, "big")
     buf += msg
     buf += i.to_bytes(1, "big")
-    return tagged_hash("FROST/deterministic/nonce", buf)
+    return tagged_hash(FROST_TAG_DETERMINISTIC_NONCE, buf)
 
 
 def deterministic_sign(
@@ -373,10 +382,9 @@ def deterministic_sign(
     rand: Optional[bytes],
 ) -> Tuple[bytes, bytes]:
     if rand is not None:
-        secshare_ = xor_bytes(secshare, tagged_hash("FROST/aux", rand))
+        secshare_ = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, rand))
     else:
         secshare_ = secshare
-    # REVIEW: do we need to add any check for ids & pubshares (in signers_ctx context) here?
     validate_signers_ctx(signers_ctx)
     _, _, ids, _, thresh_pk = signers_ctx
     tweaked_tpk = get_xonly_pk(thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly))
@@ -399,7 +407,7 @@ def deterministic_sign(
     secnonce = bytearray(k_1.to_bytes() + k_2.to_bytes())
     try:
         aggnonce = nonce_agg([pubnonce, aggothernonce])
-    except Exception:
+    except InvalidContributionError:
         # pubnonce is always valid, so any failure is due to aggothernonce.
         raise InvalidContributionError(None, "aggothernonce")
     session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
@@ -438,7 +446,7 @@ def partial_sig_verify_internal(
 ) -> bool:
     (Q, gacc, _, ids, pubshares, b, R, e) = get_session_values(session_ctx)
     try:
-        s = Scalar.from_bytes_nonzero_checked(psig)
+        s = Scalar.from_bytes_checked(psig)
     except ValueError:
         return False
     if pubshare not in pubshares:
@@ -472,7 +480,7 @@ def partial_sig_agg(psigs: List[bytes], session_ctx: SessionContext) -> bytes:
             s_i = Scalar.from_bytes_checked(psig)
         except ValueError:
             raise InvalidContributionError(idx, "psig")
-        s = s + s_i
+        s += s_i
     g = Scalar(1) if Q.has_even_y() else Scalar(-1)
-    s = s + e * g * tacc
+    s += e * g * tacc
     return R.to_bytes_xonly() + s.to_bytes()
