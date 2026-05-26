@@ -1,0 +1,98 @@
+BIP: XXX
+Title: Hybrid SPHINCS+ / secp256k1 Key Derivation for Quantum-Resistant Bitcoin Wallets
+Author: DigiMancer3D
+Status: Draft
+Type: Standards Track
+Layer: Wallet
+Created: 2026-05-26
+License: BSD-3-Clause
+
+Abstract
+
+This BIP defines a practical hybrid post-quantum key derivation scheme that uses NIST-standardized SLH-DSA (SPHINCS+) together with the 3’s Company HE-SD (High-Entropy Seed Distillation) algorithm to produce standard secp256k1 private keys and Bitcoin addresses.
+
+The process outputs raw key material that can be formatted with existing offline tools (e.g. bitaddress.org) into legacy WIF/public keys, plus fully-formed BIP-341 Taproot addresses. It is fully compatible with current Bitcoin software and designed to run on low-resource, air-gapped hardware.
+
+An optional hybrid signing format is also defined.
+
+Motivation
+
+Quantum computers threaten ECDSA/Schnorr. While consensus-level migration (BIP-361) is future work, users and wallet developers need a deployable, reproducible method today for quantum-hardened paper wallets and cold storage that works with existing tools.
+
+Specification
+
+1. 3’s Company HE-SD (High-Entropy Seed Distillation)
+
+3’s Company HE-SD is the deterministic high-entropy seed distillation algorithm defined in the SPX project:
+
+https://github.com/DigiMancer3D/SPX
+
+It internally uses SPX-QEC (Super Positioned Text - Quantum Entangled Compression) for lowest-entropy pattern detection and cleanup (current implementation performs pattern removal without token replacement).
+
+2. SPHINCS++ Hybrid BTC Key Derivation
+
+Given a role from the keychain:
+
+1. Take the role’s secp256k1 private key bytes.
+2. Compute SHA3-256(privkey || "SPHINCS++SEEDv1") → 512-trit ternary message.
+3. Apply 3’s Company HE-SD (with SPX-QEC cleanup).
+4. Sign the cleaned message with the role’s hybrid SPHINCS+ secret key (SLH_DSA_PURE_SHA2_128S).
+5. Take the first 32 bytes of the SPHINCS+ signature as the new seed.
+6. Derive a fresh secp256k1 private key from that seed (raw 32 bytes).
+7. Generate:
+   * Raw private key material (formatted offline via bitaddress.org.html into WIF and compressed public key)
+   * BIP-341 Taproot address (internal key derived from the raw private key; TapLeaf commitment uses the raw private key itself)
+
+A secondary “linked” key is also derived.
+
+Output is a compact JSON .sphincs++ file containing addresses, raw keys, descriptors (generated but untested), and import commands.
+
+3. Hybrid Signing (Optional)
+
+* Standard 65-byte ECDSA compact signature (low-S, proper recovery ID) over the Bitcoin message hash.
+* Hash (ECDSA signature + message) → 3’s Company HE-SD cleaned ternary message.
+* Sign with hybrid SPHINCS+ secret key.
+* Concatenate ECDSA sig + SPHINCS+ sig + padding → base58-encoded hybrid signature.
+
+The ECDSA part remains verifiable with standard verifymessage.
+
+4. File Formats
+
+* .kchain — master keychain (JSON)
+* .sphincs++ — per-role derived keys/addresses (JSON)
+* .msg — signed messages (JSON)
+
+Exact schemas are in the reference implementation.
+
+Reference Implementation
+
+Three small, self-contained C files (liboqs + jansson + OpenSSL):
+
+* pqc_keygen_new.c — keychain generator
+* pqc_sphincs_plus.c — SPHINCS++ hybrid derivation + Taproot address
+* pqc_hybrid_signer.c — hybrid signing
+
+All files, build instructions, and this BIP are maintained at:
+
+https://github.com/DigiMancer3D/bip-xxx-sphincs-hybrid
+
+The implementation is intentionally lightweight and runs on low-end/air-gapped hardware (Raspberry Pi class devices, old laptops, etc.).
+
+Compatibility
+
+* Legacy addresses: formatted via bitaddress.org (or equivalent) from raw keys.
+* Taproot addresses: fully formed and tested (bc1p...).
+* Confirmed working: Electrum (send/receive/sweep), bitaddress.org, Taproot, standard transaction flow.
+* Descriptors: generated in output but not yet fully tested with Bitcoin Core.
+* No consensus changes required.
+
+Security Considerations
+
+* SPHINCS+ is NIST FIPS 205 standardized and quantum-resistant.
+* 3’s Company HE-SD + SPX-QEC adds deterministic entropy cleaning.
+* All operations are offline and designed for air-gapped use.
+* Final private keys are ordinary secp256k1 keys.
+
+Rationale
+
+This BIP provides a minimal, reproducible, and immediately usable path for quantum-resistant cold storage/paper wallets that integrates with today’s Bitcoin ecosystem.
