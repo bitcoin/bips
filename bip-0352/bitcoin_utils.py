@@ -3,7 +3,7 @@ import struct
 from io import BytesIO
 from ripemd160 import ripemd160
 from secp256k1lab.secp256k1 import Scalar
-from typing import List, Union
+from typing import List, Optional, Union
 
 
 def from_hex(hex_string: str) -> BytesIO:
@@ -65,17 +65,17 @@ def deser_string_vector(f: BytesIO) -> List[bytes]:
 class COutPoint:
     __slots__ = ("hash", "n",)
 
-    def __init__(self, hash=b"", n=0,):
+    def __init__(self, hash: bytes = b"", n: int = 0) -> None:
         self.hash = hash
         self.n = n
 
-    def serialize(self):
+    def serialize(self) -> bytes:
         r = b""
         r += self.hash
         r += struct.pack("<I", self.n)
         return r
 
-    def deserialize(self, f):
+    def deserialize(self, f: BytesIO) -> None:
         self.hash = f.read(32)
         self.n = struct.unpack("<I", f.read(4))[0]
 
@@ -83,7 +83,14 @@ class COutPoint:
 class VinInfo:
     __slots__ = ("outpoint", "scriptSig", "txinwitness", "prevout", "private_key")
 
-    def __init__(self, outpoint=None, scriptSig=b"", txinwitness=None, prevout=b"", private_key=None):
+    def __init__(
+        self,
+        outpoint: Optional["COutPoint"] = None,
+        scriptSig: bytes = b"",
+        txinwitness: Optional["CTxInWitness"] = None,
+        prevout: bytes = b"",
+        private_key: Optional[Scalar] = None,
+    ) -> None:
         if outpoint is None:
             self.outpoint = COutPoint()
         else:
@@ -103,11 +110,11 @@ class VinInfo:
 class CScriptWitness:
     __slots__ = ("stack",)
 
-    def __init__(self):
+    def __init__(self) -> None:
         # stack is a vector of strings
-        self.stack = []
+        self.stack: List[bytes] = []
 
-    def is_null(self):
+    def is_null(self) -> bool:
         if self.stack:
             return False
         return True
@@ -116,14 +123,14 @@ class CScriptWitness:
 class CTxInWitness:
     __slots__ = ("scriptWitness",)
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.scriptWitness = CScriptWitness()
 
-    def deserialize(self, f: BytesIO):
+    def deserialize(self, f: BytesIO) -> "CTxInWitness":
         self.scriptWitness.stack = deser_string_vector(f)
         return self
 
-    def is_null(self):
+    def is_null(self) -> bool:
         return self.scriptWitness.is_null()
 
 
