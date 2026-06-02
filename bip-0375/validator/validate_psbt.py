@@ -223,7 +223,7 @@ def validate_dleq_proof(
 ) -> Tuple[bool, str]:
     """
     Verify a DLEQ proof for silent payments
-    
+
     Checks:
     - ECDH share and DLEQ proof lengths
     - Verify DLEQ proof correctness
@@ -304,15 +304,19 @@ def validate_output_scripts(psbt: PSBT) -> Tuple[bool, str]:
             output_index = struct.unpack("<I", output_index_bytes)[0]
             outpoints.append(COutPoint(txid_int, output_index))
 
+    # Collect SP outputs and sort by (sp_info, output_idx) so k is assigned in
+    # lexicographic silent payment code order
+    sp_outputs = [
+        (output_map[PSBT_OUT_SP_V0_INFO], output_idx, output_map)
+        for output_idx, output_map in enumerate(psbt.o)
+        if PSBT_OUT_SP_V0_INFO in output_map
+    ]
+    sp_outputs.sort(key=lambda entry: (entry[0], entry[1]))
+
     # Track k values per scan key
     scan_key_k_values = {}
 
-    # Validate each SP output
-    for output_idx, output_map in enumerate(psbt.o):
-        if PSBT_OUT_SP_V0_INFO not in output_map:
-            continue  # Skip non-SP outputs
-
-        sp_info = output_map[PSBT_OUT_SP_V0_INFO]
+    for sp_info, output_idx, output_map in sp_outputs:
         scan_pubkey_bytes = sp_info[:33]
         spend_pubkey_bytes = sp_info[33:]
 
