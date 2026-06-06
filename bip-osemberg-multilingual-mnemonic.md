@@ -89,7 +89,7 @@ A wallet that exposes a display mnemonic to the user SHOULD:
 2. Require explicit user confirmation that the canonical English mnemonic was recorded before finalizing wallet setup.
 3. Persist the display wordlist's stable identifier triple (language code, version string, SHA-256 of the wordlist file) alongside wallet metadata, so that a wordlist-version mismatch on restore can be detected and either resolved by loading the matching version or recovered via canonical English input.
 
-Wallet-level MUSTs and SHOULDs in this section are not mechanically enforceable from a wordlist artifact alone; they are exercised in the wallet implementation's test suite.
+Wallet-level MUST and SHOULD clauses in this section are not mechanically enforceable from a wordlist artifact alone; they are exercised in the wallet implementation's test suite.
 
 ### Validation
 
@@ -109,7 +109,7 @@ Seeds produced under this convention are bit-identical to seeds produced by any 
 
 - **Wordlist registry.** <https://github.com/osem23/bip39-wordlists-tzur>, `main` branch. Ships 30 index-paired display wordlists with bidirectional mappings at `wordlists/tzur-original/`, the 10 canonical BIP-39 wordlists preserved at `wordlists/reference-canonical/` for spec comparison, and a reference validator at `validation/validate_all.py`. Tag `v1.0` pins a stable snapshot for citation continuity.
 - **Construction notes.** `docs/CONSTRUCTION.md` documents structural rules, disambiguation rules, multi-word-concept handling, per-language notes, and the three-layer validation methodology (structural, back-translation via Google Translate with LLM verdict, forward-translation via Microsoft Azure Translator with LLM verdict).
-- **v2 multi-signal validation.** `docs/V2_VALIDATION.md` documents the post-v1 verification layer added in 2026-04: blind LLM top-8 generation, multilingual embedding similarity (LaBSE), and Wiktionary cross-reference, with reviewer process and per-language results.
+- **v2 multi-signal validation.** `docs/V2_VALIDATION.md` documents the post-v1 verification layer added in 2026-04: blind LLM top-8 generation, multilingual sentence-embedding similarity, and Wiktionary cross-reference, with reviewer process and per-language results.
 - **Canonical comparison.** `docs/canonical-vs-tzur.md` reports the word-set overlap between the 9 canonical non-English BIP-39 wordlists and their TZUR Original counterparts. The two are independent sources: Korean canonical and TZUR Original share zero tokens; Japanese shares 11; Latin-script languages share 400 to 700.
 - **Example decoders.** `examples/python/decode.py`, `examples/javascript/decode.mjs`, and `examples/swift/Decode.swift`. Each resolves a display mnemonic to its canonical English form, applies NFKD, and derives the BIP-39 seed via PBKDF2. All three produce byte-identical seeds for the same input.
 - **Wallet implementation.** <https://github.com/osem23/tzur-wallet>. The TZUR Wallet suite (iPhone, Windows, and an AI-agent build) ships this convention in production. The seed-derivation path resolves any display mnemonic to the canonical English mnemonic before computing PBKDF2; tests cover the paper-backup tokenization round trip per language.
