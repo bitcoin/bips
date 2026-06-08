@@ -21,7 +21,7 @@ SHA256("wots39-multisig-v1" || k || n || root[0] || ... || root[n-1]),
 this is a binding over all n participant's Merkle roots.
 The Single-sig spending supplies a 42 item witness.
 The k-of-n multi-sig supplies 1+n+k*43 items with each signer contributing sig elements, a slot nonce, 
-a key index and a Merkle authentication path proving membership in thier individual root.
+a key index and a Merkle authentication path proving membership in their individual root.
 The scriptPubKey is exactly 34 bytes: OP_3 (0x53) || PUSH32 (0x20) || commitment[32] 
 The 32-byte `commitment` encodes one of two policy types:
 
@@ -206,7 +206,7 @@ and per slot forward secrecy.
 ## **---Motivation---**
 Bitcoin's quantum vulnerability is well understood. Shor's algorithm computes the 
 discrete logaritm of a secp256k1 public key in polynomial time on a cryptographically 
-relevent quantum computer. Every existing Bitcoin output type exposes an elliptic curve key. 
+relevant quantum computer. Every existing Bitcoin output type exposes an elliptic curve key. 
 The quantum narritive also creates fear about Bitcoin that prevents more value from 
 flowing into the world's best safe haven asset. The demand for a viable light weight 
 post quantum signing scheme on Bitcoin is high. A more private, quantum-secure, 
@@ -216,10 +216,10 @@ this means that it's the lightest weight most well studied quantum-secure hash b
 This is an ideal fit in situations where every satoshi counts and long studied security matters. 
 By using Winternitz at w=256, the first signature of every address produces 434 vbyte signatures. 
 This is an acceptable cost to pay for mathematically unbreakable security and true digital ownership. 
-All other isues with using Winternitz are solved by the merkle 64 slot construction, 
+All other issues with using Winternitz are solved by the merkle 64 slot construction, 
 meaning address reuse is safe you just pay slightly more in transaction overhead. 
 The higher fees on subsequent sends are an acceptable tradeoff to gain address reuse safety. 
-The native multi-sig and compatability with lightning network make this proposal even stronger. 
+The native multi-sig and compatibility with lightning network make this proposal even stronger. 
 
 
 ## **---Specification---**
