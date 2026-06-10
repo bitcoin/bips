@@ -32,7 +32,7 @@ The hope is that this terminology could be used in technical writing about Bitco
 
 We treat the objects of the Bitcoin protocol (e.g. transactions, blocks) as distinct from their serialization.
 We distinguish parts and concrete properties of transactions (labeled [Component]) such as fields and scripts as well as composites thereof from serialization artifacts (labeled [Artifact]) which only appear in the serialization format.
-For example, version and lock time are fields that can be set during transaction creation and therefore components of a transaction, while the input counter is a serialization artifact resulting from how the input list of the transaction is represented in the transfer format.
+For example, version and locktime are fields that can be set during transaction creation and therefore components of a transaction, while the input counter is a serialization artifact resulting from how the input list of the transaction is represented in the transfer format.
 Likewise, the input script is a transaction component, but the length indicator of the input script is a serialization artifact, and a witness stack is a component, but the marker and flag appearing in a segwit transaction’s header are serialization artifacts.
 
 We also introduce some umbrella terms, concepts, and ideas that are useful to describe aspects of transactions (labeled [Concept]).
@@ -87,17 +87,17 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : [Concept] The position of an input in a transaction’s input list.
 
 ; input script
-: [Component] The Bitcoin code base used Hungarian notation when it was published. This transaction field appearing in transaction inputs was named for containing the signature and being of the type script. Today, this field is better understood as the input script which is used to satisfy spending conditions for non-segwit outputs, redirects validation to the witness stack for wrapped segwit outputs, and is empty for native segwit outputs. The input script may contain an actual script when spending a bare output script, but may only contain push operations for any output type since P2SH.
+: [Component] The Bitcoin code base used Hungarian notation when it was published. This transaction field appearing in transaction inputs was named <code>scripSig</code> for containing the signature and being of the type script. Today, this field is better understood as the input script which is used to satisfy spending conditions for non-segwit outputs, redirects validation to the witness stack for wrapped segwit outputs, and is empty for native segwit outputs. The input script may contain an actual script when spending a bare output script, but may only contain push operations for any output type since P2SH.
 : Synonyms: <code>scriptSig</code>, unlocking script (see [[locking_unlocking|Rationale]])
 
 ; leaf script
 : [Component] A condition script used for spending P2TR outputs via the script path. The leaf script appears as a witness item.
 
 ; leaf version
-: [Component] The version of Script used in a leaf script. At the time of writing, only Tapscript is defined.
+: [Component] The version of Script used in a leaf script. At the time of writing, only Tapscript is defined. The leaf version is part of the control block.
 
-; lock time
-: [Component] Part of the transaction header. Lock time specifies a time (in blockheight or UNIX time) before which a transaction cannot be included in a block if any input’s sequence number indicates non-finality. The lock time can also indicate a relative spending lock in combination with <code>OP_CHECKSEQUENCEVERIFY</code>. Serialized as the four-byte <code>nLockTime</code> integer field.
+; locktime
+: [Component] Part of the transaction header. Locktime specifies a time (in blockheight or UNIX time) before which a transaction cannot be included in a block if any input’s sequence number indicates non-finality. The locktime can also indicate a relative spending lock in combination with <code>OP_CHECKSEQUENCEVERIFY</code>. Serialized as the four-byte <code>nLockTime</code> integer field.
 : Synonym: <code>nLockTime</code>, <code>lock_time</code>
 
 ; marker
@@ -119,21 +119,22 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : Synonym: <code>vout_index</code>, sometimes abbreviated as <code>vout</code>
 
 ; output script
-: [Component] Must be present in each transaction output. Contains either a condition script or a forwarding script. Originally, the Bitcoin code base used Hungarian notation. This field was presumably named <code>scriptPubKey</code> as it was of the type script and because it fulfilled the role of a public key. While the first standard output type, Pay to Public Key, only contained the public key in this field, the use of this field had evolved beyond that even when Bitcoin was published, since the field could already contain more complicated bare scripts. Today, this field is referred to as the output script.
+: [Component] Contains either a condition script or a forwarding script. Originally, the Bitcoin code base used Hungarian notation. This field was presumably named <code>scriptPubKey</code> as it was of the type script and because it fulfilled the role of a public key. While the first standard output type, Pay to Public Key, only contained the public key in this field, the use of this field had evolved beyond that even when Bitcoin was published, since the field could already contain more complicated bare scripts. Today, this field is referred to as the output script.
 :  Synonyms: <code>scriptPubKey</code>, locking script (see [[locking_unlocking|Rationale]])
 
 ; P2SH program
 : [Concept] A script template that forwards input validation to the redeem script. P2SH programs are a type of forwarding script.
 
 ; redeem script
-: [Component] The condition script used in spending P2SH outputs. Is provided in the input script along with script arguments to satisfy it. The input script of wrapped segwit inputs is not a redeem script but a witness program.
+: [Component] The condition script used in spending P2SH outputs. The redeem script appears as the last push in the input script, usually preceded by script arguments to satisfy the redeem script. In the case of wrapped segwit inputs, the input script consists only of the redeem script which contains a witness program forwarding evaluation to the witness stack.
 : Synonyms: <code>redeemScript</code>, redemption script
 
 ; Script
-: [Concept] The original variant of the Bitcoin Script language used in bare output scripts, P2SH redeems scripts, and P2WSH witness scripts. Signature processing opcodes in Script expect DER-encoded ECDSA signatures. Capitalized Script refers to the language, whereas lowercase script refers to a script.
+: [Concept] The original Bitcoin Script language used in bare output scripts, P2SH redeems scripts, and P2WSH witness scripts. Signature processing opcodes in Script expect DER-encoded ECDSA signatures. Capitalized Script refers to the language, whereas lowercase script refers to a script.
+: Synonyms: "legacy Script" as opposed to "Tapscript"
 
 ; script arguments
-: [Concept] Arguments presented to satisfy a condition script, e.g. signatures and public keys.
+: [Concept] Arguments presented to satisfy a condition script, e.g. signatures and public keys. In P2SH the script arguments are used to form the initial stack before script evaluation. In P2SH-P2WSH, P2WSH, and P2TR, the script arguments are the initial stack.
 
 ; script tree
 : [Concept] The Merkle tree composed from the collection of leaf scripts committed to by a P2TR output.
@@ -151,7 +152,7 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : [Component] The sequence number appearing in each transaction input. Serialized as the four-byte <code>nSequence</code> integer field. If any input’s sequence number is less than the maximum allowed value, a transaction is non-final.
 
 ; signature
-: [Component] A script argument that proves a key owner’s consent to a transaction. Composed of an r-value, an s-value, and a sighash flag. ECDSA and Schnorr signatures use different serialization schemes for signatures. The length indicator preceding the signature is a serialization artifact that is not part of the signature. If the default signature hash type <code>SIGHASH_ALL</code> is used, the sighash flag may be omitted for Schnorr signatures.
+: [Component] A script argument that proves a key owner’s consent to a transaction. Existing Bitcoin signatures Composed of an r-value, an s-value, and a sighash flag. ECDSA and Schnorr signatures use different serialization schemes. The length indicator preceding a signature in a witness stack is a serialization artifact that is not part of the signature. For legacy Script, the push opcode specifying a length is not part of the signature. Schnorr signatures may omit the sighash flag to indicate use of <code>SIGHASH_DEFAULT</code> which behaves like <code>SIGHASH_ALL</code>.
 
 ; sighash flag
 : [Component] Part of the signature. A one-byte field that indicates which parts of the transaction a signature commits to.
@@ -167,10 +168,10 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : [Component] The public key present in the witness program of a P2TR output script composed by tweaking the inner key with the script tree’s Merkle root.
 
 ; Tapscript
-: [Concept] The variant of the Script language used in P2TR leaf scripts (see [[https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki|BIP342]]). Signature processing opcodes in Tapscript expect Schnorr signatures.
+: [Concept] A variant of the Script language used in P2TR leaf scripts (see [[https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki|BIP342]]). Signature processing opcodes in Tapscript expect Schnorr signatures.
 
 ; transaction header
-: [Concept] Collective term for the serialization artifacts and transaction fields that appear only once in the transaction serialization regardless of lengths of the input and output lists: transaction version, marker (segwit only), flag (segwit only), input counter, output counter, and lock time.
+: [Concept] Collective term for the serialization artifacts and transaction fields that appear only once in the transaction serialization regardless of lengths of the input and output lists: transaction version, marker (segwit only), flag (segwit only), input counter, output counter, and locktime.
 
 ; transaction identifier (txid)
 : [Component] Identifies the transaction that created a TXO in an outpoint. Result of hashing a transaction without its witness structure. The txid is serialized in little-endian but displayed in big-endian.
@@ -184,7 +185,7 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : Synonym: inputs, <code>vin</code>, <code>txins</code>, <code>tx_ins</code>
 
 ; transaction output (TXO)
-: [Component] A transaction component that consists of an amount and an output script. Adds a new unspent transaction output (UTXO) to the UTXO set that is uniquely identified by an outpoint.
+: [Component] A transaction component that consists of an amount and an output script. Adds a new unspent transaction output (UTXO) to the UTXO set that is uniquely<ref>Well… usually uniquely. There have been two transactions that were repeated which created duplicate UTXOs (see BIP30).</ref> identified by an outpoint.
 : Synonym: output, <code>txout</code>
 
 ; transaction output list
@@ -192,7 +193,7 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : Synonym: outputs, <code>vout</code>, <code>txouts</code>, <code>tx_outs</code>
 
 ; unspent transaction output (UTXO)
-: [Concept] An entry in Bitcoin’s ledger of spendable funds, the UTXO set. UTXOs get created by transaction outputs and spent by transaction inputs. UTXOs are uniquely identified<ref>There have been two instances in which UTXOs with existing outpoints were recreated, see [[https://github.com/bitcoin/bips/blob/master/bip-0030.mediawiki|BIP30]]</ref> by an outpoint. The UTXO model with its uniquely-identifiable discrete portions of funds is instrumental to Bitcoin’s solution of the doublespend problem.
+: [Concept] An entry in Bitcoin’s ledger of spendable funds, the UTXO set. UTXOs get created by transaction outputs and spent by transaction inputs. UTXOs are uniquely identified<ref>There have been two instances in which UTXOs with existing outpoints were recreated, see [[https://github.com/bitcoin/bips/blob/master/bip-0030.mediawiki|BIP30]]</ref> by an outpoint. The UTXO model with its uniquely-identifiable discrete portions of funds is instrumental to Bitcoin’s solution of the double-spending problem.
 : Synonym: coin (whitepaper)
 
 ; version
@@ -200,7 +201,7 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : Synonym: <code>nVersion</code>
 
 ; witness item
-: [Component] An element of a witness stack. Witness items are: witness script (P2WSH only), script arguments, leaf script (P2TR script path only), control block (P2TR script path only), annex (P2TR only).
+: [Component] An element of a witness stack. At the time of writing, witness items are: witness script (P2WSH only), script arguments, leaf script (P2TR script path only), control block (P2TR script path only), annex (P2TR only).
 : Synonyms: witness element, witness stack element ([[https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki|BIP341]])
 
 ; witness program
@@ -214,7 +215,7 @@ We also introduce some umbrella terms, concepts, and ideas that are useful to de
 : [Component] A witness item that provides the condition script used to spend P2WSH outputs. Appears in the witness stack.
 
 ; witness stack
-: [Component] The pre-built stack of witness items that is consumed in validation of the input’s condition script. Witness stacks are not scripts, but may include witness items that are scripts. While there is a witness stack for each input, the witness stack is not part of the input. A witness stack can contain witness items that will not be added to the stack, such as the control block. The witness stack may contain condition scripts, specifically it will contain a witness script for P2WSH inputs, and a leaf script for a P2TR script path spend. Every transaction input is accompanied by a witness stack, but the witness stack of non-segwit inputs is empty, i.e. consists just of the serialization artifact of a witness item count of 0.
+: [Component] The pre-built stack of witness items that is consumed in validation of the input’s condition script. Witness stacks are not scripts, but may include witness items that are scripts. The witness stack is logically part of the input. A witness stack can contain witness items that will not be added to the stack, such as the control block. The witness stack may contain condition scripts, specifically it will contain a witness script for P2WSH inputs, and a leaf script for a P2TR script path spend. Every transaction input has a witness stack, but the witness stack of non-segwit inputs is empty, i.e. consists just of the serialization artifact of a witness item count of 0. If a transaction does not have any segwit inputs, witness data is omitted from the transaction serialization.
 : Synonym: input witness, witness (underdefined without more context, as "witness" is used for both witness structure and witness stack including in BIP141), script witness (BIP144)
 
 ; witness transaction identifier (wtxid)
@@ -264,14 +265,14 @@ In this section we dissect a serialized transaction. Each sub-level in the list 
 ***** '''Output Index''' <code>00000000</code>: position of the TXO on transaction output list of e700b7b33…a4bbc07b
 **** '''Input Script'''
 ***** Length of '''Input Script''' <code>00</code>: serialization artifact indicating the length of the input script. Since this input spends a native segwit output, the input script is empty (length 0).
-**** '''Sequence''' <code>feffffff</code>: transaction field encoding MAX-1, which indicates that the transaction uses lock time but does not signal replaceability
+**** '''Sequence''' <code>feffffff</code>: transaction field encoding MAX-1, which indicates that the transaction uses locktime but does not signal replaceability
 *** Second '''Input'''
 **** '''Outpoint'''
 ***** '''Transaction Identifier (txid)''' <code>7bc0bba407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e7</code>: indicating that the spent TXO was created by transaction e700b7b33…a4bbc07b
 ***** '''Output Index''' <code>01000000</code>: the output position, the TXO was the second position on the transaction output list of e700…c07b
 **** '''Input Script'''
 ***** Length of '''Input Script''' <code>00</code>: serialization artifact indicating the length of the input script. Since this input spends a native segwit output, the input script is empty (length 0).
-**** '''Sequence''' <code>feffffff</code>: transaction field encoding MAX-1, which indicates that the transaction uses lock time but does not signal replaceability
+**** '''Sequence''' <code>feffffff</code>: transaction field encoding MAX-1, which indicates that the transaction uses locktime but does not signal replaceability
 ** '''Transaction Output List'''
 *** Length of '''Transaction Output List''' <code>01</code>: serialization artifact, <Code>CompactSize</code> here indicating 1 output, considered part of the Transaction Header
 *** First '''Output'''
@@ -301,7 +302,7 @@ In this section we dissect a serialized transaction. Each sub-level in the list 
 ***** '''Inner key''' <code>d9dfdf0fe3c83e9870095d67fff59a8056dad28c6dfb944bb71cf64b90ace9a7</code>: The taproot internal key which was tweaked with the Merkle root of the script tree to result in the public key committed to in the TXO’s witness program being spent
 ***** '''Taproot Branch''' <code>776b22a1185fb2dc9524f6b178e2693189bf01655d7f38f043923668dc5af45b</code>: The hashing partners necessary to connect the leaf script to the Merkle root of the script tree.
 ** '''Transaction Header''' (cont.)
-*** '''Lock Time''' <code>ffd30a00</code>: the 4-byte lock time field, little-endian for 709631
+*** '''Locktime''' <code>ffd30a00</code>: the 4-byte locktime field, little-endian for 709631
 
 ==Rationale==
 
