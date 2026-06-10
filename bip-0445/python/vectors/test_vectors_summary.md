@@ -6,67 +6,93 @@ they're meant for anyone porting the protocol to another language. Treat the
 JSON as build output: edit `gen_vectors.py` and regenerate, don't hand-edit
 the files.
 
-| File | Tests | Case arrays |
+| File | API Tested | Test Case arrays |
 |---|---|---|
-| `nonce_gen_vectors.json` | `nonce_gen_internal` | `valid_test_cases` |
-| `nonce_agg_vectors.json` | `nonce_agg` | `valid_test_cases`, `error_test_cases` |
-| `sign_verify_vectors.json` | `sign`, `partial_sig_verify` | `valid_test_cases`, `sign_error_test_cases`, `verify_fail_test_cases`, `verify_error_test_cases` |
-| `tweak_vectors.json` | `sign` with tweaks | `valid_test_cases`, `error_test_cases` |
-| `det_sign_vectors.json` | `deterministic_sign` | `valid_test_cases`, `error_test_cases` |
-| `sig_agg_vectors.json` | `partial_sig_agg` | `valid_test_cases`, `error_test_cases` |
+| `nonce_gen_vectors.json` | `nonce_gen_internal` | `valid_tests` |
+| `nonce_agg_vectors.json` | `nonce_agg` | `valid_tests`, `error_tests` |
+| `sign_verify_vectors.json` | `sign`, `partial_sig_verify` | `valid_tests`, `sign_error_tests`, `verify_fail_tests`, `verify_error_tests` |
+| `tweak_vectors.json` | `sign` with tweaks | `valid_tests`, `error_tests` |
+| `det_sign_vectors.json` | `deterministic_sign` | `valid_tests`, `error_tests` |
+| `sig_agg_vectors.json` | `partial_sig_agg` | `valid_tests`, `error_tests` |
 
-## How a case is laid out
+## How test cases are laid out
 
-Most files don't repeat shared inputs inside every case. Instead each file
-keeps a top-level list per reused input (`pubshares`, `pubnonces`,
-`aggnonces`, `tweaks`, `msgs`, and so on), and each case points into those
-lists by index. A field named `<thing>_index` picks one entry, and
-`<thing>_indices` picks an ordered set. So to run a case, look up its
-indices in the file's lists and call the function with the values you get
-back.
+Most files don't repeat shared inputs inside every test case. Instead each file
+groups its cases under a `test_groups` array, one group per `(t, n)`
+configuration, and every group carries the key setup and the inputs it shares
+(`pubshares`, `pubnonces`, `secshares`, `secnonces`, `tweaks`). A case points into those shared inputs by index: a
+field named `<thing>_index` picks one entry, and `<thing>_indices` picks an
+ordered set. So to run a case, read its group's shared inputs, look up the
+case's indices in them, and call the function with the values you get back.
+
+Within each shared input, entry `i` holds the value for the signer whose id is
+`i`: `pubshares[i]`, `secshares[i]`, `pubnonces[i]`, and `secnonces[i]` all
+belong to signer `i`, for the `n` real signers in a `test_group`. A few
+deliberately bad or out-of-range entries sit after those.
+
+A valid case points each index straight at its matching signer, so its
+`pubshare_indices` and `pubnonce_indices` just track its `ids` (signer `1`
+reads index `1`, and so on). An error case breaks that pattern on purpose,
+either pointing an index at one of the appended bad entries or mixing the
+indices up, to trigger the failure it's testing.
 
 A few things stay out of that scheme:
 
-- `n`, `t`, and `thresh_pk` are top-level scalars (the shared key setup),
-  not lists.
-- An input that has a single value across the whole file is just a
-  top-level scalar with no index field (for example `msg` in the tweak and
-  sig_agg files).
-- `tweaks` and `is_xonly` are two parallel lists: position `k` in
-  `is_xonly` says whether tweak `k` is x-only. They mirror the API, which
-  takes the two as separate arguments.
+- `tg_id`, `n`, `t`, and `thresh_pk` are group-level scalars you read directly
+  (the `(t, n)` label and the shared key setup), not part of the index scheme.
+- Per-session values stay inline in the case, with no shared input: the
+  message (`msg`), the aggregate nonce (`aggnonce`, or `aggothernonce` in
+  `det_sign`), and the signer's own id (`my_id`).
+- `tweaks` and `is_xonly` are parallel lists: position `k` in `is_xonly` says
+  whether tweak `k` is x-only. They mirror the API, which takes the two as
+  separate arguments. `tweak_vectors` keeps its tweak values in a shared input
+  and selects them with `tweak_indices`, while `det_sign` inlines its `tweaks`
+  list directly in the case.
 - A case's expected output stays inline, in its `expected` field.
 
-## The fixed key setup
+`nonce_gen` and `nonce_agg` skip the `test_groups` wrapper. `nonce_gen` is
+single-signer and uses no shared key, so every case inlines its own inputs.
+`nonce_agg` has no key material at all, so it keeps just a top-level
+`pubnonces` shared input that its cases index into.
 
-Every file except `nonce_gen` and `nonce_agg` reuses one FROST setup from
-`frost_keygen_fixed()`: `n = 3`, `t = 2`, a shared `thresh_pk`, and
-identifiers `[0, 1, 2]`. Reusing the same `thresh_pk` everywhere lets you
-read the files as one consistent group. A fourth, bogus public share and a
-fourth identifier `3` also show up, but only error cases use them to trigger
-"invalid public share" and out-of-range-id failures, so don't treat them as
-valid signers.
+## The key setups
 
-Only signer 0's secret material is exposed, and every valid case signs as
-signer 0. In most files that's a single
-`secshare_p0` (and `secnonce_p0`). `sign_verify_vectors.json` instead keeps
-`secshares` and `secnonces_p0` as lists, because it needs a few deliberately
-bad entries (an all-zero nonce, a zero second half, a zero share) that only
-its error cases select.
+Every file except `nonce_gen` and `nonce_agg` carries four test groups, one
+per `(t, n)` configuration: `2-of-3`, `1-of-3`, `3-of-3`, and `3-of-5`. A
+group's `tg_id` names its configuration (for example `"3of5"`), and each group
+is generated independently, so it has its own `t`, `n`, `thresh_pk`, and `n`
+real signers with identifiers `0 .. n - 1`. The examples elsewhere in this
+document use the `2-of-3` group.
+
+In every group, one bogus public share and an out-of-range identifier (the
+value `n`) are appended after the real signers, but only error cases use them
+to trigger "invalid public share" and out-of-range-id failures, so don't treat
+them as valid signers.
+
+Valid cases exercise different threshold-sized subsets of the group's `n`
+signers, so the `ids` list varies from case to case: a single signer in the
+`1-of-3` group, three of five in `3-of-5`, and subsets like `[0, 1]`, `[1, 0]`,
+`[0, 2]`, or the full `[0, 1, 2]` in the `n = 3` groups.
+
+The `secshares` and `secnonces` shared inputs carry the real secret material
+for the group's `n` signers at indices `0 .. n - 1`, signer-aligned like the
+public ones. After those, a few deliberately bad entries are appended that
+only the error cases select: a zero secret share, an all-zero secret nonce,
+and a secret nonce whose second half is zero. Each case's `secshare_index` and
+`secnonce_index` pick out the secret material for the signer it signs as.
 
 ## Case kinds
 
 Each case array has its own contract:
 
-- `valid_test_cases` must succeed and produce exactly the bytes in
-  `expected`. (`nonce_gen` splits this into `expected_secnonce` and
-  `expected_pubnonce`, `nonce_agg` uses `expected_aggnonce`, and
-  `det_sign`'s `expected` is the pair `[pubnonce, psig]`.)
-- `error_test_cases` and `sign_error_test_cases` must raise the exception
-  described in the case's `error` object.
-- `verify_fail_test_cases` must make `partial_sig_verify` return `False`
-  without raising.
-- `verify_error_test_cases` must make `partial_sig_verify` raise.
+- `valid_tests` must succeed and produce exactly the bytes in `expected`.
+  (`nonce_gen`'s `expected` is the pair `[secnonce, pubnonce]`, `nonce_agg`'s
+  is the aggregate nonce, and `det_sign`'s is the pair `[pubnonce, psig]`.)
+- `error_tests` and `sign_error_tests` must raise the exception described in
+  the case's `error` object.
+- `verify_fail_tests` must make `partial_sig_verify` return `False` without
+  raising.
+- `verify_error_tests` must make `partial_sig_verify` raise.
 
 The `error` object comes in two shapes:
 
@@ -85,15 +111,14 @@ The `error` object comes in two shapes:
 
 ## Signer identifiers
 
-Three nearby fields are easy to mix up:
+Three nearby fields are easy to mix up. The distinction that matters: `my_id`
+is an id value, while both `signer_index` fields are positions in a list.
 
 | Field | Where | What it is |
 |---|---|---|
-| `my_id` | sign-side cases (`sign`, `deterministic_sign`, tweak) | The signer's actual id value. Pass it straight to the function. |
-| `signer_index` | verify-side cases (`verify_fail`, `verify_error`) | The position `i` in the case's input lists, the index argument to `partial_sig_verify`. |
-| `error.signer_index` | inside an `error` object | The position of the contribution the implementation blamed, or `null`. |
-
-So `my_id` is a value, while both `signer_index` fields are positions.
+| `my_id` | sign-side cases (`sign`, `deterministic_sign`, tweak) | The signer's id value. Pass it straight to the function. |
+| `signer_index` | verify-side cases (`verify_fail`, `verify_error`) | The signer's position in the case's `ids` list, passed as the index argument to `partial_sig_verify`. |
+| `error.signer_index` | inside an `error` object | The position of the blamed contribution in the input list, or `null` for an aggregator-level fault. |
 
 ## Comments
 

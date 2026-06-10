@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 check_availability() {
   command -v "$1" > /dev/null 2>&1 || {
     echo >&2 "$1 is required but it's not installed. Aborting.";

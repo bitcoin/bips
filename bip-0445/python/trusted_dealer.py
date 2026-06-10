@@ -1,5 +1,9 @@
 # TODO: remove this file, and use trusted dealer BIP's reference code instead, after it gets published.
 
+# WARNING: Do not use this as an implementation reference. This trusted dealer is
+# only used to generate the FROST keys needed for signing in the test vectors, and
+# it is insecure (see secp256k1lab). Do not use it in production.
+
 # Implementation of the Trusted Dealer Key Generation approach for FROST mentioned
 # in https://datatracker.ietf.org/doc/draft-irtf-cfrg-frost/15/ (Appendix D).
 #
@@ -12,8 +16,12 @@ import unittest
 import secrets
 
 from secp256k1lab.secp256k1 import G, GE, Scalar
+from secp256k1lab.util import tagged_hash
 from frost_ref.signing import derive_interpolating_value
 from frost_ref import PlainPk
+
+
+COEFF_DERIVATION_TAG = "BIP0445/trusted/keygen"
 
 
 # evaluates poly using Horner's method, assuming coeff[0] corresponds
@@ -51,7 +59,7 @@ def secret_share_shard(secret: Scalar, coeffs: List[Scalar], n: int) -> List[Sca
 def trusted_dealer_keygen(
     thresh_sk_: bytes, n: int, t: int
 ) -> Tuple[PlainPk, List[bytes], List[PlainPk]]:
-    assert 2 <= t <= n
+    assert 1 <= t <= n
 
     thresh_sk = Scalar.from_bytes_nonzero_checked(thresh_sk_)
     # Key generation protocols are allowed to generate plain public keys (i.e., non-xonly)
@@ -59,9 +67,14 @@ def trusted_dealer_keygen(
     assert not thresh_pk_.infinity
     thresh_pk = PlainPk(thresh_pk_.to_bytes_compressed())
 
-    coeffs = []
-    for _ in range(t - 1):
-        coeffs.append(Scalar.from_bytes_nonzero_checked(secrets.token_bytes(32)))
+    # Derive coefficient i deterministically from the threshold secret and the
+    # index, so the same input always yields the same shares.
+    coeffs = [
+        Scalar.from_bytes_nonzero_checked(
+            tagged_hash(COEFF_DERIVATION_TAG, thresh_sk_ + i.to_bytes(4, "big"))
+        )
+        for i in range(1, t)
+    ]
 
     secshares_ = secret_share_shard(thresh_sk, coeffs, n)
     secshares = [x.to_bytes() for x in secshares_]
@@ -134,6 +147,23 @@ class Tests(unittest.TestCase):
         for i in range(len(pubshares)):
             with self.subTest(i=i):
                 self.assertEqual(pubshares[i], secshares[i] * G)
+
+    def test_trusted_dealer_keygen_deterministic(self) -> None:
+        thresh_sk_ = secrets.token_bytes(32)
+        first = trusted_dealer_keygen(thresh_sk_, 5, 3)
+        second = trusted_dealer_keygen(thresh_sk_, 5, 3)
+        self.assertEqual(first, second)
+
+    def test_trusted_dealer_keygen_threshold_one(self) -> None:
+        thresh_sk_ = secrets.token_bytes(32)
+        thresh_pk_, secshares_, pubshares_ = trusted_dealer_keygen(thresh_sk_, 3, 1)
+
+        # Degree-0 polynomial: every share equals the threshold secret, and every
+        # public share equals the threshold public key.
+        for secshare in secshares_:
+            self.assertEqual(secshare, thresh_sk_)
+        for pubshare in pubshares_:
+            self.assertEqual(pubshare, thresh_pk_)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from secp256k1lab.util import tagged_hash, xor_bytes
 
 PlainPk = NewType("PlainPk", bytes)
 XonlyPk = NewType("XonlyPk", bytes)
-ContribKind = Literal["aggothernonce", "aggnonce", "psig", "pubnonce", "pubshare"]
+ContribKind = Literal["aggothernonce", "aggnonce", "psig", "pubnonce"]
 
 # Tagged hash domain-separation tags. The challenge tag is inherited from
 # BIP340 for signature compatibility; the rest are specific to this BIP.
@@ -49,10 +49,14 @@ class InvalidContributionError(Exception):
         self.contrib = contrib
 
 
+def has_duplicates(lst: List[int]) -> bool:
+    return len(set(lst)) != len(lst)
+
+
 def derive_interpolating_value(ids: List[int], my_id: int) -> Scalar:
     assert my_id in ids
     assert 0 <= my_id < 2**32
-    assert len(set(ids)) == len(ids)
+    assert not has_duplicates(ids)
     num = Scalar(1)
     deno = Scalar(1)
     for curr_id in ids:
@@ -99,9 +103,13 @@ def validate_signers_ctx(signers_ctx: SignersContext) -> None:
         try:
             P = GE.from_bytes_compressed(pubshare)
         except ValueError:
+            # A malformed pubshare is invalid pre-protocol input, not a protocol
+            # contribution: the signers context is agreed upon before signing
+            # begins, so we signal it with ValueError rather than blaming a
+            # signer via InvalidContributionError.
             raise ValueError(f"Invalid pubshare at index {idx}.")
         pubshare_points.append(P)
-    if len(set(ids)) != len(ids):
+    if has_duplicates(ids):
         raise ValueError("The participant identifier list contains duplicate elements.")
     if derive_thresh_pubkey(ids, pubshare_points) != thresh_pk:
         raise ValueError("The provided key material is incorrect.")
@@ -374,7 +382,7 @@ def det_nonce_hash(
 def deterministic_sign(
     secshare: bytes,
     my_id: int,
-    aggothernonce: bytes,
+    aggothernonce: Optional[bytes],
     signers_ctx: SignersContext,
     tweaks: List[bytes],
     is_xonly: List[bool],
@@ -389,11 +397,19 @@ def deterministic_sign(
     _, _, ids, _, thresh_pk = signers_ctx
     tweaked_tpk = get_xonly_pk(thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly))
 
+    # A sole signer (u = 1) has no other nonces to aggregate, so aggothernonce is
+    # omitted. Bind the empty byte string into the nonce hash and use the signer's
+    # own pubnonce as the aggregate nonce below.
+    if aggothernonce is None:
+        aggothernonce_ = b""
+    else:
+        aggothernonce_ = aggothernonce
+
     k_1 = Scalar.from_bytes_wrapping(
-        det_nonce_hash(secshare_, my_id, ids, aggothernonce, tweaked_tpk, msg, 0)
+        det_nonce_hash(secshare_, my_id, ids, aggothernonce_, tweaked_tpk, msg, 0)
     )
     k_2 = Scalar.from_bytes_wrapping(
-        det_nonce_hash(secshare_, my_id, ids, aggothernonce, tweaked_tpk, msg, 1)
+        det_nonce_hash(secshare_, my_id, ids, aggothernonce_, tweaked_tpk, msg, 1)
     )
     # k_1 == 0 or k_2 == 0 cannot occur except with negligible probability.
     assert k_1 != 0
@@ -405,11 +421,14 @@ def deterministic_sign(
     assert not R2_partial.infinity
     pubnonce = R1_partial.to_bytes_compressed() + R2_partial.to_bytes_compressed()
     secnonce = bytearray(k_1.to_bytes() + k_2.to_bytes())
-    try:
-        aggnonce = nonce_agg([pubnonce, aggothernonce])
-    except InvalidContributionError:
-        # pubnonce is always valid, so any failure is due to aggothernonce.
-        raise InvalidContributionError(None, "aggothernonce")
+    if aggothernonce is None:
+        aggnonce = pubnonce
+    else:
+        try:
+            aggnonce = nonce_agg([pubnonce, aggothernonce])
+        except InvalidContributionError:
+            # pubnonce is always valid, so any failure is due to aggothernonce.
+            raise InvalidContributionError(None, "aggothernonce")
     session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
     psig = sign(secnonce, secshare, my_id, session_ctx)
     return (pubnonce, psig)
@@ -472,7 +491,7 @@ def partial_sig_verify_internal(
 
 def partial_sig_agg(psigs: List[bytes], session_ctx: SessionContext) -> bytes:
     (Q, _, tacc, ids, _, _, R, e) = get_session_values(session_ctx)
-    if len(psigs) != len(ids):
+    if len(psigs) != len(ids):  # get_session_values asserts len(pubshares) == len(ids)
         raise ValueError("The psigs and ids arrays must have the same length.")
     s = Scalar(0)
     for idx, psig in enumerate(psigs):
