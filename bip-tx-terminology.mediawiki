@@ -1,0 +1,366 @@
+<pre>
+  BIP: ?
+  Title: Terminology of Transaction Components
+  Authors: Murch <murch@murch.one>
+  Status: Draft
+  Type: Informational
+  Assigned: ?
+  License: BSD-3-Clause
+  Discussion: 2023-04-05: https://gnusha.org/pi/bitcoindev/6bb373cc-bee0-13a3-a510-b65d4faa867f@murch.one/#t
+              2023-03-22–…: https://github.com/murchandamus/bips/pull/1
+</pre>
+
+== Introduction==
+
+===Abstract===
+
+This document describes terminology for referring to scripts, transaction parts, and serialization
+artifacts in the context of transactions.
+
+===Motivation===
+
+In the past decade, in many discussions about building transactions, leveraging new output types,
+and explaining the inner workings of inputs, we noticed that terminology to refer to the components
+of transactions and functions that scripts fulfill in transactions includes a broad spectrum of
+competing jargon. In this document, we describe a set of terms that can be used to refer to
+transaction components by their function or their context. The terms are not entirely consistent in
+themselves since many are already firmly established. Instead of striving for consistency, we try to
+relate terms to each other, explore the origins of terms, and fill in the blanks. The hope is that
+this terminology could be used in technical writing about Bitcoin as well as future BIPs.
+
+===Objects and their Serialization===
+
+We treat the objects of the Bitcoin protocol (e.g. transactions, blocks) as distinct from their
+serialization. We distinguish parts and concrete properties of transactions (labeled [Component])
+such as fields and scripts as well as composites thereof from serialization artifacts (labeled
+[Artifact]) which only appear in the serialization format. For example, version and locktime are
+fields that can be set during transaction creation and therefore components of a transaction, while
+the input counter is a serialization artifact resulting from how the input list of the transaction
+is represented in the transfer format. Likewise, the input script is a transaction component, but
+the length indicator of the input script is a serialization artifact, and a witness stack is a
+component, but the marker and flag appearing in a segwit transaction’s header are serialization
+artifacts.
+
+We also introduce some umbrella terms, concepts, and ideas that are useful to describe aspects of
+transactions (labeled [Concept]).
+
+===Reader Guidance===
+
+* If the distinction between components and serialization artifacts is not readily clear, perusing the below example of a [[#example-anatomy-of-a-serialized-transaction|transaction’s anatomy]] may help foster an intuitive sense.
+* A visual overview of how different output types make use of the different components can be found in the table [[#usage-in-context-of-txo-creation-and-spending|"Usage in context of TXO creation and spending"]].
+* The term definitions are sorted alphabetically. If a term is unfamiliar, it is probably defined below in the same list!
+
+==Definition of Terms==
+
+<!-- Focus on defining terms here, but include educational tidbits where it helps to motivate or understand the definition -->
+
+; amount
+: [Component] The count of satoshis assigned to an output.
+: Synonym: <code>nValue</code>, value
+
+; annex
+: [Component] A witness item reserved for future extensions, currently unused (see [[https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-5|BIP341]]).
+
+; bare output script
+: [Component] A condition script that is directly defined in the output script field. Used to specify all types of bare outputs including Pay to Pubkey (P2PK), Pay to Public Key Hash (P2PKH), Pay to Multisig (P2MS) outputs, and arbitrary scripts.
+
+; coinbase
+: [Component] The coinbase field takes the place of the input script in a coinbase transaction (named after this field), since coinbase transactions do not spend a previous transaction output (TXO).
+
+; <code>CompactSize</code>
+: [Concept] A variable-length integer encoding used in the transaction serialization to express input and output count.
+: Synonym: <code>VarInt</code> (do not use, see [[#compactsize|Rationale]])
+
+; condition script
+: [Concept] Umbrella term for scripts that encode the actual spending conditions that must be fulfilled to spend a TXO. Condition scripts may be preceded by one or more forwarding scripts. An output script will either directly contain a condition script in the case of a bare output, or commit to one or multiple condition scripts for other output types. For P2TR both the taproot internal key and each leaf script in the script tree are considered condition scripts. At the time of writing, there are five distinct condition scripts: taproot output key, leaf script, witness script, redeem script (only non-segwit P2SH), and bare output script (P2PK, P2PKH, P2MS, and arbitrary scripts).
+
+; control block
+: [Component] The proof of existence for a leaf script. Appears as a witness item in witness stacks for P2TR script path inputs, but does not get evaluated by the condition script. Only consists of the taproot internal key for script trees with a single leaf script, otherwise provides the taproot internal key as well as a taproot branch in the form of the hashing partners for the used leaf script.
+
+; flag
+: [Artifact] A serialization artifact indicating features used by the transaction. As of writing, the only allowed value is <code>01</code> which indicates that the transaction serialization has a witness structure (see [[https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki|BIP144]]).
+
+; forwarding script
+: [Concept] A collective term for scripts that redirect input validation to another script or data structure. Witness programs and P2SH Programs are forwarding scripts. Forwarding scripts make use of script templates that imply additional evaluation steps beyond the explicitly expressed conditions. In the case of P2SH, the output script itself only explicitly specifies that the redeem script must be the preimage of the hash in the output script, but the template prescribes that the redeem script must additionally be satisfied. For witness programs, the output script is even less verbose with more implied meaning.
+
+; input
+: See '''transaction input'''.
+
+; input counter
+: [Artifact] The length of the transaction input list (see [[https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki|BIP144]]).
+: Synonym: <code>txin_count</code>
+
+; input index
+: [Concept] The position of an input in a transaction’s input list.
+
+; input script
+: [Component] The Bitcoin code base used Hungarian notation when it was published. This transaction field appearing in transaction inputs was named <code>scripSig</code> for containing the signature and being of the type script. Today, this field is better understood as the input script which is used to satisfy spending conditions for non-segwit outputs, redirects validation to the witness stack for wrapped segwit outputs, and is empty for native segwit outputs. The input script may contain an actual script when spending a bare output script, but may only contain push operations for any output type since P2SH.
+: Synonyms: <code>scriptSig</code>, unlocking script (see [[locking_unlocking|Rationale]])
+
+; leaf script
+: [Component] A condition script used for spending P2TR outputs via the script path. The leaf script appears as a witness item.
+
+; leaf version
+: [Component] The version of Script used in a leaf script. At the time of writing, only Tapscript is defined. The leaf version is part of the control block.
+
+; locktime
+: [Component] Part of the transaction header. Locktime specifies a time (in blockheight or UNIX time) before which a transaction cannot be included in a block if any input’s sequence number indicates non-finality. The locktime can also indicate a relative spending lock in combination with <code>OP_CHECKSEQUENCEVERIFY</code>. Serialized as the four-byte <code>nLockTime</code> integer field.
+: Synonym: <code>nLockTime</code>, <code>lock_time</code>
+
+; marker
+: [Artifact] 1-byte serialization artifact indicating that a type of extended serialization is being used for this transaction. Must always be <code>00</code> (see [[https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki|BIP144]]). (Note: Non-segwit nodes will only accept stripped segwit transactions, because the marker appears at the position where non-segwit nodes expect the input counter. The input counter may not be zero, so a complete (non-stripped) segwit transaction appears invalid to a non-segwit node.)
+
+; outpoint
+: [Component] Identifies the transaction output (TXO) being spent by a transaction input. Consists of a txid and output index. The txid is serialized in little-endian but displayed in big-endian.
+: Synonym: <code>prevout</code>
+
+; output
+: See '''transaction output'''.
+
+; output counter
+: [Artifact] The length of the transaction output list, (see [[https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki|BIP144]]).
+: Synonym: <code>txout_count</code>
+
+; output index
+: [Component] Part of an outpoint. The position of the output in a transaction’s output list that created the identified TXO.
+: Synonym: <code>vout_index</code>, sometimes abbreviated as <code>vout</code>
+
+; output script
+: [Component] Contains either a condition script or a forwarding script. Originally, the Bitcoin code base used Hungarian notation. This field was presumably named <code>scriptPubKey</code> as it was of the type script and because it fulfilled the role of a public key. While the first standard output type, Pay to Public Key, only contained the public key in this field, the use of this field had evolved beyond that even when Bitcoin was published, since the field could already contain more complicated bare scripts. Today, this field is referred to as the output script.
+:  Synonyms: <code>scriptPubKey</code>, locking script (see [[locking_unlocking|Rationale]])
+
+; P2SH program
+: [Concept] A script template that forwards input validation to the redeem script. P2SH programs are a type of forwarding script.
+
+; redeem script
+: [Component] The condition script used in spending P2SH outputs. The redeem script appears as the last push in the input script, usually preceded by script arguments to satisfy the redeem script. In the case of wrapped segwit inputs, the input script consists only of the redeem script which contains a witness program forwarding evaluation to the witness stack.
+: Synonyms: <code>redeemScript</code>, redemption script
+
+; Script
+: [Concept] The original Bitcoin Script language used in bare output scripts, P2SH redeems scripts, and P2WSH witness scripts. Signature processing opcodes in Script expect DER-encoded ECDSA signatures. Capitalized Script refers to the language, whereas lowercase script refers to a script.
+: Synonyms: "legacy Script" as opposed to "Tapscript"
+
+; script arguments
+: [Concept] Arguments presented to satisfy a condition script, e.g. signatures and public keys. In P2SH the script arguments are used to form the initial stack before script evaluation. In P2SH-P2WSH, P2WSH, and P2TR, the script arguments are the initial stack.
+
+; script tree
+: [Concept] The Merkle tree composed from the collection of leaf scripts committed to by a P2TR output.
+
+; <code>scriptCode</code>
+: [Concept] A value calculated from the input script and output script excluding malleable elements that is used to commit to an input in the transaction data hashed to create the message that is signed by a signature.
+
+; <code>scriptPubKey</code>
+: See '''output script'''.
+
+; <code>scriptSig</code>
+: See '''input script'''.
+
+; sequence
+: [Component] The sequence number appearing in each transaction input. Serialized as the four-byte <code>nSequence</code> integer field. If any input’s sequence number is less than the maximum allowed value, a transaction is non-final.
+
+; signature
+: [Component] A script argument that proves a key owner’s consent to a transaction. Existing Bitcoin signatures Composed of an r-value, an s-value, and a sighash flag. ECDSA and Schnorr signatures use different serialization schemes. The length indicator preceding a signature in a witness stack is a serialization artifact that is not part of the signature. For legacy Script, the push opcode specifying a length is not part of the signature. Schnorr signatures may omit the sighash flag to indicate use of <code>SIGHASH_DEFAULT</code> which behaves like <code>SIGHASH_ALL</code>.
+
+; sighash flag
+: [Component] Part of the signature. A one-byte field that indicates which parts of the transaction a signature commits to.
+
+; taproot branch
+: [Component] Part of a control block that specifies the hashing partners necessary to prove the existence of a leaf script in a script tree.
+
+; taproot internal key
+: [Component] The untweaked public key before it is tweaked with the Merkle root of the script tree to create the taproot output key. Appears as part of a control block for a script path P2TR input.
+: Synonym: inner key
+
+; taproot output key
+: [Component] The public key present in the witness program of a P2TR output script composed by tweaking the inner key with the script tree’s Merkle root.
+
+; Tapscript
+: [Concept] A variant of the Script language used in P2TR leaf scripts (see [[https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki|BIP342]]). Signature processing opcodes in Tapscript expect Schnorr signatures.
+
+; transaction header
+: [Concept] Collective term for the serialization artifacts and transaction fields that appear only once in the transaction serialization regardless of lengths of the input and output lists: transaction version, marker (segwit only), flag (segwit only), input counter, output counter, and locktime.
+
+; transaction identifier (txid)
+: [Component] Identifies the transaction that created a TXO in an outpoint. Result of hashing a transaction without its witness structure. The txid is serialized in little-endian but displayed in big-endian.
+
+; transaction input
+: [Component] An element of the transaction input list that consists of an outpoint, an input script, and a sequence. The outpoint identifies the TXO that is being spent. The input script can have various content depending on the type of output being spent. The input script has length 0 for native segwit inputs. In segwit transactions, every input must be accompanied by a witness stack. The witness stack is not part of the transaction input.
+: Synonym: input, <code>txin</code>
+
+; transaction input list
+: [Concept] The enumeration of all transaction inputs of a transaction.
+: Synonym: inputs, <code>vin</code>, <code>txins</code>, <code>tx_ins</code>
+
+; transaction output (TXO)
+: [Component] A transaction component that consists of an amount and an output script. Adds a new unspent transaction output (UTXO) to the UTXO set that is uniquely<ref>Well… usually uniquely. There have been two transactions that were repeated which created duplicate UTXOs (see BIP30).</ref> identified by an outpoint.
+: Synonym: output, <code>txout</code>
+
+; transaction output list
+: [Concept] The enumeration of all transaction outputs of a transaction.
+: Synonym: outputs, <code>vout</code>, <code>txouts</code>, <code>tx_outs</code>
+
+; unspent transaction output (UTXO)
+: [Concept] An entry in Bitcoin’s ledger of spendable funds, the UTXO set. UTXOs get created by transaction outputs and spent by transaction inputs. UTXOs are uniquely identified<ref>There have been two instances in which UTXOs with existing outpoints were recreated, see [[https://github.com/bitcoin/bips/blob/master/bip-0030.mediawiki|BIP30]]</ref> by an outpoint. The UTXO model with its uniquely-identifiable discrete portions of funds is instrumental to Bitcoin’s solution of the double-spending problem.
+: Synonym: coin
+
+; version
+: [Component] Part of the transaction header that specifies the transaction version. Serializes as the four-byte <code>nVersion</code> integer field.
+: Synonym: <code>nVersion</code>
+
+; witness item
+: [Component] An element of a witness stack. At the time of writing, witness items are: witness script (P2WSH only), script arguments, leaf script (P2TR script path only), control block (P2TR script path only), annex (P2TR only).
+: Synonyms: witness element, witness stack element ([[https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki|BIP341]])
+
+; witness program
+: [Concept] A script template that forwards input validation to the witness stack. Witness programs are a type of forwarding script. Witness programs appear in the output script for native segwit outputs and in the input script for wrapped segwit inputs.
+
+; witness structure
+: [Concept] The part of the serialized transaction that contains the witness stacks for each input. Transactions without segwit inputs are serialized without a witness structure.
+: Synonym: <code>script_witnesses</code> (BIP144), witness (BIP141, underdefined without more context, as "witness" is used for both witness structure and witness stack)
+
+; witness script
+: [Component] A witness item that provides the condition script used to spend P2WSH outputs. Appears in the witness stack.
+
+; witness stack
+: [Component] The pre-built stack of witness items that is consumed in validation of the input’s condition script. Witness stacks are not scripts, but may include witness items that are scripts. The witness stack is logically part of the input. A witness stack can contain witness items that will not be added to the stack, such as the control block. The witness stack may contain condition scripts, specifically it will contain a witness script for P2WSH inputs, and a leaf script for a P2TR script path spend. Every transaction input has a witness stack, but the witness stack of non-segwit inputs is empty, i.e. consists just of the serialization artifact of a witness item count of 0. If a transaction does not have any segwit inputs, witness data is omitted from the transaction serialization.
+: Synonym: input witness, witness (underdefined without more context, as "witness" is used for both witness structure and witness stack including in BIP141), script witness (BIP144)
+
+; witness transaction identifier (wtxid)
+: [Concept] Result of hashing a complete transaction including its witness structure. Used in transaction propagation and to construct a witness commitment.
+
+; witness version
+: [Component] The version of a witness program.
+
+===Usage in context of TXO creation and spending===
+
+{| class="wikitable"
+! Output Type !! Output Script !! Output Script content !! Input Script !! Witness Stack
+|-
+| Bare¹ (e.g. P2PK) || Bare Output Script || Various (e.g. <nowiki><PK> OP_CHECKSIG)</nowiki> || Various (e.g. <nowiki><SIG></nowiki>) || rowspan="2" | <nowiki>[ ]</nowiki>
+|-
+| P2SH || rowspan="3" | P2SH Program || rowspan="3" | <nowiki>OP_HASH160 <SH> OP_EQUAL</nowiki> || Script Arguments, Redeem Script
+|-
+| P2SH-P2WPKH || rowspan="2" | Witness Program || <nowiki>[<SIG>, <PK>]</nowiki>
+|-
+| P2SH-P2WSH || <nowiki>[…Script Arguments, Witness Script]</nowiki>
+|-
+| P2WPKH || rowspan="4" | Witness Program || <nowiki>OP_0 <PKH></nowiki> || rowspan="4" | NULL || <nowiki>[<SIG>, <PK>]</nowiki>
+|-
+| P2WSH || <nowiki>OP_0 <SH></nowiki>  || <nowiki>[…Script Arguments, Witness Script]</nowiki>
+|-
+| P2TR Key Path || rowspan="2" | <nowiki>OP_1 <PK></nowiki> || <nowiki>[<SIG>]</nowiki>
+|-
+| P2TR Script Path || <nowiki>[…Script Arguments, Leaf Script, Control Block, (Opt: Annex)]</nowiki>
+|}
+
+<sub>¹ Bare outputs include P2PK, P2PKH, P2MS, and any other arbitrary scripts that are fully
+defined in the output script.</sub>
+
+===Example: Anatomy of a serialized transaction===
+
+In this section we dissect a serialized transaction. Each sub-level in the list repeats a subset of the transaction’s serialization to label the included parts. The goal is to provide a map from a serialized transaction back to our definitions above. We use the first ever P2TR transaction with a key path and a script path input <code>37777defed8717c581b4c0509329550e344bdc14ac38f71fc050096887e535c8</code>.
+
+* Raw '''Transaction''' <code>020000000001027bc0bba407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e70000000000feffffff7bc0bba407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e70100000000feffffff01b4ba0e0000000000160014173fd310e9db2c7e9550ce0f03f1e6c01d833aa90140134896c42cd95680b048845847c8054756861ffab7d4abab72f6508d67d1ec0c590287ec2161dd7884983286e1cd56ce65c08a24ee0476ede92678a93b1b180c03407b5d614a4610bf9196775791fcc589597ca066dcd10048e004cd4c7341bb4bb90cee4705192f3f7db524e8067a5222c7f09baf29ef6b805b8327ecd1e5ab83ca2220f5b059b9a72298ccbefff59d9b943f7e0fc91d8a3b944a95e7b6390cc99eb5f4ac41c0d9dfdf0fe3c83e9870095d67fff59a8056dad28c6dfb944bb71cf64b90ace9a7776b22a1185fb2dc9524f6b178e2693189bf01655d7f38f043923668dc5af45bffd30a00</code>
+** First part of '''Transaction Header'''
+*** '''Transaction Version''' <code>02000000</code>: integer field, here indicating version 2
+*** '''Marker''' <code>00</code>: serialization artifact indicating extended serialization
+*** '''Flag''' <code>01</code>: serialization artifact indicating presence of a witness structure
+** '''Transaction Input List'''
+*** Length of '''Transaction Input List''' <code>02</code>: serialization artifact, <code>CompactSize</code> here indicating 2 inputs, considered part of the transaction header
+*** First '''Input'''
+**** '''Outpoint'''
+***** '''Transaction Identifier (txid)''' <code>7bc0bba407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e7</code>: txhash indicating that the spent TXO was created by the transaction e700b7b330e4b56c5883d760f9cbe4fa47e0f62b350e108f1767bc07a4bbc07b<ref>Txids are the result of hashing the content of a transaction. The result of a hash is a sequence of bytes. Hashes are defined by the standards as being big-endian and cryptography libraries deal with hashes in that form: Bitcoin also stores and transfers txids in big-endian. Bitcoin sometimes considers hashes to be little-endian integers instead of strings (in the context of block hashes and proof of work calculations), which is presumably why Bitcoin _displays_ hashes, including txids, in little-endian.</ref>.
+***** '''Output Index''' <code>00000000</code>: position of the TXO on transaction output list of e700b7b33…a4bbc07b
+**** '''Input Script'''
+***** Length of '''Input Script''' <code>00</code>: serialization artifact indicating the length of the input script. Since this input spends a native segwit output, the input script is empty (length 0).
+**** '''Sequence''' <code>feffffff</code>: transaction field encoding MAX-1, which indicates that the transaction uses locktime but does not signal replaceability
+*** Second '''Input'''
+**** '''Outpoint'''
+***** '''Transaction Identifier (txid)''' <code>7bc0bba407bc67178f100e352bf6e047fae4cbf960d783586cb5e430b3b700e7</code>: indicating that the spent TXO was created by transaction e700b7b33…a4bbc07b
+***** '''Output Index''' <code>01000000</code>: the output position, the TXO was the second position on the transaction output list of e700…c07b
+**** '''Input Script'''
+***** Length of '''Input Script''' <code>00</code>: serialization artifact indicating the length of the input script. Since this input spends a native segwit output, the input script is empty (length 0).
+**** '''Sequence''' <code>feffffff</code>: transaction field encoding MAX-1, which indicates that the transaction uses locktime but does not signal replaceability
+** '''Transaction Output List'''
+*** Length of '''Transaction Output List''' <code>01</code>: serialization artifact, <Code>CompactSize</code> here indicating 1 output, considered part of the Transaction Header
+*** First '''Output'''
+**** '''Amount''' <code>b4ba0e0000000000</code>: field defining that 965300 satoshis are assigned to this output
+**** '''Output Script'''
+***** Length of the '''Output Script''' <code>16</code>: serialization artifact, here instructing the interpreter to read 22 bytes
+***** '''Witness Version''' <code>00</code>: indicates a native segwit v0 output
+***** Length of the '''Witness Program''' <code>14</code>: serialization artifact indicating a 20-byte witness program
+***** '''Witness Program''' <code>173fd310e9db2c7e9550ce0f03f1e6c01d833aa9</code>: a public key hash since a 20-byte v0 witness program indicates a P2WPKH output)
+** '''Witness Structure'''
+*** First '''Witness Stack''': The witness data corresponding to the first input. (Note that the count of witness stacks is implicitly provided by the input counter, since each input must have a witness stack.)
+**** Item count for the first '''Witness Stack''' <code>01</code>: serialization artifact. A single witness item indicates a key path spend.
+**** First '''Witness Item'''
+***** Length of the first '''Witness Item''' <code>40</code>: serialization artifact, 64 bytes indicate a Schnorr signature<ref>Note that the ECDSA signatures used by pre-taproot inputs are larger and vary in size. Only the Schnorr signatures introduced with Tapscript have always a fixed size of 64 bytes (or 65 bytes with a non-default sighash flag)</ref>
+***** '''Signature''' <code>134896c42cd95680b048845847c8054756861ffab7d4abab72f6508d67d1ec0c590287ec2161dd7884983286e1cd56ce65c08a24ee0476ede92678a93b1b180c</code>: The first witness item here is a script argument for the corresponding condition script. In this case, we see the signature corresponding to the P2TR key path spend.
+*** Second '''Witness Stack''': The witness data corresponding to the second input.
+**** Item count for the second '''Witness Stack''' <code>03</code>: serialization artifact, two or more Witness Items indicate a script path spend.
+**** First '''Witness Item'''
+***** '''Length of the first Witness Item''' <code>40</code>: 64 bytes indicate a signature
+***** '''Signature''' <code>7b5d614a4610bf9196775791fcc589597ca066dcd10048e004cd4c7341bb4bb90cee4705192f3f7db524e8067a5222c7f09baf29ef6b805b8327ecd1e5ab83ca</code>: script argument used as an input to the condition script
+**** '''Second Witness Item'''
+***** Length of the second '''Witness Item''' <code>22</code>: serialization artifact instructing to read 34 bytes
+***** '''Leaf Script''' <code>20f5b059b9a72298ccbefff59d9b943f7e0fc91d8a3b944a95e7b6390cc99eb5f4ac</code>: the condition scripts for the P2TR script path spend
+**** Third '''Witness Item'''
+***** Length of the third '''Witness Item''' <code>41</code>: serialization artifact, the length indicates the depth of the control block and how many hashing partners are necessary to prove the membership of the leaf script
+***** '''Leaf Version''' <code>c0</code>: indicates the version of Script used in this leaf script, here Tapscript
+***** '''Inner key''' <code>d9dfdf0fe3c83e9870095d67fff59a8056dad28c6dfb944bb71cf64b90ace9a7</code>: The taproot internal key which was tweaked with the Merkle root of the script tree to result in the public key committed to in the TXO’s witness program being spent
+***** '''Taproot Branch''' <code>776b22a1185fb2dc9524f6b178e2693189bf01655d7f38f043923668dc5af45b</code>: The hashing partners necessary to connect the leaf script to the Merkle root of the script tree.
+** '''Transaction Header''' (cont.)
+*** '''Locktime''' <code>ffd30a00</code>: the 4-byte locktime field, little-endian for 709631
+
+==Rationale==
+
+; Amount vs Value
+: Amount underscores that we are referring to a count of satoshis rather than subjective value. As Bitcoin transactions (and code altogether) are littered with “values”, we prefer “amount” as being less ambiguous.
+
+; <span id="compactsize"></span><code>CompactSize</code> vs <code>VarInt</code>
+: The Bitcoin Core codebase uses the term <code>CompactSize</code> for a “variable-length integer encoding used in Bitcoin Core’s serialization framework” that has outside of Bitcoin Core also been referred to as <code>VarInt</code><ref>Also see Bitcoin Stack Exchange: [[What is the different between CompactSize and VarInt encoding?|https://bitcoin.stackexchange.com/a/114585/5406]]. Since the Bitcoin Core codebase uses another type of variable-length integer encoding called <code>VarInt</code> in the context of database interaction, we prefer using <code>CompactSize</code> in the context of transaction serialization. This approach is also preferred by some technical writers working on widely read technical resources concerned with Bitcoin.
+
+; Forwarding and condition script in the context of P2TR key path spends
+: The terminology is open to interpretation in the context of P2TR key path spends. When spending a P2TR output per the key path, the signer uses the private key corresponding to the taproot internal key and tweaks the resulting signature with the Merkle root of the script tree. Looking at the process under the hood, we should consider the taproot output key a forwarding script that commits to multiple condition scripts: the taproot internal key and all leaf scripts. However, looking at the serialization, this means that a P2TR key path input is an exception in that it does not explicitly reveal its condition script, since the taproot internal key does not appear in the transaction serialization. Alternatively, the taproot output key could be interpreted as being both the condition script in the case of a key path spend and a forwarding script in the case of a script path spend.
+
+; Witness
+: We have seen “witness” used to refer to both the witness data of a single input or the entirety of a transaction’s witness data. We use Witness Stack to refer to the witness data of a single Transaction Input, and Witness Structure when talking about all witness data of a transaction.
+
+; Forwarding Scripts and Condition Scripts
+: We introduce these two new terms to distinguish two types of functions for “scripts”. The condition scripts encode the actual spending conditions, while forwarding scripts commit the spender to providing another script down the line. [[File:bip-tx-terminology/scripts.png|framed|center|alt=An overview of forwarding and condition scripts|Figure 1]]
+
+; Flag
+: While the Flag currently only indicates the presence of a Witness Structure, it could perhaps also indicate the presence of other extended serialization formats in the future, therefore, it’s only flag, not “witness flag”.
+
+; P2SH Program
+: We introduce the term P2SH Program to refer to the commitment in an Output Script that forwards execution to the input script corresponding to witness programs.
+
+; Witness Item vs Witness Element
+: BIP341 refers to parts of the witness stack as “witness elements” and “witness stack elements”, but BIP144 speaks of “item count”. We prefer witness item to refer to parts of a witness stack.
+
+; Witness Section vs Witness Structure
+: While witness section and witness structure are both used, we prefer the use of witness structure as introduced in BIP144.
+
+; Witness Stack
+: While BIP144 refers to witness stacks as “script witnesses”, they are not scripts. Strictly speaking, they’re also not stacks, because some witness items that appear in witness stacks are not added to the stack that’s evaluated with the condition script, such as control blocks. We still prefer witness stack as it is well-established.
+
+; <span id="locking_unlocking"></span>Locking Script and Unlocking Script
+: Some popular works refer to <code>scriptPubKey</code> and <code>scriptSig</code> as “locking script” and “unlocking script” respectively. We do not recommend the use of these terms since they conflate the transaction component with the function these scripts had for some of the earlier output types. We introduce a set of new terms to decouple the position of the '''output script''' and '''input script''' from the function of locking and unlocking, and to underscore the evolution of output types from executable scripts to templates with additional implied meaning.—As output types have evolved over the years, we have departed from them relying on fully specified executable scripts, but rather imbued certain templates with additional constraints. For example a P2SH program interpreted as written only checks that the redeem script revealed in the input script matches the pre-image in the output script, but the implied meaning of the P2SH program additionally requires the redeem script to be evaluated satisfactorily. Later with wrapped P2WSH, we didn’t even require the witness script to contain all the arguments with push operations directly in a script but rather provide them as separate items akin to a pre-built stack. We refer to these stand-alone witness items as '''script arguments'''. With native segwit outputs finally, the input script is empty altogether, and no longer plays any role in “unlocking” the funds at all.
+
+; Locking Script vs Output Script + Forwarding Script + Condition Script
+: The <code>scriptPubKey</code> has also sometimes been referred to as “locking script”, especially before the activation of the segwit soft fork. However, this term is ambiguous in that it refers to the function of the output script but appears as the label for the field at the same time. This document introduces new terms to distinguish the transaction component from the abstract function it takes. We use '''output script''' when we refer to the <code>scriptPubKey</code> field in the transaction, and speak of either a '''condition script''' or '''forwarding script''' when we refer to the function the output script fulfills in a particular output.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+==Acknowledgements==
+
+Thanks to Pieter Wuille for the discussions that led to this proposal.
+Thanks to Otto Allmendinger, Matthew Zipkin, Larry Ruane, Stacie Waleyko, Dave Harding, Lloyd
+Fournier, Vojtěch Strnad, Armin Sabouri, Kostas Karasavvas, Sebastian Falbesoner, Ishaana Misra, AJ
+Towns, dpc, Matt Corallo, John Moffett, and Ava Chow for feedback on this proposal.
+
+==Notes==
+
+<references/>
