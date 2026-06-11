@@ -136,7 +136,7 @@ while (++$bipnum <= $topbip) {
 		}
 	}
 	my %found;
-	my ($title, $authors, $status, $type, $layer);
+	my ($title, $authors, $status, $version, $type, $layer);
 	my ($field, $val, @field_order, $continuation);
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
@@ -208,6 +208,7 @@ while (++$bipnum <= $topbip) {
 			$val =~ m/^(\S[^<@>]*\S) \<[^@>]*\@[\w.]+\.\w+\>$/ or die "Malformed $field line in $fn";
 		} elsif (exists $VersionField{$field}) {
 			$val =~ m/^(\d+\.\d+\.\d+)$/ or die "Malformed $field line in $fn";
+			$version = $val;
 		} elsif (not exists $MiscField{$field}) {
 			die "Unknown field $field in $fn";
 		}
@@ -227,6 +228,11 @@ while (++$bipnum <= $topbip) {
 	print "|-";
 	if (defined $ValidStatus{$status}) {
 		print " style=\"" . $ValidStatus{$status} . "\"";
+	}
+	if (defined $version and $version =~ m/^0+[.]/) {
+		if ($status eq "Complete" or $status eq "Deployed") {
+			die "$fn marked as $status despite pre-1.0 version ($version)";
+		}
 	}
 	print "\n";
 	print "| [[${fn}|${bipnum}]]\n";
