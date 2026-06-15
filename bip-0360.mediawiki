@@ -144,7 +144,7 @@ initial stack element 0,
 ...,
 initial stack element N,
 leaf script,
-control block = [control byte, 32*m byte Merkle path] # m is the depth of the script in the Merkle tree (minimum 1)
+control block = [control byte, 32*m byte Merkle path] # m is the depth of the script in the Merkle tree
 </source>
 
 The initial stack elements of P2MR follow the same rules as P2TR script path spends.
@@ -152,7 +152,7 @@ That is, they place elements on the stack to be evaluated by the leaf script.
 
 The control block is a ''1 + 32 * m'' byte array, where the first byte is the control byte and the next ''32 * m'' bytes are the Merkle path to the leaf script. The control byte is the same as the control byte in a P2TR control block, including the 7 bits which are used to specify the leaf version. The parity bit of the control byte is always 1, since P2MR does not have a key path spend. Unlike P2TR, we omit the public key from the control block as it is not needed in P2MR. We maintain support for the optional annex in the witness (see Specification section below for more details).
 
-Unlike P2TR, script trees of depth 0 - those with a single leaf script - are not permitted in P2MR.
+Unlike P2TR, script trees of depth 0 - those with a single leaf script - are considered anyone-can-spend in P2MR, which discourages the use of depth-zero script trees today while still allowing them to be repurposed in a future soft-fork.
 
 ==Rationale==
 
@@ -168,7 +168,7 @@ Importantly, we are proposing a script tree output, i.e. an output type that sup
 
 P2WSH, for instance, does not support tapscript and as such does not support the OP_SUCCESSx opcode update path that will be critical for the integration of post-quantum OP_CHECKSIG opcodes into Bitcoin.<ref><code>OP_SUCCESSx</code> is a mechanism to upgrade tapscript</ref>
 
-P2MR only permits script trees of depth 1 or more, to ensure every P2MR address contains at least two spending paths, even if one is not used. This is intended to incentivize the use of a post-quantum-secure leaf script once available, and to better align P2MR's privacy profile with P2TR.
+P2MR encourages script trees of depth 1 or more, to so that P2MR addresses contain at least two spending paths, even if one is not used. This is intended to incentivize the use of a post-quantum-secure leaf script once available, and to better align P2MR's privacy profile with P2TR.
 
 3. Facilitate gradual integration of quantum resistant features that can be carried out iteratively as quantum computers evolve. This approach encourages responsiveness to the current threat-level, while avoiding heavy-handedness in our reactions to a potential threat.
 
@@ -193,7 +193,7 @@ P2MR and P2TR share a nearly equivalent privacy profile with respect to the info
 
 In both P2MR and P2TR, the only way for an observer to put a reasonable upper bound on the potential number of spending paths is to learn every leaf script, or in P2TR if the observer learns the script path is disabled through external means.
 
-The only major difference is that in P2TR, a sender can reveal a depth-zero script leaf spend, while in P2MR depth-zero trees are disallowed.
+The only major difference is that in P2TR, a sender can reveal and enforce a script at depth zero to spend, while in P2MR depth-zero trees are discouraged because they are anyone-can-spend.
 
 '''Note:''' P2MR and P2TR both provide greater script privacy than P2SH [[bip-0016.mediawiki|BIP 16]] because unused script paths are not revealed.
 
@@ -239,7 +239,7 @@ A P2MR output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) wit
 * If there are at least three witness elements, and the first byte of the last element is 0x50, this last element is called ''annex a'' and is removed from the witness stack. The annex (or the lack thereof) is always covered by the signature and contributes to transaction weight, but is otherwise ignored during P2MR validation.
 * There must be at least two witness elements left.
 ** Call the second-to-last stack element ''s'', the script (as defined in [[bip-0341.mediawiki|BIP 341]]).
-** The last stack element is called the control block ''c'', and must have length ''1 + 32 * m'', for a value of ''m'' that is an integer between 1 and 128, inclusive. Fail if it does not have such a length.
+** The last stack element is called the control block ''c'', and must have length ''1 + 32 * m'', for a value of ''m'' that is an integer between 0 and 128, inclusive. Fail if it does not have such a length.
 ** Let ''v = c[0] & 0xfe'' be the ''leaf version'' (as defined in [[bip-0341.mediawiki|BIP 341]]). To maintain ''leaf version'' encoding compatibility the last bit of c[0] is unused and must be 1.<ref>Why set the last bit of c[0] to one? Consider a faulty implementation that deserializes the ''leaf version'' as c[0] rather than c[0] & 0xfe for both P2TR and P2MR. If they test against P2MR outputs and require that last bit is 1, this deserialization bug will cause an immediate error.</ref>
 ** Let ''k<sub>0</sub> = hash<sub>TapLeaf</sub>(v || compact_size(size of s) || s)''; also call it the ''tapleaf hash''.
 ** For ''j'' in ''[0,1,...,m-1]'':
@@ -249,6 +249,7 @@ A P2MR output is a native SegWit output (see [[bip-0141.mediawiki|BIP 141]]) wit
 **** If ''k<sub>j</sub> &ge; e<sub>j</sub>'': ''k<sub>j+1</sub> = hash<sub>TapBranch</sub>(e<sub>j</sub> || k<sub>j</sub>)''.
 ** Let ''r = k<sub>m</sub>''.
 ** If ''q &ne; r'', fail.
+** If ''m = 0'', succeed immediately.
 ** Execute the script, according to the script rules specified in BIP 342, using the witness stack elements excluding the script ''s'', the control block ''c'', and the annex ''a'' if present, as initial stack. This implies that for the future leaf versions (non-''0xC0'') the execution must succeed.
 
 The steps above follow the script path spend logic from [[bip-0341.mediawiki|BIP 341]] with the following changes:
@@ -256,6 +257,7 @@ The steps above follow the script path spend logic from [[bip-0341.mediawiki|BIP
 * The witness program is the the Merkle root of the script tree and not a tweaked public key. This means that we skip directly to the BIP 341 script path validation.
 * We compute the script tree Merkle root ''r'' and compare it directly to the witness program ''q''.
 * The control block is ''1 + 32*m'' bytes, instead of ''33 + 32*m'' bytes.
+* If the leaf script is at depth zero, script execution is skipped and validation automatically succeeds.
 
 ===Common Signature Message Construction===
 
@@ -291,8 +293,7 @@ P2TR key path spend witness (66 bytes):
 
 Thus, the P2MR witness would be 135 - 66 = 69 bytes larger than a P2TR key path spend witness.
 
-The P2MR Merkle path must be included in the control block, increasing the size by ''32 * m'' bytes, where m is the depth of the Merkle tree.
-While script trees do support leaf scripts of different depths, here we assume the Merkle tree has been constructed such that each leaf is at the same depth.
+The P2MR Merkle path must be included in the control block, increasing the size by ''32 * m'' bytes, where m is the depth of the leaf script.
 This would make such witness 37 + 32 * m bytes larger than a P2TR key path spend witness.<ref>If ''m >= 8'', then the compact size will use 3 bytes rather than 1 byte</ref>
 
 P2MR witness, general case ''(103 + 32*m bytes)'':
@@ -314,7 +315,7 @@ P2MR is slightly more computationally performant than P2TR script path spends, a
 
 ==Backward Compatibility==
 
-Older wallets and nodes that have not been made compatible with SegWit version 2 and P2MR will not understand these outputs. Per [[bip-0350.mediawiki|BIP 350]] older wallets should be able to spend funds to SegWit version 2 outputs. Users should ensure they are using updated wallets and nodes to receive P2MR outputs and validate transactions using P2MR outputs. P2MR is fully compatible with tapscript and existing tapscript programs can be used in P2MR outputs mostly without modification (depth-zero script trees will be unspendable in P2MR!). P2MR can also support future script upgrades with new leaf versions.
+Older wallets and nodes that have not been made compatible with SegWit version 2 and P2MR will not understand these outputs. Per [[bip-0350.mediawiki|BIP 350]] older wallets should be able to spend funds to SegWit version 2 outputs. Users should ensure they are using updated wallets and nodes to receive P2MR outputs and validate transactions using P2MR outputs. P2MR is fully compatible with tapscript and existing tapscript programs can be used in P2MR outputs mostly without modification (but depth-zero script trees will be anyone-can-spend in P2MR!). P2MR can also support future script upgrades with new leaf versions.
 
 ==Security==
 
