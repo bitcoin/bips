@@ -9,7 +9,7 @@
   Assigned: 2026-03-25
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
-  Version: 0.2.1
+  Version: 0.2.2
   Requires: 440
 </pre>
 
@@ -154,6 +154,13 @@ stack as arbitrary-length little-endian values (instead of CScriptNum):
 # OP_IFDUP
 # OP_CHECKSIGADD
 
+For OP_CHECKLOCKTIMEVERIFY and OP_CHECKSEQUENCEVERIFY, the operand is decoded
+and costed as an arbitrary-length unsigned integer.  However, the decoded
+value MUST be less than 2<sup>32</sup>, because it is compared against the
+32-bit nLockTime or nSequence transaction field.  OP_CHECKSEQUENCEVERIFY
+performs this range check before disable-flag handling or BIP68 masking, so
+any non-zero bits above bit 31 cause failure.
+
 These opcodes are redefined in 0xC2 Tapscript to write numbers to the stack as
 minimal-length little-endian values (instead of CScriptNum):
 
@@ -175,6 +182,11 @@ Now:
 ``4. (ii) If the execution results in anything but exactly one element on the
 stack which contains one or more non-zero bytes, fail.``
 
+This final success check consumes varops budget as <code>wordspan(A) * 2</code>
+(COMPARINGZERO), where <code>A</code> is the remaining stack element. If this
+cost exceeds the remaining transaction varops budget, fail before performing
+the non-zero-byte check.
+
 ===Enabled Opcodes===
 
 Fifteen opcodes that were removed in v0.3.1 are re-enabled in 0xC2 Tapscript.
@@ -186,6 +198,15 @@ stack.
 
 See [[bip-0440.mediawiki|BIP440]] for the meaning of the
 annotations in the varops cost field.
+
+====Byte Lengths and Word Spans====
+
+This BIP uses the <code>length(...)</code> and <code>wordspan(...)</code>
+convention from [[bip-0440.mediawiki|BIP440]]: <code>length(X)</code> is the
+script-visible byte length of stack element <code>X</code>, while
+<code>wordspan(X)</code> is that length rounded up to the 64-bit word span used
+for numeric and bit-vector work.  Some formulas intentionally mix the two when
+an opcode performs both word-rounded interpretation and exact byte movement.
 
 ====Splice Opcodes====
 
@@ -218,7 +239,7 @@ annotations in the varops cost field.
 # Remove BEGIN bytes from the front of A (all bytes if BEGIN is greater than length of A).
 # If length(A) is greater than value(LEN), truncate A to length value(LEN).
 # Push A onto the stack.
-|(length(LEN) + length(BEGIN)) * 2 + MIN(Value of LEN, MAX(length(A) - Value of BEGIN, 0)) * 3
+|(wordspan(LEN) + wordspan(BEGIN)) * 2 + MIN(Value of LEN, MAX(length(A) - Value of BEGIN, 0)) * 3
 |LENGTHCONV + COPYING
 |-
 |OP_LEFT
@@ -229,18 +250,20 @@ annotations in the varops cost field.
 # Pop operands off the stack.
 # If length(A) is greater than value(OFFSET), truncate A to length value(OFFSET).
 # Push A onto the stack.
-|length(OFFSET) * 2
+|wordspan(OFFSET) * 2
 |LENGTHCONV
 |-
 |OP_RIGHT
 |129
 |<nowiki>[A OFFSET]</nowiki>
-|Extract the right bytes of A, from OFFSET onwards
+|Extract the rightmost OFFSET bytes of A
 |
 # Pop operands off the stack.
-# If value(OFFSET) is less than length(A), copy value(OFFSET) bytes from offset value(OFFSET) to offset 0 in A, and truncate A to length(A) - value(OFFSET).  Otherwise truncate A to length 0.
+# Convert OFFSET to a bounded length value.
+# If value(OFFSET) is less than length(A), remove length(A) - value(OFFSET) bytes from the front of A.
+# Otherwise leave A unchanged.
 # Push A onto the stack.
-|length(OFFSET) * 2 + value of OFFSET * 3
+|wordspan(OFFSET) * 2 + MIN(Value of OFFSET, length(A)) * 3
 |LENGTHCONV + COPYING
 |}
 
@@ -252,7 +275,8 @@ OP_SUBSTR may have to copy LEN bytes, but also needs to read its two numeric
 operands.  LEN is limited to the length of the operand minus BEGIN.
 
 OP_LEFT only needs to read its OFFSET operand (truncation is free), whereas
-OP_RIGHT must copy the bytes, which depends on the OFFSET value.
+OP_RIGHT must copy the rightmost bytes, which depends on the bounded OFFSET
+value.
 
 ====Bit Operation Opcodes====
 
@@ -273,7 +297,7 @@ OP_RIGHT must copy the bytes, which depends on the OFFSET value.
 # Pop operands off the stack.
 # For each byte in A, replace it with that byte bitwise XOR 0xFF (i.e. invert the bits)
 # Push A onto the stack.
-|length(A) * 4
+|wordspan(A) * 4
 |OTHER
 |-
 |OP_AND
@@ -285,7 +309,7 @@ OP_RIGHT must copy the bytes, which depends on the OFFSET value.
 # If B is longer than A, swap B and A.
 # For each byte in A (the longer operand): bitwise AND it with the equivalent byte in B (or 0 if past end of B)
 # Push A onto the stack.
-|(length(A) + length(B)) * 2
+|(wordspan(A) + wordspan(B)) * 2
 |OTHER + ZEROING
 |-
 |OP_OR
@@ -297,7 +321,7 @@ OP_RIGHT must copy the bytes, which depends on the OFFSET value.
 # If B is longer than A, swap B and A.
 # For each byte in B (the shorter operand): bitwise OR it into the equivalent byte in A (altering A).
 # Push A onto the stack.
-|MIN(length(A), length(B)) * 4
+|MIN(wordspan(A), wordspan(B)) * 4
 |OTHER
 |-
 |OP_XOR
@@ -309,7 +333,7 @@ OP_RIGHT must copy the bytes, which depends on the OFFSET value.
 # If B is longer than A, swap B and A.
 # For each byte in B (the shorter operand): exclusive OR it into the equivalent byte in A (altering A).
 # Push A onto the stack.
-|MIN(length(A), length(B)) * 4
+|MIN(wordspan(A), wordspan(B)) * 4
 |OTHER
 |}
 
@@ -347,8 +371,8 @@ OP_DOWNSHIFT (née OP_RSHIFT).
 # If value(BITS) % 8 == 0: simply prepend value(BITS) / 8 zeroes to A.
 # Otherwise: prepend (value(BITS) / 8) + 1 zeroes to A, then shift A *down* (8 - (value(BITS) % 8)) bits.
 # Push A onto the stack.
-|length(BITS) * 2 + (Value of BITS) / 8 * 2 + length(A) * 3.  If BITS % 8 != 0, add length(A) * 4
-|LENGTHCONV + ZEROING + COPYING. If BITS % 8 != 0, + OTHER.
+|wordspan(BITS) * 2 + (Value of BITS) / 8 * 2 + length(A) * 3.  If BITS % 8 != 0, add wordspan(length(A) + (Value of BITS) / 8) * 4
+|LENGTHCONV + ZEROING + COPYING. If BITS % 8 != 0, + OTHER over the shifted result length.
 |-
 |OP_DOWNSHIFT
 |153
@@ -360,7 +384,7 @@ OP_DOWNSHIFT (née OP_RSHIFT).
 ## Copy each bit in A from BITOFF + value(BITS) to BITOFF.
 # Truncate A to remove value(BITS) / 8 bytes from the end (or all bytes, if value(BITS) / 8 > length(A)).
 # Push A onto the stack.
-|length(BITS) * 2 + MAX((length(A) - (Value of BITS) / 8), 0) * 3
+|wordspan(BITS) * 2 + MAX((length(A) - (Value of BITS) / 8), 0) * 3
 |LENGTHCONV + COPYING
 |}
 
@@ -401,7 +425,7 @@ routine as OP_DOWNSHIFT.
 # If the final byte overflows, append a single 1 byte.
 # Otherwise, truncate A at the last non-zero byte.
 # Push A onto the stack.
-|length(A) * 7
+|wordspan(A) * 7
 |OTHER + COPYING
 |-
 |OP_2DIV
@@ -413,7 +437,7 @@ routine as OP_DOWNSHIFT.
 # Shift each byte in A 1 bit to the right (decreasing values, equivalent to C's >> operator), taking the next byte’s bottom bit as the value of the top bit, and tracking the last non-zero value.
 # Truncate A at the last non-zero byte.
 # Push A onto the stack.
-|length(A) * 4
+|wordspan(A) * 4
 |OTHER
 |-
 |OP_MUL
@@ -427,7 +451,7 @@ routine as OP_DOWNSHIFT.
 # For each word in A, multiply it by B and add it into the vector R, offset by the word offset in A.
 # Truncate R at the last non-zero byte.
 # Push R onto the stack.
-|(length(A) + length(B)) * 3 + (length(A) + 7) / 8 * length(B) * 27  (BEWARE OVERFLOW)
+|(length(A) + length(B)) * 3 + wordspan(A) / 8 * wordspan(B) * 27  (BEWARE OVERFLOW)
 |See Appendix
 |-
 |OP_DIV
@@ -441,7 +465,7 @@ routine as OP_DOWNSHIFT.
 # Perform division as per Knuth's The Art of Computer Programming v2 page 272, Algorithm D "Division of non-negative integers".
 # Trim trailing zeroes off the quotient.
 # Push the quotient onto the stack.
-|length(A) * 18 + length(B) * 4 + length(A)^2 * 2 / 3  (BEWARE OVERFLOW)
+|wordspan(A) * 18 + wordspan(B) * 4 + wordspan(A)^2 * 2 / 3  (BEWARE OVERFLOW)
 |See Appendix
 |-
 |OP_MOD
@@ -455,7 +479,7 @@ routine as OP_DOWNSHIFT.
 # Perform division as per Knuth's The Art of Computer Programming v2 page 272, Algorithm D "Division of non-negative integers".
 # Trim trailing zeroes off the remainder.
 # Push the remainder onto the stack.
-|length(A) * 18 + length(B) * 4 + length(A)^2 * 2 / 3  (BEWARE OVERFLOW)
+|wordspan(A) * 18 + wordspan(B) * 4 + wordspan(A)^2 * 2 / 3  (BEWARE OVERFLOW)
 |See Appendix
 |}
 
@@ -494,7 +518,7 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 # If there was final overflow, append a 1 byte to A.
 # Option 2: If there was no final overflow, remember last non-zero byte written into A, and truncate A after that point.
 # Either Option 1 or Option 2 MUST be implemented.
-|MAX(length(A), length(B)) * 9
+|MAX(wordspan(A), wordspan(B)) * 9
 |ARITH + COPYING
 |-
 |OP_1ADD
@@ -504,7 +528,7 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 |
 # Pop operands off the stack.
 # Let B = 1, and continue as OP_ADD.
-|MAX(1, length(A)) * 9
+|MAX(wordspan(1), wordspan(A)) * 9
 |ARITH + COPYING
 |-
 |OP_SUB
@@ -516,7 +540,7 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 # For each byte in B, subtract it and previous underflow from the equivalent byte in A, remembering next underflow.
 # If there was final underflow, fail validation.
 # Remember last non-zero byte written into A, and truncate A after that point.
-|MAX(length(A), length(B)) * 6
+|MAX(wordspan(A), wordspan(B)) * 6
 |ARITH
 |-
 |OP_1SUB
@@ -526,7 +550,7 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 |
 # Pop operands off the stack.
 # Let B = 1, and continue as OP_SUB.
-|MAX(1, length(A)) * 6
+|MAX(wordspan(1), wordspan(A)) * 6
 |ARITH
 |}
 
@@ -549,15 +573,15 @@ The following opcodes have costs below:
 ! Varops Reason
 |-
 | OP_CHECKLOCKTIMEVERIFY
-| Length of operand * 2
+| wordspan(operand) * 2
 | LENGTHCONV
 |-
 | OP_CHECKSEQUENCEVERIFY
-| Length of operand * 2
+| wordspan(operand) * 2
 | LENGTHCONV
 |-
 | OP_CHECKSIGADD
-| MAX(1, length(number operand)) * 9 + 500,000
+| MAX(wordspan(1), wordspan(number operand)) * 9 + 500,000
 | ARITH + COPYING + SIGCHECK
 |-
 | OP_CHECKSIG
@@ -624,6 +648,7 @@ Work in progress:
 
 ==Changelog==
 
+* 0.2.2: 2026-06-15: clarify wordspan costs, OP_RIGHT semantics, OP_UPSHIFT unaligned cost, CLTV/CSV bounds, and final success-check cost.
 * 0.2.1: 2023-03-27: fix OP_MUL cost to round length(B) up
 * 0.2.0: 2025-02-21: change costs to match those in varops budget
 * 0.1.0: 2025-09-27: first public posting
@@ -660,22 +685,23 @@ using multiple instructions).
 For multiplication, the steps break down like so:
 # Allocate and zero the result: cost = (length(A) + length(B)) * 2 (ZEROING)
 # For each word in A:
-#* Multiply by each word in B, into a scratch vector: cost = 6 * ((length(B) + 7) / 8) * 8 (ARITH)
-#* Sum scratch vector at the word offset into the result: cost = 6 * ((length(B) + 7) / 8) * 8 (ARITH)
+#* Multiply by each word in B, into a scratch vector: cost = 6 * wordspan(B) (ARITH)
+#* Sum scratch vector at the word offset into the result: cost = 6 * wordspan(B) (ARITH)
 
-We increase the length of B here to the next word boundary, using
-"((length(B) + 7) / 8) * 8", as the multiplication below makes the
-difference of that from the simple "length(B)" significant.
+We increase the operand lengths to the next word boundary for the word-span
+loops, using <code>wordspan(n)</code> from [[bip-0440.mediawiki|BIP440]], as
+the multiplication below makes the difference from the simple byte length
+significant.
 
 Note: we do not assume Karatsuba, Toom-Cook or other optimizations.
 
-The theoretical cost is: (length(A) + length(B)) * 2 + (length(A) + 7) / 8 * ((length(B) + 7) / 8) * 8 * 12.
+The theoretical cost is: (length(A) + length(B)) * 2 + wordspan(A) / 8 * wordspan(B) * 12.
 
 However, benchmarking reveals that the inner loop overhead (branch
 misprediction, cache effects on small elements) is undercosted by the
 theoretical model.  A 2.25× multiplier on the quadratic term accounts for
-this, giving a cost of: (length(A) + length(B)) * 3 + (length(A) + 7) / 8 *
-((length(B) + 7) / 8) * 8 * 27.
+this, giving a cost of: (length(A) + length(B)) * 3 + wordspan(A) / 8 *
+wordspan(B) * 27.
 
 This is slightly asymmetric: in practice an implementation usually finds that
 CPU pipelining means choosing B as the larger operand is optimal.
@@ -684,32 +710,32 @@ CPU pipelining means choosing B as the larger operand is optimal.
 
 For division, the steps break down like so:
 
-# Bit shift both operands to set top bit of B (OP_UPSHIFT, without overflow for B): cost = length(A) * 6 + length(B) * 4
+# Bit shift both operands to set top bit of B (OP_UPSHIFT, without overflow for B): cost = wordspan(A) * 6 + wordspan(B) * 4
 
 # Trim trailing bytes.  This costs according to the number of byte removed, but since that is subtractive on future costs, we ignore it.
 
 # If B is longer, the answer is 0 already.  So assume A is longer from now on (or equal length).
 
-# Compare: cost = length(A) * 2 (COMPARING)
+# Compare: cost = wordspan(A) * 2 (COMPARING)
 
-# Subtract: cost = length(A) * 6 (ARITH)
+# Subtract: cost = wordspan(A) * 6 (ARITH)
 
-# for (length(A) - NormalizedLength(B)) in words:
+# for (wordspan(A) - NormalizedLength(B)) in words:
 ## Multiply word by B -> scratch: cost = NormalizedLength(B) * 6 (ARITH)
-## Subtract scratch from A: cost = length(A) * 6 (ARITH)
-## Add B into A (no overflow): cost = length(A) * 6 (ARITH)
+## Subtract scratch from A: cost = wordspan(A) * 6 (ARITH)
+## Add B into A (no overflow): cost = wordspan(A) * 6 (ARITH)
 ## Shrink A by 1 word.
 
-# OP_MOD: shift A down, trim trailing zeroes: cost = length(A) * 4
+# OP_MOD: shift A down, trim trailing zeroes: cost = wordspan(A) * 4
 
-# OP_DIV: trim trailing zeros: cost = length(A) * 4
+# OP_DIV: trim trailing zeros: cost = wordspan(A) * 4
 
 Note that the loop at step 6 shrinks A every time, so the *average* cost of
-each iteration is (NormalizedLength(B) * 6 + length(A) * 12) / 2.  The cost of
+each iteration is (NormalizedLength(B) * 6 + wordspan(A) * 12) / 2.  The cost of
 step 6 is:
 
-	(length(A) - NormalizedLength(B)) / 8 * (NormalizedLength(B) * 6 + length(A) * 12) / 2
+	(wordspan(A) - NormalizedLength(B)) / 8 * (NormalizedLength(B) * 6 + wordspan(A) * 12) / 2
 
-The worst case is when NormalizedLength(B) is 0: length(A) * length(A) * 2 / 3.
+The worst case is when NormalizedLength(B) is 0: wordspan(A) * wordspan(A) * 2 / 3.
 
-The cost for all the steps is: length(A) * 18 + length(B) * 4 + length(A) * length(A) * 2 / 3.
+The cost for all the steps is: wordspan(A) * 18 + wordspan(B) * 4 + wordspan(A) * wordspan(A) * 2 / 3.
