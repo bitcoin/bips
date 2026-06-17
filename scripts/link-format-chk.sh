@@ -7,14 +7,16 @@
 # Check wrong mediawiki link format
 
 ECODE=0
-for fname in *.mediawiki; do
+while IFS= read -r fname; do
     GRES=$(grep -n '](http' "$fname")
     if [ "$GRES" != "" ]; then
         if [ $ECODE -eq 0 ]; then
             >&2 echo "Github Mediawiki format writes link as [URL text], not as [text](url):"
         fi
         ECODE=1
-        echo "- $fname:$GRES"
+        while IFS= read -r line; do
+            echo "- ${fname#./}:$line"
+        done <<< "$GRES"
     fi
-done
+done < <(find . -type f -name '*.mediawiki' | sort)
 exit $ECODE
