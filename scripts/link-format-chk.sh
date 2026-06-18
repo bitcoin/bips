@@ -8,10 +8,10 @@
 
 ECODE=0
 while IFS= read -r fname; do
-    GRES=$(grep -n '](http' "$fname")
+    GRES=$(grep -nE '\]\((https?://|\.\./bip-|/bip-)' "$fname")
     if [ "$GRES" != "" ]; then
         if [ $ECODE -eq 0 ]; then
-            >&2 echo "Github Mediawiki format writes link as [URL text], not as [text](url):"
+            >&2 echo "Github Mediawiki format writes links as [URL text], not as [text](URL):"
         fi
         ECODE=1
         while IFS= read -r line; do
