@@ -91,7 +91,7 @@ Similarly, the values *n* and *t* are used only for validation, and can be omitt
 
 This signing protocol is compatible with any key generation protocol that produces valid FROST keys.
 Valid keys satisfy: (1) each *secret share* is a Shamir share of the *threshold secret key*, and (2) each *public share* equals the scalar multiplication *secshare \* G*.
-Implementations may **optionally** validate key compatibility for a signing session using the *ValidateSignersCtx* function.
+Before signing, the signers context must pass *ValidateSignersCtx*, which rejects duplicate identifiers and confirms the key material reproduces the threshold public key. The signing algorithms (*Sign*, *PartialSigVerify*, and *PartialSigAgg*) include this check for clarity, so an implementation can instead validate a context once and skip the repeated checks in later calls.
 For comprehensive validation of the entire key material, *ValidateSignersCtx* can be run on all possible *u* signing participants.
 
 > [!IMPORTANT]
@@ -322,7 +322,7 @@ Algorithm *ValidateSignersCtx(signers_ctx)*:
 - Fail if not *t ≤ u ≤ n*
 - For *i = 1 .. u*:
   - Fail if not *0 ≤ id<sub>i</sub> ≤ n - 1*
-  - Let *P<sub>i</sub> = cpoint(pubshare<sub>i</sub>)*; fail if that fails and blame signer at index *i* for invalid *pubshare*
+  - Let *P<sub>i</sub> = cpoint(pubshare<sub>i</sub>)*; fail if that fails
 - Fail if *has_duplicates(id<sub>1..u</sub>)*
 - Fail if *DeriveThreshPubkey(id<sub>1..u</sub>, P<sub>1..u</sub>) ≠ thresh_pk*
 - No return

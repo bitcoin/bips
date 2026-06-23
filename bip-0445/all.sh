@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 check_availability() {
   command -v "$1" > /dev/null 2>&1 || {
