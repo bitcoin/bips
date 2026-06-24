@@ -1,14 +1,15 @@
 ```
   BIP: ?
   Layer: Applications
-  Title: Multilingual mnemonic display and input conventions
+  Title: Multilingual mnemonic display and input rules
   Authors: Daniel Osemberg <ceo@blocksight.live>
   Status: Draft
-  Type: Informational
+  Type: Specification
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-06-13: https://groups.google.com/g/bitcoindev/c/Rwo7P5pTA0c
               2026-06-23: https://delvingbitcoin.org/t/bip39-native-language-display-wordlists-mapped-to-canonical-english/2637
+  Requires: 39
 ```
 
 ## Abstract
