@@ -27,6 +27,7 @@ This document does **not** replace BIP-39, does not deprecate any existing BIP-3
 - **The mapping is by word index.** The display token at index `i` corresponds to the English BIP-39 word at index `i`, and to nothing else. There is no per-language entropy, checksum, or key derivation.
 - **The localized mnemonic is always reversible to the canonical English mnemonic.** The bidirectional mapping is bijective across all 2048 entries (§Display wordlist requirements), so a conformant display mnemonic resolves back to exactly one English BIP-39 mnemonic, deterministically.
 - **Wallets must give users access to the canonical English mnemonic.** In any flow that exposes a display mnemonic, a standard wallet MUST let the user view, copy, or export the canonical English BIP-39 mnemonic, so the backup is recoverable in any BIP-39 implementation (§Backup and portability policy).
+- **This document specifies a framework, not a blessed set of wordlists.** It defines what makes a display wordlist conformant (the construction, mapping, and input rules, and the conformance profile in which every wordlist-level MUST maps to an executable check). It ships no wordlists into this repository and blesses no individual list as canonical. The reference registry's lists are a bootstrap corpus, explicitly supersedable by native-speaker review; per-language list creation and curation belong to the respective language communities.
 
 ## Motivation
 
@@ -93,7 +94,7 @@ Display mnemonics introduce a portability concern that does not exist in single-
 
 A wallet that exposes a display mnemonic to the user MUST:
 
-1. Make the canonical English mnemonic available to the user as part of any backup or recovery flow that exposes a display mnemonic. "Available" means the user can view, copy, or export the canonical English mnemonic within the same flow, without leaving it.
+1. Make the canonical English mnemonic available to the user as part of any backup or recovery flow that exposes a display mnemonic. "Available" means the user can view, copy, or export the canonical English mnemonic within the same flow, without leaving it. This is an *availability* obligation on the wallet, not a requirement that the user record a second, English copy: a user may legitimately back up in the display language only. For that user there is no English transcription step and therefore no English transcription error, which is the failure mode this convention removes. The English mnemonic is the portability guarantee and the safety net (surfaced and labeled per the SHOULD clauses below), not a mandatory second artifact.
 
 A wallet that exposes a display mnemonic to the user SHOULD:
 
@@ -252,7 +253,7 @@ The specific MUST clauses each address a concrete failure mode. Embedded whitesp
 
 The 4-character prefix uniqueness recommendation from the original BIP-39 specification is achievable for English and most Latin-script languages but structurally infeasible for several scripts where word stems and limited short-prefix variety dominate. Requiring it would exclude those languages or force authorship of artificial vocabulary. Treating it as a SHOULD with informational reporting per language preserves the autocomplete benefit where feasible without excluding scripts where it is not.
 
-Native-speaker review is recommended (SHOULD) rather than required (MUST) because its absence is a UX risk, not a cryptographic risk. The worst case is a poorly-chosen native word that a future PR can correct; no funds are at stake.
+Native-speaker review is recommended (SHOULD) rather than required (MUST) because its absence is a UX risk, not a cryptographic risk: it cannot change the derived seed, which is a function of the canonical English mnemonic alone. A poorly-chosen native word is corrected by publishing a *new versioned wordlist*, never by mutating a published one. A published list is frozen, and a display backup resolves against the exact version that produced it (pinned by SHA-256, §Display wordlist requirements SHOULD 3); an existing backup is therefore never invalidated by a later correction, and the canonical English mnemonic remains the universal safety net regardless.
 
 The 9 non-English canonical BIP-39 wordlists are alphabetized independent word selections, not translations of the English list, so they cannot serve as a display layer over an English mnemonic without the user facing semantically unrelated tokens at each index. This convention does not replace those wordlists; it sits parallel to them and fills the role they do not fill.
 
