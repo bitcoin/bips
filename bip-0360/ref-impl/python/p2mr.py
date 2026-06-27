@@ -88,23 +88,6 @@ def tapbranch_hash(left: str, right: str) -> bytes:
     return tagged_hash("TapBranch", b"".join(sorted((h2b(right) + h2b(left)))))
 
 
-def collect_leaf_hashes(tree: ScriptTree) -> List[str]:
-    """Recursively collect leaf hashes in order (for verification)"""
-    if isinstance(tree, dict):  # Leaf
-        version = f"{tree['leafVersion']:x}"
-        script = tree["script"]
-        return [tapleaf_hash(script=script, tapleaf_ver=version)]
-
-    elif isinstance(tree, list):  # Branch: recurse on children
-        hashes: List[str] = []
-        for sub in tree:
-            hashes.extend(collect_leaf_hashes(sub))
-        return hashes
-
-    else:
-        raise ValueError("Invalid tree node")
-
-
 def compute_merkle_root(tree: ScriptTree) -> str:
     """Recursively compute script tree merkle root"""
     if isinstance(tree, dict):  # Leaf
@@ -280,6 +263,23 @@ def encode(hrp, witver, witprog):
 #
 # BIP-360 Test Code
 #
+def collect_leaf_hashes(tree: ScriptTree) -> List[str]:
+    """Recursively collect leaf hashes in order (for verification)"""
+    if isinstance(tree, dict):  # Leaf
+        version = f"{tree['leafVersion']:x}"
+        script = tree["script"]
+        return [tapleaf_hash(script=script, tapleaf_ver=version)]
+
+    elif isinstance(tree, list):  # Branch: recurse on children
+        hashes: List[str] = []
+        for sub in tree:
+            hashes.extend(collect_leaf_hashes(sub))
+        return hashes
+
+    else:
+        raise ValueError("Invalid tree node")
+
+
 def walk_script_tree_paths(
     script_tree: ScriptTree, path: int = 0, depth: int = 0
 ) -> List[int]:
