@@ -75,35 +75,33 @@ def serialize_varbytes(b: bytes) -> bytes:
 #
 # P2MR-specific Functions
 #
-def tapleaf_hash(script: str, tapleaf_ver: str = "c0") -> str:
+def tapleaf_hash(script: bytes, tapleaf_ver: int = 0xc0) -> bytes:
     """Hash function for tree leaves"""
     if not script:
         raise ValueError("tapleaf_hash: script is required")
-    leaf = h2b(tapleaf_ver) + serialize_varbytes(h2b(script))
-    return tagged_hash("TapLeaf", leaf).hex()
+    leaf = bytes([tapleaf_ver]) + serialize_varbytes(script)
+    return tagged_hash("TapLeaf", leaf)
 
 
-def tapbranch_hash(left: str, right: str) -> bytes:
+def tapbranch_hash(left: bytes, right: bytes) -> bytes:
     """Hash function for tree branches"""
-    return tagged_hash("TapBranch", b"".join(sorted((h2b(left), h2b(right)))))
+    return tagged_hash("TapBranch", b"".join(sorted((left, right))))
 
 
-def compute_merkle_root(tree: ScriptTree) -> str:
+def compute_merkle_root(tree: ScriptTree) -> bytes:
     """Recursively compute script tree merkle root"""
     if isinstance(tree, dict):  # Leaf
-        version = f"{tree['leafVersion']:x}"
-        script = tree["script"]
+        version = tree["leafVersion"]
+        script = h2b(tree["script"])
         return tapleaf_hash(script=script, tapleaf_ver=version)
 
     elif isinstance(tree, list):  # Branch
-        # Script trees are treated as strictly binary trees; each branch node should have
+        # Script trees are treated strictly as binary trees; each branch node should have
         # exactly 2 children. This isn't a general n-ary fold, and combining
-        # more than 2 children sequentially would not produce a valid
-        # P2MR merkle root. It would also break here on a type mismatch.
-        # `tapbranch_hash` returns bytes, not the hex str this loop expects.
+        # more than 2 children sequentially would not produce a valid P2MR merkle root.
         assert len(tree) == 2, f"expected binary branch, got {len(tree)} children"
         left, right = compute_merkle_root(tree[0]), compute_merkle_root(tree[1])
-        return tapbranch_hash(left, right).hex()
+        return tapbranch_hash(left, right)
 
     else:  # badbadnotgood
         raise ValueError("Invalid tree node")
@@ -128,7 +126,7 @@ def compute_control_block(path: int, tree: ScriptTree) -> bytes:
         assert len(tree) == 2
         sibling = tree[(path & 1) ^ 1]
         tree = tree[(path & 1)]
-        control_block = h2b(compute_merkle_root(sibling)) + control_block
+        control_block = compute_merkle_root(sibling) + control_block
         path >>= 1
 
     assert isinstance(tree, dict)
@@ -263,15 +261,15 @@ def encode(hrp, witver, witprog):
 #
 # BIP-360 Test Code
 #
-def collect_leaf_hashes(tree: ScriptTree) -> List[str]:
+def collect_leaf_hashes(tree: ScriptTree) -> List[bytes]:
     """Recursively collect leaf hashes in order (for verification)"""
     if isinstance(tree, dict):  # Leaf
-        version = f"{tree['leafVersion']:x}"
-        script = tree["script"]
+        version = tree["leafVersion"]
+        script = h2b(tree["script"])
         return [tapleaf_hash(script=script, tapleaf_ver=version)]
 
     elif isinstance(tree, list):  # Branch: recurse on children
-        hashes: List[str] = []
+        hashes: List[bytes] = []
         for sub in tree:
             hashes.extend(collect_leaf_hashes(sub))
         return hashes
@@ -295,13 +293,13 @@ def walk_script_tree_paths(
     return lchild_paths + rchild_paths
 
 
-def collect_control_blocks(script_tree: ScriptTree) -> List[str]:
+def collect_control_blocks(script_tree: ScriptTree) -> List[bytes]:
     """Return control blocks for all leaves in tree declaration order.
     Note: This ordering is for testing purposes. In practice, you would
     compute the control block for a specific leaf at spend-time using
     `compute_control_block(path, tree)`."""
     leaf_node_paths: List[int] = walk_script_tree_paths(script_tree)
-    return [compute_control_block(path, script_tree).hex() for path in leaf_node_paths]
+    return [compute_control_block(path, script_tree) for path in leaf_node_paths]
 
 
 def extract_test_data(v: Dict[str, Any]) -> Dict[str, Any]:
@@ -353,7 +351,9 @@ def run_single_test(v: Dict[str, Any], test_num: int) -> bool:
         # General Case: Single- and Multi-Leaf script trees
         else:
             # test script leaf hashing
-            derived_leaf_hashes = collect_leaf_hashes(v["script_tree"])
+            derived_leaf_hashes = [
+                h.hex() for h in collect_leaf_hashes(v["script_tree"])
+            ]
             assert derived_leaf_hashes == v["leaf_hashes"], (
                 f"leaf hash mismatch:\n"
                 f"  derived: {derived_leaf_hashes}\n"
@@ -362,7 +362,7 @@ def run_single_test(v: Dict[str, Any], test_num: int) -> bool:
             print("Leaf Hashes: [\n" + ",\n".join(derived_leaf_hashes) + "\n]")
 
             # test merkle root computation
-            derived_merkle_root = compute_merkle_root(v["script_tree"])
+            derived_merkle_root = compute_merkle_root(v["script_tree"]).hex()
             assert derived_merkle_root == v["merkle_root"], (
                 f"merkle root mismatch: "
                 f"derived={derived_merkle_root}, expected={v['merkle_root']}"
@@ -390,7 +390,9 @@ def run_single_test(v: Dict[str, Any], test_num: int) -> bool:
 
             # test control block derivation
             if v["script_path_control_blocks"]:
-                derived_control_blocks = collect_control_blocks(v["script_tree"])
+                derived_control_blocks = [
+                    cb.hex() for cb in collect_control_blocks(v["script_tree"])
+                ]
                 assert derived_control_blocks == v["script_path_control_blocks"], (
                     f"control blocks mismatch:\n"
                     f"  derived: {derived_control_blocks}\n"
