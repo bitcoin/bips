@@ -130,7 +130,7 @@ def compute_merkle_root(tree: ScriptTree) -> str:
         raise ValueError("Invalid tree node")
 
 
-def compute_control_block(path: int, tree: ScriptTree) -> Optional[bytes]:
+def compute_control_block(path: int, tree: ScriptTree) -> bytes:
     """
     Compute the control block for a script leaf at a given position in the script tree.
     The `path` argument encodes the position as follows.
