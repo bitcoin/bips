@@ -79,9 +79,7 @@ def tapleaf_hash(script: str, tapleaf_ver: str = "c0") -> str:
     """Hash function for tree leaves"""
     if not script:
         raise ValueError("tapleaf_hash: script is required")
-    leaf = b"".join(
-        (bytes.fromhex(tapleaf_ver), serialize_varbytes(bytes.fromhex(script)))
-    )
+    leaf = h2b(tapleaf_ver) + serialize_varbytes(h2b(script))
     return tagged_hash("TapLeaf", leaf).hex()
 
 
@@ -147,7 +145,7 @@ def compute_control_block(path: int, tree: ScriptTree) -> bytes:
         assert len(tree) == 2
         sibling = tree[(path & 1) ^ 1]
         tree = tree[(path & 1)]
-        control_block = bytes.fromhex(compute_merkle_root(sibling)) + control_block
+        control_block = h2b(compute_merkle_root(sibling)) + control_block
         path >>= 1
 
     assert isinstance(tree, dict)
