@@ -130,52 +130,30 @@ def compute_merkle_root(tree: ScriptTree) -> str:
         raise ValueError("Invalid tree node")
 
 
-def compute_control_block(
-    leaf: Dict[str, Any], tree: ScriptTree, path: Optional[List[str]] = None
-) -> Optional[str]:
-    """Compute the control block for a given leaf in a given tree"""
-    if path is None:
-        path = []
+def compute_control_block(path: int, tree: ScriptTree) -> bytes:
+    """
+    Compute the control block for a script leaf at a given position in the script tree.
+    The `path` argument encodes the position as follows.
 
+    Starting at depth zero, follow the branches of the script tree until reaching a leaf.
+    When we encounter a branch at any depth `d` (steps from the root), we look at the bit
+    `(path >> d) & 1` to decide whether to take the left or right branch.
+    """
     if isinstance(tree, dict):
-        if tree == leaf:
-            version_byte = (leaf["leafVersion"] | 1) & 0xFF
-            return f"{version_byte:02x}" + "".join(path)
+        return bytes([tree["leafVersion"] | 1])
+    assert isinstance(tree, list) and len(tree) == 2
 
-        return None
+    control_block = b""
 
-    if isinstance(tree, list):
-        for i, child in enumerate(tree):
-            # build a list of sibling roots at this level
-            siblings: List[str] = []
-            for j, sib in enumerate(tree):
-                if j != i:
-                    siblings.append(compute_merkle_root(sib))
-            # try this child; if it (or a descendant) matches, we get a result
-            result = compute_control_block(leaf, child, siblings + path)
-            if result:
-                return result
+    while isinstance(tree, list):
+        assert len(tree) == 2
+        sibling = tree[(path & 1) ^ 1]
+        tree = tree[(path & 1)]
+        control_block = bytes.fromhex(compute_merkle_root(sibling)) + control_block
+        path >>= 1
 
-    return None
-
-
-def collect_control_blocks(script_tree: ScriptTree) -> List[str]:
-    """Return control blocks for all leaves in tree declaration order.
-    Note: This ordering is for testing purposes. In practice, you would
-    compute the control block for a specific leaf at spend-time using
-    `compute_control_block(leaf, tree)`."""
-    leaf_nodes: List[Dict[str, Any]] = []
-    stack = [script_tree]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, dict):
-            leaf_nodes.append(node)
-        elif isinstance(node, list):
-            stack.extend(reversed(node))
-
-    return [
-        cb for leaf in leaf_nodes if (cb := compute_control_block(leaf, script_tree))
-    ]
+    assert isinstance(tree, dict)
+    return bytes([tree["leafVersion"] | 1]) + control_block
 
 
 #
@@ -306,6 +284,26 @@ def encode(hrp, witver, witprog):
 #
 # BIP-360 Test Code
 #
+def walk_script_tree_paths(script_tree: ScriptTree, path: int = 0, depth: int = 0) -> List[int]:
+    """Walk through a script tree and produce a list of the bit-encoded traversal paths for each leaf.
+    Used for testing compute_control_block."""
+    if isinstance(script_tree, dict):
+        return [path]
+    assert isinstance(script_tree, list) and len(script_tree) == 2
+    lchild_paths = walk_script_tree_paths(script_tree[0], path, depth + 1)
+    rchild_paths = walk_script_tree_paths(script_tree[1], path | (1 << depth), depth + 1)
+    return lchild_paths + rchild_paths
+
+
+def collect_control_blocks(script_tree: ScriptTree) -> List[str]:
+    """Return control blocks for all leaves in tree declaration order.
+    Note: This ordering is for testing purposes. In practice, you would
+    compute the control block for a specific leaf at spend-time using
+    `compute_control_block(path, tree)`."""
+    leaf_node_paths: List[int] = walk_script_tree_paths(script_tree)
+    return [compute_control_block(path, script_tree).hex() for path in leaf_node_paths]
+
+
 def extract_test_data(v: Dict[str, Any]) -> Dict[str, Any]:
     """Extract test data from a test vector, returning None for missing keys"""
     given = v.get("given", {})
