@@ -5,7 +5,7 @@ Usage: python -m p2mr
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import binascii
 import hashlib
@@ -284,14 +284,18 @@ def encode(hrp, witver, witprog):
 #
 # BIP-360 Test Code
 #
-def walk_script_tree_paths(script_tree: ScriptTree, path: int = 0, depth: int = 0) -> List[int]:
+def walk_script_tree_paths(
+    script_tree: ScriptTree, path: int = 0, depth: int = 0
+) -> List[int]:
     """Walk through a script tree and produce a list of the bit-encoded traversal paths for each leaf.
     Used for testing compute_control_block."""
     if isinstance(script_tree, dict):
         return [path]
     assert isinstance(script_tree, list) and len(script_tree) == 2
     lchild_paths = walk_script_tree_paths(script_tree[0], path, depth + 1)
-    rchild_paths = walk_script_tree_paths(script_tree[1], path | (1 << depth), depth + 1)
+    rchild_paths = walk_script_tree_paths(
+        script_tree[1], path | (1 << depth), depth + 1
+    )
     return lchild_paths + rchild_paths
 
 
