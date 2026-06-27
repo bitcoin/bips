@@ -87,9 +87,7 @@ def tapleaf_hash(script: str, tapleaf_ver: str = "c0") -> str:
 
 def tapbranch_hash(left: str, right: str) -> bytes:
     """Hash function for tree branches"""
-    if left < right:
-        return tagged_hash("TapBranch", h2b(left) + h2b(right))
-    return tagged_hash("TapBranch", h2b(right) + h2b(left))
+    return tagged_hash("TapBranch", b"".join(sorted((h2b(right) + h2b(left)))))
 
 
 def collect_leaf_hashes(tree: ScriptTree) -> List[str]:
