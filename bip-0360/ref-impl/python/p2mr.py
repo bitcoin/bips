@@ -48,7 +48,7 @@ def h2b(h: str) -> bytes:
 
 def s2w(script: str) -> List[int]:
     """Convert a script/witprog hex string to a List[int] of its bytes"""
-    return [int(f"{script[i:i + 2]}", 16) for i in range(0, len(script), 2)]
+    return list(h2b(script))
 
 
 def get_compact_size(n: int) -> bytes:
