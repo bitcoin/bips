@@ -85,7 +85,7 @@ def tapleaf_hash(script: str, tapleaf_ver: str = "c0") -> str:
 
 def tapbranch_hash(left: str, right: str) -> bytes:
     """Hash function for tree branches"""
-    return tagged_hash("TapBranch", b"".join(sorted((h2b(right) + h2b(left)))))
+    return tagged_hash("TapBranch", b"".join(sorted((h2b(left), h2b(right)))))
 
 
 def compute_merkle_root(tree: ScriptTree) -> str:
