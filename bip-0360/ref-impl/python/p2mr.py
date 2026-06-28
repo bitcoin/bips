@@ -79,7 +79,7 @@ def tapleaf_hash(script: bytes, tapleaf_ver: int = 0xc0) -> bytes:
     """Hash function for tree leaves"""
     if not script:
         raise ValueError("tapleaf_hash: script is required")
-    leaf = bytes([tapleaf_ver]) + serialize_varbytes(script)
+    leaf = bytes([tapleaf_ver & 0xfe]) + serialize_varbytes(script)
     return tagged_hash("TapLeaf", leaf)
 
 
