@@ -3,7 +3,7 @@
   Layer: Consensus (soft fork)
   Title: Reduced Data Temporary Softfork
   Authors: Dathon Ohm <dathonohm+bip@proton.me>
-  Status: Draft
+  Status: Complete
   Type: Specification
   Assigned: 2025-12-03
   License: BSD-3-Clause
@@ -30,7 +30,11 @@ Blocks during a temporary, one-year deployment are checked with these additional
 # Tapscripts including OP_SUCCESS* opcodes anywhere (even unexecuted) are invalid.
 # Tapscripts executing the OP_IF or OP_NOTIF instruction (regardless of result) are invalid.
 
-Inputs spending UTXOs that were created before the activation height are exempt from the new rules.
+===UTXO grandfathering===
+
+'''Inputs spending UTXOs that were created before the activation height are exempt from all of the new rules.'''
+This grandfathering ensures that no existing coins can be frozen or rendered unspendable by this softfork: any UTXO confirmed before activation can always be spent exactly as it could before, throughout the entire deployment.
+The new rules apply only to UTXOs created at or after the activation height.
 Once the softfork expires, UTXOs of all heights are once again unrestricted.
 
 ===GetBlockTemplate===
@@ -177,7 +181,7 @@ Yes:
 
 # Limiting Taproot control blocks to 257 bytes directly constrains the size of the on-chain, consensus-enforced script tree. This could complicate or possibly even impede advanced smart contracting like BitVM, which relies on a large number of executable scripts. In the worst case scenario, these use cases may just need to wait until this softfork expires. As they are still in early development, testnet and sidechains should be sufficient for the next year while a more scalable rule is implemented.
 # Upgrade hooks are not available for other softforks. As softforks adding new opcodes typically need at least a year to activate, this shouldn't be a practical issue.
-# Some wallet software such as Miniscript habitually creates Tapleaves containing OP_IF. To mitigate the risk of these funds being frozen for a year, this proposal exempts inputs that spend outputs that were created before activation, and provides a two-week grace period between lock-in and activation, to give users time to prepare.
+# Despite there being no known use case that requires it, some wallet software such as Miniscript habitually creates Tapleaves containing OP_IF, which in some hypothetical cases can require less data than the equivalent construction using additional Tapscripts. If such a use case is discovered, this simply increases the fee for that construction until the softfork expires.
 
 '''Isn't the limit on Taproot control blocks too restrictive?'''
 
@@ -314,6 +318,15 @@ All other known use cases are not affected.
 
 https://github.com/bitcoinknots/bitcoin/compare/29.x-knots...dathonohm:bitcoin:uasf-modified-bip9
 
+==Test vectors==
+
+Test coverage specific to these rules is provided by the reference implementation's functional test suite:
+
+* [https://github.com/dathonohm/bitcoin/blob/uasf-modified-bip9/test/functional/feature_rdts.py feature_rdts.py] exercises all seven consensus rules, including their boundaries and the script-type exemptions to rule 2 (BIP16 redeemScripts, witness scripts, and Tapleaf scripts).
+* [https://github.com/dathonohm/bitcoin/blob/uasf-modified-bip9/test/functional/feature_reduced_data_utxo_height.py feature_reduced_data_utxo_height.py] covers the grandfathering of UTXOs created before the activation height.
+
+In addition, a set of transaction-level test vectors generated and verified against the reference implementation is provided in [[bip-0110/test-vectors.json|test-vectors.json]]. Each vector gives the spent output(s), the spending (or output-creating) transaction, and whether a block containing it is valid while these rules are active; the <code>rule</code> and <code>spent_utxo</code> fields identify which numbered rule is exercised and whether the spent UTXO is grandfathered. These vectors were produced by [[bip-0110/test-vectors.py|test-vectors.py]], which submits each case to a regtest node enforcing the rules and emits the verified result; see that file for reproduction instructions.
+
 ==Deployment==
 
 This deployment uses a modified version of BIP9 with the following parameters:
@@ -351,3 +364,19 @@ The FAILED state is never reached because timeout is disabled. EXPIRED is the fi
 ==Credits==
 
 Original draft and advice: Luke-Jr
+
+==Changelog==
+
+* '''1.0.0''' (2026-06-25):
+** Advance to Complete
+* '''0.0.4''' (2026-02-04):
+** Update to BIP-3
+** Add EXPIRED state
+* '''0.0.3''' (2025-11-25):
+** Switch to a modified BIP9 deployment with active_duration, max_activation_height, and a 55% threshold
+** Move the activation deadline block height from 934864 (2026-02-01) to 965664 (2026-09-01)
+* '''0.0.2''' (2025-11-05):
+** Add UTXO grandfathering
+** Remove the reactive activation method
+* '''0.0.1''' (2025-10-24):
+** Initial Draft

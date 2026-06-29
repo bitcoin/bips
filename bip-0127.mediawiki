@@ -4,10 +4,11 @@
   Layer: Applications
   Title: Simple Proof-of-Reserves Transactions
   Authors: Steven Roose <steven@stevenroose.org>
-  Status: Draft
+  Status: Complete
   Type: Specification
   Assigned: 2019-01-28
   License: CC0-1.0
+  Version: 1.0.0
 </pre>
 
 
@@ -56,16 +57,13 @@ the de-facto existing method.
 
 ==Specification==
 
-Our specification consists of two parts:
-# the format for the actual proofs
-# a file format used to package a set of proofs and relevant metadata
-
-The final construction should have the following properties:
+Our proof construction should have the following properties:
 * flexible proof construction to support complex wallet infrastructures
 * easy integration with existing wallet solutions (both hardware and software wallets)
 * support for verification via a standard procedure, regardless of publisher of the proof
 * proof prevents reuse of proofs by other parties by committing to a message
 * allow validating that the issuer had the funds under his control at a certain block, regardless of what happened after that block
+
 
 ===Proof Format===
 
@@ -85,80 +83,6 @@ characteristics:
 
 The existence of the first input (which is just a commitment hash) ensures
 that this transaction is invalid and can never be confirmed.
-
-
-===Proof File Format===
-
-In theory, the first part of the specification would be sufficient as a minimum
-viable standard.  However, there are a number of motivations to extend the
-standard with an extra layer of metadata:
-
-# constructing and combining multiple proofs
-#:Having thousands of UTXOs spread across different offline and online wallets could make it difficult to construct a single proof transaction with all UTXOs.  Allowing multiple proof transactions with the same commitment message and block number gives extra flexibility to custodians with complex wallet infrastructure without making the combined proof less secure.
-# metadata for verification
-#:Not all systems that will be used for verification have access to a full index of all transactions.  However, proofs should be easily verifiable even after some of the UTXOs used in the proof are no longer unspent.  Metadata present in the proof allows for relatively efficient verification of proofs even if no transaction index is available.
-# potential future improvements
-#:The extensible metadata format allows for amending the standard in the future.  One potential improvement would be having UTXO set commitments.  These would allow the proofs-of-reserves to come with accompanying proofs-of-inclusion of all used UTXOs in the UTXO set at the block of proof construction (making validation even more efficient).
-
-The proposed proof-file format provides a standard way of combining multiple
-proofs and associated metadata.  The specification of the format is in the
-Protocol Buffers<ref>https://github.com/protocolbuffers/protobuf/</ref> format.
-
-<pre>
-syntax = "proto3";
-import "google/protobuf/any.proto";
-
-message OutputMeta {
-	// Identify the outpoint.
-	bytes txid = 1;
-	uint32 vout = 2;
-
-	// The block hash of the block where this output was created.
-	bytes block_hash = 3;
-}
-
-message FinalProof {
-	// The proof transaction.  Should be able to be parsed like a regular
-	// Bitcoin transaction.
-	bytes proof_tx = 1;
-
-	// The metadata of the outputs used in the proof transaction.
-	repeated OutputMeta output_metadata = 2;
-}
-
-message ProofOfReserves {
-	// A version number for this format to enable extending it with
-	// additional fields.
-	uint32 version = 1;
-
-	// The network magic for the network in which the proofs are valid.
-	// 0xD9B4BEF9 for mainnet, 0x0709110B for testnet
-	//TODO consider BIP44 coin type ids instead:
-	// https://github.com/satoshilabs/slips/blob/master/slip-0044.md
-	uint32 network_magic = 2;
-
-	// The commitment message for this proof-of-reserves.
-	// This message is global for all the proofs.
-	string message = 3;
-
-	// The block at which this proof is supposed to be validated.
-	// Verification should take into account unspentness of outputs at this
-	// block height.
-	bytes block_hash = 4;
-
-	// The set of final proof transactions with their output metadata.
-	repeated FinalProof final_proofs = 5;
-
-	// Reserved field that can potentially be used by proof-construction tools.
-	// It can be ignored for verification.
-	repeated google.protobuf.Any pending_proofs = 6;
-}
-</pre>
-
-The last field, <tt>pending_proofs</tt>, leaves open some space in the same
-file that can be used by proof-construction tools.  This allows them to
-construct different proofs incrementally without having to switch between file
-formats.
 
 
 ===PSBT (BIP 174) extension===
@@ -201,9 +125,7 @@ Wallets processing an input that has this field set
 
 The proof transaction specification is based on the Bitcoin transaction
 serialization protocol and will thus always be compatible with serializers
-that can interpret Bitcoin transactions.  The protobuf file format is custom
-to this BIP and has a version byte to enable updates while attempting to remain
-backwards compatible.
+that can interpret Bitcoin transactions.
 
 
 ==Implementations==
@@ -218,6 +140,14 @@ in the described format can be found here:
 https://github.com/stevenroose/reserves
 
 An implementation of the custom proof PSBTs is part of the [https://bitcoindevkit.org/ BDK], and can be found here: https://crates.io/crates/bdk-reserves
+
+==Changelog==
+
+* '''1.0.0''' (2026-05-21):
+** Advance to Complete
+** Remove incomplete and unused protocol buffers part
+* '''0.0.1''' (2019-04-03):
+** Initial Draft
 
 == Footnotes ==
 
