@@ -49,9 +49,10 @@ Given a specific application scenario, some features may be unnecessary or not d
 Such optional features include:
 
 - Applying plain tweaks after x-only tweaks.
-- Not Applying tweaks at all.
+- Applying tweaks at all.
 - Dealing with messages that are not exactly 32 bytes.
 - Identifying a disruptive signer after aborting (aborting itself remains mandatory).
+
 If applicable, the corresponding algorithms should simply fail when encountering inputs unsupported by a particular implementation. (For example, the signing algorithm may fail when given a message which is not 32 bytes.)
 Similarly, the test vectors that exercise the unimplemented features should be re-interpreted to expect an error, or be skipped if appropriate.
 
