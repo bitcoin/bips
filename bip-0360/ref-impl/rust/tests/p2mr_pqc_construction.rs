@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 
 use p2mr_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, UtxoReturn};
 use p2mr_ref::error::P2MRError;
-use p2mr_ref::{create_p2mr_utxo, tagged_hash};
+use p2mr_ref::{create_p2mr_utxo};
 
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
@@ -131,20 +131,20 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
                 let tv_leaf_script_buf = ScriptBuf::from_bytes(tv_leaf_script_bytes.clone());
                 let tv_leaf_version = LeafVersion::from_consensus(tv_leaf.leaf_version).unwrap();
                 script_to_id.insert(tv_leaf_script_buf.clone(), tv_leaf.id);
-                
+
                 let mut modified_depth = depth + 1;
                 if direction == Direction::Root {
                     modified_depth = depth;
                 }
-                debug!("traverse_with_depth: leaf_count: {}, depth: {}, modified_depth: {}, direction: {}, tv_leaf_script: {}", 
+                debug!("traverse_with_depth: leaf_count: {}, depth: {}, modified_depth: {}, direction: {}, tv_leaf_script: {}",
                     tv_leaf_count, depth, modified_depth, direction, tv_leaf.script);
-                
+
                 // NOTE: Some of the the test vectors in this project specify leaves with non-standard versions (ie: 250 / 0xfa)
                 p2mr_builder = p2mr_builder.clone().add_leaf_with_ver(depth, tv_leaf_script_buf.clone(), tv_leaf_version)
                     .unwrap_or_else(|e| {
                         panic!("Failed to add leaf: {:?}", e);
                     });
-    
+
                 tv_leaf_count += 1;
             } else if let TVScriptTree::Branch { left, right } = node {
                 // No need to calculate branch hash.
@@ -167,9 +167,9 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
 
     // 2)  verify derived merkle root against test vector
     let test_vector_merkle_root = test_vector.intermediary.merkle_root.as_ref().unwrap();
-    assert_eq!( 
+    assert_eq!(
         derived_merkle_root.to_string(),
-        *test_vector_merkle_root, 
+        *test_vector_merkle_root,
         "Merkle root mismatch"
     );
     debug!("just passed merkle root validation: {}", test_vector_merkle_root);
@@ -207,7 +207,7 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
 
     let p2mr_utxo_return: UtxoReturn = create_p2mr_utxo(derived_merkle_root.to_string());
 
-    assert_eq!( 
+    assert_eq!(
         p2mr_utxo_return.script_pubkey_hex,
         *test_vector.expected.script_pubkey.as_ref().unwrap(),
         "Script pubkey mismatch"

@@ -13,18 +13,16 @@ use bitcoin::{ Amount, TxOut, WPubkeyHash,
     Address, Network, OutPoint,
     blockdata::witness::Witness,
     Script, ScriptBuf, XOnlyPublicKey, PublicKey,
-    sighash::{SighashCache, TapSighashType, Prevouts, TapSighash}, 
+    sighash::{SighashCache, TapSighashType, Prevouts, TapSighash},
     taproot::{LeafVersion, NodeInfo, TapLeafHash, TapNodeHash, TapTree, ScriptLeaves, TaprootMerkleBranch, TaprootBuilder, TaprootSpendInfo, ControlBlock},
     transaction::{Transaction, Sequence}
 };
 
 use bitcoin::p2mr::{P2mrScriptBuf, P2mrBuilder, P2mrSpendInfo, P2mrControlBlock, P2MR_LEAF_VERSION};
 
-use bitcoinpqc::{
-    generate_keypair, public_key_size, secret_key_size, Algorithm, KeyPair, sign, verify,
-};
+use bitcoinpqc::{generate_keypair, Algorithm, KeyPair, sign, verify};
 
-use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn, UnifiedKeypair, MultiKeypair, LeafScriptType, MixedLeafInfo};
+use data_structures::{SpendDetails, UtxoReturn, TaptreeReturn, UnifiedKeypair, MultiKeypair, LeafScriptType};
 
 /* Secp256k1 implements the Signing trait when it's initialized in signing mode.
    It's important to note that Secp256k1 has different capabilities depending on how it's constructed:
@@ -325,7 +323,7 @@ pub fn get_bitcoin_network() -> Network {
             }
         };
     }
-    
+
     bitcoin_network
 }
 
@@ -333,7 +331,7 @@ pub fn create_p2mr_utxo(merkle_root_hex: String) -> UtxoReturn {
 
     let merkle_root_bytes= hex::decode(merkle_root_hex.clone()).unwrap();
     let merkle_root: TapNodeHash = TapNodeHash::from_byte_array(merkle_root_bytes.try_into().unwrap());
-    
+
     /* commit (in scriptPubKey) to the merkle root of all the script path leaves. ie:
         This output key is what gets committed to in the final P2MR address (ie: scriptPubKey)
     */
@@ -342,7 +340,7 @@ pub fn create_p2mr_utxo(merkle_root_hex: String) -> UtxoReturn {
     let script_pubkey = script.to_hex_string();
 
     let bitcoin_network = get_bitcoin_network();
-    
+
     // derive bech32m address and verify against test vector
     // p2mr address is comprised of network HRP + WitnessProgram (version + program)
     let bech32m_address = Address::p2mr(Some(merkle_root), bitcoin_network);
@@ -452,10 +450,10 @@ pub fn pay_to_p2wpkh_tx(
             }
             // assumes bytes are in big endian format
             let secret_key = SecretKey::from_slice(&leaf_script_priv_keys_bytes[0]).unwrap();
-        
+
             // Spending a p2tr UTXO thus using Schnorr signature
             // The aux_rand parameter ensures that signing the same message with the same key produces the same signature
-            // Otherwise (without providing aux_rand), the secp256k1 library internally generates a random nonce for each signature 
+            // Otherwise (without providing aux_rand), the secp256k1 library internally generates a random nonce for each signature
             let signature: bitcoin::secp256k1::schnorr::Signature = SECP.sign_schnorr_with_aux_rand(
                 &spend_msg,
                 &secret_key.keypair(&SECP),
@@ -471,7 +469,7 @@ pub fn pay_to_p2wpkh_tx(
             if leaf_script_priv_keys_bytes.len() != 2 {
                 panic!("SchnorrAndSlhDsa requires exactly two private keys (Schnorr first, then SLH-DSA)");
             }
-            
+
             // Generate Schnorr signature (first key)
             let schnorr_secret_key = SecretKey::from_slice(&leaf_script_priv_keys_bytes[0]).unwrap();
             let schnorr_signature: bitcoin::secp256k1::schnorr::Signature = SECP.sign_schnorr_with_aux_rand(
@@ -482,21 +480,21 @@ pub fn pay_to_p2wpkh_tx(
             // Build combined signature for return value (without sighash bytes)
             let mut combined_sig_bytes = schnorr_signature.serialize().to_vec();
             debug!("SchnorrAndSlhDsa schnorr_sig_bytes: {:?}", combined_sig_bytes.len());
-            
+
             // Generate SLH-DSA signature (second key)
             let slh_dsa_secret_key: bitcoinpqc::SecretKey = bitcoinpqc::SecretKey::try_from_slice(
                 Algorithm::SLH_DSA_128S, &leaf_script_priv_keys_bytes[1]).unwrap();
-            
+
             // Debug: Print the private key being used for signature creation
             info!("SLH-DSA DEBUG: Using private key for signature creation: {}", hex::encode(&leaf_script_priv_keys_bytes[1]));
-            
+
             let slh_dsa_signature = sign(&slh_dsa_secret_key, spend_msg.as_ref()).expect("Failed to sign with SLH-DSA-128S");
             debug!("SchnorrAndSlhDsa slh_dsa_signature.bytes: {:?}", slh_dsa_signature.bytes.len());
-            
+
             // Add SLH-DSA signature to combined signature for return value
             combined_sig_bytes.extend_from_slice(&slh_dsa_signature.bytes);
             sig_bytes = combined_sig_bytes;
-            
+
             // Build witness with sighash bytes
             let mut witness_sig_bytes = schnorr_signature.serialize().to_vec();
             witness_sig_bytes.push(TapSighashType::All as u8);
@@ -543,7 +541,7 @@ pub fn create_p2tr_utxo(merkle_root_hex: String, internal_pubkey_hex: String) ->
     let pub_key_string = format!("02{}", internal_pubkey_hex);
     let internal_pubkey: PublicKey = pub_key_string.parse::<PublicKey>().unwrap();
     let internal_xonly_pubkey: XOnlyPublicKey = internal_pubkey.inner.into();
-    
+
 
     let script_buf: ScriptBuf = ScriptBuf::new_p2tr(&SECP, internal_xonly_pubkey, Option::Some(merkle_root));
     let script: &Script = script_buf.as_script();
@@ -629,7 +627,7 @@ pub fn acquire_schnorr_keypair() -> UnifiedKeypair {
         *   Interrupt timing
     */
     let keypair = Keypair::new(&SECP, &mut OsRng);
-    
+
     let privkey: SecretKey = keypair.secret_key();
     let pubkey: (XOnlyPublicKey, Parity) = XOnlyPublicKey::from_keypair(&keypair);
     UnifiedKeypair::new_schnorr(privkey, pubkey.0)
@@ -649,16 +647,16 @@ pub fn verify_schnorr_signature_via_bytes(signature: &[u8], message: &[u8], pubk
 }
 
 pub fn verify_slh_dsa_via_bytes(signature: &[u8], message: &[u8], pubkey_bytes: &[u8]) -> bool {
-    
+
     // Remove possible trailing Sighash Type byte if present (SLH-DSA-128S is 7856 bytes, so 7857 would indicate SIGHASH byte)
     let mut sig_bytes = signature.to_vec();
     if sig_bytes.len() == 7857 {
         sig_bytes.pop(); // Remove the last byte
     }
-    
-    info!("verify_slh_dsa_via_bytes: signature length: {:?}, message: {:?}, pubkey_bytes: {:?}", 
-        sig_bytes.len(), 
-        hex::encode(message), 
+
+    info!("verify_slh_dsa_via_bytes: signature length: {:?}, message: {:?}, pubkey_bytes: {:?}",
+        sig_bytes.len(),
+        hex::encode(message),
         hex::encode(pubkey_bytes));
 
     let signature = bitcoinpqc::Signature::try_from_slice(Algorithm::SLH_DSA_128S, &sig_bytes).unwrap();
@@ -676,9 +674,9 @@ pub fn verify_schnorr_signature(mut signature: Signature, message: Message, pubk
     }
     let is_valid: bool = SECP.verify_schnorr(&signature, &message, &pubkey).is_ok();
     if !is_valid {
-        error!("verify schnorr failed:\n\tsignature: {:?}\n\tmessage: {:?}\n\tpubkey: {:?}", 
-          signature, 
-          message, 
+        error!("verify schnorr failed:\n\tsignature: {:?}\n\tmessage: {:?}\n\tpubkey: {:?}",
+          signature,
+          message,
           hex::encode(pubkey.serialize()));
     }
     is_valid

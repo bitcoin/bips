@@ -4,14 +4,14 @@ use log::debug;
 
 // Add imports for the unified keypair
 use bitcoin::secp256k1::{SecretKey, XOnlyPublicKey};
-use bitcoinpqc::{KeyPair, Algorithm};
+use bitcoinpqc::{KeyPair};
 
 /// Enum representing the type of leaf script to create
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeafScriptType {
     /// Script requires only SLH-DSA signature
     SlhDsaOnly,
-    /// Script requires only Schnorr signature  
+    /// Script requires only Schnorr signature
     SchnorrOnly,
     /// Script requires both Schnorr and SLH-DSA signatures (in that order)
     ConcatenatedSchnorrAndSlhDsaSameLeaf,
@@ -92,7 +92,7 @@ impl<'de> Deserialize<'de> for TestVectors {
         }
 
         let helper = Helper::deserialize(deserializer)?;
-        
+
         let mut test_vector_map = HashMap::new();
         for test in helper.test_vectors.iter() {
             test_vector_map.insert(test.id.clone(), test.clone());

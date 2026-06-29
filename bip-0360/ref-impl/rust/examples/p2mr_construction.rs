@@ -1,7 +1,8 @@
+use log::{info};
+
 use p2mr_ref::{create_p2mr_utxo, create_p2mr_multi_leaf_taptree, tap_tree_lock_type};
 use p2mr_ref::data_structures::{UtxoReturn, TaptreeReturn, ConstructionReturn, LeafScriptType};
-use std::env;
-use log::{info, error};
+
 
 // Inspired by:  https://learnmeabitcoin.com/technical/upgrades/taproot/#example-3-script-path-spend-signature
 fn main() -> ConstructionReturn {

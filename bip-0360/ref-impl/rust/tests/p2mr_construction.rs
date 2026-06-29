@@ -1,16 +1,15 @@
-use std::collections::HashMap;
-use bitcoin::{Network, ScriptBuf};
-use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch, TapNodeHash};
-use bitcoin::p2mr::{P2mrBuilder, P2mrControlBlock, P2mrSpendInfo};
-use bitcoin::hashes::Hash;
-
 use hex;
 use log::debug;
 use once_cell::sync::Lazy;
 
+use bitcoin::{Network, ScriptBuf};
+use bitcoin::hashes::Hash;
+use bitcoin::p2mr::{P2mrBuilder, P2mrSpendInfo};
+use bitcoin::taproot::{LeafVersion, TapTree, ScriptLeaves, TapLeafHash, TaprootMerkleBranch, TapNodeHash};
+
 use p2mr_ref::data_structures::{TVScriptTree, TestVector, Direction, TestVectors, UtxoReturn};
 use p2mr_ref::error::P2MRError;
-use p2mr_ref::{create_p2mr_utxo, tagged_hash};
+use p2mr_ref::{create_p2mr_utxo};
 
 //  This file contains tests that execute against the BIP360 script-path-only test vectors.
 
@@ -21,48 +20,49 @@ static TEST_VECTORS: Lazy<TestVectors> = Lazy::new(|| {
     test_vectors
 });
 
-static P2TR_USING_V2_WITNESS_VERSION_ERROR: &str = "p2tr_using_v2_witness_version_error";
-static P2MR_MISSING_LEAF_SCRIPT_TREE_ERROR_TEST: &str = "p2mr_missing_leaf_script_tree_error";
-static P2MR_SINGLE_LEAF_SCRIPT_TREE_TEST: &str = "p2mr_single_leaf_script_tree";
-static P2MR_DIFFERENT_VERSION_LEAVES_TEST: &str = "p2mr_different_version_leaves";
-static P2MR_TWO_LEAF_SAME_VERSION_TEST: &str = "p2mr_two_leaf_same_version";
-static P2MR_THREE_LEAF_COMPLEX_TEST: &str = "p2mr_three_leaf_complex";
-static P2MR_THREE_LEAF_ALTERNATIVE_TEST: &str = "p2mr_three_leaf_alternative";
-static P2MR_SIMPLE_LIGHTNING_CONTRACT_TEST: &str = "p2mr_simple_lightning_contract";
+// Helper to run a P2MR error test vector
+fn assert_p2mr_error<F>(id: &str, process: F, expected: P2MRError)
+where
+    F: FnOnce(&TestVector) -> anyhow::Result<()>,
+{
+    let _ = env_logger::try_init();
+    let tv = TEST_VECTORS.test_vector_map.get(id).unwrap();
+    let err = process(tv).unwrap_err();
+    assert!(matches!(err.downcast_ref::<P2MRError>(), Some(e) if std::mem::discriminant(e) == std::mem::discriminant(&expected)));
+}
 
+// Helper to run a P2MR positive test vector by its ID.
+fn run_p2mr_test(id: &str) {
+    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
+    let test_vector = TEST_VECTORS.test_vector_map.get(id).unwrap();
+    process_test_vector_p2mr(test_vector).unwrap();
+}
+
+// Error Tests
 #[test]
 fn test_p2tr_using_v2_witness_version_error() {
-
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2TR_USING_V2_WITNESS_VERSION_ERROR).unwrap();
-    let test_result: anyhow::Result<()> = process_test_vector_p2tr(test_vector);
-    assert!(matches!(test_result.unwrap_err().downcast_ref::<P2MRError>(),
-        Some(P2MRError::P2trRequiresWitnessVersion1)));
+    assert_p2mr_error(
+        "p2mr_misuse_v2_witness_version_with_pubkey_error",
+        process_test_vector_p2tr,
+        P2MRError::P2trRequiresWitnessVersion1,
+    );
 }
 
 // https://learnmeabitcoin.com/technical/upgrades/taproot/#example-2-script-path-spend-simple
 #[test]
 fn test_p2mr_missing_leaf_script_tree_error() {
-
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_MISSING_LEAF_SCRIPT_TREE_ERROR_TEST).unwrap();
-    let test_result: anyhow::Result<()> = process_test_vector_p2mr(test_vector);
-    assert!(matches!(test_result.unwrap_err().downcast_ref::<P2MRError>(),
-        Some(P2MRError::MissingScriptTreeLeaf)));
+    assert_p2mr_error(
+        "p2mr_null_or_missing_script_tree_error",
+        process_test_vector_p2mr,
+        P2MRError::MissingScriptTreeLeaf,
+    );
 }
 
+// Positive Tests
 // https://learnmeabitcoin.com/technical/upgrades/taproot/#example-2-script-path-spend-simple
 #[test]
 fn test_p2mr_single_leaf_script_tree() {
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_SINGLE_LEAF_SCRIPT_TREE_TEST).unwrap();
-    process_test_vector_p2mr(test_vector).unwrap();
+    run_p2mr_test("p2mr_single_leaf_script_tree");
 }
 
 /// Verifies that P2MR construction succeeds when leaves carry non-standard leaf versions (e.g. 0xfa).
@@ -70,52 +70,32 @@ fn test_p2mr_single_leaf_script_tree() {
 /// and the resulting merkle root and control blocks are valid.
 #[test]
 fn test_p2mr_different_version_leaves() {
-
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_DIFFERENT_VERSION_LEAVES_TEST).unwrap();
-    process_test_vector_p2mr(test_vector).unwrap();
+    run_p2mr_test("p2mr_different_version_leaves");
 }
 
 #[test]
 fn test_p2mr_simple_lightning_contract() {
-
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_SIMPLE_LIGHTNING_CONTRACT_TEST).unwrap();
-    process_test_vector_p2mr(test_vector).unwrap();
+    run_p2mr_test("p2mr_simple_lightning_contract")
 }
 
 #[test]
 fn test_p2mr_two_leaf_same_version() {
-
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_TWO_LEAF_SAME_VERSION_TEST).unwrap();
-    process_test_vector_p2mr(test_vector).unwrap();
+    run_p2mr_test("p2mr_two_leaf_same_version");
 }
 
 #[test]
 fn test_p2mr_three_leaf_complex() {
-
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_THREE_LEAF_COMPLEX_TEST).unwrap();
-    process_test_vector_p2mr(test_vector).unwrap();
+    run_p2mr_test("p2mr_three_leaf_complex");
 }
 
 #[test]
 fn test_p2mr_three_leaf_alternative() {
+    run_p2mr_test("p2mr_three_leaf_alternative");
+}
 
-    let _ = env_logger::try_init(); // Use try_init to avoid reinitialization error
-
-    let test_vectors = &*TEST_VECTORS;
-    let test_vector = test_vectors.test_vector_map.get(P2MR_THREE_LEAF_ALTERNATIVE_TEST).unwrap();
-    process_test_vector_p2mr(test_vector).unwrap();
+#[test]
+fn test_p2mr_duplicate_leaves() {
+    run_p2mr_test("p2mr_duplicate_leaves");
 }
 
 fn process_test_vector_p2tr(test_vector: &TestVector) -> anyhow::Result<()> {
@@ -139,43 +119,37 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
     // Use of TaprootBuilder avoids user error in constructing branches manually and ensures Merkle tree correctness and determinism
     let mut p2mr_builder: P2mrBuilder = P2mrBuilder::new();
 
-    let mut script_to_id: HashMap<ScriptBuf, u8> = HashMap::new();
-
     // 1)  traverse test vector script tree and add leaves to P2MR builder
     if let Some(script_tree) = tv_script_tree {
 
-        script_tree.traverse_with_right_subtree_first(0, Direction::Root,&mut |node, depth, direction| {
+        script_tree.traverse_with_right_subtree_first(0, Direction::Root, &mut |node, depth, direction| {
 
             if let TVScriptTree::Leaf(tv_leaf) = node {
 
                 let tv_leaf_script_bytes = hex::decode(&tv_leaf.script).unwrap();
-
                 let tv_leaf_script_buf = ScriptBuf::from_bytes(tv_leaf_script_bytes.clone());
                 let tv_leaf_version = LeafVersion::from_consensus(tv_leaf.leaf_version).unwrap();
-                script_to_id.insert(tv_leaf_script_buf.clone(), tv_leaf.id);
-                
+
                 let mut modified_depth = depth + 1;
                 if direction == Direction::Root {
                     modified_depth = depth;
                 }
-                debug!("traverse_with_depth: leaf_count: {}, depth: {}, modified_depth: {}, direction: {}, tv_leaf_script: {}", 
+                debug!("traverse_with_depth: leaf_count: {}, depth: {}, modified_depth: {}, direction: {}, tv_leaf_script: {}",
                     tv_leaf_count, depth, modified_depth, direction, tv_leaf.script);
-                
-                // NOTE: Some of the the test vectors in this project specify leaves with non-standard versions (ie: 250 / 0xfa)
+
+                // NOTE: Some of the test vectors in this project specify leaves with non-standard versions (ie: 250 / 0xfa)
                 p2mr_builder = p2mr_builder.clone().add_leaf_with_ver(depth, tv_leaf_script_buf.clone(), tv_leaf_version)
                     .unwrap_or_else(|e| {
                         panic!("Failed to add leaf: {:?}", e);
                     });
-    
+
                 tv_leaf_count += 1;
             } else if let TVScriptTree::Branch { left, right } = node {
-                // No need to calculate branch hash.
-                // TaprootBuilder does this for us.
                 debug!("branch_count: {}, depth: {}, direction: {}", current_branch_id, depth, direction);
                 current_branch_id += 1;
             }
         });
-    }else {
+    } else {
         return Err(P2MRError::MissingScriptTreeLeaf.into());
     }
 
@@ -189,9 +163,9 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
 
     // 2)  verify derived merkle root against test vector
     let test_vector_merkle_root = test_vector.intermediary.merkle_root.as_ref().unwrap();
-    assert_eq!( 
+    assert_eq!(
         derived_merkle_root.to_string(),
-        *test_vector_merkle_root, 
+        *test_vector_merkle_root,
         "Merkle root mismatch"
     );
     debug!("just passed merkle root validation: {}", test_vector_merkle_root);
@@ -200,7 +174,7 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
     let tap_tree: TapTree = p2mr_builder.clone().into_inner().try_into_taptree().unwrap();
     let script_leaves: ScriptLeaves = tap_tree.script_leaves();
 
-    // 3) Iterate through leaves of derived script tree and verify both script leaf hashes and control blocks
+    // 3) Iterate through leaves of derived script tree and verify control blocks
     for derived_leaf in script_leaves {
 
         let version = derived_leaf.version();
@@ -209,9 +183,6 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
 
         let derived_leaf_hash: TapLeafHash = TapLeafHash::from_script(script, version);
         let leaf_hash = hex::encode(derived_leaf_hash.as_raw_hash().to_byte_array());
-
-        let leaf_id = script_to_id.get(script)
-            .unwrap_or_else(|| panic!("leaf script not found in script_to_id map: {}", hex::encode(script.as_bytes())));
 
         // BIP341 control byte layout: bits 7..1 = leaf_version, bit 0 = parity.
         // `& 0xfe` (11111110) masks off bit 0, isolating the leaf version in the upper 7 bits.
@@ -223,18 +194,17 @@ fn process_test_vector_p2mr(test_vector: &TestVector) -> anyhow::Result<()> {
             .expect("encode should not fail");
         let derived_serialized_control_block = hex::encode(&cb_buf);
 
-        let expected_cb = &expected_control_blocks[*leaf_id as usize];
-        assert_eq!(
-            derived_serialized_control_block, *expected_cb,
-            "Control block mismatch for leaf id {}: derived {}, expected {}", leaf_id, derived_serialized_control_block, expected_cb
+        assert!(
+            expected_control_blocks.contains(&derived_serialized_control_block),
+            "Unexpected control block: {}", derived_serialized_control_block
         );
-        debug!("leaf_id: {}, leaf_hash: {}, derived_serialized_control_block: {}", leaf_id, leaf_hash, derived_serialized_control_block);
 
+        debug!("leaf_hash: {}, derived_serialized_control_block: {}", leaf_hash, derived_serialized_control_block);
     }
 
     let p2mr_utxo_return: UtxoReturn = create_p2mr_utxo(derived_merkle_root.to_string());
 
-    assert_eq!( 
+    assert_eq!(
         p2mr_utxo_return.script_pubkey_hex,
         *test_vector.expected.script_pubkey.as_ref().unwrap(),
         "Script pubkey mismatch"

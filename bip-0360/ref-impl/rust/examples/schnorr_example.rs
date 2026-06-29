@@ -1,4 +1,3 @@
-use std::env;
 use log::info;
 use once_cell::sync::Lazy;
 use bitcoin::key::{Secp256k1};
@@ -22,20 +21,20 @@ fn main() {
     let keypair = acquire_schnorr_keypair();
     let (secret_key, public_key) = keypair.as_schnorr().unwrap();
     let message_bytes = b"hello";
-    
+
     // secp256k1 operates on a 256-bit (32-byte) field, so inputs must be exactly this size
     // subsequently, Schnorr signatures on secp256k1 require exactly a 32-byte input (the curve's scalar field size)
     let message_hash: Hash = Hash::hash(message_bytes);
 
     let message: Message = Message::from_digest_slice(&message_hash.to_byte_array()).unwrap();
-    
-    
+
+
     /* The secp256k1 library internally generates a random scalar value (aka: nonce or k-value) for each signature
     * Every signature is unique - even if you sign the same message with the same private key multiple times
     * The randomness is handled automatically by the secp256k1 implementation
     * You get different signatures each time for the same inputs
     * The nonce is only needed during signing, not during verification
-    
+
     Schnorr signatures require randomness for security reasons:
     * Prevents private key recovery - If the same nonce is used twice, an attacker could potentially derive your private key
     * Ensures signature uniqueness - Each signature should be cryptographically distinct
@@ -43,7 +42,7 @@ fn main() {
     */
     let signature: bitcoin::secp256k1::schnorr::Signature = SECP.sign_schnorr(&message, &secret_key.keypair(&SECP));
     info!("Signature created successfully, size: {}", signature.serialize().len());
-    
+
     //let pubkey = public_key;
 
 
