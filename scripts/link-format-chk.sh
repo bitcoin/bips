@@ -24,7 +24,7 @@ done < <(find . -type f -name '*.mediawiki' | sort)
 
 MARKDOWN_ECODE=0
 while IFS= read -r fname; do
-    GRES=$(grep -nE '\[[[:space:]]*https?://[^][]*\]|\[\[(\.\./|/)?bip-[^][]*\]\]' "$fname")
+    GRES=$(grep -nE '\[[[:space:]]*https?://[^][[:space:]]+[[:space:]]+[^][]*\]|\[\[https?://[^][]*\]\]|\[\[(\.\./|/)?bip-[^][]*\]\]' "$fname")
     if [ "$GRES" != "" ]; then
         if [ $MARKDOWN_ECODE -eq 0 ]; then
             >&2 echo "Github Markdown format writes links as [text](URL), not as [URL text] or [[URL|text]]:"
