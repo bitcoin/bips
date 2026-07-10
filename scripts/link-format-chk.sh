@@ -36,4 +36,20 @@ while IFS= read -r fname; do
         done <<< "$GRES"
     fi
 done < <(find . -type f -name '*.md' | sort)
+
+REDUNDANT_ECODE=0
+while IFS= read -r fname; do
+    # Matches [url](url)
+    GRES=$(grep -nE '\[(https?://[^]]+)\]\(\1\)' "$fname")
+    if [ "$GRES" != "" ]; then
+        if [ $REDUNDANT_ECODE -eq 0 ]; then
+            >&2 echo "Markdown links where the text matches the URL are redundant. Use <URL> instead:"
+        fi
+        REDUNDANT_ECODE=1
+        ECODE=1
+        while IFS= read -r line; do
+            echo "- ${fname#./}:$line"
+        done <<< "$GRES"
+    fi
+done < <(find . -type f -name '*.md' | sort)
 exit $ECODE
