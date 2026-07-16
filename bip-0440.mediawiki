@@ -10,7 +10,7 @@
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
               https://delvingbitcoin.org/t/benchmarking-bitcoin-script-evaluation-for-the-varops-budget-great-script-restoration/2094
-  Version: 0.2.0
+  Version: 0.2.1
 </pre>
 
 ==Introduction==
@@ -139,6 +139,23 @@ We use the following annotations to indicate the derivation for each opcode:
 ;OTHER
 : all other operations which take a variable-length parameter: cost = 4 per byte written.
 
+====Byte Lengths and Word Spans====
+
+Cost formulas distinguish script-visible byte lengths from 64-bit word spans.
+<code>length(X)</code> is the script-visible byte length of stack element
+<code>X</code>.  <code>wordspan(n) = ((n + 7) / 8) * 8</code> is a byte count
+rounded up to the next 8-byte boundary; when the argument is a stack element,
+<code>wordspan(X)</code> means <code>wordspan(length(X))</code>.
+
+Unless a formula explicitly uses <code>wordspan(...)</code>,
+<code>length(X)</code> refers to the script-visible byte length of <code>X</code>.
+Formulas use <code>wordspan(...)</code> only when the modeled operation
+examines or writes the padded 64-bit word span, for example integer
+conversion, zero testing, numeric comparison, arithmetic with carry, or bit
+operations over words.  Costs remain based on script-visible byte lengths when the
+operation copies, hashes, limits, truncates, prepends, or otherwise produces
+exactly the script-visible bytes.
+
 Note that COMPARINGZERO is a subset of COMPARING: an implementation must examine every byte of a stack element to determine if the value is 0.  This can be done efficiently using existing comparison techniques, e.g. check the first byte, then `memcmp(first, first+1, len-1)`.
 
 Note that LENGTHCONV is used where script interprets a value as a length.  Without explicit limits on number size, such (little-endian) values might have to be examined in their entirety to ensure any trailing bytes are zero, implying a COMPARINGZERO operation after the first few bytes.
@@ -157,15 +174,15 @@ The following opcodes demonstrate the approach, with an analysis of how the cost
 ! Reason
 |-
 |OP_VERIFY
-|length(A) * 2
+|wordspan(A) * 2
 |COMPARINGZERO
 |-
 |OP_NOT
-|length(A) * 2
+|wordspan(A) * 2
 |COMPARINGZERO
 |-
 |OP_0NOTEQUAL
-|length(A) * 2
+|wordspan(A) * 2
 |COMPARINGZERO
 |-
 |OP_EQUAL
@@ -203,7 +220,7 @@ OP_EQUAL and OP_EQUALVERIFY don't have to examine any data (and the Bitcoin Core
 |COPYING
 |-
 |OP_IFDUP
-|length(A) * 5
+|wordspan(A) * 2 + length(A) * 3
 |COMPARINGZERO + COPYING
 |-
 |OP_DUP
@@ -215,7 +232,7 @@ OP_EQUAL and OP_EQUALVERIFY don't have to examine any data (and the Bitcoin Core
 |COPYING
 |-
 |OP_PICK
-|length(A) * 2 + length(A-th-from-top) * 3
+|wordspan(A) * 2 + length(A-th-from-top) * 3
 |LENGTHCONV + COPYING
 |-
 |OP_TUCK
@@ -223,7 +240,7 @@ OP_EQUAL and OP_EQUALVERIFY don't have to examine any data (and the Bitcoin Core
 |COPYING
 |-
 |OP_ROLL
-|length(A) * 2 + 48 * Value of A
+|wordspan(A) * 2 + 48 * Value of A
 |LENGTHCONV + ROLL
 |-
 |}
@@ -243,57 +260,57 @@ A reasonable implementation (and the current bitcoind C++ implementation) is to 
 ! Varops Budget Cost
 |-
 |OP_BOOLAND
-|(length(A) + length(B)) * 2
+|(wordspan(A) + wordspan(B)) * 2
 |COMPARINGZERO
 |-
 |OP_BOOLOR
-|(length(A) + length(B)) * 2
+|(wordspan(A) + wordspan(B)) * 2
 |COMPARINGZERO
 |-
 |OP_NUMEQUAL
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_NUMEQUALVERIFY
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_NUMNOTEQUAL
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_LESSTHAN
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_GREATERTHAN
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_LESSTHANOREQUAL
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_GREATERTHANOREQUAL
-|MAX(length(A), length(B)) * 2
+|MAX(wordspan(A), wordspan(B)) * 2
 |COMPARING + COMPARINGZERO
 |-
 |OP_MIN
-|MAX(length(A), length(B)) * 4
+|MAX(wordspan(A), wordspan(B)) * 4
 |OTHER
 |-
 |OP_MAX
-|MAX(length(A), length(B)) * 4
+|MAX(wordspan(A), wordspan(B)) * 4
 |OTHER
 |-
 |OP_WITHIN
-|(MAX(length(C), length(B)) + MAX(length(C), length(A))) * 2
+|(MAX(wordspan(C), wordspan(B)) + MAX(wordspan(C), wordspan(A))) * 2
 |COMPARING + COMPARINGZERO
 |}
 
 ====Rationale====
 
-Numerical comparison in little-endian numbers involves a byte-by-byte comparison, then if one is longer, checking that the remainder is all zero bytes.
+Numerical comparison in little-endian numbers involves comparing the padded word spans, then if one is longer, checking that the remainder is all zero.
 
 However, OP_MAX and OP_MIN also normalize their result, which means they can't use the optimized comparison routine but must instead track the final non-zero byte to perform truncation.
 
@@ -331,6 +348,7 @@ Work in progress:
 
 ==Changelog==
 
+* 0.2.1: 2026-06-15: define wordspan notation and clarify byte-length versus word-span costs.
 * 0.2.0: 2026-02-21: increase in cost for hashing and copying based on benchmark results.
 * 0.1.0: 2025-09-27: first public posting
 
