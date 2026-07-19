@@ -10,6 +10,7 @@
 * [Italian](italian.txt)
 * [Czech](czech.txt)
 * [Portuguese](portuguese.txt)
+* [Bangla](bangla.txt)
 
 ## Wordlists (Special Considerations)
 
@@ -115,3 +116,12 @@ Credits: @alegotardo @bitmover-studio @brenorb @kuthullu @ninjastic @sabotag3x @
 9. The words which have not the same spelling in Brazil and in Portugal are excluded.
 10. No words that remind one of negative/sad/bad things.
 11. No very similar words with only 1 letter of difference.
+
+### Bangla
+
+1. Curated using the Wiktionary dataset to prioritize recognizable and valid words.
+2. Words are typically between 4 and 8 characters long.
+3. First 4 characters (including vowels and consonants) uniquely identify the word.
+4. Filtered to strictly avoid single-letter words or words with complex grammatical conjunctions.
+5. All words with complex characters (e.g. 'রেফ', 'খন্ড ত') and complex conjunctions (e.g. 'যুক্তবর্ণ') were excluded to ensure they are easy to type via phonetic keyboards.
+6. Only simple characters within the basic Bangla Unicode block were included.
