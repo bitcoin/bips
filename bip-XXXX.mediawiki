@@ -1,0 +1,559 @@
+<pre>
+  BIP: ?
+  Layer: Consensus (soft fork)
+  Title: CISA for Taproot Key Path Spends in SegWit v2
+  Authors: Fabian Jahr <fjahr@protonmail.com>
+  Status: Draft
+  Type: Specification
+  Assigned: ?
+  License: BSD-3-Clause
+  Discussion: 2026-07-18: https://groups.google.com/g/bitcoindev/c/1XH6sBLWZuA
+  Requires: 340, 341, 342, 458, 459
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This document proposes cross-input signature aggregation (CISA) for Bitcoin transactions.
+A new witness version (v2) enables Taproot-style key path spending with two Schnorr signature aggregation schemes: half-aggregation and full-aggregation.
+Half-aggregation non-interactively reduces ''n'' signatures from ''64*n'' bytes to ''(n+1)*32'' bytes, while full-aggregation reduces them to a constant 64 bytes but requires interactive signing.
+Each input's witness starts with a marker byte indicating its aggregation mode (half-agg, full-agg, or opt-out), optionally followed by a sighash type.
+The opt-out mode exists for protocols that depend on a specific signature appearing on chain, such as some adaptor signature protocols.
+
+=== Copyright ===
+
+This document, along with the [[bip-XXXX/test-vectors.py|test vector generator]] and test vectors, is licensed under the BSD-3-Clause License.
+The exception is the vendored copy of the secp256k1lab library in [[bip-XXXX/secp256k1lab/|bip-XXXX/secp256k1lab]], which is licensed under the MIT License as stated in its [[bip-XXXX/secp256k1lab/COPYING|COPYING]] file.
+
+=== Motivation ===
+
+Signature data makes up a large share of Bitcoin transaction sizes.
+Each Taproot key path spend requires a 64-byte [[bip-0340.mediawiki|BIP 340]] Schnorr signature, so transactions with many inputs spend much of their weight on signatures.
+
+The linearity of Schnorr signatures allows combining multiple signatures into a more compact form.
+Cross-input signature aggregation applies this to the signatures of different inputs within one transaction.
+
+This provides:
+
+* '''Lower fees and smaller transactions''': Signature data shrinks with the number of aggregated inputs, reducing transaction weight and fees and freeing up block space
+* '''Reduced cost of privacy''': Aggregation reduces the signature cost of any batched transaction, and collaborative transactions such as CoinJoin and PayJoin benefit the most per participant because they batch the inputs of many users
+* '''Flexible usage''': Two aggregation schemes serve different use cases and individual inputs can opt out
+* '''Protocol compatibility''': The explicit opt-out protects protocols that depend on a specific signature appearing on chain
+
+Use cases include:
+
+* '''CoinJoin/PayJoin transactions''': With CISA, the per-participant cost of CoinJoin and PayJoin transactions decreases as the number of participants increases, making privacy-enhancing usage cheaper
+* '''Consolidation and batching''': Businesses and users combining many small UTXOs into a single output or multiple payment outputs benefit from reduced transaction costs
+* '''Lightning channel opens and splices''': Dual funding and splicing combine inputs from both peers in a collaborative transaction, and the existing interactive negotiation between the peers can accommodate the signing rounds of full-aggregation
+
+Aside from these use cases, any transaction spending more than one witness v2 input benefits from CISA through fee savings.
+
+== Design ==
+
+This BIP introduces a new witness version (v2) that enables signature aggregation for Taproot-style key path spends.
+The design reuses the existing Taproot and tapscript machinery wherever possible and makes aggregation opt-in on a per-input basis, so witness v2 outputs can be adopted independently of whether aggregation is used.
+Both aggregation schemes are supported, inputs can opt out explicitly, and aggregation is limited to key path spends.
+The reasoning behind these decisions is covered in the [[#rationale|Rationale]] section.
+
+The main design decision is that every witness v2 key path input carries a marker byte plus an optional sighash byte.
+For aggregated inputs, the last input in each aggregation group includes the aggregate signature concatenated with the marker.
+This design:
+
+* Shows which inputs participate in aggregation
+* Lets each input specify its own sighash type
+* Allows mixing aggregated, opted-out, and non-aggregated inputs in the same transaction
+* Commits to the aggregation mode in the signature message, protecting opted-out inputs from non-consensual aggregation by third parties (even potential future block-wide aggregation)
+* Supports half-aggregation and full-aggregation within the same transaction (as separate groups, one per scheme)
+
+== Specification ==
+
+=== Witness version 2 ===
+
+Witness version 2 outputs are created with:
+
+* '''ScriptPubKey''': <code>OP_2 <32-byte x-only pubkey></code> (or <code>0x5220{32-byte x-only pubkey}</code>)
+* '''Address format''': Bech32m encoding with prefix <code>bc1</code> (mainnet) or <code>tb1</code> (testnet). Addresses start with <code>bc1z</code> and <code>tb1z</code> respectively.
+
+The 32-byte x-only pubkey is computed identically to [[bip-0341.mediawiki|BIP 341]] Taproot outputs.
+
+A witness v2 output with a witness program that is not exactly 32 bytes long remains unencumbered by this BIP, analogous to the treatment of non-32-byte witness programs in BIP 341.
+P2SH-wrapped witness v2 outputs also remain unencumbered, as in BIP 341.
+
+Witness v2 outputs with a 32-byte witness program can be spent in two ways:
+
+* '''Key path spend''': The witness stack contains exactly one element after removal of the optional annex. The element is interpreted according to the marker rules defined in this BIP.
+* '''Script path spend''': The witness stack contains two or more elements after removal of the optional annex. Validation follows the script path spending rules of BIP 341 and [[bip-0342.mediawiki|BIP 342]] unchanged. Signatures inside script path spends are not aggregated under this BIP.
+
+Script path signatures continue to use the unmodified BIP 341 signature message with epoch <code>0x00</code> and the BIP 342 tapscript extension.
+The aggregation mode commitment defined below applies only to key path spends.
+Signatures cannot be replayed between witness versions because the signature message always commits to the scriptPubKey of the output being spent.
+The upgrade mechanisms of BIP 341 and BIP 342, unknown leaf versions and <code>OP_SUCCESS</code> opcodes, apply to witness v2 script path spends unchanged.
+
+Spending a witness v2 output with an empty witness is invalid.
+
+=== Marker definitions ===
+
+This BIP defines three marker bytes for witness v2 key path spends:
+
+* <code>0xbb</code>: '''Opt-out marker'''. The input does not participate in aggregation and uses a standard BIP 340 signature.
+* <code>0xbc</code>: '''Half-aggregation marker'''. The input participates in half-aggregation.
+* <code>0xbd</code>: '''Full-aggregation marker'''. The input participates in full-aggregation.
+
+The marker byte is not an opcode, since a key path witness element is not script.
+The only structural constraint is that markers must be disjoint from the annex prefix <code>0x50</code>.
+The chosen values fall into the range <code>0xbb</code> to <code>0xfe</code>, which is unassigned in legacy script and corresponds to <code>OP_SUCCESS</code> opcodes in tapscript, so they do not collide with opcodes commonly seen in scripts.
+
+A key path spend whose witness element is empty or starts with any other byte value is invalid.
+Undefined marker values cannot serve as an upgrade hook because witness data is not committed to by the output.
+A marker value that validated unconditionally would make every witness v2 output spendable by anyone.
+Future aggregation modes are therefore expected to be introduced through new witness versions or new leaf versions instead of new marker values.
+
+=== Witness structure ===
+
+Aggregation changes only the content of the witness.
+The transaction format is unchanged.
+A transaction may contain at most two aggregation groups: one half-aggregation group and one full-aggregation group.
+Aggregated and non-aggregated inputs can be mixed in any order, with the constraint that all markers for a group must appear before that group's aggregate signature.
+The input carrying a group's aggregate signature is called the ''final input'' of the group.
+Only witness v2 key path spends can participate in aggregation groups.
+Inputs spending other output types, as well as witness v2 script path spends, are validated independently under their own rules and can be combined freely with aggregated inputs in the same transaction.
+
+Each witness v2 key path spend uses a single witness element (plus optional annex) that concatenates the marker, an optional sighash byte, and an optional signature:
+
+* '''Marker''': First byte (<code>0xbb</code>, <code>0xbc</code>, or <code>0xbd</code>)
+* '''Sighash type''': Optional second byte. If absent, <code>SIGHASH_DEFAULT</code> (<code>0x00</code>) is used<ref>'''Why does the sighash byte follow the marker instead of the signature?''' Traditionally the sighash byte is appended to the signature, as in the 65-byte signatures of BIP 341. Here aggregation placeholders carry no signature, so their sighash byte can only follow the marker. Appending it to the signature in the other forms would put the sighash byte in two different positions depending on the form, while the chosen order keeps it in the same position in every form.</ref>
+* '''Signature''': For opted-out inputs or the final input of an aggregation group
+
+The marker and the length of the witness element together determine its interpretation:
+
+{| class="wikitable"
+|+ Valid witness element forms by marker and length
+|-
+! Marker !! Length !! Content after the marker !! Interpretation
+|-
+| <code>0xbb</code> || 65 bytes || 64-byte signature || Opted-out, <code>SIGHASH_DEFAULT</code>
+|-
+| <code>0xbb</code> || 66 bytes || sighash and 64-byte signature || Opted-out, explicit sighash
+|-
+| <code>0xbc</code> or <code>0xbd</code> || 1 byte || none || Aggregation placeholder, <code>SIGHASH_DEFAULT</code>
+|-
+| <code>0xbc</code> or <code>0xbd</code> || 2 bytes || sighash || Aggregation placeholder, explicit sighash
+|-
+| <code>0xbc</code> || ''(n+1)*32+1'' bytes || half-agg signature || Half-aggregation final, <code>SIGHASH_DEFAULT</code>
+|-
+| <code>0xbc</code> || ''(n+1)*32+2'' bytes || sighash and half-agg signature || Half-aggregation final, explicit sighash
+|-
+| <code>0xbd</code> || 65 bytes || 64-byte signature || Full-aggregation final, <code>SIGHASH_DEFAULT</code>
+|-
+| <code>0xbd</code> || 66 bytes || sighash and 64-byte signature || Full-aggregation final, explicit sighash
+|}
+
+Here ''n'' is the number of inputs in the half-aggregation group.
+Since ''n'' is not yet known during parsing, a <code>0xbc</code> element of 65 bytes or more matches these rows if its length modulo 32 is 1 or 2, and the exact length is checked during group validation.
+A witness element whose marker and length combination matches no row of this table is invalid.
+In particular a 1-byte or 2-byte element with the opt-out marker is invalid, since an opted-out input always carries a signature.
+
+In all 2-byte-prefixed forms the explicit sighash byte must not be <code>0x00</code>.
+<code>SIGHASH_DEFAULT</code> can only be expressed by omitting the sighash byte.
+This mirrors the rule for 65-byte signatures in BIP 341 and ensures that every signature message has exactly one witness encoding, preventing third parties from malleating the wtxid by switching between equivalent encodings.
+
+=== Common signature message ===
+
+The signature message commits to the input's aggregation mode in addition to the transaction data.
+Let ''SigMsg(hash_type, ext_flag)'' be the common signature message function defined in BIP 341, including all of its failure conditions.
+For a witness v2 key path spend with marker byte ''agg_mode'' and sighash type ''hash_type'', the message is computed as:
+
+<source>
+m = hash_TapSighash(0x01 || agg_mode || SigMsg(hash_type, 0))
+</source>
+
+The first byte is the sighash epoch.
+BIP 341 messages use epoch <code>0x00</code> and reserve other values for signature algorithms that make invasive changes to how hashing is performed, such as this one.
+The ''agg_mode'' byte is the marker byte of the input (<code>0xbb</code>, <code>0xbc</code>, or <code>0xbd</code>).
+
+Committing to the aggregation mode makes aggregation consensual.
+A signature created for an opted-out input is not valid as a member of an aggregation group and vice versa.
+Without this commitment any third party could fold an opted-out signature into the half-aggregation group unchanged, because half-aggregation of existing signatures is a public operation.
+See [[#why-explicit-opt-out|Why explicit opt-out]] for details.
+
+Valid sighash types are:
+
+* <code>0x00</code>: <code>SIGHASH_DEFAULT</code> (only expressible by omitting the sighash byte)
+* <code>0x01</code>: <code>SIGHASH_ALL</code>
+* <code>0x02</code>: <code>SIGHASH_NONE</code>
+* <code>0x03</code>: <code>SIGHASH_SINGLE</code>
+* <code>0x81</code>: <code>SIGHASH_ALL | SIGHASH_ANYONECANPAY</code>
+* <code>0x82</code>: <code>SIGHASH_NONE | SIGHASH_ANYONECANPAY</code>
+* <code>0x83</code>: <code>SIGHASH_SINGLE | SIGHASH_ANYONECANPAY</code>
+
+Note: <code>SIGHASH_ANYONECANPAY</code> composes with aggregation only partially, see [[#usage-of-anyonecanpay|Usage of ANYONECANPAY]].
+
+=== Annex handling ===
+
+Following BIP 341, if there are at least two witness elements and the first byte of the last element is <code>0x50</code>, the last element is the annex.
+The annex is removed before the main witness element is parsed.
+The defined marker values are disjoint from the annex prefix <code>0x50</code>, so a key path witness element can never be mistaken for an annex.
+The annex is committed to by the signature message through ''SigMsg''.
+
+=== Opted-out key path spends ===
+
+An opted-out witness v2 key path spend has a witness stack containing:
+
+* '''Without annex''': <code>[0xbb || signature]</code> (65 bytes) or <code>[0xbb || sighash || signature]</code> (66 bytes)
+* '''With annex''': <code>[0xbb || signature] [0x50...]</code> or <code>[0xbb || sighash || signature] [0x50...]</code>
+
+Validation proceeds using standard BIP 340 signature verification against the output key.
+
+=== Aggregated key path spends ===
+
+Every aggregated input's witness element contains at least the marker byte.
+The last aggregated input also contains the aggregate signature concatenated with the marker.
+
+'''All aggregated inputs except the last:'''
+
+* '''Without annex''': <code>[marker]</code> (1 byte) or <code>[marker || sighash]</code> (2 bytes)
+* '''With annex''': <code>[marker] [0x50...]</code> or <code>[marker || sighash] [0x50...]</code>
+
+Where marker is <code>0xbc</code> (half-agg) or <code>0xbd</code> (full-agg).
+
+'''Last aggregated input:'''
+
+* '''Without annex''': <code>[marker || signature]</code> or <code>[marker || sighash || signature]</code>
+* '''With annex''': <code>[marker || signature] [0x50...]</code> or <code>[marker || sighash || signature] [0x50...]</code>
+
+An aggregation group may consist of a single input.
+In that case the group's only input carries the marker and the aggregate signature, which is 64 bytes for both schemes.
+
+=== Validation rules ===
+
+Witness v2 key path spends are validated in three passes:
+
+'''Pass 1: Parse and collect aggregation information'''
+
+For each witness v2 key path spend:
+
+1. '''Extract annex if present''':
+* If the witness stack has at least two elements, and the first byte of the last element is <code>0x50</code>, this last element is the annex and is removed from the witness stack
+
+2. '''Parse the witness element''':
+* First byte determines marker type. Fail if it is not <code>0xbb</code>, <code>0xbc</code>, or <code>0xbd</code>
+* Marker and length together determine the structure per the table above. Fail if the combination matches no defined structure
+* Extract ''hash_type'' and signature if present
+* Verify ''hash_type'' is valid (<code>0x01</code>-<code>0x03</code>, <code>0x81</code>-<code>0x83</code> in explicit form). Fail on an explicit <code>0x00</code>
+
+3. '''Classify input''':
+* '''<code>0xbb</code>''': Opted-out input, always carries a signature
+* '''<code>0xbc</code>/<code>0xbd</code> without signature''': Aggregation placeholder
+* '''<code>0xbc</code>/<code>0xbd</code> with signature''': Aggregation final
+
+The structure table is exhaustive, so every witness element that parses successfully falls into exactly one class.
+
+'''Pass 2: Validate aggregation group structure'''
+
+1. '''Group formation rules''':
+* At most one half-aggregation group (marker <code>0xbc</code>)
+* At most one full-aggregation group (marker <code>0xbd</code>)
+* Each group must have exactly one final input (with signature), fail otherwise
+* Fail if a group's marker reappears after that group's final input
+* Opted-out inputs (marker <code>0xbb</code>) do not form groups
+
+2. '''For each aggregation group''':
+* Count ''n'' = number of inputs in the group
+* Verify aggregate signature size, failing on a mismatch:
+** Half-agg: must equal ''(n+1)*32'' bytes
+** Full-agg: must equal 64 bytes
+
+'''Pass 3: Verify signatures'''
+
+1. '''For each opted-out input''':
+* Compute the message ''m = hash_TapSighash(0x01 || 0xbb || SigMsg(hash_type, 0))''
+* Verify the 64-byte signature using BIP 340 against the output key (the 32-byte witness program of the spent output)
+
+2. '''For each aggregation group''':
+* Collect the group's inputs, consisting of all inputs with matching markers that appeared before the final input plus the final input itself
+* Order the group's (pubkey, message) pairs by input index, where the pubkey of each pair is the 32-byte witness program of the spent output
+* For each aggregated input ''i'': compute ''m<sub>i</sub> = hash_TapSighash(0x01 || marker || SigMsg(hash_type<sub>i</sub>, 0))''
+* For half-agg: verify with ''VerifyAggregate(aggsig, pm_aggd)'' as defined in [[bip-0458.mediawiki|BIP 458]], where ''pm_aggd'' is the ordered list of pairs
+* For full-agg: verify with ''Verify'' as defined in [[bip-0459.mediawiki|BIP 459]] over the ordered pubkey and message lists
+
+=== Signing ===
+
+Signers compute the common signature message defined above with the marker byte of their input as ''agg_mode''.
+The secret key is the Taproot tweaked private key corresponding to the 32-byte witness program, derived as in BIP 341.
+
+'''Opted-out inputs''':
+The signer creates an ordinary BIP 340 signature over the message and places it in the witness element after the marker.
+
+'''Half-aggregated inputs''':
+Each signer creates an ordinary BIP 340 signature over its message in a single stateless pass.
+These signatures do not appear on chain individually.
+Once all signatures of the group are available, any party can combine them with ''Aggregate'' or ''IncAggregate'' as defined in [[bip-0458.mediawiki|BIP 458]], over the group's pairs ordered by input index, and place the result in the final input's witness element.
+The aggregating party should verify the individual signatures first.
+This identifies a disruptive signer and is necessary because ''Aggregate'' does not validate its inputs, see BIP 458.
+
+'''Full-aggregated inputs''':
+The group's signers run the interactive signing protocol of [[bip-0459.mediawiki|BIP 459]].
+The public key list of the session is the ordered list of the group's 32-byte witness programs and the message list contains the corresponding signature messages in the same order.
+Each signer uses its tweaked secret key, see the [[bip-0459.mediawiki#key-tweaking|Key Tweaking]] section of BIP 459.
+The 64-byte signature returned by ''SigAgg'' is placed in the final input's witness element.
+Any change that affects a group member's signature message or the group's ordered member list invalidates the session and requires a new one.
+Secret nonces must never be reused across signing sessions, see BIP 459.
+
+== Examples ==
+
+The final input of each aggregation group carries the aggregate signature and therefore more witness weight than the other group members.
+How this weight difference is accounted for between the participants of a collaborative transaction is a protocol level concern outside the scope of this BIP.
+
+'''Example 1: Three inputs, all half-aggregated with SIGHASH_DEFAULT'''
+<source>
+Input 0 witness: [0xbc]                     # 1 byte: half-agg placeholder
+Input 1 witness: [0xbc]                     # 1 byte: half-agg placeholder
+Input 2 witness: [0xbc || 128-byte sig]     # 129 bytes: half-agg final (n=3)
+
+Total overhead: 3 marker bytes
+Signature size reduction: 192 bytes → 128 bytes
+</source>
+
+'''Example 2: Three inputs full-aggregated with SIGHASH_ALL'''
+<source>
+Input 0 witness: [0xbd || 0x01]                 # 2 bytes: full-agg placeholder, SIGHASH_ALL
+Input 1 witness: [0xbd || 0x01]                 # 2 bytes: full-agg placeholder, SIGHASH_ALL
+Input 2 witness: [0xbd || 0x01 || 64-byte sig]  # 66 bytes: full-agg final (n=3), SIGHASH_ALL
+
+Total overhead: 3 marker bytes
+Signature size reduction: 192 bytes → 64 bytes
+</source>
+
+'''Example 3: Witness v1 input alongside a witness v2 aggregation group'''
+<source>
+Input 0 witness: [64-byte sig]              # witness v1 (Taproot) key path spend
+Input 1 witness: [0xbc]                     # 1 byte: half-agg placeholder
+Input 2 witness: [0xbc || 96-byte sig]      # 97 bytes: half-agg final (n=2)
+
+Input 0 spends a Taproot output and does not participate in aggregation.
+Inputs 1 and 2 form the half-aggregation group.
+
+Total overhead: 2 marker bytes
+Signature size reduction (v2 inputs): 128 bytes → 96 bytes
+</source>
+
+'''Example 4: Mixed transaction'''
+<source>
+Input 0 witness: [0xbb || 64-byte sig]          # 65 bytes: opted-out, SIGHASH_DEFAULT
+Input 1 witness: [0xbc || 0x03]                 # 2 bytes: half-agg, SIGHASH_SINGLE
+Input 2 witness: [0xbd]                         # 1 byte: full-agg placeholder
+Input 3 witness: [0xbd]                         # 1 byte: full-agg placeholder
+Input 4 witness: [0xbc || 96-byte sig]          # 97 bytes: half-agg final (n=2)
+Input 5 witness: [0xbb || 0x82 || 64-byte sig]  # 66 bytes: opted-out, SIGHASH_NONE|SIGHASH_ANYONECANPAY
+Input 6 witness: [0xbd || 64-byte sig]          # 65 bytes: full-agg final (n=3)
+
+This transaction has:
+- Two opted-out inputs (0, 5) with different sighash types
+- One half-aggregation group (inputs 1, 4)
+- One full-aggregation group (inputs 2, 3, 6)
+
+Total overhead: 7 marker bytes
+Signature size reduction: 448 bytes → 288 bytes
+</source>
+
+== Security ==
+
+'''Non-consensual aggregation''':
+The signature message commits to the aggregation mode, so third parties cannot move signatures between opted-out witnesses and aggregation groups, see [[#why-explicit-opt-out|Why explicit opt-out]].
+
+'''Adaptor signature incompatibility''':
+Aggregation is incompatible with protocols that extract a secret from a specific signature appearing on chain, most notably some adaptor signature protocols.
+Adaptor protocols in which the final signature is delivered directly between the parties are not affected.
+Protocols that rely on on-chain extraction should use opted-out signatures for those inputs.
+
+'''Shared security of the three modes''':
+Every witness v2 output can be spent through any of the three key path modes, chosen by whoever produces the witness.
+The security of v2 outputs therefore rests on all three verification algorithms together, and a soundness failure in BIP 340, BIP 458, or BIP 459 would affect all v2 outputs regardless of the mode their owners intended to use.
+Both aggregation schemes come with security proofs that reduce to established assumptions in the same discrete logarithm setting as BIP 340, see the security discussions in BIP 458 and BIP 459.
+
+'''Witness malleability''':
+For key path spends every witness element size is fixed by consensus and the annex is committed by the signature message, so third parties cannot change the weight of a fully signed input.
+Given the nonce part of an aggregate signature, only one value of ''s'' satisfies the verification equation, and replacing the nonce part requires knowledge of the individual signatures.
+Third parties therefore cannot malleate witness v2 key path witness data.
+Opted-out inputs carry plain BIP 340 signatures, which are non-malleable.
+
+'''Transaction level verification''':
+Aggregated inputs add one transaction level verification step per aggregation group, while parsing, structure checks, opted-out inputs, and script path spends remain per-input operations.
+Implementations that parallelize script validation per input can schedule the group verification as one additional check.
+Existing wtxid based validation caches remain correct since any witness change alters the wtxid.
+Aggregate verification can also join verification batches together with individual BIP 340 signatures, so aggregation does not preclude batch validation.
+
+'''Computation limits''':
+Aggregation does not increase the worst-case signature verification cost of a block.
+Full-aggregation requires about half the elliptic curve multiplications per input of individual BIP 340 verification, while half-aggregation requires about the same number in a single batchable equation.
+The densest packing of signature verification work per weight unit remains tapscript under the BIP 342 validation weight budget, which this BIP does not change.<ref>A minimal Taproot key path input weighs 230 weight units, 164 for the input base data plus 66 for the witness element, and BIP 340 verification costs two elliptic curve multiplications per signature.
+Per member of a large group, full-aggregation accounts for 167 weight units and half-aggregation for 199 weight units including the member's 32-byte share of the aggregate signature, ignoring small per-group constants.
+The BIP 459 verification equation costs ''n+1'' multiplications for a group of ''n'' inputs, while the BIP 458 equation costs about ''2n'' since the randomizers multiply both the nonce point and the challenge term of each member.
+Ignoring transaction overhead, a block filled with minimal full-aggregation members needs about 4,000,000 / 167 &asymp; 24,000 multiplications and one filled with minimal half-aggregation members about 2 * 4,000,000 / 199 &asymp; 40,200, compared to 2 * 4,000,000 / 230 &asymp; 34,800 for minimal Taproot key path spends.
+The half-aggregation count is about 16 percent higher, but its per-input cost matches batch verified BIP 340 signatures and the whole group is verified as one multi-scalar multiplication, which is faster in practice than the same number of independent verifications.
+All of these remain far below the BIP 342 validation weight budget, which admits one tapscript signature verification per 50 weight units, or 80,000 verifications with about 160,000 multiplications per block.
+Aggregation also does not increase the maximum number of inputs per block, since an input spending an output that requires no signature, such as a bare OP_TRUE script, weighs only 164 weight units today.</ref>
+
+'''Mode fingerprinting''':
+The marker bytes are visible on chain, so distinctive mode combinations can fingerprint the wallets or protocols that created a transaction.
+Participants of collaborative transactions should prefer one mode for all participating inputs if they want to avoid this.
+
+== Test vectors ==
+
+Wallet operation vectors covering scriptPubKey and address computation, signature message computation, and witness construction for both key path and script path spending can be found in [[bip-XXXX/wallet-test-vectors.json|wallet-test-vectors.json]].
+
+Transaction level validity cases, including marker parsing failures, group structure failures, annex handling, script path spending, and the aggregation mode commitment, can be found in [[bip-XXXX/consensus-test-vectors.json|consensus-test-vectors.json]].
+
+Both files are generated by [[bip-XXXX/test-vectors.py|test-vectors.py]], which builds on the reference code of BIP 458 and BIP 459.
+All vectors use deterministic test-only keys and nonces, and BIP 340 signatures are created with an all-zero auxiliary randomness array.
+
+== Reference implementation ==
+
+A work in progress implementation for Bitcoin Core is available at https://github.com/fjahr/bitcoin/tree/2026-07-cisa-txwide.
+It implements the validation rules of this BIP and validates all consensus test vectors.
+
+== Rationale ==
+
+=== Why a new witness version? ===
+
+A new witness version is necessary because BIP 341 completely specifies the validation rules for witness v1, fixing key path witnesses to 64-byte or 65-byte signatures.
+The 1-byte and 2-byte marker elements used by this BIP are invalid under those rules, and a soft fork can only turn valid transactions into invalid ones, not the reverse.
+Aggregation therefore cannot be retrofitted onto existing Taproot outputs.
+
+=== Why the marker-based design? ===
+
+The primary alternative to markers is a design without them, where aggregated inputs carry only a 1-byte sighash placeholder and aggregation applies to all witness v2 inputs of a transaction or to none of them.
+Compared to that alternative the marker costs at most one additional byte per input.
+In exchange the marker provides three properties:
+
+'''Per-input consent''':
+An all-or-nothing design couples the choices of unrelated parties.
+In a CoinJoin a single participant that requires a plain on-chain signature, for example for an adaptor signature based protocol, would force every other participant to forgo aggregation.
+With markers this choice is local to the input, which matters most in exactly the multi-party transactions that CISA is designed to make cheaper.
+
+'''Self-describing witnesses''':
+Every input is classified locally by the first byte of its witness element instead of inferring a transaction-wide mode from the shape of all witnesses.
+This avoids inference edge cases.
+For example, in the placeholder design the final aggregated input's witness consists of a sighash byte followed by the aggregate signature as a separate element, and an aggregate signature whose first byte happens to be <code>0x50</code> is misparsed as an annex under the BIP 341 annex rule.
+Roughly one in 256 honestly generated aggregate signatures would hit this case and force the signers to start over.
+The defined marker values are disjoint from the annex prefix by construction.
+
+'''Two coexisting groups''':
+A transaction can contain one half-aggregation group and one full-aggregation group at the same time.
+This allows a tightly coordinated subset of signers, for example the inputs of a single wallet, to use full-aggregation while the remaining inputs of a collaborative transaction use half-aggregation.
+
+A more flexible alternative with multiple aggregation groups per scheme, similar to the bucket concept from early aggregation discussions, was rejected because no concrete use case justified the additional validation complexity.
+
+=== Why explicit opt-out? ===
+
+Half-aggregation of existing signatures is a public operation.
+Any third party in possession of valid BIP 340 signatures, such as a miner or a relaying node, can aggregate them without the signers' involvement.
+Some protocols depend on a specific signature appearing on chain.
+Most notably, some adaptor signature protocols extract a secret from the difference between an on-chain signature and a previously shared adaptor signature, and this extraction becomes impossible once the signature has been folded into an aggregate.
+
+The marker byte alone cannot protect such inputs, since a third party could replace the opt-out marker with an aggregation marker and fold the unchanged signature into the group.
+The protection comes from the signature message committing to the aggregation mode.
+A signature over the opt-out flavored message only verifies in an opted-out witness and is useless as an aggregation group member.
+Aggregation is therefore consensual for every input.
+The explicit marker byte itself serves parsing rather than protection.
+Without it a 65-byte witness element would be ambiguous, it could be an opted-out signature with a sighash byte or a full-aggregation final signature without one.
+
+A consequence of the mode commitment is that the aggregation mode is chosen at signing time.
+A signature created for aggregation cannot later be used as a standalone opted-out signature either, so signers that want to keep both options open must produce two signatures.
+Planning for aggregation carries no size penalty if the group ends up with a single member, since a single-member group signature is 64 bytes, the same size as an opted-out signature.
+
+The explicit opt-out also leaves the door open for a potential future block-wide half-aggregation to cover all signatures that did not opt out.
+
+=== Why two aggregation schemes? ===
+
+Half-aggregation and full-aggregation serve different use cases:
+
+{| class="wikitable"
+|+ Comparison of aggregation schemes
+|-
+! Property !! Half-Aggregation !! Full-Aggregation
+|-
+| '''Signature size''' || ''(n+1)*32'' bytes || 64 bytes (constant)
+|-
+| '''Interactivity''' || Non-interactive || Interactive (2 rounds)
+|-
+| '''Use case''' || All transaction types || Interactive protocols such as CoinJoins, wallet consolidation
+|-
+| '''Incremental''' || Yes || No
+|}
+
+Full-aggregation offers roughly twice the savings of half-aggregation but requires all signers to run a stateful two-round protocol within one signing session.
+Mishandling the secret nonce state between the rounds can lead to key extraction, which makes supporting it on hardware signers and air-gapped devices demanding.
+The slow adoption of MuSig2 by signing devices illustrates this cost.
+
+Half-aggregation signers produce plain BIP 340 signatures in a single stateless pass, and the aggregation happens downstream of all signing.
+This fits existing asynchronous multi-party workflows, for example PSBT based signing ceremonies where cosigners are available at different times, or [[bip-0077.md|BIP 77]] Async Payjoin where sender and receiver are not required to be online at the same time.
+It also avoids giving every participant of a large collaborative transaction a second opportunity to stall the protocol between signing rounds.
+Finally, half-aggregation composes with workflows where the input set is still growing after signing has started, such as ANYONECANPAY based fee bumping, because aggregation can happen once the set is final.
+
+=== Why key path only? ===
+
+Key path spends have one signature per input that is visible from the witness structure alone, which makes their aggregation rules simple.
+The use cases motivating this BIP, collaborative transactions and consolidations, also typically spend simple key path outputs.
+Aggregating signatures from within scripts, in contrast, conflicts with the tapscript upgrade mechanisms.
+Whether a signature operation contributes to the transaction level aggregate depends on script execution, but a script containing an <code>OP_SUCCESS</code> opcode succeeds without being executed.
+A later soft fork redefining such an opcode would change which signatures the aggregate has to cover, so transactions valid under the new rules would be invalid for older nodes, turning the redefinition into a hard fork.
+This is a variant of the problem described in [https://gnusha.org/pi/bitcoindev/20180321040618.GA4494@erisian.com.au/ the 2018 aggregation discussion by Anthony Towns], whose mitigations rely on execution order, which the parse time <code>OP_SUCCESS</code> semantics of tapscript do not provide.
+Script execution raises further design questions, for example the BIP 342 sigops budget assumes 50 witness weight units per signature check and would be exhausted by short placeholder signatures, and the aggregate signature must be located before execution while group membership only becomes known during it.
+Solving these questions is left for a separate BIP with its own leaf version and upgrade semantics.
+
+=== Usage of ANYONECANPAY ===
+
+This BIP permits all standard sighash types at the consensus level, including <code>SIGHASH_ANYONECANPAY</code> (<code>0x80</code> flag).
+Whether to aggregate is an application level decision, not a consensus concern, so the consensus rules stay permissive.
+
+'''Full-aggregation''':
+The signing session of BIP 459 fixes the group's public key and message lists, so the membership of a full-aggregation group cannot grow after signing has started.
+ANYONECANPAY still composes with full-aggregation in one direction.
+Once the group members have signed with ANYONECANPAY, additional opted-out, half-aggregated, or non-v2 inputs can be appended to the transaction without invalidating the group, because the group's messages do not commit to those inputs.
+Only extending the full-aggregation group itself with later inputs is impossible.
+
+'''Half-aggregation''':
+Half-aggregation composes with ANYONECANPAY directly.
+Signers create their signatures over the half-aggregation flavored message at signing time, further inputs are added later, and once the input set is final anyone can aggregate the collected signatures without further involvement of the signers.
+
+=== Future considerations ===
+
+'''Block-wide aggregation''':
+Block-wide aggregation remains a potential future optimization and is not precluded by this design.
+
+'''Script path aggregation''':
+Script path aggregation can be specified in a separate BIP and added in the same or a future soft fork.
+
+== Deployment ==
+
+This BIP is to be deployed by a soft fork activation mechanism.
+The activation parameters are to be determined and will be specified in a future update of this document.
+Since other proposals also target witness version 2, the witness version is subject to coordination and may change in a future update as well.
+
+== Backward compatibility ==
+
+=== Non-upgraded nodes ===
+
+Nodes that have not upgraded to support witness v2 treat witness v2 outputs as anyone-can-spend, per the [[bip-0141.mediawiki|BIP 141]] unknown witness version rule.
+Depending on their policy settings, such nodes might not relay witness v2 transactions or include them in blocks.
+
+=== Non-upgraded wallets ===
+
+Wallets without witness v2 support cannot create or spend witness v2 outputs but can send to witness v2 addresses if they support Bech32m.
+
+=== Taproot compatibility ===
+
+Witness v2 coexists with witness v1 (Taproot):
+
+* Transactions can mix witness v1 and v2 inputs
+* The same keys and HD derivation paths can be used for both, subject to the usual privacy considerations of key reuse
+
+== Acknowledgements ==
+
+Thanks to vostrnad for feedback on an early version of this BIP, in particular for prompting a precise description of the script path aggregation obstacles.
+
+== Footnotes ==
+
+<references />
