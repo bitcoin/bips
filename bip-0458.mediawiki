@@ -1,0 +1,216 @@
+<pre>
+  BIP: 458
+  Layer: Applications
+  Title: Half-Aggregation of BIP 340 Signatures
+  Authors: Tim Ruffing <crypto@timruffing.de>
+           Jonas Nick <jonas@n-ck.net>
+           Fabian Jahr <fjahr@protonmail.com>
+  Status: Draft
+  Type: Specification
+  Assigned: 2026-07-02
+  License: BSD-3-Clause
+  Discussion: 2022-07-08: https://gnusha.org/pi/bitcoindev/33f275c2-06b1-4b4a-2a75-cafe36836503%40gmail.com/
+  Requires: 340
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This document describes ''half-aggregation'' of BIP 340 signatures.
+Half-aggregation is a non-interactive process for aggregating a collection of signatures into a single aggregate signature.
+The size of the resulting aggregate signature is approximately half of the combined size of the original signatures.
+
+=== Copyright ===
+
+This document, along with the [[bip-0458/halfagg.py|reference implementation]] and [[bip-0458/vectors/|test vectors]], is licensed under the BSD-3-Clause License. The exception is the vendored copy of the secp256k1lab library in [[bip-0458/secp256k1lab/|bip-0458/secp256k1lab]], which is licensed under the MIT License as stated in its [[bip-0458/secp256k1lab/COPYING|COPYING]] file.
+
+=== Motivation ===
+
+Half-aggregation is applicable if there is a verifier that needs to verify multiple signatures.
+Instead of sending individual signatures to the verifier, the signatures can be compressed into a single aggregate signature and sent to the verifier.
+If the verifier can successfully verify the aggregate signature, the verifier can be sure that the individual signatures would have passed verification.
+
+The purpose of half-aggregation is to reduce the size of the data that is sent to the verifier.
+While ''n'' BIP 340 signatures are ''64*n'' bytes, a half-aggregate of the same signatures is ''32*n + 32'' bytes.
+The process of half-aggregation is straightforward: it is a pure function of the input signatures, public keys, and messages.
+It is non-interactive and does ''not'' require cooperation from other parties, including signers or verifiers.
+This is unlike interactive multisignature schemes such as MuSig2 ([[bip-0327.mediawiki|BIP 327]]), in which signers cooperate to produce a single signature under a single aggregate public key.
+In half-aggregation, there is no aggregate key, and the aggregate signature is verified against the individual public keys and messages.
+
+There are a variety of scenarios where half-aggregation of BIP 340 signatures is useful.
+To keep this section brief and avoid getting outdated quickly, we focus on listing example applications and defer the detailed discussion of the application-specific trade-offs to other places.
+
+One example is the Lightning Network routing gossip protocol, which [https://github.com/lightning/bolts/blob/2e8f2095a36afb9de38da0f3f0051c7dc16dfc36/07-routing-gossip.md as of this writing] involves messages that contain ECDSA signatures.
+If the signature scheme was changed to BIP 340, half-aggregation could reduce the total amount of gossiped data.
+Instead of sending individual gossip messages, nodes could assemble a batch of messages and half-aggregate the signatures of the individual messages into a single signature for the batch.
+
+Another application of half-aggregation is within the Bitcoin consensus protocol.
+In particular, it has been discussed in the context of the [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-February/015700.html Graftroot proposal].
+Half-aggregation would allow Graftroot spending to be as efficient as best-case Taproot spends by aggregating the signature of the ''surrogate script'' and signatures that satisfy this script.
+Moreover, half-aggregation improves the efficiency of proposed Bitcoin script opcodes that verify multiple signatures, such as [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-February/019926.html OP_EVICT].
+We can also imagine adding a Bitcoin script opcode that verifies a half-aggregate signature, allowing for more efficient non-interactive multi and threshold signatures.
+
+Half-aggregation can also be applied to the signatures in the inputs of Bitcoin transactions, a process known as cross-input signature aggregation (CISA).
+This [https://github.com/ElementsProject/cross-input-aggregation/blob/master/savings.org reduces the size of an average transaction] by 20.6% and the weight by 7.6%.
+A known downside of using half-aggregation is that some uses of adaptor signature protocols [https://github.com/ElementsProject/cross-input-aggregation#half-aggregation-and-adaptor-signatures may be incompatible].
+Usually, CISA is proposed with interactive ''full'' signature aggregation instead of non-interactive half-aggregation because creating a valid transaction already requires cooperation, and full signature aggregation is more efficient.
+However, the difference in complexity between half-aggregation and full aggregation is so significant that basing a CISA on half-aggregation is a legitimate approach.
+
+The most invasive application to Bitcoin's consensus would be block-wide signature aggregation.
+It refers to a process where block producers aggregate as many transaction signatures as possible.
+In the best case, a full block would only have a single half-aggregate signature.
+While this is attractive from the efficiency perspective, block-wide aggregation requires more research (and, in particular, special attention to handling
+[https://github.com/ElementsProject/cross-input-aggregation#half-aggregation-and-reorgs reorgs]).
+
+=== Rationale ===
+
+The idea for half-aggregation of Schnorr signatures was brought up in the context of block-wide signature aggregation [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2017-May/014272.html by Tadge Dryja on the Bitcoin mailing list] in 2017.
+The scheme had a security flaw that was [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2017-May/014306.html noticed] and [https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2017-May/014308.html fixed] shortly after by Russell O'Connor and Andrew Poelstra.
+In 2021 [https://eprint.iacr.org/2021/350 Chalkias, Garillot, Kondi and Nikolaenko] published a security proof in the random oracle model (ROM) that reduces the security of half-aggregation to the security of Schnorr signatures.
+[https://eprint.iacr.org/2022/222.pdf Chen and Zhao] were able to produce a tight proof in the ROM and algebraic group model in the following year.
+Moreover, they came up with an elegant approach to incremental aggregation that is used in this document.
+
+* Incremental aggregation allows non-interactively aggregating additional BIP 340 signatures into an existing half-aggregate signature.
+* A half-aggregate signature of ''u'' BIP 340 input signatures is serialized as the ''(u+1)⋅32''-byte array ''r<sub>1</sub> || ... || r<sub>u</sub> || bytes(s)'' where ''r<sub>i</sub>'' is a 32-byte array from input signature ''i'' and ''s'' is a scalar aggregate (see below for details).
+* This document does ''not'' specify the aggregation of multiple aggregate signatures (yet). It is possible, but requires changing the encoding of an aggregate signature. Since it is not possible to undo the aggregation of the s-values, when verifying of such an aggregate signature the randomizers need to be the same as when verifying the individual aggregate signature. Therefore, the aggregate signature needs to encode a tree that reveals how the individual signatures were aggregated and how the resulting aggregate signatures were reaggregated.
+* The first randomizer ''z<sub>0</sub>'' is fixed to the constant ''1'', which speeds up verification because ''z<sub>0</sub>⋅R<sub>0</sub> = R<sub>0</sub>''. This optimization has been suggested and proven secure by [https://eprint.iacr.org/2022/222.pdf Chen and Zhao].
+* This BIP does not impose a maximum number of signatures that can be aggregated in a single half-aggregate signature. Implementations may enforce limits, e.g., to facilitate testing, to prevent resource exhaustion and integer overflows. Additionally, applications should enforce a (possibly lower) limit that suits their needs, taking into account that processing large aggregates may take a considerable amount of time. We note that there must be agreement over the limits in consensus-critical applications.
+
+== Description ==
+
+=== Specification ===
+
+The specification is written in Python and can be found in [[bip-0458/halfagg.py|halfagg.py]].
+Note that the specification depends on a vendored copy of the [https://github.com/secp256k1lab/secp256k1lab secp256k1lab library].
+
+=== Test Vectors ===
+
+Test vectors are provided in [[bip-0458/vectors/|vectors]] and are generated with a [[bip-0458/gen_test_vectors.py|generator script]].
+The specification can be executed with the test vectors by running [[bip-0458/run_test_vectors.py|the run_test_vectors script]].
+
+=== Pseudocode ===
+
+The following pseudocode is ''not'' a specification but is only intended to augment the actual Python [[#specification|specification]].
+
+==== Notation ====
+
+The following conventions are used, with constants as defined for [https://www.secg.org/sec2-v2.pdf secp256k1]. We note that adapting this specification to other elliptic curves is not straightforward and can result in an insecure scheme<ref>Among other pitfalls, using the specification with a curve whose order is not close to the size of the range of the nonce derivation function is insecure.</ref>.
+* Lowercase variables represent integers or byte arrays.
+** The constant ''p'' refers to the field size, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F''.
+** The constant ''n'' refers to the curve order, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141''.
+* Uppercase variables refer to points on the curve with equation ''y<sup>2</sup> = x<sup>3</sup> + 7'' over the integers modulo ''p''.
+** ''is_infinite(P)'' returns whether or not ''P'' is the point at infinity.
+** ''x(P)'' and ''y(P)'' are integers in the range ''0..p-1'' and refer to the X and Y coordinates of a point ''P'' (assuming it is not infinity).
+** The constant ''G'' refers to the base point, for which ''x(G) = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'' and ''y(G) = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8''.
+** Addition of points refers to the usual [https://en.wikipedia.org/wiki/Elliptic_curve#The_group_law elliptic curve group operation].
+** [https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication Multiplication (⋅) of an integer and a point] refers to the repeated application of the group operation.
+* Functions and operations:
+** ''||'' refers to byte array concatenation.
+** The function ''x[i:j]'', where ''x'' is a byte array and ''i, j &ge; 0'', returns a ''(j - i)''-byte array with a copy of the ''i''-th byte (inclusive) to the ''j''-th byte (exclusive) of ''x''.
+** The function ''bytes(x)'', where ''x'' is an integer, returns the 32-byte encoding of ''x'', most significant byte first.
+** The function ''bytes(P)'', where ''P'' is a point, returns ''bytes(x(P))''.
+** The function ''len(x)'' where ''x'' is a byte array returns the length of the array.
+** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte first encoding is ''x''.
+** The function ''has_even_y(P)'', where ''P'' is a point for which ''not is_infinite(P)'', returns ''y(P) mod 2 = 0''.
+** The function ''lift_x(x)'', where ''x'' is a 256-bit unsigned integer, returns the point ''P'' for which ''x(P) = x''<ref>
+    Given a candidate X coordinate ''x'' in the range ''0..p-1'', there exist either exactly two or exactly zero valid Y coordinates. If no valid Y coordinate exists, then ''x'' is not a valid X coordinate either, i.e., no point ''P'' exists for which ''x(P) = x''. The valid Y coordinates for a given candidate ''x'' are the square roots of ''c = x<sup>3</sup> + 7 mod p'' and they can be computed as ''y = &plusmn;c<sup>(p+1)/4</sup> mod p'' (see [https://en.wikipedia.org/wiki/Quadratic_residue#Prime_or_prime_power_modulus Quadratic residue]) if they exist, which can be checked by squaring and comparing with ''c''.</ref> and ''has_even_y(P)'', or fails if ''x'' is greater than ''p-1'' or no such point exists. The function ''lift_x(x)'' is equivalent to the following pseudocode:
+*** Fail if ''x &ge; p''.
+*** Let ''c = x<sup>3</sup> + 7 mod p''.
+*** Let ''y = c<sup>(p+1)/4</sup> mod p''.
+*** Fail if ''c &ne; y<sup>2</sup> mod p''.
+*** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'' if ''y mod 2 = 0'' or ''y(P) = p-y'' otherwise.
+** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
+* Other:
+** Tuples are written by listing the elements within parentheses and separated by commas. For example, ''(2, 3, 1)'' is a tuple.
+
+In the [[#specification|reference implementation]], these operations map to the following [https://github.com/secp256k1lab/secp256k1lab secp256k1lab] library methods, where ''GE'' and ''Scalar'' represent points and scalars:
+
+{| class="wikitable"
+! Notation !! secp256k1lab
+|-
+| ''lift_x(int(x))'' || ''GE.from_bytes_xonly(x)''
+|-
+| ''int(x)'', failing if ''&ge; n'' || ''Scalar.from_bytes_checked(x)''
+|-
+| ''int(x) mod n'' || ''Scalar.from_bytes_wrapping(x)''
+|-
+| ''bytes(s)'' || ''s.to_bytes()''
+|-
+| ''hash<sub>tag</sub>(x)'' || ''tagged_hash(tag, x)''
+|}
+
+==== Aggregate ====
+
+''Aggregate'' takes an array of public key, message and signature triples and returns an aggregate signature.
+If every triple ''(p, m, s)'' is valid (i.e., ''Verify(p, m, s)'' as defined in BIP 340 returns true), then the returned aggregate signature and the array of ''(p, m)'' tuples passes ''VerifyAggregate''.
+(However, the inverse does not hold: given suitable valid triples, it is possible to construct an input array to ''Aggregate'' which contains invalid triples, but for which ''VerifyAggregate'' will accept the aggregate signature returned by ''Aggregate''. If this is undesired, input triples should be verified individually before passing them to ''Aggregate''.)
+
+Input:
+* ''pms<sub>0..u-1</sub>'': an array of ''u'' triples, where the first element of each triple is a 32-byte public key, the second element is a 32-byte message and the third element is a 64-byte BIP 340 signature
+
+'''''Aggregate(pms<sub>0..u-1</sub>)''''':
+* Let ''aggsig = bytes(0)''
+* Let ''pm_aggd'' be an empty array
+* Return ''IncAggregate(aggsig, pm_aggd, pms<sub>0..u-1</sub>)''; fail if that fails.
+
+==== IncAggregate ====
+
+''IncAggregate'' takes an aggregate signature, an array of public key and message tuples corresponding to the aggregate signature, and an additional array of public key, message and signature triples.
+It aggregates the additional array of triples into the existing aggregate signature and returns the resulting new aggregate signature.
+In other words, if ''VerifyAggregate(aggsig, pm_aggd)'' passes and every triple ''(p, m, s)'' in ''pms_to_agg'' is valid (i.e., ''Verify(p, m, s)'' as defined in BIP 340 returns true), then the returned aggregate signature along with the array of ''(p, m)'' tuples of ''pm_aggd'' and ''pms_to_agg'' passes ''VerifyAggregate''.
+(However, the inverse does not hold: given a suitable valid aggregate signature and suitable valid triples, it is possible to construct inputs to ''IncAggregate'' which contain an invalid aggregate signature or invalid triples, but for which ''VerifyAggregate'' will accept the aggregate signature returned by ''IncAggregate''. If this is undesired, the input triples and the input aggregate signature should be verified individually before passing them to ''IncAggregate''.)
+
+Input:
+* ''aggsig'' : a byte array
+* ''pm_aggd<sub>0..v-1</sub>'': an array of ''v'' tuples, where the first element of each tuple is a 32-byte public key and the second element is a 32-byte message
+* ''pms_to_agg<sub>0..u-1</sub>'': an array of ''u'' triples, where the first element of each tuple is a 32-byte public key, the second element is a 32-byte message and the third element is a 64-byte BIP 340 signature
+
+'''''IncAggregate(aggsig, pm_aggd<sub>0..v-1</sub>, pms_to_agg<sub>0..u-1</sub>)''''':
+* Fail if ''len(aggsig) &ne; 32 * (v + 1)''
+* For ''i = 0 .. v-1'':
+** Let ''(pk<sub>i</sub>, m<sub>i</sub>) = pm_aggd<sub>i</sub>''
+** Let ''r<sub>i</sub> = aggsig[i⋅32:(i+1)⋅32]''
+* For ''i = v .. v+u-1'':
+** Let ''(pk<sub>i</sub>, m<sub>i</sub>, sig<sub>i</sub>) = pms_to_agg<sub>i-v</sub>''
+** Let ''r<sub>i</sub> = sig<sub>i</sub>[0:32]''
+** Let ''s<sub>i</sub> = int(sig<sub>i</sub>[32:64])''
+** If ''i = 0'':
+*** Let ''z<sub>i</sub> = 1''
+** Else:
+*** Let ''z<sub>i</sub> = int(hash<sub>HalfAgg/randomizer</sub>(r<sub>0</sub> || pk<sub>0</sub> || m<sub>0</sub> || ... || r<sub>i</sub> || pk<sub>i</sub> || m<sub>i</sub>)) mod n''
+* Let ''s = int(aggsig[v⋅32:(v+1)⋅32]) + z<sub>v</sub>⋅s<sub>v</sub> + ... + z<sub>v+u-1</sub>⋅s<sub>v+u-1</sub> mod n''
+* Return ''r<sub>0</sub> || ... || r<sub>v+u-1</sub> || bytes(s)''
+
+==== VerifyAggregate ====
+
+''VerifyAggregate'' verifies a given aggregate signature against an array of public key and message tuples.
+
+Input:
+* ''aggsig'' : a byte array
+* ''pm_aggd<sub>0..u-1</sub>'': an array of ''u'' tuples, where the first element of each tuple is a 32-byte public key and the second element is a 32-byte message
+
+'''''VerifyAggregate(aggsig, pm_aggd<sub>0..u-1</sub>)''''':
+The algorithm ''VerifyAggregate(aggsig, pm_aggd<sub>0..u-1</sub>)'' is defined as:
+* Fail if ''len(aggsig) &ne; 32 * (u + 1)''
+* For ''i = 0 .. u-1'':
+** Let ''(pk<sub>i</sub>, m<sub>i</sub>) = pm_aggd<sub>i</sub>''
+** Let ''P<sub>i</sub> = lift_x(int(pk<sub>i</sub>))''; fail if that fails
+** Let ''r<sub>i</sub> = aggsig[i⋅32:(i+1)⋅32]''
+** Let ''R<sub>i</sub> = lift_x(int(r<sub>i</sub>))''; fail if that fails
+** Let ''e<sub>i</sub> = int(hash<sub>BIP0340/challenge</sub>(bytes(r<sub>i</sub>) || pk<sub>i</sub> || m<sub>i</sub>)) mod n''
+** If ''i = 0'':
+*** Let ''z<sub>i</sub> = 1''
+** Else:
+*** Let ''z<sub>i</sub> = int(hash<sub>HalfAgg/randomizer</sub>(r<sub>0</sub> || pk<sub>0</sub> || m<sub>0</sub> || ... || r<sub>i</sub> || pk<sub>i</sub> || m<sub>i</sub>)) mod n''
+* Let ''s = int(aggsig[u⋅32:(u+1)⋅32])''; fail if ''s &ge; n''
+* Fail if ''s⋅G &ne; z<sub>0</sub>⋅(R<sub>0</sub> + e<sub>0</sub>⋅P<sub>0</sub>) + ... + z<sub>u-1</sub>⋅(R<sub>u-1</sub> + e<sub>u-1</sub>⋅P<sub>u-1</sub>)''
+* Return success iff no failure occurred before reaching this point.
+
+The verification algorithm is similar to [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#batch-verification BIP340 Batch Verification]. As in BIP340, using an [https://bitcoin.stackexchange.com/a/80702/109853 efficient algorithm for computing the sum of multiple EC multiplications] can significantly speed up verification.
+
+== Backward Compatibility ==
+
+Half-aggregation specifies a new, optional construction for aggregating existing BIP 340 signatures.
+It does not change the validation of individual BIP 340 signatures and does not affect any existing Bitcoin consensus rules or protocol behavior.
+Therefore, this BIP introduces no backward compatibility concerns.
