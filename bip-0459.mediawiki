@@ -1,0 +1,431 @@
+<pre>
+  BIP: 459
+  Layer: Applications
+  Title: Full-Aggregation of BIP 340 Signatures
+  Authors: Fabian Jahr <fjahr@protonmail.com>
+  Status: Draft
+  Type: Specification
+  Assigned: 2026-07-10
+  License: BSD-3-Clause
+  Discussion: 2025-04-17: https://groups.google.com/g/bitcoindev/c/eothFkxAvK0/m/IZVGezcdDAAJ
+              2026-07-06: https://groups.google.com/g/bitcoindev/c/TF5mPfy58RQ/m/lvSC2FdYAAAJ
+  Requires: 340
+</pre>
+
+== Introduction ==
+
+=== Abstract ===
+
+This document describes ''full-aggregation'' of BIP 340 signatures, a standard for the DahLIAS<ref>Jonas Nick, Tim Ruffing, Yannick Seurin: ''DahLIAS: Discrete Logarithm-Based Interactive Aggregate Signatures''. Cryptology ePrint Archive, Report 2025/692. https://eprint.iacr.org/2025/692</ref> interactive aggregate signature scheme.
+Full-aggregation is an interactive process for aggregating a collection of signatures into a single aggregate signature.
+The resulting aggregate signature has the same size as a single BIP 340 signature (64 bytes), regardless of the number of signers.
+
+=== Copyright ===
+
+This document, along with the [[bip-0459/reference.py|reference implementation]] and [[bip-0459/vectors/|test vectors]], is licensed under the BSD-3-Clause License. The exception is the vendored copy of the secp256k1lab library in [[bip-0459/secp256k1lab/|bip-0459/secp256k1lab]], which is licensed under the MIT License as stated in its [[bip-0459/secp256k1lab/COPYING|COPYING]] file.
+
+=== Motivation ===
+
+Full-aggregation applies whenever a verifier must check multiple signatures.
+The signatures are compressed into a single constant-size aggregate signature, and a verifier that accepts the aggregate is assured that each individual signature would have passed verification.
+
+The primary purpose is to reduce the amount of data sent to the verifier.
+While ''n'' BIP 340 signatures are ''64*n'' bytes, a fully aggregated signature is always 64 bytes.
+Verifying the aggregate is also faster than verifying each signature separately.
+One application is cross-input signature aggregation (CISA) within the Bitcoin consensus protocol, which reduces the size and verification cost of multi-input transactions.
+Deploying CISA requires a consensus change that this document does not specify.
+This document only specifies the signature scheme and consensus integration is left to a future proposal.
+
+Full-aggregation is interactive.
+It requires cooperation among all signers, following a two-round protocol whose first round can be preprocessed before the messages to be signed are known.
+This makes full-aggregation unsuitable for scenarios where signers cannot coordinate.
+However, when all input owners already cooperate to construct and sign a transaction, the interaction is not a significant burden.
+Historical average transactions would see an [https://hrf.org/latest/cisa-research-paper/ average size reduction of 20.5% and a weight reduction of 7.3%].
+Full-aggregation is particularly beneficial for large transactions such as CoinJoins, PayJoins and consolidations, because the savings grow with the number of inputs.
+For example, a hypothetical CoinJoin of 300 inputs and 300 outputs would see a size reduction of 42.7% and a weight reduction of 15.9%.
+A typical consolidation transaction of 150 inputs and one output would see a weight reduction of 27.4%.
+CISA with full-aggregation can even reduce the cost of privacy since participating in CoinJoin and PayJoin transactions can become cheaper than sending individual transactions.
+
+Unlike interactive multisignature schemes such as MuSig2 ([[bip-0327.mediawiki|BIP 327]]), in which signers cooperate to produce a single signature under a single aggregate public key for a single message, full-aggregation does not combine the signers' keys.
+Each signer signs their own message under their own public key, and the aggregate signature is verified against the list of individual public key and message pairs.
+
+== Overview ==
+
+Implementers must make sure to understand this section thoroughly to avoid subtle mistakes that may lead to catastrophic failure.
+
+=== General Signing Flow ===
+
+The signing protocol involves ''u'' signers, each with their own secret key, public key, and message, and a ''coordinator'' who aggregates their contributions.
+
+The basic order of operations to create a fully aggregated signature is as follows:
+
+'''First broadcast round:'''
+The signers start the signing session by running ''NonceGen'' to compute ''secnonce'' and ''pubnonce''.<ref>We treat the ''secnonce'' and ''pubnonce'' as grammatically singular even though they include serializations of two scalars and two elliptic curve points, respectively.</ref>
+Then, the signers send their ''pubnonce'' to the coordinator.
+The coordinator runs ''NonceAgg'' to compute an aggregate nonce ''aggnonce'' and sends it back to the signers, along with the ordered list of all ''(pk, m, pubnonce)'' triples.
+
+'''Second broadcast round:'''
+At this point, every signer has the required data to sign.
+Every signer computes a partial signature by running ''Sign'' with their secret key, their ''secnonce'', the message they intend to sign, and the session parameters.
+Then, the signers send their partial signatures to the coordinator, who runs ''SigAgg'' to obtain the final 64-byte aggregate signature.
+If all signers behaved honestly, the result passes ''Verify''.
+If the aggregate signature is invalid, the coordinator can run ''PartialSigVerify'' on each partial signature to identify the disruptive signer.
+
+'''IMPORTANT''': The ''Sign'' algorithm must '''not''' be executed twice with the same ''secnonce''.
+Otherwise, it is possible to extract the signer's secret key from the two partial signatures output by the two executions of ''Sign''.
+To avoid accidental reuse of ''secnonce'', an implementation may securely erase the ''secnonce'' argument by overwriting it with 64 zero bytes after it has been read by ''Sign''.
+A ''secnonce'' consisting of only zero bytes is invalid for ''Sign'' and will cause it to fail.
+
+To simplify the specification of the algorithms, some intermediary values are unnecessarily recomputed from scratch, e.g., when executing ''GetSessionValues'' multiple times.
+Actual implementations can cache these values.
+As a result, the session parameters may look different in implementations or may not exist as an explicit data structure.
+However, computation of ''GetSessionValues'' and storage of the result must be protected against modification from an untrusted third party.
+
+=== Nonce Generation ===
+
+'''IMPORTANT''': ''NonceGen'' must have access to a high-quality random generator to draw an unbiased, uniformly random value ''rand' ''.
+In contrast to BIP 340 signing, the nonce values '''must not be derived deterministically''' from the signing key and message because otherwise active adversaries can trick the victim into reusing a nonce.<ref>An attacker who participates as a co-signer can run multiple signing sessions with the victim for the same message while varying its own nonce contributions. With deterministic derivation the victim reuses its secret nonces across these sessions while the aggregate nonce and therefore the nonce coefficient ''b'' and the challenge change. Three such sessions yield a system of linear equations that reveals the victim's secret key. Deriving the nonces from additional session data does not prevent this since the other signers' nonces are unknown to the victim when its nonces are generated.</ref>
+
+The optional arguments to ''NonceGen'' enable a defense-in-depth mechanism that may prevent secret key exposure if ''rand' '' is accidentally not drawn uniformly at random.
+If the value ''rand' '' was identical in two ''NonceGen'' invocations but any other argument was different, the ''secnonce'' would still be different, avoiding accidental nonce reuse.
+Therefore, it is recommended to provide the optional argument ''sk'' if available during nonce generation.
+The auxiliary input ''extra_in'' can contain additional contextual data that has a chance of changing between ''NonceGen'' runs, e.g., a session identifier or a counter.
+However, the protection provided by the optional arguments should only be viewed as a last resort.
+
+In some applications, it is beneficial to generate and send a ''pubnonce'' before the other signers, their public keys, or the messages to sign are known.
+In this case, the ''NonceGen'' algorithm is run during a preprocessing phase, and the ''Sign'' algorithm can be run immediately when the messages and set of signers are determined.
+This way, the final signature is created quicker and with fewer round trips.
+However, applications that use this method presumably store the nonces for a longer time and must therefore be even more careful not to reuse them.
+
+In general, signers are stateful in the sense that they first generate ''secnonce'' and then need to store it until they receive the coordinator's response containing the aggregate nonce and session parameters.
+However, it is possible for one of the signers to be stateless: this signer waits until it receives the ''pubnonce'' of all other signers and until session parameters are determined.
+Then, the signer can run ''NonceGen'', ''NonceAgg'', and ''Sign'' in sequence and send out its ''pubnonce'' along with its partial signature.
+
+=== Role of the Coordinator ===
+
+Instead of every signer sending their nonce and partial signature to every other signer, it is possible to use an untrusted ''coordinator'' to reduce the communication complexity from quadratic to linear in the number of signers.
+In each of the two rounds, the coordinator collects all signers' contributions (nonces or partial signatures), processes them, and sends the results back to the signers.
+A malicious coordinator can force the signing session to fail to produce a valid aggregate signature but cannot negatively affect the unforgeability of the scheme, i.e., even a malicious coordinator colluding with all but one signer cannot forge a signature.
+
+If there is no dedicated coordinator, one of the signers can act as the coordinator.
+
+Unlike BIP 327 where the coordinator only needs to send the aggregate nonce back to signers, the coordinator in this scheme must also send each signer the individual public nonces (specifically, the ''R<sub>2</sub>'' components) of all signers.
+This is because each signer must verify that their own ''R<sub>2</sub>'' value appears exactly once in the session context (see [[#sign|Sign]]).
+In many applications, the signers already know the list of public keys and messages before the signing session starts and only the ''aggnonce'' and individual public nonces need to be communicated.
+
+=== List Ordering ===
+
+The aggregate signature depends on the order of the list of public key and message pairs.
+A signature valid for a list ''L'' will not be valid for any non-trivial permutation of ''L'' (except with negligible probability).
+If an application does not have a natural ordering of signers, the list should be sorted using a predetermined order before being provided to the coordinator, and the verifier must use the same order.
+
+== Specification ==
+
+=== Notation ===
+
+The following conventions are used, with constants as defined for [https://www.secg.org/sec2-v2.pdf secp256k1]. We note that adapting this specification to other elliptic curves is not straightforward and can result in an insecure scheme<ref>Among other pitfalls, using the specification with a curve whose order is not close to the size of the range of the nonce derivation function is insecure.</ref>.
+* Lowercase variables represent integers or byte arrays.
+** The constant ''p'' refers to the field size, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F''.
+** The constant ''n'' refers to the curve order, ''0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141''.
+* Uppercase variables refer to points on the curve with equation ''y<sup>2</sup> = x<sup>3</sup> + 7'' over the integers modulo ''p''.
+** ''is_infinite(P)'' returns whether or not ''P'' is the point at infinity.
+** ''x(P)'' and ''y(P)'' are integers in the range ''0..p-1'' and refer to the X and Y coordinates of a point ''P'' (assuming it is not infinity).
+** The constant ''G'' refers to the base point, for which ''x(G) = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798'' and ''y(G) = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8''.
+** Addition of points refers to the usual [https://en.wikipedia.org/wiki/Elliptic_curve#The_group_law elliptic curve group operation].
+** [https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication Multiplication (⋅) of an integer and a point] refers to the repeated application of the group operation.
+* Functions and operations:
+** ''||'' refers to byte array concatenation.
+** The function ''x[i:j]'', where ''x'' is a byte array and ''i, j ≥ 0'', returns a ''(j - i)''-byte array with a copy of the ''i''-th byte (inclusive) to the ''j''-th byte (exclusive) of ''x''.
+** The function ''bytes(x)'', where ''x'' is an integer, returns the 32-byte encoding of ''x'', most significant byte first.
+** The function ''bytes(P)'', where ''P'' is a point, returns ''bytes(x(P))''.
+** The function ''cbytes(P)'', where ''P'' is a point for which ''not is_infinite(P)'', returns the 33-byte encoding consisting of the single byte ''0x02'' if ''has_even_y(P)'', or ''0x03'' otherwise, prepended to ''bytes(x(P))''.
+** The function ''len(x)'' where ''x'' is a byte array returns the length of the array.
+** The function ''int(x)'', where ''x'' is a 32-byte array, returns the 256-bit unsigned integer whose most significant byte first encoding is ''x''.
+** The function ''has_even_y(P)'', where ''P'' is a point for which ''not is_infinite(P)'', returns ''y(P) mod 2 = 0''.
+** The function ''lift_x(x)'', where ''x'' is a 256-bit unsigned integer, returns the point ''P'' for which ''x(P) = x'' and ''has_even_y(P)'', or fails if ''x ≥ p'' or no such point exists. The function ''lift_x(x)'' is equivalent to the following pseudocode:
+*** Fail if ''x ≥ p''.
+*** Let ''c = x<sup>3</sup> + 7 mod p''.
+*** Let ''y = c<sup>(p+1)/4</sup> mod p''.
+*** Fail if ''c ≠ y<sup>2</sup> mod p''.
+*** Return the unique point ''P'' such that ''x(P) = x'' and ''y(P) = y'' if ''y mod 2 = 0'' or ''y(P) = p - y'' otherwise.
+** The function ''cpoint(x)'', where ''x'' is a 33-byte array, sets ''P'' to the point on the curve whose X coordinate is ''int(x[1:33])''. Fail if ''x[0]'' is not ''0x02'' or ''0x03'', if ''int(x[1:33]) ≥ p'', or if no point with that X coordinate exists on the curve. If ''x[0] = 0x02'', return the point with even y; if ''x[0] = 0x03'', return the point with odd y.
+** The function ''hash<sub>tag</sub>(x)'' where ''tag'' is a UTF-8 encoded tag name and ''x'' is a byte array returns the 32-byte hash ''SHA256(SHA256(tag) || SHA256(tag) || x)''.
+* Other:
+** Tuples are written by listing the elements within parentheses and separated by commas. For example, ''(2, 3, 1)'' is a tuple.
+
+In the [[bip-0459/reference.py|reference implementation]], these operations map to the following [https://github.com/secp256k1lab/secp256k1lab secp256k1lab] library methods, where ''GE'' and ''Scalar'' represent points and scalars:
+
+{| class="wikitable"
+! Notation !! secp256k1lab
+|-
+| ''lift_x(int(x))'' || ''GE.from_bytes_xonly(x)''
+|-
+| ''cpoint(x)'' || ''GE.from_bytes_compressed(x)''
+|-
+| ''int(x)'', failing if ''&ge; n'' || ''Scalar.from_bytes_checked(x)''
+|-
+| ''int(x) mod n'' || ''Scalar.from_bytes_wrapping(x)''
+|-
+| ''bytes(P)'' || ''P.to_bytes_xonly()''
+|-
+| ''cbytes(P)'' || ''P.to_bytes_compressed()''
+|-
+| ''bytes(s)'' || ''s.to_bytes()''
+|-
+| ''has_even_y(P)'' || ''P.has_even_y()''
+|-
+| ''hash<sub>tag</sub>(x)'' || ''tagged_hash(tag, x)''
+|}
+
+=== Algorithms ===
+
+The following specification of the algorithms has been written with a focus on clarity.
+As a result, the specified algorithms are not always optimal in terms of computation and space.
+In particular, some values are recomputed but can be cached in actual implementations (see [[#general-signing-flow|General Signing Flow]]).
+
+Unless noted otherwise, any of the ''pk<sub>0..u-1</sub>'', ''m<sub>0..u-1</sub>'', ''pubnonce<sub>0..u-1</sub>'', and ''psig<sub>0..u-1</sub>'' arrays that an algorithm takes have the same length ''u'', with ''u ≥ 1'', and the algorithm fails otherwise.
+Each message is a 32-byte array, and an algorithm fails on any message of a different length.
+
+==== NonceGen ====
+
+''NonceGen'' generates a secret nonce and a corresponding public nonce for a single signer.
+
+Input:
+* ''sk'': a 32-byte secret key (optional argument)
+* ''extra_in'': a byte array (optional argument)
+
+'''''NonceGen(sk, extra_in)'''''<ref>See [[#nonce-generation|Nonce Generation]] in the Overview for important security requirements regarding randomness and nonce reuse.</ref>:
+* Let ''rand' '' be a 32-byte array freshly drawn uniformly at random.
+* If the optional argument ''sk'' is present:
+** Let ''rand'' be the byte-wise xor of ''sk'' and ''hash<sub>FullAgg/aux</sub>(rand')''.
+* Else:
+** Let ''rand = rand' ''.
+* If the optional argument ''extra_in'' is not present:
+** Let ''extra_in'' be an empty byte array.
+* Let ''r<sub>1</sub> = int(hash<sub>FullAgg/nonce</sub>(rand || extra_in || 0x00)) mod n''; fail if ''r<sub>1</sub> = 0''.
+* Let ''r<sub>2</sub> = int(hash<sub>FullAgg/nonce</sub>(rand || extra_in || 0x01)) mod n''; fail if ''r<sub>2</sub> = 0''.
+* Let ''R<sub>1</sub> = r<sub>1</sub>⋅G''.
+* Let ''R<sub>2</sub> = r<sub>2</sub>⋅G''.
+* Let ''secnonce = bytes(r<sub>1</sub>) || bytes(r<sub>2</sub>)''.
+* Let ''pubnonce = cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>)''.
+* Return ''(secnonce, pubnonce)''.
+
+==== NonceAgg ====
+
+''NonceAgg'' aggregates all signers' public nonces into a single aggregate nonce.
+
+Input:
+* ''pubnonce<sub>0..u-1</sub>'': an array of ''u'' 66-byte public nonces
+
+'''''NonceAgg(pubnonce<sub>0..u-1</sub>)''''':
+* For ''i = 0 .. u-1'':
+** Let ''R<sub>1,i</sub> = cpoint(pubnonce<sub>i</sub>[0:33])''; fail if that fails.
+** Let ''R<sub>2,i</sub> = cpoint(pubnonce<sub>i</sub>[33:66])''; fail if that fails.
+* Let ''R<sub>1</sub> = R<sub>1,0</sub> + R<sub>1,1</sub> + ... + R<sub>1,u-1</sub>''.
+* Let ''R<sub>2</sub> = R<sub>2,0</sub> + R<sub>2,1</sub> + ... + R<sub>2,u-1</sub>''.
+* Fail if ''is_infinite(R<sub>1</sub>)'' or ''is_infinite(R<sub>2</sub>)''.
+* Let ''aggnonce = cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>)''.
+* Return ''aggnonce''.
+
+==== GetSessionValues ====
+
+''GetSessionValues'' is a helper function that computes the derived values shared by ''Sign'', ''SigAgg'', and ''PartialSigVerify''.
+
+Input:
+* ''aggnonce'': a 66-byte aggregate nonce
+* ''pk<sub>0..u-1</sub>'': an array of ''u'' 32-byte public keys
+* ''m<sub>0..u-1</sub>'': an array of ''u'' 32-byte messages
+* ''pubnonce<sub>0..u-1</sub>'': an array of ''u'' 66-byte public nonces
+
+'''''GetSessionValues(aggnonce, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>)''''':
+* Let ''R<sub>1</sub> = cpoint(aggnonce[0:33])''; fail if that fails.
+* Let ''R<sub>2</sub> = cpoint(aggnonce[33:66])''; fail if that fails.
+* For ''i = 0 .. u-1'':
+** Let ''R<sub>2,i</sub> = cpoint(pubnonce<sub>i</sub>[33:66])''; fail if that fails.
+* Let ''nonce_data = cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>)''
+* For ''i = 0 .. u-1'':
+** Let ''nonce_data = nonce_data || pk<sub>i</sub> || m<sub>i</sub> || cbytes(R<sub>2,i</sub>)''
+* Let ''b = int(hash<sub>FullAgg/noncecoef</sub>(nonce_data)) mod n''
+* Let ''R = R<sub>1</sub> + b⋅R<sub>2</sub>''
+* Fail if ''is_infinite(R)''.
+* Return ''(R, b)''
+
+==== Sign ====
+
+''Sign'' produces a partial signature for a signer.
+
+Input:
+* ''secnonce'': a 64-byte secret nonce
+* ''sk'': a 32-byte secret key
+* ''m'': the 32-byte message this signer intends to sign
+* ''aggnonce'': a 66-byte aggregate nonce
+* ''pk<sub>0..u-1</sub>'': an array of ''u'' 32-byte public keys
+* ''m<sub>0..u-1</sub>'': an array of ''u'' 32-byte messages
+* ''pubnonce<sub>0..u-1</sub>'': an array of ''u'' 66-byte public nonces
+
+'''''Sign(secnonce, sk, m, aggnonce, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>)''''':
+* Let ''r<sub>1</sub> = int(secnonce[0:32])''; fail if ''r<sub>1</sub> = 0''.
+* Let ''r<sub>2</sub> = int(secnonce[32:64])''; fail if ''r<sub>2</sub> = 0''.
+* Fail if ''r<sub>1</sub> ≥ n'' or ''r<sub>2</sub> ≥ n''.
+* Let ''d = int(sk)''; fail if ''d = 0'' or ''d ≥ n''.
+* Let ''P = d⋅G''.
+* Let ''R<sub>2</sub> = r<sub>2</sub>⋅G''.
+* '''Index lookup and uniqueness check''': Find the unique index ''j'' in ''0..u-1'' such that ''pubnonce<sub>j</sub>[33:66] = cbytes(R<sub>2</sub>)''. Fail if no such index exists or if more than one such index exists.<ref>The uniqueness check applies to the ''R<sub>2</sub>'' value alone. Checking instead that the combination of public key, message, and ''R<sub>2</sub>'' occurs exactly once is not sufficient. If the signer's ''R<sub>2</sub>'' appears at a second index with a different public key or message, ''Sign'' must fail, because signing such a session enables a key extraction attack (see Section 4.2 of the [https://eprint.iacr.org/2025/692 DahLIAS paper]).</ref>
+* Fail if ''pk<sub>j</sub> ≠ bytes(P)'' or ''m<sub>j</sub> ≠ m'', i.e., the public key or message at the signer's position does not match the signer's secret key or intended message.
+* Let ''(R, b) = GetSessionValues(aggnonce, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>)''; fail if that fails.
+* Let ''e = 1'' if ''has_even_y(R)'', otherwise let ''e = n - 1''.
+* Let ''d' = d'' if ''has_even_y(P)'', otherwise let ''d' = n - d''.
+* Let ''L = pk<sub>0</sub> || m<sub>0</sub> || ... || pk<sub>u-1</sub> || m<sub>u-1</sub>''.
+* Let ''c<sub>j</sub> = int(hash<sub>FullAgg/sig</sub>(L || bytes(R) || pk<sub>j</sub> || m<sub>j</sub>)) mod n''.
+* Let ''s<sub>j</sub> = (e⋅(r<sub>1</sub> + b⋅r<sub>2</sub>) + c<sub>j</sub>⋅d') mod n''.
+* Let ''psig = bytes(s<sub>j</sub>)''.
+* Return ''psig''.
+
+==== SigAgg ====
+
+''SigAgg'' aggregates all partial signatures into a final 64-byte aggregate signature.
+
+Input:
+* ''aggnonce'': a 66-byte aggregate nonce
+* ''pk<sub>0..u-1</sub>'': an array of ''u'' 32-byte public keys
+* ''m<sub>0..u-1</sub>'': an array of ''u'' 32-byte messages
+* ''pubnonce<sub>0..u-1</sub>'': an array of ''u'' 66-byte public nonces
+* ''psig<sub>0..u-1</sub>'': an array of ''u'' 32-byte partial signatures
+
+'''''SigAgg(aggnonce, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>, psig<sub>0..u-1</sub>)''''':
+* Let ''(R, b) = GetSessionValues(aggnonce, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>)''; fail if that fails.
+* For ''i = 0 .. u-1'':
+** Let ''s<sub>i</sub> = int(psig<sub>i</sub>)''; fail if ''s<sub>i</sub> ≥ n''.
+* Let ''s = (s<sub>0</sub> + s<sub>1</sub> + ... + s<sub>u-1</sub>) mod n''.
+* Let ''sig = bytes(R) || bytes(s)''.
+* Return ''sig''.
+
+==== PartialSigVerify ====
+
+''PartialSigVerify'' verifies a single signer's partial signature and is used to identify disruptive signers.
+It recomputes the aggregate nonce from the public nonces rather than taking it as an argument, so its result cannot be influenced by the coordinator.
+If the public nonces are received over authenticated channels and ''PartialSigVerify'' succeeds for the partial signatures of all ''u'' signers, then ''SigAgg'' called with ''aggnonce = NonceAgg(pubnonce<sub>0..u-1</sub>)'' produces a valid aggregate signature.
+
+Input:
+* ''psig'': a 32-byte partial signature
+* ''pk<sub>0..u-1</sub>'': an array of ''u'' 32-byte public keys
+* ''m<sub>0..u-1</sub>'': an array of ''u'' 32-byte messages
+* ''pubnonce<sub>0..u-1</sub>'': an array of ''u'' 66-byte public nonces
+* ''signer_index'': the index of the signer in the list (integer in ''0..u-1'')
+
+'''''PartialSigVerify(psig, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>, signer_index)''''':
+* Let ''i = signer_index''.
+* Fail if ''i < 0'' or ''i ≥ u''.
+* Let ''s = int(psig)''; fail if ''s ≥ n''.
+* Let ''R<sub>1,i</sub> = cpoint(pubnonce<sub>i</sub>[0:33])''; fail if that fails.
+* Let ''R<sub>2,i</sub> = cpoint(pubnonce<sub>i</sub>[33:66])''; fail if that fails.
+* Let ''P<sub>i</sub> = lift_x(int(pk<sub>i</sub>))''; fail if that fails.
+* Let ''aggnonce = NonceAgg(pubnonce<sub>0..u-1</sub>)''; fail if that fails.
+* Let ''(R, b) = GetSessionValues(aggnonce, pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, pubnonce<sub>0..u-1</sub>)''; fail if that fails.
+* Let ''e = 1'' if ''has_even_y(R)'', otherwise let ''e = n - 1''.
+* Let ''L = pk<sub>0</sub> || m<sub>0</sub> || ... || pk<sub>u-1</sub> || m<sub>u-1</sub>''.
+* Let ''c<sub>i</sub> = int(hash<sub>FullAgg/sig</sub>(L || bytes(R) || pk<sub>i</sub> || m<sub>i</sub>)) mod n''.
+* Let ''R'<sub>i</sub> = R<sub>1,i</sub> + b⋅R<sub>2,i</sub>''.
+* Fail if ''s⋅G ≠ e⋅R'<sub>i</sub> + c<sub>i</sub>⋅P<sub>i</sub>''.
+* Return success iff no failure occurred before reaching this point.
+
+==== Verify ====
+
+''Verify'' verifies a given 64-byte aggregate signature against an ordered list of public key and message pairs.
+The inputs to ''Verify'' are the only data required by a verifier.
+No nonces or other session data are needed.
+
+Input:
+* ''pk<sub>0..u-1</sub>'': an array of ''u'' 32-byte public keys
+* ''m<sub>0..u-1</sub>'': an array of ''u'' 32-byte messages
+* ''sig'': a 64-byte aggregate signature
+
+'''''Verify(pk<sub>0..u-1</sub>, m<sub>0..u-1</sub>, sig)'''''<ref>An [https://bitcoin.stackexchange.com/a/80702/109853 efficient algorithm for computing a sum of multiple EC multiplications] can significantly speed up verification.</ref>:
+* Let ''r = sig[0:32]''.
+* Let ''s = int(sig[32:64])''; fail if ''s ≥ n''.
+* Let ''R = lift_x(int(r))''; fail if that fails.
+* For ''i = 0 .. u-1'':
+** Let ''P<sub>i</sub> = lift_x(int(pk<sub>i</sub>))''; fail if that fails.
+* Let ''L = pk<sub>0</sub> || m<sub>0</sub> || ... || pk<sub>u-1</sub> || m<sub>u-1</sub>''.
+* For ''i = 0 .. u-1'':
+** Let ''c<sub>i</sub> = int(hash<sub>FullAgg/sig</sub>(L || r || pk<sub>i</sub> || m<sub>i</sub>)) mod n''.
+* Fail if ''s⋅G ≠ R + c<sub>0</sub>⋅P<sub>0</sub> + c<sub>1</sub>⋅P<sub>1</sub> + ... + c<sub>u-1</sub>⋅P<sub>u-1</sub>''.
+* Return success iff no failure occurred before reaching this point.
+
+=== Key Tweaking ===
+
+The scheme supports additive key tweaking, allowing signers to use tweaked key pairs without changes to the verification algorithm.
+A tweak ''t'' is a 256-bit integer with ''0 ≤ t < 2<sup>256</sup>''.
+In both variants below, tweaking fails if ''t ≥ n'' or if ''is_infinite(P')''.
+The tweaked public key ''bytes(P')'' appears in the public key list provided to ''Verify'', and the signer uses ''sk' '' as its secret key in ''Sign''.
+
+'''Plain tweaking''' modifies a key pair ''(sk, P)'' with ''P = sk⋅G'' and is used for BIP 32 unhardened derivation, where ''t'' is the child offset:
+* ''sk' = (sk + t) mod n''
+* ''P' = P + t⋅G''
+
+'''X-only tweaking''' is used for BIP 341 Taproot key path spending.
+Because an X-only public key denotes the point with even Y, the input key is first normalized to even Y.
+Let ''d = sk'' if ''has_even_y(P)'', otherwise ''d = n - sk'', so that ''d⋅G = lift_x(x(P))''.
+Then:
+* ''sk' = (d + t) mod n''
+* ''P' = lift_x(x(P)) + t⋅G''
+For BIP 341, ''t = int(hash<sub>TapTweak</sub>(bytes(P) || merkle_root))'' where ''bytes(P)'' is the X-only internal public key.
+The resulting ''P' '' may have odd Y.
+
+== Rationale ==
+
+DahLIAS is the first aggregate signature scheme with constant-size signatures based directly on discrete logarithms in pairing-free groups.
+
+* A fully aggregated signature has the same shape as a standard Schnorr signature: a pair ''(R, s)'' serialized as 64 bytes. The verification algorithm is different from BIP 340 verification and takes a ''list'' of public key and message pairs as input rather than a single pair.
+* Every message is exactly 32 bytes. This is the size of a transaction sighash, the intended input for cross-input signature aggregation. Fixing the length also keeps the encoding of the list ''L'' unambiguous, since the challenge binds to the entire list rather than to a single message as in BIP 340 and BIP 327. An application that needs to sign data of a different size should pre-hash it to a 32-byte digest, for example with a tagged hash.
+* Each signer contributes two nonces rather than one. A single nonce per signer would leave the scheme open to the [https://eprint.iacr.org/2020/945 ROS attack] mounted across many concurrent signing sessions. Deriving the common nonce as ''R = R<sub>1</sub> + b⋅R<sub>2</sub>'', with ''b'' bound to the full session context, prevents this, following MuSig2 ([[bip-0327.mediawiki|BIP 327]]). A variant of the attack that exploits a signer signing multiple messages is in turn prevented by the ''R<sub>2</sub>'' uniqueness and message checks in ''Sign'' (see [[#security|Security]]).
+* A single nonce coefficient ''b'' is applied uniformly to all signers' second nonce contributions. This keeps signing cost constant per signer (three group exponentiations) rather than requiring a multi-exponentiation of size ''u''. The trade-off is the need for a uniqueness check on the second nonce component ''R<sub>2</sub>'' during signing.
+* The scheme supports additive key tweaking, enabling compatibility with BIP 32 key derivation and BIP 341 Taproot outputs.
+* This document does not specify an optimized signing algorithm for a single party that knows all secret keys, e.g., a wallet spending several of its own inputs. Such a party can act as all signers and the coordinator and run the protocol locally. A more efficient method [https://groups.google.com/g/bitcoindev/c/eothFkxAvK0/m/PgRaFPovEQAJ has been outlined] in the mailing list discussion but requires additional security analysis before it can be specified.
+
+A non-interactive alternative is half-aggregation ([[bip-0458.mediawiki|BIP 458]]), which requires no cooperation between the signers but compresses ''n'' signatures to ''32*n + 32'' bytes rather than to a constant 64 bytes.
+
+== Security ==
+
+'''Nonce generation and reuse.''' As detailed in [[#nonce-generation|Nonce Generation]] and [[#general-signing-flow|General Signing Flow]], ''NonceGen'' must draw ''rand' '' from a high-quality random number generator, nonces must not be derived deterministically, and a ''secnonce'' must never be used in more than one ''Sign'' invocation.
+Violating any of these can allow an adversary to extract the signer's secret key.
+
+'''Signer verification checks.''' The checks performed by ''Sign'' after recomputing ''R<sub>2</sub>'' are security-critical.
+The signer locates its position by finding the unique index ''j'' whose ''R<sub>2</sub>'' matches its own.
+These ''R<sub>2</sub>'' values act as ephemeral identifiers that distinguish signers even when they share a public key, and omitting the uniqueness check enables key extraction.
+The signer must also confirm that ''both'' the public key and the message at index ''j'' match its own.
+Verifying only the public key would let a malicious coordinator substitute a different message at the signer's position.
+
+'''Partial signatures.''' A partial signature is ''not'' a signature.
+By choosing its nonces accordingly, an adversary can produce a partial signature that verifies for any public key.
+''PartialSigVerify'' therefore serves only to identify disruptive signers and does not prove that a signer knows the corresponding secret key.
+
+'''Untrusted coordinator.''' The coordinator can cause a signing session to abort but cannot forge a signature, even when colluding with all but one signer (see [[#role-of-the-coordinator|Role of the Coordinator]]).
+
+'''Security model.''' The scheme is proven secure in the concurrent setting, including when signers use key tweaking, under the algebraic one-more discrete logarithm (AOMDL) assumption, the same assumption used for [[bip-0327.mediawiki|BIP 327]].<ref>The precise notion is cosigners-aware existential unforgeability (co-EUF-CMA) as defined in the DahLIAS paper. Each signer sees the entire list of public key and message pairs before finalizing its contribution, and unforgeability guarantees that no valid aggregate signature can attribute to an honest signer a message and cosigner list it never agreed to sign. This all-or-nothing guarantee over the whole list distinguishes interactive aggregate signatures from multisignatures like MuSig2, which produce a signature for a single message under a single aggregate key.</ref>
+AOMDL is a falsifiable and weaker variant of the well-studied OMDL problem.
+The proof models ''hash<sub>FullAgg/sig</sub>'' as a random oracle and requires only that ''hash<sub>FullAgg/noncecoef</sub>'' be collision-resistant.
+The scheme is also strongly binding, meaning it is infeasible to produce a single signature valid for two distinct lists of public key and message pairs.<ref>DahLIAS strong binding additionally requires the verifier to reject any public key equal to the point at infinity. This condition is satisfied implicitly in this specification: public keys are 32-byte X-only values that are decoded with ''lift_x'', which never yields the point at infinity, so no such public key can appear in the list.</ref>
+
+== Backward Compatibility ==
+
+Full-aggregation specifies a new, optional interactive signing protocol for producing an aggregate signature for a list of BIP 340 public key and message pairs.
+It does not change the validation of individual BIP 340 signatures and does not affect any existing Bitcoin consensus rules or protocol behavior.
+Therefore, this BIP introduces no backward compatibility concerns.
+
+== Test Vectors and Reference Code ==
+
+A reference implementation in Python is provided in [[bip-0459/reference.py|reference.py]].
+Note that the reference implementation depends on a vendored copy of the [https://github.com/secp256k1lab/secp256k1lab secp256k1lab library].
+
+Test vectors are provided in [[bip-0459/vectors/|vectors]] and are generated with a [[bip-0459/gen_test_vectors.py|generator script]].
+The reference implementation can be executed with the test vectors by running [[bip-0459/run_test_vectors.py|the run_test_vectors script]].
+
+== Acknowledgements ==
+
+The scheme specified in this document is DahLIAS (Discrete Logarithm-Based Interactive Aggregate Signatures) by Jonas Nick, Tim Ruffing, and Yannick Seurin.
+Thanks to waxwing for his feedback on the mailing list, which, among other things, led to clarifying the uniqueness check in ''Sign'' and adding test vectors for it.
+
+== Footnotes ==
+
+<references />
