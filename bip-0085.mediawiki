@@ -388,6 +388,179 @@ GPG capable smart-cards SHOULD be loaded as follows: The encryption slot SHOULD 
 
 However, depending on available slots on the smart-card, and preferred policy, the CERTIFY capable key MAY be flagged with CERTIFY and SIGNATURE capabilities and loaded into the SIGNATURE capable slot (for example where the smart-card has only three slots and the CERTIFY capability is required on the same card). In this case, the SIGNATURE capable sub-key would be disregarded because the CERTIFY capable key serves a dual purpose.
 
+====Test vectors====
+
+INPUT:
+* MASTER BIP32 ROOT KEY: <code>xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb</code>
+
+{| class="wikitable"
+! Key Bits
+! Path
+! Entropy (hex)
+! Fingerprint
+|-
+| 2048
+| <code>m/83696968'/828365'/2048'/0'</code>
+| <code>e3ff02b1f0b934357cc0952225bb0e90081005b0cc992c5ed22f6fb8e9c628a3a0f138f9324e33ed4ba7250e43dd66d725a4e4c683dcf5a3b4015b82bcf71934</code>
+| <code>08E6 99DF 4693 0585 D4AB 8A16 BF0C 839D 2367 6360</code>
+|-
+| 3072
+| <code>m/83696968'/828365'/3072'/0'</code>
+| <code>9bd8cb61fea01892ffd981b4da7aae22f32c9641e49c48104682e249a98f7911ed55035a52e085938291d64e34537e9cc0b730f42ae9183b5ddaac33a55764ea</code>
+| <code>B242 63BC 646F 34EE 10CC F75A 962E 123B 8CB8 654C</code>
+|-
+| 4096
+| <code>m/83696968'/828365'/4096'/0'</code>
+| <code>12a499947a142ee3ede9c0960061383f2564b5cc569327d0dd22f7887094676f2e5d5785cd4eb683990d12209ebf6f39a5c1b5e217ea66710260e99fbe4b2be3</code>
+| <code>9148 089D 2080 DF38 4C05 726E A26B B714 0A1B 13FF</code>
+|}
+
+===ECC GPG Keys===
+
+Application number: 828366'
+
+The derivation path format is: <code>m/83696968'/828366'/{key_type}'/{key_bits}'/{key_index}'</code>
+
+All path components are hardened (denoted by <code>'</code>). The key_type values and their corresponding curves are:
+
+{| class="wikitable"
+! key_type
+! OpenPGP Key Type
+! key_bits
+! Algorithm / Curve
+|-
+| 0
+| ECC(Brainpool)
+| 256, 384, 512
+| brainpoolP256r1, brainpoolP384r1, brainpoolP512r1 respectively
+|-
+| 1
+| ECC(Curve25519)
+| 256
+| Ed25519 (certify/sign/auth), X25519 (encrypt)
+|-
+| 2
+| ECC(secp256k1)
+| 256
+| secp256k1
+|-
+| 3
+| ECC(NIST)
+| 256, 384, 521
+| NIST P-256, P-384, P-521 respectively
+|-
+|}
+
+For key_types with a fixed curve (1 and 2), key_bits MUST be 256. Any other value is invalid.
+
+BIP85-DRNG MUST be used as the input RNG function when key generation requires more than 64 bytes of random input. This applies to NIST P-521 (key_type=3, key_bits=521). All other supported ECC key types use the 64-byte HMAC output directly.
+
+<b>ECC Scalar Derivation</b>
+
+For curves with base length ≤ 64 bytes (all except NIST P-521), the private scalar is derived from the first <code>baselen</code> bytes of the 64-byte HMAC-SHA512 entropy output, interpreted as a big-endian unsigned integer. If the resulting scalar is zero or greater than the curve order, apply the fallback: <code>scalar = (scalar % (order - 1)) + 1</code>.
+
+For NIST P-521 (base length 66 bytes), read 66 bytes from BIP85-DRNG-SHAKE256 seeded with the 64-byte HMAC output. Interpret as a big-endian unsigned integer and apply the same fallback if the scalar is zero or greater than the curve order.
+
+<b>Primary Keys and Subkeys</b>
+
+The primary/subkey scheme follows the same structure as [[#RSA GPG|RSA GPG]], using this application's derivation path:
+
+* Primary key: <code>m/83696968'/828366'/{key_type}'/{key_bits}'/{key_index}'</code>
+* Sub keys:  <code>m/83696968'/828366'/{key_type}'/{key_bits}'/{key_index}'/{sub_key}'</code>
+
+For key_type 1 (Curve25519), the OpenPGP algorithm used depends on the key capability, because Curve25519 takes different forms for signing versus encryption in the OpenPGP standard:
+* CERTIFY, SIGN, and AUTHENTICATE capabilities use Ed25519 (EdDSA)
+* ENCRYPT capability uses X25519 (ECDH)
+
+This means the primary key and sub_keys 1 (auth) and 2 (sign) under key_type 1 produce Ed25519 keys, while sub_key 0 (encrypt) produces an X25519 key. The same derived entropy bytes are interpreted according to the required algorithm.
+
+<b>Note on timestamps:</b>
+See [[#RSA GPG|RSA GPG]] for the fixed creation date requirement and faketime guidance.
+
+<b>Note on GPG key capabilities on smartcard/hardware devices:</b>
+See [[#RSA GPG|RSA GPG]] for smart-card slot loading guidance.
+
+====Test vectors====
+
+INPUT:
+* MASTER BIP32 ROOT KEY: <code>xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb</code>
+
+'''Key Type 0 — Brainpool (P-256, P-384, P-512)'''
+
+{| class="wikitable"
+! Key Bits
+! Path
+! Entropy (hex)
+! Fingerprint
+|-
+| 256
+| <code>m/83696968'/828366'/0'/256'/0'</code>
+| <code>99f74d7072aac4946462a3ab99fd6b55f509ab321321f27813dee383a98aa541bd4cc82136d56b4d67eefe32919243b077eed26874218f5df567ac07568756bf</code>
+| <code>1B33 A17E F8CE 55BC 767D 6373 A10D B6B0 4953 6F87</code>
+|-
+| 384
+| <code>m/83696968'/828366'/0'/384'/0'</code>
+| <code>6ef5e7ea71ca14fe1a89f741fbaa4bedf8f59584c6fa9372e1b0c2e4516d7949e61a2311e9bfc9dd5372221d7192f8a2957c1571f96be2f774cc5fee8adcd911</code>
+| <code>38D5 8529 39EE 735F 8B79 CB6B 2173 A1CB D667 7AA6</code>
+|-
+| 512
+| <code>m/83696968'/828366'/0'/512'/0'</code>
+| <code>af5ef50a4f3277f4f57e714cba3caae61ca19bc2a4bfeba4b6726ef319a67427f317d91ed72948abc6f96a77008acad7ee6b3585e6b0beaef76a2ab9f52f75f1</code>
+| <code>37F6 3BBF 5C00 A340 E1AD D2E9 A09B DE42 3DB9 D62C</code>
+|}
+
+'''Key Type 1 — Curve25519'''
+
+{| class="wikitable"
+! Key Bits
+! Path
+! Entropy (hex)
+! Fingerprint
+|-
+| 256
+| <code>m/83696968'/828366'/1'/256'/0'</code>
+| <code>0321683e4d481bb6b5bac0585dbb06689827b9d6db3c530b5f6c31e20c52e4447059dbf3076cbd982cb90e2054f098a5cad5496528a5a7542b09b5b3e5394dbb</code>
+| <code>6D2B 602A A788 9B97 FDCF 116B 926E 9A8C AA2D 1BEA</code>
+|}
+
+'''Key Type 2 — secp256k1'''
+
+{| class="wikitable"
+! Key Bits
+! Path
+! Entropy (hex)
+! Fingerprint
+|-
+| 256
+| <code>m/83696968'/828366'/2'/256'/0'</code>
+| <code>9ba495532c0251a4a8bd0986c0bff07a413a9204881603ace0df8474f3af7e19e622cf1b4da077d26ecfc972f2b84069b50a4c11680fecc4afb2af8b74c68913</code>
+| <code>308A 8CB4 B297 8856 50EA 2E91 0E47 B58F F734 3035</code>
+|}
+
+'''Key Type 3 — NIST (P-256, P-384, P-521)'''
+
+{| class="wikitable"
+! Key Bits
+! Path
+! Entropy (hex)
+! Fingerprint
+|-
+| 256
+| <code>m/83696968'/828366'/3'/256'/0'</code>
+| <code>60e76b9f4a447d4aa4f025c488b598c773b6e0b668e2f7b71bdafb62a0fb7303950b05c2834a8d62d155239e9f78ef26c36e23ab4f4ea894aaa685ef41b89d38</code>
+| <code>451D 829B 1EAD 7DB4 5048 C874 73E1 813D ACE6 70D6</code>
+|-
+| 384
+| <code>m/83696968'/828366'/3'/384'/0'</code>
+| <code>0ca78fc4de4da1969056cb3b2f84006b05b14af0728e80c6b64c0f377b0fe5bbbc948fc22c4e4159cef87bafa9941933ce7c06b0fd57a144ae03fd704f403fa6</code>
+| <code>A28C 41C5 66A6 D4D8 C489 FA15 DEB0 0F3E 48AD 2B3D</code>
+|-
+| 521
+| <code>m/83696968'/828366'/3'/521'/0'</code>
+| <code>ae8a24dfe0384325ab79ed862516c7cb364b1380743fe0ee68fad8e2d56619964166197f2a412121976b24a1d8ad8fcf6168fcb1addb882e7ca84e93b47dec43</code>
+| <code>696B 9061 E301 A9CD 542E 6B95 4F3B D64B 23FA 94DA</code>
+|}
+
 ===DICE===
 
 Application number: 89101'
@@ -441,6 +614,11 @@ BIP32, BIP39
 
 ==Changelog==
 
+===2.1.0 (TBD)===
+
+====Added====
+
+* ECC GPG Keys application 828366' for deterministic derivation of OpenPGP ECC keys: Curve25519/Ed25519/X25519, secp256k1, NIST P-256/P-384/P-521, Brainpool P-256/P-384/P-512
 ===2.0.0 (2025-09-19)===
 
 ====Fixed====
