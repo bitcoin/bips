@@ -1,4 +1,3 @@
-use std::env;
 use log::info;
 use rand::{rng, RngCore};
 

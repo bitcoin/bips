@@ -4,7 +4,7 @@ use log::debug;
 
 // Add imports for the unified keypair
 use bitcoin::secp256k1::{SecretKey, XOnlyPublicKey};
-use bitcoinpqc::{KeyPair, Algorithm};
+use bitcoinpqc::KeyPair;
 
 /// Enum representing the type of leaf script to create
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

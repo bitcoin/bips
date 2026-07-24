@@ -4,7 +4,6 @@ import json
 import os
 import sys
 
-from _base58 import xpub_to_pub_hex
 from _bip327 import cbytes, key_agg
 from _xpub import ExtendedKey
 
