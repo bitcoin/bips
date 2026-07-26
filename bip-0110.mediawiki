@@ -8,6 +8,7 @@
   Assigned: 2025-12-03
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/nOZim6FbuF8
+  Version: 2.0.0
 </pre>
 
 ==Abstract==
@@ -29,6 +30,7 @@ Blocks during a temporary, one-year deployment are checked with these additional
 # Taproot control blocks larger than 257 bytes (a merkle tree with 128 script leaves) are invalid.
 # Tapscripts including OP_SUCCESS* opcodes anywhere (even unexecuted) are invalid.
 # Tapscripts executing the OP_IF or OP_NOTIF instruction (regardless of result) are invalid.
+# A spend of a Pay-to-Anchor (P2A) output is invalid if the witness stack for that input is non-empty.
 
 ===UTXO grandfathering===
 
@@ -112,6 +114,7 @@ The following witness stack elements are '''not''' script argument witness items
 * Others are not part of a script-path spend at all, so the script interpreter is not invoked:
 ** Taproot key path signatures (limited to exactly 64 or 65 bytes by BIP 341 signature validation)
 ** Witness stacks in spends of undefined witness versions (invalidated by rule 3)
+** Witness stacks in spends of P2A outputs (invalidated by rule 8)
 
 All '''other''' witness stack elements are script argument witness items, and are thus limited to 256 bytes by rule 2.
 
@@ -134,6 +137,13 @@ This would require the senders of transactions to check the witness version prio
 This has no use case, but would require nodes to track these UTXOs in case of potential spending.
 By making spending invalid, it is possible for nodes to store them instead in slow memory not needed until this softfork expires.
 (With proper planning, it also makes it possible for a future softfork making use of these witness versions to allow users to receive with an upgraded wallet even prior to activation of the upgrade.)
+
+'''Why require P2A witness stacks to be empty?'''
+
+P2A is a keyless output type and requires no witness stack elements for spending.
+Any witness stack elements have no defined meaning and may be used as arbitrary data buckets.
+[[bip-0433.mediawiki|BIP 433]] makes P2A spends with non-empty witness stacks nonstandard while leaving their consensus meaning unchanged.
+Rule 8 temporarily promotes this policy restriction to consensus: subject to UTXO grandfathering, a P2A spend with a non-empty witness stack is invalid while this deployment is active.
 
 '''Why make the Taproot annex invalid?'''
 
@@ -308,6 +318,8 @@ Pains have been taken to avoid breaking monetary use cases, and it is unlikely t
 
 There are a couple of very unlikely scenarios in which funds could theoretically be frozen or lost. See the Tradeoffs section for more details.
 
+Rule 8 affects spends of P2A outputs with non-empty witness stacks. Such spends are already nonstandard under BIP 433; this proposal makes them consensus-invalid for non-grandfathered P2A outputs while the deployment is active.
+
 If this proposal activates, the Miniscript compiler will need to be modified not to produce scripts that violate the new rules, at least while the new rules are active.
 
 Users storing arbitrary data in the Bitcoin blockchain should start looking for other places to store their data, such as Nostr, IPFS, BitTorrent, cloud storage, etc, as the Bitcoin network will not support this use case going forward.
@@ -322,10 +334,14 @@ https://github.com/bitcoinknots/bitcoin/compare/29.x-knots...dathonohm:bitcoin:u
 
 Test coverage specific to these rules is provided by the reference implementation's functional test suite:
 
-* [https://github.com/dathonohm/bitcoin/blob/uasf-modified-bip9/test/functional/feature_rdts.py feature_rdts.py] exercises all seven consensus rules, including their boundaries and the script-type exemptions to rule 2 (BIP16 redeemScripts, witness scripts, and Tapleaf scripts).
+* [https://github.com/dathonohm/bitcoin/blob/uasf-modified-bip9/test/functional/feature_rdts.py feature_rdts.py] exercises rules 1 through 7, including their boundaries and the script-type exemptions to rule 2 (BIP16 redeemScripts, witness scripts, and Tapleaf scripts).
 * [https://github.com/dathonohm/bitcoin/blob/uasf-modified-bip9/test/functional/feature_reduced_data_utxo_height.py feature_reduced_data_utxo_height.py] covers the grandfathering of UTXOs created before the activation height.
+* [https://github.com/bitcoinknots/bitcoin/commit/38996fb57a695f45af44e85bba265508fc598088 Bitcoin Knots commit 38996fb] implements rule 8 on the <code>29.x-knots</code> branch.
+* [https://github.com/bitcoinknots/bitcoin/commit/295508d530046e8f7e291680d7943fa4f7d18d69 Bitcoin Knots commit 295508d] adds functional coverage for empty and non-empty P2A witness stacks on that branch.
 
 In addition, a set of transaction-level test vectors generated and verified against the reference implementation is provided in [[bip-0110/test-vectors.json|test-vectors.json]]. Each vector gives the spent output(s), the spending (or output-creating) transaction, and whether a block containing it is valid while these rules are active; the <code>rule</code> and <code>spent_utxo</code> fields identify which numbered rule is exercised and whether the spent UTXO is grandfathered. These vectors were produced by [[bip-0110/test-vectors.py|test-vectors.py]], which submits each case to a regtest node enforcing the rules and emits the verified result; see that file for reproduction instructions.
+
+The rule 8 vectors distinguish an empty witness stack from a stack containing one empty element, and verify that the rule is subject to UTXO grandfathering.
 
 ==Deployment==
 
@@ -367,6 +383,8 @@ Original draft and advice: Luke-Jr
 
 ==Changelog==
 
+* '''2.0.0''' (2026-07-26):
+** Document the P2A empty-witness consensus rule implemented before BIP 110 reached Complete and add corresponding test vectors
 * '''1.0.0''' (2026-06-25):
 ** Advance to Complete
 * '''0.0.4''' (2026-02-04):
