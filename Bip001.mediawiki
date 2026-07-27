@@ -1,0 +1,84 @@
+<pre>
+  BIP: 10
+  Title: Multi-Sig Transaction Distribution
+  Author: Alan Reiner
+  Status: Draft
+  Type: Informational
+  Created: 28-10-2011
+</pre>
+
+A multi-signature transaction is one where a certain number of Bitcoins are "encumbered" with more than one recipient address.  The subsequent transaction that spends these coins will require each party involved (or some subset, depending on the script), to see the proposed transaction and sign it with their private key.  This necessarily requires collaboration between all parties -- to propose a distribution of encumbered funds, collect signatures from all necessary participants, and then broadcast the completed transaction.
+
+This BIP describes a way standardize the encoding of proposal transactions, to assist with signature collection and broadcast (which includes regular, 1-of-1 transactions requiring signatures from an offline computer).  The goal is to encourage a standard that guarantees interoperability of all programs that implement it.
+
+
+==Motivation==
+
+The enabling of multi-signature transactions in Bitcoin will introduce a great deal of extra functionality to the users of the network, but also a great deal of extra complexity.  Executing a multi-signature tx will be a multi-step process, and will potentially get worse with multiple clients, each implementing this process differently.  By providing an efficient, standardized technique, we can improve the chance that developers will adopt compatible protocols and not bifurcate the user-base based on client selection.
+
+In addition to providing a general encoding scheme for transaction signing/collection, it does not require the signing device to hold any blockchain information (all information needed for verification and signing is part of the encoding).  This enables the existence of very lightweight devices that can be used for signing since they do not need the blockchain -- only a minimal set of Bitcoin tools and an ECDSA module.  Therefore, BIP 0010 has benefit beyond just multi-signature transactions.
+
+==Specification==
+
+This BIP proposes the following process, with terms in quotes referring to recommended terminology that should be encouraged across all implementations.
+
+#  One party will initiate this process by creating a "Distribution Proposal", which could be abbreviated DP, or TxDP
+#  The user creating the TxDP (the preparer) will create the transaction as they would like to see it spent, but with blank TxIn scripts (where the signatures scripts will eventually go).
+#  The proposed transaction will be spending a set of unspent TxOuts available in the blockchain.  The full transactions containing these TxOuts will be serialized and included, as well.  This so that the values of the TxIns can be verified before signing (the prev-tx-hash is part of the data being signed, but the value is not).  By including the full tx, the signing party can verify that the tx matches the OutPoint hash, and then verify input values, all without any access to the blockchain.
+#  The TxDP will have an "DP ID" or "Unsigned ID" which is the hash of the proposed transaction with blanked scripts, in Base58.  This is a specific naming convention to make sure it is not confused with the actual the transaction ID that it will have after it is broadcast (the transaction ID cannot be determined until after all signatures are collected).  The final Tx ID can be referred to as its "Broadcast ID", in order to distinguish it from the pre-signed ID.
+#  The TxDP will have an potentially-unordered list of sig-pubkey pairs which represent collected signatures.  If you receive a TxDP missing only your signature, you can broadcast it as soon as you sign it.
+#  Identical TxDP objects with different signatures can be easily combined.  This allows one party to send out all the requests for signatures at once, and combine them all when they are received (instead of having to "pass it around".
+#  For cases where the TxDP might be put into a file or sent via email, it should use .txdp or .btcdp suffix
+
+Anyone adopting BIP 0010 for multi-sig transactions will use the following format (without indentation):
+
+<pre>
+ '-----BEGIN-TRANSACTION-TXDPID-------'
+ ("_TXDIST_") (magicBytes) (base58Txid) (varIntTxSize)
+    (serializedTxListInHex_Line1)
+    (serializedTxListInHex_Line2)
+    (serializedTxListInHex_Line3)
+    ...
+ ("_TXINPUT_") (00) (InputValue)
+    ("_SIG_") (AddrBase58) (SigBytes) (SigHexPart0)
+    (SigHexRemainingLines)
+    ("_SIG_") (AddrBase58) (SigBytes) (SigHexPart0)
+    (SigHexRemainingLines)
+ ("_TXINPUT_") (01) (InputValue)
+    ("_SIG_") (AddrBase58) (SigBytes) (SigHexPart0)
+    (SigHexRemainingLines)
+ ("_TXINPUT_") (02) (InputValue)
+ '-------END-TRANSACTION-TXDPID-------'
+</pre>
+
+The following is an example TxDP from Armory, produced while running on the test network.  Its DPID is 3fX59xPj:
+
+</pre>
+ -----BEGIN-TRANSACTION-3fX59xPj-------------------------------------------------
+ _TXDIST_fabfb5da_3fX59xPj_00a0
+ 0100000001896d3ac1041b80f5931c121bc78ed0a042f0b079b2cbe870f93f9db78c13dd5d580000001776a914e6289adbd6e985681d669a483cb36c18fea71d0dffffffff02f80d78a7140000001976a914e6289adbd6e985681d669a483cb36c18fea71d0d88ac08401af3112300001976a914e6289adbd6e985681d669a483cb36c18fea71d0d88ac00000000
+ _TXINPUT_00_150.00000000
+ _SIG_mzUYGfqGpyXmppYpmWJ31Y4zTxR4ZCod22_00_008c
+ 4930460221007699967c3ec09d072599558d2e7082fae0820206b63aa66afea124634ed11a080221
+ 0003346f7e963e645ecae2855026dc7332eb7237012539b34cd441c3cef97fbd4d01410497d5e1a0
+ 0e1db90e893d1f2e547e2ee83b5d6bf4ddaa3d514e6dc2d94b6bcb5a72be1fcec766b8c382502caa
+ 9ec09fe478bad07d3f38ff47b2eb42e681c384cc
+ _TXINPUT_01_12.00000000
+ _SIG_mzvaN8JUhHLz3Gdec1zBRxs5rNaYLQnbD1_01_008c
+ 49304602210081554f8b08a1ad8caa69e34f4794d54952dac7c5efcf2afe080985d6bd5b00770221
+ 00dea20ca3dbae1d15ec61bec57b4b8062e7d7c47614aba032c5a32f651f471cfd014104c30936d2
+ 456298a566aa76fefeab8a7cb7a91e8a936a11757c911b4c669f0434d12ab0936fc13986b156156f
+ 9b389ed244bbb580112be07dbe23949a4764dffb
+ -------END-TRANSACTION-3fX59xPj-------------------------------------------------
+</pre>
+
+In this transaction, there are two inputs, one of 150 BTC and the other of 12 BTC.  This transaction combines 162 BTC to create two outputs, one of 160 BTC, one 1.9995 BTC, and a tx fee of 0.0005.  In this TxDP, both inputs have been signed, and thus could broadcast immediately.
+
+The style of communication is taken directly from PGP/GPG, which uses blocks of ASCII like this to communicate encrypted messages and signatures.  This serialization is compact, and will be interpretted the same in all character encodings.  It can be copied inline into an email, or saved in a text file.  The advantage over the analogous PGP encoding is that there are some human readable elements to it, for users that wish to examine the TxDP packet manually, instead of requiring a program to parse the core elements of the TxDP.
+
+A party receiving this TxDP can simply add their signature to the appropriate _TXINPUT_ line.  If that is the last signature required, they can broadcast it themselves.  Any software that implements this standard should be able to combine multiple TxDPs into a single TxDP.  However, even without the programmatic support, a user could manually combine them by copying the appropriate _TXSIGS_ lines between serializations, though it is not the recommended method for combining TxDPs.
+
+== Reference Implementation ==
+
+This proposal has been implemented and tested in the ''Armory'' Bitcoin software for use in offline-wallet transaction signing (as a 1-of-1 transaction), and will eventually use it for multi-signature transcations.  The source code for this implementation be found in the [https://github.com/etotheipi/BitcoinArmory/blob/qtdev/armoryengine.py Armory Github project].  Specifically, the [https://github.com/etotheipi/BitcoinArmory/blob/qtdev/armoryengine.py#L4704 PyTxDistProposal class] implements all features of BIP 0010.  It contains reference code for both
+[https://github.com/etotheipi/BitcoinArmory/blob/qtdev/armoryengine.py#L5095 serializing a TxDP] and [https://github.com/etotheipi/BitcoinArmory/blob/qtdev/armoryengine.py#L5143 unserializing a TxDP].
