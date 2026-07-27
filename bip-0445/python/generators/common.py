@@ -206,8 +206,19 @@ class SharedGroupInputs:
             COMMON_RAND, secshares, pubshares, self.xonly_thresh_pk
         )
 
-        # pubshares pool: off-curve point at slot n.
-        self.pool_pubshares = pubshares + [PlainPk(INVALID_PUBSHARE)]
+        # pubshares pool: off-curve point at slot n, then a valid point at slot n+1
+        # (the last secshare shifted so the lambda-weighted sum over min2_ids is
+        # zero) that makes the min2 signer set interpolate to the point at infinity.
+        min2_ids = list(range(max(t, 2)))
+        lam_last = derive_interpolating_value(min2_ids, min2_ids[-1])
+        thresh_sk = reconstruct_thresh_sk(min2_ids, [secshares[i] for i in min2_ids])
+        cancel_sk = (
+            Scalar.from_bytes_checked(secshares[min2_ids[-1]]) - thresh_sk / lam_last
+        )
+        self.pool_pubshares = pubshares + [
+            PlainPk(INVALID_PUBSHARE),
+            PlainPk((cancel_sk * G).to_bytes_compressed()),
+        ]
         # secshares pool: zero scalar at slot n.
         self.pool_secshares = secshares + [b"\x00" * 32]
 
@@ -240,6 +251,7 @@ class SharedGroupInputs:
 
         # named offsets into the pools, all derived from n
         self.INVALID_PUBSHARE_IDX = n
+        self.INFINITY_PUBSHARE_IDX = n + 1
         self.SECSHARE_ZERO_IDX = n
         self.INVALID_PUBNONCE_IDX = n
         self.INVERSE_PUBNONCE_IDX = n + 1

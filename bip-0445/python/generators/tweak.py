@@ -82,7 +82,7 @@ class TweakGroupBuilder:
         tweaks = [self.tweaks_pool[i] for i in tweak_indices]
         secnonce = bytearray(self.inputs.secnonces[my_id])
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(aggnonce, signers, tweaks, is_xonly, msg)
+        session = SessionContext(signers, aggnonce, tweaks, is_xonly, msg)
         psig = sign(secnonce, self.inputs.secshares[my_id], my_id, session)
         assert partial_sig_verify(
             psig,
@@ -128,7 +128,7 @@ class TweakGroupBuilder:
         secnonce = bytearray(self.inputs.secnonces[secnonce_index])
         secshare = self.inputs.secshares[secshare_index]
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(aggnonce, signers, tweaks, is_xonly, msg)
+        session = SessionContext(signers, aggnonce, tweaks, is_xonly, msg)
         err = expect_exception(
             lambda: sign(secnonce, secshare, my_id, session), ValueError
         )

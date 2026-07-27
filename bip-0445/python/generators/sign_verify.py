@@ -86,7 +86,7 @@ class SignVerifyGroupBuilder:
         pubnonces = [self.inputs.pool_pubnonces[i] for i in pubnonce_indices]
         secnonce = bytearray(self.inputs.pool_secnonces[my_id])
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(aggnonce, signers, [], [], msg)
+        session = SessionContext(signers, aggnonce, [], [], msg)
         psig = sign(secnonce, self.inputs.pool_secshares[my_id], my_id, session)
         assert partial_sig_verify(
             psig, pubnonces, signers, [], [], msg, ids.index(my_id)
@@ -122,7 +122,7 @@ class SignVerifyGroupBuilder:
         secshare = self.inputs.pool_secshares[secshare_idx]
         secnonce = bytearray(self.inputs.pool_secnonces[secnonce_idx])
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(aggnonce, signers, [], [], msg)
+        session = SessionContext(signers, aggnonce, [], [], msg)
         expected_exc = ValueError if error == "value" else InvalidContributionError
         err = expect_exception(
             lambda: sign(secnonce, secshare, my_id, session), expected_exc
@@ -345,6 +345,20 @@ class SignVerifyGroupBuilder:
             "value",
             "A public share is not a valid point",
         )
+        # The crafted pool slot replaces the min2 set's last share, cancelling the
+        # interpolation.
+        pubshare_indices_infinity = self.min2[:-1] + [self.inputs.INFINITY_PUBSHARE_IDX]
+        self._append_sign_error(
+            0,
+            self.min2,
+            pubshare_indices_infinity,
+            0,
+            0,
+            self._agg(self.min2),
+            COMMON_MSGS[0],
+            "value",
+            "Public shares of the signer set interpolate to the point at infinity",
+        )
         # A signer id equals n, outside the valid range. For t >= 2 an in-range
         # member signs. At t=1 the lone id is out of range and the check fires
         # first, so the self fields are inert. This assumes signer-id range
@@ -490,7 +504,7 @@ class SignVerifyGroupBuilder:
             [self.inputs.pool_pubshares[i] for i in self.min2],
             self.thresh_pk,
         )
-        session = SessionContext(self._agg(self.min2), signers, [], [], COMMON_MSGS[0])
+        session = SessionContext(signers, self._agg(self.min2), [], [], COMMON_MSGS[0])
         psig = sign(secnonce, self.inputs.pool_secshares[0], 0, session)
         neg_psig = (-Scalar.from_bytes_checked(psig)).to_bytes()
 
@@ -531,7 +545,7 @@ class SignVerifyGroupBuilder:
             [self.inputs.pool_pubshares[i] for i in self.min_s],
             self.thresh_pk,
         )
-        session = SessionContext(self.aggnonce_min, signers, [], [], COMMON_MSGS[0])
+        session = SessionContext(signers, self.aggnonce_min, [], [], COMMON_MSGS[0])
         psig_min = sign(secnonce, self.inputs.pool_secshares[0], 0, session)
 
         # Off-curve public nonce at position 0.

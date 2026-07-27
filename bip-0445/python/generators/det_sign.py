@@ -77,13 +77,13 @@ class DetSignGroupBuilder:
         ids_set: List[int],
         my_id: int,
         msg: bytes,
-        rand: Optional[bytes],
+        aux_rand: Optional[bytes],
     ) -> Optional[bytes]:
         """Return None when the signer is the sole participant (the set is exactly
         [my_id]). Otherwise aggregate the other signers' public nonces."""
         if ids_set == [my_id]:
             return None
-        tmp = b"" if rand is None else rand
+        tmp = b"" if aux_rand is None else aux_rand
         other_pubnonces = []
         for pid in ids_set:
             if pid == my_id:
@@ -104,18 +104,25 @@ class DetSignGroupBuilder:
         my_id: int,
         ids: List[int],
         pubshare_indices: List[int],
-        rand: Optional[bytes],
+        aux_rand: Optional[bytes],
         msg: bytes,
         tweaks: List[bytes],
         is_xonly: List[bool],
         comment: str,
     ) -> None:
-        curr_aggothernonce = self._derive_aggothernonce(ids, my_id, msg, rand)
+        curr_aggothernonce = self._derive_aggothernonce(ids, my_id, msg, aux_rand)
         pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
         secshare = self.inputs.pool_secshares[my_id]
         result = deterministic_sign(
-            secshare, my_id, curr_aggothernonce, signers, tweaks, is_xonly, msg, rand
+            secshare,
+            my_id,
+            curr_aggothernonce,
+            signers,
+            tweaks,
+            is_xonly,
+            msg,
+            aux_rand,
         )
         self.group["valid_tests"].append(
             {
@@ -127,7 +134,7 @@ class DetSignGroupBuilder:
                 "aggothernonce": bytes_to_hex(curr_aggothernonce)
                 if curr_aggothernonce is not None
                 else None,
-                "rand": bytes_to_hex(rand) if rand is not None else None,
+                "aux_rand": bytes_to_hex(aux_rand) if aux_rand is not None else None,
                 "msg": bytes_to_hex(msg),
                 "tweaks": bytes_list_to_hex(tweaks),
                 "is_xonly": is_xonly,
@@ -141,7 +148,7 @@ class DetSignGroupBuilder:
         ids: List[int],
         pubshare_indices: List[int],
         secshare_index: int,
-        rand: Optional[bytes],
+        aux_rand: Optional[bytes],
         msg: bytes,
         tweaks: List[bytes],
         is_xonly: List[bool],
@@ -154,7 +161,7 @@ class DetSignGroupBuilder:
         if aggothernonce is not None:
             curr_aggothernonce = aggothernonce
         else:
-            curr_aggothernonce = self._derive_aggothernonce(ids, my_id, msg, rand)
+            curr_aggothernonce = self._derive_aggothernonce(ids, my_id, msg, aux_rand)
         pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
         secshare = self.inputs.pool_secshares[secshare_index]
@@ -168,7 +175,7 @@ class DetSignGroupBuilder:
                 tweaks,
                 is_xonly,
                 msg,
-                rand,
+                aux_rand,
             ),
             expected_exc,
         )
@@ -182,7 +189,7 @@ class DetSignGroupBuilder:
                 "aggothernonce": bytes_to_hex(curr_aggothernonce)
                 if curr_aggothernonce is not None
                 else None,
-                "rand": bytes_to_hex(rand) if rand is not None else None,
+                "aux_rand": bytes_to_hex(aux_rand) if aux_rand is not None else None,
                 "msg": bytes_to_hex(msg),
                 "tweaks": bytes_list_to_hex(tweaks),
                 "is_xonly": is_xonly,

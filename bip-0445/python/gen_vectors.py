@@ -27,20 +27,27 @@ def run_gen_vectors(test_name, test_func):
     try:
         test_func()
         print("Done!")
+        return True
     except Exception as e:
         print(f"Failed :'(\nError: {e}")
+        return False
 
 
 def main():
     create_vectors_directory()
 
-    run_gen_vectors("generate_nonce_gen_vectors", generate_nonce_gen_vectors)
-    run_gen_vectors("generate_nonce_agg_vectors", generate_nonce_agg_vectors)
-    run_gen_vectors("generate_sign_verify_vectors", generate_sign_verify_vectors)
-    run_gen_vectors("generate_tweak_vectors", generate_tweak_vectors)
-    run_gen_vectors("generate_det_sign_vectors", generate_det_sign_vectors)
-    run_gen_vectors("generate_sig_agg_vectors", generate_sig_agg_vectors)
+    results = [
+        run_gen_vectors("generate_nonce_gen_vectors", generate_nonce_gen_vectors),
+        run_gen_vectors("generate_nonce_agg_vectors", generate_nonce_agg_vectors),
+        run_gen_vectors("generate_sign_verify_vectors", generate_sign_verify_vectors),
+        run_gen_vectors("generate_tweak_vectors", generate_tweak_vectors),
+        run_gen_vectors("generate_det_sign_vectors", generate_det_sign_vectors),
+        run_gen_vectors("generate_sig_agg_vectors", generate_sig_agg_vectors),
+    ]
+    if not all(results):
+        return 1
     print("Test vectors generated successfully")
+    return 0
 
 
 if __name__ == "__main__":

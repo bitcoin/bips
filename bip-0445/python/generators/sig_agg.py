@@ -66,7 +66,7 @@ class SigAggGroupBuilder:
         aggnonce = nonce_agg(pubnonces)
         tweaks = [COMMON_TWEAKS[i] for i in tweak_indices]
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(aggnonce, signers, tweaks, is_xonly, msg)
+        session = SessionContext(signers, aggnonce, tweaks, is_xonly, msg)
         psigs = []
         for signer_index, my_id in enumerate(set_indices):
             psig = sign(
@@ -103,7 +103,7 @@ class SigAggGroupBuilder:
         aggnonce = nonce_agg(pubnonces)
         msg = COMMON_MSGS[0]
         signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(aggnonce, signers, [], [], msg)
+        session = SessionContext(signers, aggnonce, [], [], msg)
         psigs = []
         for signer_index, my_id in enumerate(set_indices):
             psig = sign(

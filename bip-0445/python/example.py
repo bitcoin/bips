@@ -124,7 +124,7 @@ async def participant(
     aggnonce = await chan.receive()
 
     # Round 2: Signing
-    session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
+    session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, is_xonly, msg)
     psig = sign(secnonce, secshare, my_id, session_ctx)
     assert partial_sig_verify_internal(psig, my_id, pubnonce, pubshare, session_ctx), (
         "Partial signature verification failed"
@@ -164,7 +164,7 @@ async def coordinator(
     chans.send_all(aggnonce)
 
     # Round 2: Collect partial signatures
-    session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
+    session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, is_xonly, msg)
     psigs = []
     for i in range(num_signers):
         psig = await chans.receive_from(i)

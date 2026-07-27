@@ -73,8 +73,8 @@ def derive_thresh_pubkey(ids: List[int], pubshares: List[GE]) -> PlainPk:
     for my_id, X_i in zip(ids, pubshares):
         lam_i = derive_interpolating_value(ids, my_id)
         Q += lam_i * X_i
-    # Q is not the point at infinity except with negligible probability.
-    assert not Q.infinity
+    if Q.infinity:
+        raise ValueError("The threshold pubkey must not be the point at infinity.")
     return PlainPk(Q.to_bytes_compressed())
 
 
@@ -159,19 +159,19 @@ def apply_tweak(tweak_ctx: TweakContext, tweak: bytes, is_xonly: bool) -> TweakC
 
 
 def nonce_hash(
-    rand: bytes,
+    rand_: bytes,
     pubshare: PlainPk,
-    thresh_pk: XonlyPk,
+    thresh_pk_xonly: XonlyPk,
     i: int,
     msg_prefixed: bytes,
     extra_in: bytes,
 ) -> bytes:
     buf = b""
-    buf += rand
+    buf += rand_
     buf += len(pubshare).to_bytes(1, "big")
     buf += pubshare
-    buf += len(thresh_pk).to_bytes(1, "big")
-    buf += thresh_pk
+    buf += len(thresh_pk_xonly).to_bytes(1, "big")
+    buf += thresh_pk_xonly
     buf += msg_prefixed
     buf += len(extra_in).to_bytes(4, "big")
     buf += extra_in
@@ -180,21 +180,21 @@ def nonce_hash(
 
 
 def nonce_gen_internal(
-    rand_: bytes,
+    rand: bytes,
     secshare: Optional[bytes],
     pubshare: Optional[PlainPk],
-    thresh_pk: Optional[XonlyPk],
+    thresh_pk_xonly: Optional[XonlyPk],
     msg: Optional[bytes],
     extra_in: Optional[bytes],
 ) -> Tuple[bytearray, bytes]:
     if secshare is not None:
-        rand = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, rand_))
+        rand_ = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, rand))
     else:
-        rand = rand_
+        rand_ = rand
     if pubshare is None:
         pubshare = PlainPk(b"")
-    if thresh_pk is None:
-        thresh_pk = XonlyPk(b"")
+    if thresh_pk_xonly is None:
+        thresh_pk_xonly = XonlyPk(b"")
     if msg is None:
         msg_prefixed = b"\x00"
     else:
@@ -204,10 +204,10 @@ def nonce_gen_internal(
     if extra_in is None:
         extra_in = b""
     k_1 = Scalar.from_bytes_wrapping(
-        nonce_hash(rand, pubshare, thresh_pk, 0, msg_prefixed, extra_in)
+        nonce_hash(rand_, pubshare, thresh_pk_xonly, 0, msg_prefixed, extra_in)
     )
     k_2 = Scalar.from_bytes_wrapping(
-        nonce_hash(rand, pubshare, thresh_pk, 1, msg_prefixed, extra_in)
+        nonce_hash(rand_, pubshare, thresh_pk_xonly, 1, msg_prefixed, extra_in)
     )
     # k_1 == 0 or k_2 == 0 cannot occur except with negligible probability.
     assert k_1 != 0
@@ -225,7 +225,7 @@ def nonce_gen_internal(
 def nonce_gen(
     secshare: Optional[bytes],
     pubshare: Optional[PlainPk],
-    thresh_pk: Optional[XonlyPk],
+    thresh_pk_xonly: Optional[XonlyPk],
     msg: Optional[bytes],
     extra_in: Optional[bytes],
 ) -> Tuple[bytearray, bytes]:
@@ -233,10 +233,10 @@ def nonce_gen(
         raise ValueError("The optional byte array secshare must have length 32.")
     if pubshare is not None and len(pubshare) != 33:
         raise ValueError("The optional byte array pubshare must have length 33.")
-    if thresh_pk is not None and len(thresh_pk) != 32:
-        raise ValueError("The optional byte array thresh_pk must have length 32.")
-    rand_ = secrets.token_bytes(32)
-    return nonce_gen_internal(rand_, secshare, pubshare, thresh_pk, msg, extra_in)
+    if thresh_pk_xonly is not None and len(thresh_pk_xonly) != 32:
+        raise ValueError("The optional byte array thresh_pk_xonly must have length 32.")
+    rand = secrets.token_bytes(32)
+    return nonce_gen_internal(rand, secshare, pubshare, thresh_pk_xonly, msg, extra_in)
 
 
 def nonce_agg(pubnonces: List[bytes]) -> bytes:
@@ -254,8 +254,8 @@ def nonce_agg(pubnonces: List[bytes]) -> bytes:
 
 
 class SessionContext(NamedTuple):
-    aggnonce: bytes
     signers_ctx: SignersContext
+    aggnonce: bytes
     tweaks: List[bytes]
     is_xonly: List[bool]
     msg: bytes
@@ -276,7 +276,7 @@ def thresh_pubkey_and_tweak(
 def get_session_values(
     session_ctx: SessionContext,
 ) -> Tuple[GE, Scalar, Scalar, List[int], List[PlainPk], Scalar, GE, Scalar]:
-    (aggnonce, signers_ctx, tweaks, is_xonly, msg) = session_ctx
+    (signers_ctx, aggnonce, tweaks, is_xonly, msg) = session_ctx
     validate_signers_ctx(signers_ctx)
     _, _, ids, pubshares, thresh_pk = signers_ctx
     Q, gacc, tacc = thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
@@ -362,7 +362,7 @@ def det_nonce_hash(
     my_id: int,
     ids: List[int],
     aggothernonce: bytes,
-    tweaked_tpk: bytes,
+    tweaked_thresh_pk_xonly: bytes,
     msg: bytes,
     i: int,
 ) -> bytes:
@@ -372,7 +372,7 @@ def det_nonce_hash(
     buf += len(ids).to_bytes(4, "big")
     buf += serialize_ids(ids)
     buf += aggothernonce
-    buf += tweaked_tpk
+    buf += tweaked_thresh_pk_xonly
     buf += len(msg).to_bytes(8, "big")
     buf += msg
     buf += i.to_bytes(1, "big")
@@ -387,15 +387,17 @@ def deterministic_sign(
     tweaks: List[bytes],
     is_xonly: List[bool],
     msg: bytes,
-    rand: Optional[bytes],
+    aux_rand: Optional[bytes],
 ) -> Tuple[bytes, bytes]:
-    if rand is not None:
-        secshare_ = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, rand))
+    if aux_rand is not None:
+        secshare_ = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, aux_rand))
     else:
         secshare_ = secshare
     validate_signers_ctx(signers_ctx)
     _, _, ids, _, thresh_pk = signers_ctx
-    tweaked_tpk = get_xonly_pk(thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly))
+    tweaked_thresh_pk_xonly = get_xonly_pk(
+        thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
+    )
 
     # A sole signer (u = 1) has no other nonces to aggregate, so aggothernonce is
     # omitted. Bind the empty byte string into the nonce hash and use the signer's
@@ -406,10 +408,14 @@ def deterministic_sign(
         aggothernonce_ = aggothernonce
 
     k_1 = Scalar.from_bytes_wrapping(
-        det_nonce_hash(secshare_, my_id, ids, aggothernonce_, tweaked_tpk, msg, 0)
+        det_nonce_hash(
+            secshare_, my_id, ids, aggothernonce_, tweaked_thresh_pk_xonly, msg, 0
+        )
     )
     k_2 = Scalar.from_bytes_wrapping(
-        det_nonce_hash(secshare_, my_id, ids, aggothernonce_, tweaked_tpk, msg, 1)
+        det_nonce_hash(
+            secshare_, my_id, ids, aggothernonce_, tweaked_thresh_pk_xonly, msg, 1
+        )
     )
     # k_1 == 0 or k_2 == 0 cannot occur except with negligible probability.
     assert k_1 != 0
@@ -429,7 +435,7 @@ def deterministic_sign(
         except InvalidContributionError:
             # pubnonce is always valid, so any failure is due to aggothernonce.
             raise InvalidContributionError(None, "aggothernonce")
-    session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
+    session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, is_xonly, msg)
     psig = sign(secnonce, secshare, my_id, session_ctx)
     return (pubnonce, psig)
 
@@ -450,7 +456,7 @@ def partial_sig_verify(
     if len(tweaks) != len(is_xonly):
         raise ValueError("The tweaks and is_xonly arrays must have the same length.")
     aggnonce = nonce_agg(pubnonces)
-    session_ctx = SessionContext(aggnonce, signers_ctx, tweaks, is_xonly, msg)
+    session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, is_xonly, msg)
     return partial_sig_verify_internal(
         psig, ids[i], pubnonces[i], pubshares[i], session_ctx
     )
