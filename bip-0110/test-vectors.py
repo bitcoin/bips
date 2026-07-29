@@ -13,7 +13,8 @@ exact same vectors can be replayed against any other implementation.
 Coverage:
   Rule 1: output scriptPubKey size (<=34, or OP_RETURN <=83)   [per-output]
   Rule 2: push / script-argument witness item size (<=256)
-  Rule 3: spending undefined witness / Tapleaf versions
+  Rule 3: spending undefined witness / Tapleaf versions (the P2A exemption
+          covers only spends with an empty witness stack)
   Rule 4: Taproot annex
   Rule 5: Taproot control block size (<=257)
   Rule 6: OP_SUCCESS* in tapscript
@@ -255,17 +256,20 @@ class ReducedDataTestVectors(BitcoinTestFramework):
         # P2WSH(OP_DROP OP_TRUE) lets us inject an arbitrary witness data element (rule 2)
         wsh_drop = CScript([OP_DROP, OP_TRUE])
         wsh_drop_spk = script_to_p2wsh_script(wsh_drop)
+        p2a_spk = CScript([OP_1, bytes.fromhex("4e73")])
 
         # Fund "old" UTXOs BEFORE activation so they are grandfathered (exempt
         # from the per-input script rules). Done first, at a low height.
         self.log.info("Funding pre-activation (grandfathered) UTXOs...")
         old_drop_o, old_drop_a, old_drop_h = self.fund(wsh_drop_spk)
         old_true_o, old_true_a, old_true_h = self.fund(wsh_true_spk)
+        old_p2a_o, old_p2a_a, old_p2a_h = self.fund(p2a_spk)
 
         self.log.info("Activating REDUCED_DATA...")
         self.activate()
         assert old_drop_h < self.activation_height
         assert old_true_h < self.activation_height
+        assert old_p2a_h < self.activation_height
         self.generate(self.wallet, 20)  # spendable coins for funding "new" UTXOs
 
         self.log.info("=== Rule 1: output scriptPubKey size (per-output) ===")
@@ -365,6 +369,21 @@ class ReducedDataTestVectors(BitcoinTestFramework):
         self.check(7, "witness_v0_op_if_valid", "OP_IF in a witness v0 script is valid (rule is tapscript-only)",
                    [(wsh_if_spk, a)], self.spend(o, a, [bytes(wsh_if)]), True, "post-activation")
 
+        # The rule 3 exemption for P2A covers only spends with an empty witness
+        # stack; any witness item makes the spend invalid (cf. BIP 433).
+        self.log.info("=== Rule 3: P2A witness stack must be empty ===")
+        o, a = self.fund(p2a_spk)[0:2]
+        self.check(3, "p2a_empty_witness_valid", "Spend a P2A output with an empty witness stack",
+                   [(p2a_spk, a)], self.spend(o, a, []), True, "post-activation")
+        o, a = self.fund(p2a_spk)[0:2]
+        self.check(3, "p2a_empty_item_invalid",
+                   "Spend a P2A output with one empty witness item (non-empty stack)",
+                   [(p2a_spk, a)], self.spend(o, a, [b'']), False, "post-activation")
+        o, a = self.fund(p2a_spk)[0:2]
+        self.check(3, "p2a_one_byte_item_invalid",
+                   "Spend a P2A output with one one-byte witness item",
+                   [(p2a_spk, a)], self.spend(o, a, [b'\x01']), False, "post-activation")
+
         self.log.info("=== Grandfathering: pre-activation UTXOs ===")
         # An input spending a pre-activation UTXO is exempt from the per-input
         # script rules: a 257-byte witness item is accepted here (cf. rule 2).
@@ -372,6 +391,11 @@ class ReducedDataTestVectors(BitcoinTestFramework):
                    "Spend a PRE-activation UTXO with a 257-byte witness item (grandfathered, exempt)",
                    [(wsh_drop_spk, old_drop_a)],
                    self.spend(old_drop_o, old_drop_a, [b'\x42' * 257, bytes(wsh_drop)]),
+                   True, "pre-activation")
+        self.check(3, "grandfathered_p2a_nonempty_witness_valid",
+                   "Spend a PRE-activation P2A output with a non-empty witness stack (grandfathered, exempt)",
+                   [(p2a_spk, old_p2a_a)],
+                   self.spend(old_p2a_o, old_p2a_a, [b'\x01']),
                    True, "pre-activation")
         # But the per-output rule 1 still applies even when spending an old UTXO:
         # creating an oversized output is rejected regardless of input age.
