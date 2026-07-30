@@ -283,7 +283,14 @@ def get_session_values(
     # sort the ids before serializing because ROAST paper considers them as a set
     ser_ids = serialize_ids(ids)
     b = Scalar.from_bytes_wrapping(
-        tagged_hash(FROST_TAG_NONCECOEF, ser_ids + aggnonce + Q.to_bytes_xonly() + msg)
+        tagged_hash(
+            FROST_TAG_NONCECOEF,
+            len(ser_ids).to_bytes(4, "big")
+            + ser_ids
+            + aggnonce
+            + Q.to_bytes_xonly()
+            + msg,
+        )
     )
     assert b != 0
     try:
