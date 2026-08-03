@@ -197,7 +197,7 @@ while (++$bipnum <= $topbip) {
 				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum}) or ($val eq 'CC-BY-SA-4.0' and exists $GrandfatheredCCBySA{$bipnum});
 			}
 		} elsif ($field eq 'Comments-URI') {
-			if ($found{'Comments-URI'}) {
+			if (not $found{'Comments-URI'}) {
 				my $first_comments_uri = sprintf('https://github.com/bitcoin/bips/wiki/Comments:BIP-%04d', $bipnum);
 				die "First Comments-URI must be exactly \"$first_comments_uri\" in $fn" unless $val eq $first_comments_uri;
 			}
