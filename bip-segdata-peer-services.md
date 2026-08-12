@@ -2,12 +2,13 @@
   BIP: ?
   Layer: Peer Services
   Title: Segregated Data (Peer Services)
-  Author: Mr Hash <hashamadeus@gmail.com>
+  Authors: Mr Hash <hashamadeus@gmail.com>
   Status: Draft
-  Type: Standards Track
-  Created: 2026-07-24
-  License: BSD-3-Clause
-           OPL
+  Type: Specification
+  Assigned: ?
+  License: CC-BY-4.0
+  Discussion: 2026-06-23: https://delvingbitcoin.org/t/bip-draft-segregated-data-a-prunable-script-isolated-block-region-for-data-carriage/2641
+  Version: 0.1.1
   Requires: 144, 152, 339, ? (Segregated Data, Consensus layer)
 ```
 
@@ -261,10 +262,11 @@ To be developed in the same implementation track as the companion consensus BIP,
 
 ## Copyright
 
-This BIP is dual-licensed under the BSD 3-clause license and the Open Publication License v1.0 or later.
+This BIP is licensed under the Creative Commons Attribution 4.0 International License (CC-BY-4.0).
 
 ## Changelog
 
+- 0.1.1 (2026-08-06): Preamble update.
 - 0.1.0 (2026-07-24): Initial Draft.
 
 ## References

@@ -2,12 +2,13 @@
   BIP: ?
   Layer: Consensus (soft fork)
   Title: Segregated Data (Consensus layer)
-  Author: Mr Hash <hashamadeus@gmail.com>
+  Authors: Mr Hash <hashamadeus@gmail.com>
   Status: Draft
-  Type: Standards Track
-  Created: 2026-07-24
-  License: BSD-3-Clause
-           OPL
+  Type: Specification
+  Assigned: ?
+  License: CC-BY-4.0
+  Discussion: 2026-06-23: https://delvingbitcoin.org/t/bip-draft-segregated-data-a-prunable-script-isolated-block-region-for-data-carriage/2641
+  Version: 0.1.1
   Requires: 8, 141, 144, 340
 ```
 
@@ -68,6 +69,8 @@ The pattern satisfies four architectural criteria that recur in Bitcoin's layer 
 4. **Bounded by weight.** SegData keeps the existing single block weight limit. The region competes for the same weight budget, and its only further constraint is a committed-length cap, set so the region never exceeds the single relay message limit (§Validation rules, rule 7).
 
 A consensus-level prohibition on data carriage in existing vectors is not able or expected to produce these properties. Data-carriage demand would still be able to route through opcodes and outputs not designed for it. A separate region such as SegData addresses the encoding mismatch rather than the payload size, and lets node operators opt in to supporting it.
+
+SegData's prunability also inherits an older lineage from the [whitepaper](https://bitcoin.org/bitcoin.pdf), §7 "Reclaiming Disk Space", where transactions are committed by a Merkle root in the block header, so spent transaction data can be stubbed off and discarded while the root keeps the block verifiable. SegData applies the same commit-and-discard pattern with its root relocated to the coinbase.
 
 ## Specification
 
@@ -437,14 +440,16 @@ The above are non-exhaustive. Community review is expected to surface additional
 
 ## Copyright
 
-This BIP is dual-licensed under the BSD 3-clause license and the Open Publication License v1.0 or later.
+This BIP is licensed under the Creative Commons Attribution 4.0 International License (CC-BY-4.0).
 
 ## Changelog
 
+- 0.1.1 (2026-08-06): Preamble & design lineage update.
 - 0.1.0 (2026-07-24): Initial Draft.
 
 ## References
 
+- [Bitcoin: A Peer-to-Peer Electronic Cash System](https://bitcoin.org/bitcoin.pdf) (Satoshi Nakamoto, 2008) - §7 Reclaiming Disk Space, the Merkle-root commit-and-discard pruning precedent
 - [BIP-8](bip-0008.mediawiki) - Version bits with lock-in by height
 - [BIP-34](bip-0034.mediawiki) - Block v2, Height in Coinbase (first miner-activated soft fork, origin of the exposure-window pattern)
 - [BIP-141](bip-0141.mediawiki) - Segregated Witness (Consensus layer)
