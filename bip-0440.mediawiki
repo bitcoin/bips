@@ -10,7 +10,7 @@
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
               https://delvingbitcoin.org/t/benchmarking-bitcoin-script-evaluation-for-the-varops-budget-great-script-restoration/2094
-  Version: 0.2.2
+  Version: 0.2.3
 </pre>
 
 ==Introduction==
@@ -51,7 +51,7 @@ The last two assumptions make a large difference in practice: normal usage on sm
 
 A per-transaction integer "varops budget" is determined by multiplying the total transaction weight by the fixed factor 10,000 (chosen to make operation costs all integer values). The budget is transaction-wide (rather than per-input) to allow for cross-input introspection: a small input may reasonably access larger inputs.
 
-Opcodes evaluated under Tapscript v2 and later participating leaf versions consume budget as they are executed, based on the length (not generally the value) of their parameters as detailed below, and fail before performing an operation whose cost exceeds the remaining budget.
+Opcodes evaluated under Tapscript v2 and later participating leaf versions consume budget based on the lengths (not generally the values) of their parameters, as detailed below.  Because a linear operation determines its exact cost as it executes, that cost may be deducted afterward instead of being calculated in a separate pass; exceeding the remaining budget invalidates the script before the next opcode.  Superlinear operations and signature checks must instead be charged before execution because they could otherwise perform disproportionately expensive work before an overrun is detected.
 
 Earlier script versions retain their existing resource limits and do not consume the varops budget.  An adversarial mixed-version transaction can therefore combine both workloads, requiring up to twice the validation work of the more expensive regime alone.  This is accepted to avoid making budget funding depend on input-version composition, or retrofitting varops accounting into existing script versions and transaction tooling.
 
@@ -108,7 +108,7 @@ We divided operations into six speed categories:
 
 Each class then has the following costs.
 
-# Signature operations cost 500,000 (10,000 * 50) units each, this resembles the cost of the existing sigops budget.
+# Signature operations with a nonempty signature operand cost 500,000 (10,000 * 50) units each; signature operations with an empty signature operand have no SIGCHECK cost.  This resembles the existing sigops budget and applies to unknown nonzero-length public-key types as well.
 # Hashing costs 50 units per byte hashed.
 # OP_ROLL costs an additional 48 units (24 bytes per std::vector * 2 units per byte) per stack entry moved (i.e. the value of its operand).
 # Fast operations cost 2 units per byte output.
@@ -133,7 +133,7 @@ We use the following annotations to indicate the derivation for each opcode:
 ;ARITH
 : Arithmetic operations which have carry operations: cost = 6 per byte examined.
 ;SIGCHECK
-: Checking a signature is a flat cost: cost = 500,000.
+: A signature operation with a nonempty signature operand has a flat cost of 500,000; an empty signature operand has a cost of 0.
 ;HASH
 : cost = 50 per byte hashed.
 ;ROLL
@@ -350,6 +350,7 @@ Work in progress:
 
 ==Changelog==
 
+* 0.2.3: 2026-08-11: clarify conditional SIGCHECK charging and charging order for linear and superlinear operations.
 * 0.2.2: 2026-08-05: document mixed-version resource limits.
 * 0.2.1: 2026-06-15: define wordspan notation and clarify byte-length versus word-span costs.
 * 0.2.0: 2026-02-21: increase in cost for hashing and copying based on benchmark results.
