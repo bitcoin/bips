@@ -250,6 +250,15 @@ def validate_dleq_proof(
     return True, None
 
 
+def is_segwit_v2_or_later(script_pubkey: bytes) -> bool:
+    """Return whether script_pubkey is a SegWit v2-v16 witness program."""
+    return (
+        4 <= len(script_pubkey) <= 42
+        and 0x52 <= script_pubkey[0] <= 0x60  # OP_2 through OP_16
+        and script_pubkey[1] == len(script_pubkey) - 2
+    )
+
+
 def validate_input_eligibility(psbt: PSBT) -> Tuple[bool, str]:
     """
     Validate input eligibility constraints for silent payments
@@ -268,7 +277,7 @@ def validate_input_eligibility(psbt: PSBT) -> Tuple[bool, str]:
         if PSBT_IN_WITNESS_UTXO in input_map:
             witness_utxo = input_map[PSBT_IN_WITNESS_UTXO]
             script = parse_witness_utxo(witness_utxo)
-            if script and 0x51 < script[0] <= 0x60:  # OP_2 or higher (segwit v2+)
+            if is_segwit_v2_or_later(script):
                 return False, f"Input {i} uses segwit version > 1 with silent payments"
 
     # Check SIGHASH_ALL requirement - PSBT_IN_SIGHASH_TYPE is optional, but if set it must be SIGHASH_ALL when SP outputs are present
