@@ -351,8 +351,8 @@ def get_session_key_agg_coeff(session_ctx: SessionContext, P: Point) -> int:
 
 def sign(secnonce: bytearray, sk: bytes, session_ctx: SessionContext) -> bytes:
     (Q, gacc, _, b, R, e) = get_session_values(session_ctx)
-    k_1_ = int_from_bytes(secnonce[0:32])
-    k_2_ = int_from_bytes(secnonce[32:64])
+    k_1_ = int_from_bytes(bytes(secnonce[0:32]))
+    k_2_ = int_from_bytes(bytes(secnonce[32:64]))
     # Overwrite the secnonce argument with zeros such that subsequent calls of
     # sign with the same secnonce raise a ValueError.
     secnonce[:64] = bytearray(b'\x00'*64)
@@ -669,8 +669,8 @@ def test_tweak_vectors() -> None:
     secnonce = bytearray(bytes.fromhex(test_data["secnonce"]))
     pnonce = fromhex_all(test_data["pnonces"])
     # The public nonce corresponding to secnonce is at index 0
-    k_1 = int_from_bytes(secnonce[0:32])
-    k_2 = int_from_bytes(secnonce[32:64])
+    k_1 = int_from_bytes(bytes(secnonce[0:32]))
+    k_2 = int_from_bytes(bytes(secnonce[32:64]))
     R_s1 = point_mul(G, k_1)
     R_s2 = point_mul(G, k_2)
     assert R_s1 is not None and R_s2 is not None
