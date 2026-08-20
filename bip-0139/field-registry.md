@@ -48,6 +48,11 @@ are optional.
   the `change_descriptor`. Present only for ranged descriptors.  
 - `change_range_end`: Optional integer representing the cached keypool range end of the
   `change_descriptor`. Present only for ranged descriptors.  
+- `gap_limit`: Optional integer number of consecutive unused addresses an importer must
+  scan past the last used one before concluding there are no more.  
+  A single value covers both the receive and change sides. An exporter holding a distinct
+  limit per side should emit the larger, since a limit that is too high only costs
+  scanning work while one that is too low misses addresses.  
 - `birth_block`: Optional integer representing the account creation time as a bitcoin
   block height.  
 - `last_height`: Optional integer representing the last seen block height.  
