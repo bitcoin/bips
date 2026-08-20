@@ -24,6 +24,15 @@ are optional.
   A signet is defined by its challenge script, so this list names only the well-known
   ones. Any other signet uses `signet`, and a wallet needing to tell two of them apart
   records the challenge in `proprietary`.  
+- `psbts`: Optional object mapping a transaction id to a partially signed transaction, as
+  defined by [BIP-0174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki) or
+  [BIP-0370](https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki).  
+  The key is the txid of the PSBT's unsigned transaction. That value is stable for the
+  whole signing process, whereas the txid of the finished transaction changes as legacy
+  inputs are signed.  
+  PSBTs live here rather than on the account so that one spending inputs from several
+  accounts is stored once, and so that a wallet holding PSBTs it cannot attribute to an
+  account can still carry them.  
 - `signers`: Optional array of signer objects.  
   See [Signer Object Structure](../bip-0139.md#signer-object-structure).  
 - `proprietary`: Optional JSON object storing application-specific metadata.  
@@ -95,9 +104,10 @@ are optional.
   See [Coin Object Structure](../bip-0139.md#coin-object-structure).  
 - `bip352_outputs`: Optional array of
   [Silent Payment Owned Output Object Structure](../bip-0139.md#silent-payment-owned-output-object-structure).  
-- `psbts`: Optional array containing unspent but partially signed transactions, as defined
-  by [BIP-0174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki) or
-  [BIP-0370](https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki).  
+- `psbts`: Optional array of transaction ids referencing entries in the wallet's `psbts`
+  map, listing the partially signed transactions that involve this account.  
+  Present only where the wallet can attribute a PSBT to an account. A PSBT carried in the
+  wallet map need not be referenced by any account.  
 - `bip39_mnemonic`: Optional string containing mnemonic words following BIP39.  
   Since backups may be stored online, this field is intended for test networks only
   (`testnet3`, `testnet4`, `signet`, `regtest`); it MUST NOT be used to store mainnet mnemonics.  
