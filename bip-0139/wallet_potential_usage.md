@@ -123,8 +123,8 @@ Ranked by how many wallets want them.
 ## Liana legacy compatibility
 
 Does the current draft break Liana's shipping backup format
-(`liana-gui/src/backup.rs`)? Seven breaking changes and one lossy one. Two earlier entries
-were resolved by fields this survey added.
+(`liana-gui/src/backup.rs`)? Six breaking changes and one lossy one. Three earlier entries
+were resolved by changes this survey prompted.
 
 | Liana today                                                       | BIP-139 now                                         | Verdict                                                 |
 |-------------------------------------------------------------------|-----------------------------------------------------|---------------------------------------------------------|
@@ -134,7 +134,7 @@ were resolved by fields this survey added.
 | `Account.psbts: Vec<String>` base64                               | `wallet.psbts` map keyed by txid + account refs     | **BREAKING**, shape                                     |
 | no `type` field                                                   | `type` mandatory                                    | **BREAKING**                                            |
 | `KeyRole`/`KeyType` serialise PascalCase                          | registry values are lowercase                       | **BREAKING**, silent                                    |
-| `network: Network` mandatory                                      | optional                                            | **BREAKING on import**                                  |
+| `network: Network` mandatory                                      | mandatory                                           | resolved by this survey                                 |
 | `Backup.alias`                                                    | no wallet-level alias                               | LOSSY                                                   |
 | `Account.chain_tip{height, hash}`                                 | `last_height`, an integer                           | lossy in principle; `block_hash` is always `None` today |
 | `Backup.date`                                                     | `wallet.date`                                       | resolved by this survey                                 |
@@ -148,8 +148,6 @@ Notes:
   `"BIP139-1"` string fails to deserialise the whole struct.
 - `timestamp` drives rescan (`lianad/src/commands/mod.rs:335`), so a rename without the
   chain lookup silently corrupts it. The registry now states the conversion.
-- The `network` row runs the opposite way from the rest: a legal BIP-139 backup omitting
-  `network` fails to parse in Liana, asserted at `backup.rs:505-508`.
 - `KeyRole`/`KeyType` have no `#[serde(rename_all)]`, so they emit `"Main"`, `"ThirdParty"`
   against the registry's `main`, `third_party`.
 - Both transaction and PSBT changes are net wins: the daemon already holds
