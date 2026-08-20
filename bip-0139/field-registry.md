@@ -15,7 +15,7 @@ are optional.
 - `name`: Optional string wallet name.  
 - `note`: Optional string note about this backup, written by the user when the backup is
   made.  
-- `date`: Optional integer Unix timestamp in seconds recording when the backup was made.  
+- `date`: Optional timestamp recording when the backup was made.  
 - `network`: Optional string network identifier.  
   Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, and `regtest`.  
 - `last_height`: Optional integer representing the last block height the exporter had
@@ -118,7 +118,7 @@ The mandatory `fingerprints` field is defined in BIP-0139; all fields below are 
   Each entry may contain `vendor` and `model` strings naming the product, a `transports`
   array of strings such as `usb`, `qr`, `nfc`, `sd` or `service`, a `registration` string
   holding an opaque blob proving a descriptor was registered on that device, and a
-  `last_health_check` integer Unix timestamp recording when signing through it was last
+  `last_health_check` timestamp recording when signing through it was last
   proven to work.  
   The whole array is advisory. It is a cache of how the signer was last reached, not a
   statement that the key belongs to a device, and a key may be moved to other hardware at
@@ -169,10 +169,10 @@ The mandatory `txid` field is defined in BIP-0139; all fields below are optional
 
 - `wtxid`: Optional string containing the witness transaction id (hex). Segwit only.  
 - `hex`: Optional string containing the raw transaction (hex).  
-- `time`: Optional integer representing the best-known transaction time in unix
-  seconds. Block time when confirmed, otherwise first-seen time.  
-- `time_received`: Optional integer representing when the exporting wallet first
-  observed the transaction, in unix seconds. MAY be earlier than `time`.  
+- `time`: Optional timestamp of the best-known transaction time. Block time when
+  confirmed, otherwise first-seen time.  
+- `time_received`: Optional timestamp of when the exporting wallet first observed the
+  transaction. MAY be earlier than `time`.  
 - `blockhash`: Optional string containing the confirming block hash (hex).  
 - `blockheight`: Optional integer containing the confirming block height.  
 - `blockindex`: Optional integer containing the position of the transaction in the
