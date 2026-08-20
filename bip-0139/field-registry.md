@@ -113,35 +113,37 @@ The `status` field may contain one of the following values.
 
 ## Signer Fields
 
-Fields of the [signer object](../bip-0139.md#signer-object-structure).  
+Fields of the [signer object][signerobj].  
 The mandatory `fingerprints` field is defined in BIP-0139; all fields below are optional.
 
-- `key_status`: Optional string describing the status of the signer's keys.  
-  See [Key Status](#key-status).  
-- `bip85_derivation_path`: Optional string describing the
-  [BIP-0085][85] derivation
-  path used to derive this signer's key from a master key.  
-- `bip85_application`: Optional string naming the BIP-0085 application the key was derived
-  for. Needed alongside `bip85_derivation_path` when the derived secret is not itself a
-  BIP32 key.  
-- `bip85_index`: Optional integer index used in the BIP-0085 derivation.  
-- `modality`: Optional string describing where the key material lives.  
-  Either `dedicated` (a device whose only job is signing) or `general` (software on a
-  general-purpose or network-connected device, including a remote service).  
-  The value can only degrade over a key's lifetime: material that has been on a general
-  device never becomes dedicated again. An importer that reads a value more dedicated than
-  the one it recorded MUST treat it as suspect, and MUST NOT silently promote it.  
-- `devices`: Optional array of records describing how this signer can be reached.  
-  Each entry may contain `vendor` and `model` strings naming the product, a `transports`
-  array of strings such as `usb`, `qr`, `nfc`, `sd` or `service`, a `registration` string
-  holding an opaque blob proving a descriptor was registered on that device, and a
-  `last_health_check` timestamp recording when signing through it was last
-  proven to work.  
-  The whole array is advisory. It is a cache of how the signer was last reached, not a
-  statement that the key belongs to a device, and a key may be moved to other hardware at
-  any time. An importer MAY ignore it and MUST fall back to asking the user.  
-  `registration` is the one member that does not degrade gracefully: a blob produced on one
-  device is meaningless on another, so an importer MUST re-verify it rather than trust it.  
+| Field                   | Type    | Description                                                                      |
+|-------------------------|---------|----------------------------------------------------------------------------------|
+| `key_status`            | enum    | Status of the signer's keys. See [Key Status](#key-status).                      |
+| `bip85_derivation_path` | string  | [BIP-0085][85] derivation path used to derive this signer's key from a master    |
+|                         |         | key.                                                                             |
+| `bip85_application`     | string  | The BIP-0085 application the key was derived for. Needed alongside               |
+|                         |         | `bip85_derivation_path` when the derived secret is not itself a BIP32 key.       |
+| `bip85_index`           | integer | Index used in the BIP-0085 derivation.                                           |
+| `modality`              | enum    | Where the key material lives: `dedicated` (a device whose only job is signing)   |
+|                         |         | or `general` (software on a general-purpose or network-connected device,         |
+|                         |         | including a remote service). See below.                                          |
+| `devices`               | array   | Records describing how this signer can be reached. See below.                    |
+
+`modality` can only degrade over a key's lifetime: material that has been on a general
+device never becomes dedicated again. An importer that reads a value more dedicated than
+the one it recorded MUST treat it as suspect, and MUST NOT silently promote it.
+
+Each `devices` entry may contain `vendor` and `model` strings naming the product, a
+`transports` array of strings such as `usb`, `qr`, `nfc`, `sd` or `service`, a
+`registration` string holding an opaque blob proving a descriptor was registered on that
+device, and a `last_health_check` timestamp recording when signing through it was last
+proven to work.
+
+The whole array is advisory. It is a cache of how the signer was last reached, not a
+statement that the key belongs to a device, and a key may be moved to other hardware at any
+time. An importer MAY ignore it and MUST fall back to asking the user. `registration` is
+the one member that does not degrade gracefully: a blob produced on one device is
+meaningless on another, so an importer MUST re-verify it rather than trust it.
 
 ### Key Status
 
@@ -153,14 +155,14 @@ The `key_status` field may contain one of the following values.
 
 ## Key Fields
 
-Fields of the [key object](../bip-0139.md#key-object-structure).  
+Fields of the [key object][keyobj].  
 The mandatory `key` field is defined in BIP-0139; all fields below are optional.
 
-- `alias`: Optional string user-defined alias for the key.  
-- `role`: Optional string role of the key in wallet operations.  
-  See [Key Roles](#key-roles).  
-- `key_type`: Optional string describing ownership of the key.  
-  See [Key Types](#key-types).  
+| Field      | Type   | Description                                                                                    |
+|------------|--------|------------------------------------------------------------------------------------------------|
+| `alias`    | string | User-defined alias for the key.                                                                |
+| `role`     | enum   | Role of the key in wallet operations. See [Key Roles](#key-roles).                             |
+| `key_type` | enum   | Ownership of the key. See [Key Types](#key-types).                                             |
 
 ### Key Roles
 
@@ -181,66 +183,63 @@ The `key_type` field may contain one of the following values.
 
 ## Transaction Fields
 
-Fields of the [transaction object](../bip-0139.md#transaction-object-structure).  
+Fields of the [transaction object][txobj].  
 The transaction id is the key of the wallet's `transactions` map, not a field; all fields
 below are optional.
 
-- `wtxid`: Optional string containing the witness transaction id (hex). Segwit only.  
-- `hex`: Optional string containing the raw transaction (hex).  
-- `block_time`: Optional timestamp of the block confirming the transaction. Absent while
-  the transaction is unconfirmed.  
-- `time_received`: Optional timestamp of when the exporting wallet first observed the
-  transaction. MAY be earlier than `block_time`.  
-  These two are separate measurements and neither substitutes for the other. An exporter
-  emits whichever it holds and omits the other; wallets commonly keep only one. A consumer
-  wanting a single best-known time derives it, preferring `block_time` and falling back to
-  `time_received`.  
-- `blockhash`: Optional string containing the confirming block hash (hex).  
-- `blockheight`: Optional integer containing the confirming block height.  
-- `blockindex`: Optional integer containing the position of the transaction in the
-  confirming block.  
-- `abandoned`: Optional boolean representing user-driven abandoned state, separate
-  from mempool eviction.  
+| Field           | Type      | Description                                                                            |
+|-----------------|-----------|----------------------------------------------------------------------------------------|
+| `wtxid`         | string    | Witness transaction id (hex). Segwit only.                                             |
+| `hex`           | string    | Raw transaction (hex).                                                                 |
+| `block_time`    | timestamp | Time of the block confirming the transaction. Absent while unconfirmed.                |
+| `time_received` | timestamp | When the exporting wallet first observed the transaction. MAY be earlier than          |
+|                 |           | `block_time`. See below.                                                               |
+| `blockhash`     | string    | Confirming block hash (hex).                                                           |
+| `blockheight`   | integer   | Confirming block height.                                                               |
+| `blockindex`    | integer   | Position of the transaction in the confirming block.                                   |
+| `abandoned`     | boolean   | User-driven abandoned state, separate from mempool eviction.                           |
+
+`block_time` and `time_received` are separate measurements and neither substitutes for the
+other. An exporter emits whichever it holds and omits the other; wallets commonly keep only
+one. A consumer wanting a single best-known time derives it, preferring `block_time` and
+falling back to `time_received`.
 
 ## Coin Fields
 
-Fields of the [coin object](../bip-0139.md#coin-object-structure).  
+Fields of the [coin object][coinobj].  
 The mandatory `outpoint` field is defined in BIP-0139; all fields below are optional.
 
-- `amount`: Optional integer representing the output amount value in sats.  
-- `address`: Optional string containing the address the output pays to.  
-- `script`: Optional hexadecimal string containing the output script.  
-- `block_height`: Optional integer height of the block containing the funding
-  transaction. If `null`, the funding transaction was unconfirmed at backup time.  
-- `is_change`: Optional boolean indicating the output was paid to the change keychain.  
-- `derivation_index`: Optional integer index the output's address was derived at.  
-- `is_immature`: Optional boolean indicating the output is an immature coinbase output.  
-- `is_from_self`: Optional boolean indicating the funding transaction was made by this
-  wallet.  
-- `frozen`: Optional boolean recording that the user marked this output do-not-spend.  
-  This is user intent and cannot be recovered from the chain, so it is lost unless it is
-  backed up.  
-- `spend_status`: Optional string describing the spend status of the output.  
-  See [Spend Status](#spend-status).  
+| Field              | Type    | Description                                                                           |
+|--------------------|---------|---------------------------------------------------------------------------------------|
+| `amount`           | integer | Output amount in sats.                                                                |
+| `address`          | string  | Address the output pays to.                                                           |
+| `script`           | string  | Output script (hex).                                                                  |
+| `block_height`     | integer | Height of the block containing the funding transaction. If `null`, that transaction   |
+|                    |         | was unconfirmed at backup time.                                                       |
+| `is_change`        | boolean | The output was paid to the change keychain.                                           |
+| `derivation_index` | integer | Index the output's address was derived at.                                            |
+| `is_immature`      | boolean | The output is an immature coinbase output.                                            |
+| `is_from_self`     | boolean | The funding transaction was made by this wallet.                                      |
+| `frozen`           | boolean | The user marked this output do-not-spend. See below.                                  |
+| `spend_status`     | enum    | Spend status of the output. See [Spend Status](#spend-status).                        |
+
+`frozen` is user intent and cannot be recovered from the chain, so it is lost unless it is
+backed up.
 
 ## Silent Payment Owned Output Fields
 
-Fields of the
-[silent payment owned output object](../bip-0139.md#silent-payment-owned-output-object-structure).  
+Fields of the [silent payment owned output object][spobj].  
 The mandatory `outpoint` and `tweak` fields are defined in BIP-0139; all fields below are
 optional.
 
-- `block_height`: Optional integer representing the height of the block containing
-  the transaction.  
-  NOTE: if `block_height` value is `null`, it means the outpoints belongs to an
-  unconfirmed transaction at the time of backup.  
-- `amount`: Optional integer representing the output amount value in sats.  
-- `script`: Optional hexadecimal string representing the spending script for this
-  outpoint.  
-- `label`: Optional string representing a label attached to this output, similar to
-  BIP-0329 label.  
-- `spend_status`: Optional string describing the spend status of the output.  
-  See [Spend Status](#spend-status).  
+| Field          | Type    | Description                                                                               |
+|----------------|---------|-------------------------------------------------------------------------------------------|
+| `block_height` | integer | Height of the block containing the transaction. If `null`, the outpoint belongs to a      |
+|                |         | transaction that was unconfirmed at backup time.                                          |
+| `amount`       | integer | Output amount in sats.                                                                    |
+| `script`       | string  | Spending script for this outpoint (hex).                                                  |
+| `label`        | string  | Label attached to this output, similar to a [BIP-0329][329] label.                        |
+| `spend_status` | enum    | Spend status of the output. See [Spend Status](#spend-status).                            |
 
 ### Spend Status
 
