@@ -276,10 +276,6 @@ The `spend_status` field may contain one of the following values.
 - `unspent`: The transaction has been confirmed in a block and the output is unspent.
 - `spent`: The transaction has been confirmed in a block and the output is spent.
 
-[85]: https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki
-[174]: https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki
-[329]: https://github.com/bitcoin/bips/blob/master/bip-0329.mediawiki
-[370]: https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki
 [txobj]: ../bip-0139.md#transaction-object-structure
 [signerobj]: ../bip-0139.md#signer-object-structure
 [keyobj]: ../bip-0139.md#key-object-structure
