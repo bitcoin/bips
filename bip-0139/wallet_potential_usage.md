@@ -54,7 +54,7 @@ wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  �
 wallet.description        |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 0  2 11
 wallet.network            |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   | 8  5  0
 wallet.last_height        |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 7  4  2
-wallet.proprietary        |  ~   |  ✓   |  ~   |  -   |  ~   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ✓   |  ✓   | 3  6  4
+wallet.proprietary        |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   | 9  0  4
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
 account.type              |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   | 4  9  0
 account.descriptor        |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   | 7  6  0
@@ -901,6 +901,28 @@ benefit of delegating, so the proposal belongs upstream.
 Separately, BIP-329's Additional Fields already cover something recorded below as missing:
 `rate` and `fmv` are exactly Electrum's per-transaction fiat cost-basis data
 (`set_fiat_value`), so that gap is closed upstream too.
+
+## `proprietary` needs no change
+
+The six `~` on `wallet.proprietary` were a scoring artefact. No wallet has a field named
+`proprietary`, but every one has application-specific data and nowhere else to put it -
+Core's wallet flags and node config, Sparrow's `walletConfig` and `walletTable`, Nunchuk's
+`tapsigners`/`deleted_wallets`, Electrum's `db_metadata`, Green's settings and client blob.
+All are ✓ on interest; the bucket is simply created at export time.
+
+Two objections were considered and rejected:
+
+- **That importers discard it.** The Importing section says to "discard unsupported
+  fields", which drops another application's proprietary data on a round trip. This is
+  intended: a backup is a snapshot written by one wallet, and a wallet that re-exports is
+  writing its own backup, not editing someone else's.
+- **That keys could collide without namespacing.** They cannot in practice. A backup file
+  is not expected to be written or updated by two different applications, so the key space
+  belongs to whichever wallet wrote the file.
+
+Core's draft did introduce `wallet_flags` and `bitcoin_conf` as top-level keys rather than
+nesting them under `proprietary`, which is worth noting as an implementation detail to
+reconcile, but it does not indicate a problem with the field.
 
 ## Missing fields
 
