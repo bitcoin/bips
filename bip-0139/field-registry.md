@@ -24,6 +24,11 @@ are optional.
   A signet is defined by its challenge script, so this list names only the well-known
   ones. Any other signet uses `signet`, and a wallet needing to tell two of them apart
   records the challenge in `proprietary`.  
+- `transactions`: Optional object mapping a transaction id to a transaction object.  
+  See [Transaction Object Structure](../bip-0139.md#transaction-object-structure).  
+  Transactions live here rather than on the account so that one touching several
+  accounts is stored once, and so that a wallet that cannot attribute a transaction to
+  an account can still carry it.  
 - `psbts`: Optional object mapping a transaction id to a partially signed transaction, as
   defined by [BIP-0174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki) or
   [BIP-0370](https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki).  
@@ -96,10 +101,11 @@ are optional.
   See [Key Object Structure](../bip-0139.md#key-object-structure).  
 - `labels`: Optional array containing label structures for transactions, addresses, and
   keys following [BIP-0329](https://github.com/bitcoin/bips/blob/master/bip-0329.mediawiki).  
-- `transactions`: Optional array containing transactions.  
-  Wallets may include only transactions spending coins controlled by the account, only
-  transactions funding controlled coins, or only their corresponding outpoints.  
-  See [Transaction Object Structure](../bip-0139.md#transaction-object-structure).  
+- `transactions`: Optional array of transaction ids referencing entries in the wallet's
+  `transactions` map, listing the transactions that involve this account.  
+  Present only where the wallet can attribute a transaction to an account. A wallet may
+  reference only transactions spending coins controlled by the account, only those funding
+  controlled coins, or both.  
 - `coins`: Optional array of outputs owned by the account.  
   See [Coin Object Structure](../bip-0139.md#coin-object-structure).  
 - `bip352_outputs`: Optional array of
