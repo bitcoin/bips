@@ -18,8 +18,6 @@ are optional.
 - `date`: Optional timestamp recording when the backup was made.  
 - `network`: Optional string network identifier.  
   Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, and `regtest`.  
-- `last_height`: Optional integer representing the last block height the exporter had
-  processed.  
 - `signers`: Optional array of signer objects.  
   See [Signer Object Structure](../bip-0139.md#signer-object-structure).  
 - `proprietary`: Optional JSON object storing application-specific metadata.  
@@ -67,7 +65,10 @@ are optional.
   order of a difficulty period.  
   An exporter that can do neither SHOULD omit the field. An absent `birth_block` means a
   full scan, which is slow but correct.  
-- `last_height`: Optional integer representing the last seen block height.  
+- `last_height`: Optional integer height this account has been synced to.  
+  A wallet that tracks one sync point for the whole backup writes that same height into
+  every account. Accounts that sync independently, such as a separately scanned silent
+  payments account, carry their own.  
 - `bip352_labels`: Optional list of the silent payment label indices in use.  
   Either an array of integers (`[0, 1, 2]`) or an object with `start` and `end` members
   (`{"start": 0, "end": 10}`), where `end` is exclusive, matching `range_start` and
