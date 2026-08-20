@@ -349,9 +349,9 @@ by design, possibly stored in cloud storage - is the wrong carrier for it.
 
 The survey evidence below is what the decision was weighed against.
 
-#### Why the current rule does not work
+#### What the restriction costs
 
-BIP-139 says the field must not hold mainnet mnemonics.
+BIP-139 says the field must not hold mainnet mnemonics. Four wallets are affected.
 
 - **Sparrow** routinely stores an encrypted mainnet BIP-39 seed inside the wallet file
   (`seed.mnemonicString`, `sql/V1__Initial.sql`). A compliant export must drop it.
