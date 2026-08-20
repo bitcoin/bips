@@ -20,6 +20,8 @@ are optional.
   Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, and `regtest`.  
 - `last_height`: Optional integer representing the last block height the exporter had
   processed.  
+- `signers`: Optional array of signer objects.  
+  See [Signer Object Structure](../bip-0139.md#signer-object-structure).  
 - `proprietary`: Optional JSON object storing application-specific metadata.  
 
 ## Account Fields
@@ -82,6 +84,25 @@ are optional.
   (`testnet3`, `testnet4`, `signet`, `regtest`); it MUST NOT be used to store mainnet mnemonics.  
 - `proprietary`: Optional JSON object storing account-specific metadata.  
 
+## Signer Fields
+
+Fields of the [signer object](../bip-0139.md#signer-object-structure).  
+The mandatory `fingerprints` field is defined in BIP-0139; all fields below are optional.
+
+- `key_status`: Optional string describing the status of the signer's keys.  
+  See [Key Status](#key-status).  
+- `bip85_derivation_path`: Optional string describing the
+  [BIP-0085](https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki) derivation
+  path used to derive this signer's key from a master key.  
+
+### Key Status
+
+The `key_status` field may contain one of the following values.  
+
+- `inactive`: The key is not yet actively used.  
+- `active`: The key is actively used.  
+- `revoked`: The key has been revoked and MUST NOT be used anymore.  
+
 ## Key Fields
 
 Fields of the [key object](../bip-0139.md#key-object-structure).  
@@ -92,11 +113,6 @@ The mandatory `key` field is defined in BIP-0139; all fields below are optional.
   See [Key Roles](#key-roles).  
 - `key_type`: Optional string describing ownership of the key.  
   See [Key Types](#key-types).  
-- `key_status`: Optional string describing the status of the key.  
-  See [Key Status](#key-status).  
-- `bip85_derivation_path`: Optional string describing the
-  [BIP-0085](https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki) derivation
-  path used to derive this key from the master key.  
 
 ### Key Roles
 
@@ -114,14 +130,6 @@ The `key_type` field may contain one of the following values.
 - `internal`: User-owned key.  
 - `external`: Key held by heirs or trusted individuals.  
 - `third_party`: Key held by a service provider.  
-
-### Key Status
-
-The `key_status` field may contain one of the following values.  
-
-- `active`: The key is actively used.  
-- `inactive`: The key is not yet actively used.  
-- `revoked`: The key has been revoked and MUST NOT be used anymore.  
 
 ## Transaction Fields
 
