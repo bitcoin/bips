@@ -30,7 +30,11 @@ are optional.
 
 - `name`: Optional string account name.  
 - `description`: Optional string account description.  
-- `active`: Optional boolean field indicating if the account is active.  
+- `status`: Optional string describing where the account is in its lifecycle.  
+  See [Account Status](#account-status).  
+- `hidden`: Optional boolean recording that the account is suppressed in the exporting
+  wallet's interface. This is independent of `status`: a hidden account may still be
+  active.  
 - `change_descriptor`: Optional string representing an explicit change-side
   descriptor, paired with `descriptor`. Intended for wallets that do not use BIP-389
   multipath descriptors (as e.g. Bitcoin Core does).  
@@ -92,6 +96,15 @@ are optional.
   Since backups may be stored online, this field is intended for test networks only
   (`testnet3`, `testnet4`, `signet`, `regtest`); it MUST NOT be used to store mainnet mnemonics.  
 - `proprietary`: Optional JSON object storing account-specific metadata.  
+
+### Account Status
+
+The `status` field may contain one of the following values.  
+
+- `active`: The account can derive new addresses.  
+- `superseded`: The account no longer derives new addresses, but must still be
+  watched because it may hold or receive coins.  
+- `archived`: The user retired the account, it is no longer watched.
 
 ## Signer Fields
 
