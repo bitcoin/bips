@@ -16,20 +16,21 @@ Cell values answer: would this wallet have interest in round-tripping this field
 
 ## Revisions read
 
-| Wallet         | Repo                                                        | Commit                            |
-|----------------|-------------------------------------------------------------|-----------------------------------|
-| Bitcoin Core   | `~/bitcoin` `refs/pyth-backup` (PR pythcoiner/bitcoin#1)    | `1e7ff0fe`                        |
-| Liana          | `~/liana` (read as-is, deliberately not synced)             | `6ef57fb6`                        |
-| Sparrow        | `~/sparrow`                                                 | `194bd70`                         |
-| Bull Bitcoin   | `~/bb-mobile` branch `sp-feature` (deliberately not synced) | `ce0add466`                       |
-| Nunchuk        | `~/libnunchuk` + `~/nunchuk-desktop` + `~/nunchuk-android`  | `a1d485a` / `025aba7` / `e091ed8` |
-| Bitcoin Keeper | `~/bitcoin-keeper` + `~/keeper-desktop`                     | `3a7b53c` / `f960b1f`             |
-| Bitcoin Safe   | `~/bitcoin-safe`                                            | `4ce099e`                         |
-| Electrum       | `~/electrum`                                                | `3d41451f2`                       |
-| Green          | `~/gdk` + `~/green_qt`                                      | `71b90dd` / `08464d6`             |
-| Specter        | `~/specter-desktop`                                         | `b8679a4`                         |
-| Dana           | `~/dana`                                                    | `2b8ba6d`                         |
-| Wasabi         | `~/WalletWasabi`                                            | `bbc25a3`                         |
+| Wallet         | Repo                                                                 | Commit                            |
+|----------------|----------------------------------------------------------------------|-----------------------------------|
+| Bitcoin Core   | `~/bitcoin` `refs/pyth-backup` (PR pythcoiner/bitcoin#1)             | `1e7ff0fe`                        |
+| Liana          | `~/liana` (read as-is, deliberately not synced)                      | `6ef57fb6`                        |
+| Sparrow        | `~/sparrow`                                                          | `194bd70`                         |
+| Bull Bitcoin   | `~/bb-mobile` branch `sp-feature` (deliberately not synced)          | `ce0add466`                       |
+| Nunchuk        | `~/libnunchuk` + `~/nunchuk-desktop` + `~/nunchuk-android`           | `a1d485a` / `025aba7` / `e091ed8` |
+| Bitcoin Keeper | `~/bitcoin-keeper` + `~/keeper-desktop`                              | `3a7b53c` / `f960b1f`             |
+| Bitcoin Safe   | `~/bitcoin-safe`                                                     | `4ce099e`                         |
+| Electrum       | `~/electrum`                                                         | `3d41451f2`                       |
+| Green          | `~/gdk` + `~/green_qt`                                               | `71b90dd` / `08464d6`             |
+| Specter        | `~/specter-desktop`                                                  | `b8679a4`                         |
+| Dana           | `~/dana`                                                             | `2b8ba6d`                         |
+| Wasabi         | `~/WalletWasabi`                                                     | `bbc25a3`                         |
+| Bitkey         | `~/bitkey` branch `disclosure` (0 behind / 5 ahead of `origin/main`) | `1c0858d09`                       |
 
 `keeper-desktop` is a pure HWI bridge with no database and no persistence; it contributes
 nothing to the matrix. Nunchuk has no public iOS repo and Green's Android/iOS repos are
@@ -39,69 +40,70 @@ nothing to the matrix. Nunchuk has no public iOS repo and Green's Android/iOS re
 ## The matrix
 
 ```
-Core = Bitcoin Core     Nunc = Nunchuk          Grn = Green
-Lian = Liana            Keep = Bitcoin Keeper   Spec = Specter
-Sprw = Sparrow          BSaf = Bitcoin Safe     Dana = Dana
-Bull = Bull Bitcoin     Elec = Electrum         Wasb = Wasabi
+Core = Bitcoin Core     Keep = Bitcoin Keeper   Dana = Dana
+Lian = Liana            BSaf = Bitcoin Safe     Wasb = Wasabi
+Sprw = Sparrow          Elec = Electrum         Bitk = Bitkey
+Bull = Bull Bitcoin     Grn = Green
+Nunc = Nunchuk          Spec = Specter
 
-field                     | Core | Lian | Sprw | Bull | Nunc | Keep | BSaf | Elec | Grn  | Spec | Dana | Wasb | ✓  ~  -
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-wallet.version            |  ✓   |  ✓   |  -   |  -   |  ~   |  ✓   |  ✓   |  ~   |  -   |  -   |  -   |  -   | 4  2  6
-wallet.accounts           |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   | 9  3  0
-wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ~   |  ~   |  -   |  ~   | 5  3  4
-wallet.description        |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 0  2 10
-wallet.network            |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   | 7  5  0
-wallet.last_height        |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   | 7  3  2
-wallet.proprietary        |  ~   |  ✓   |  ~   |  -   |  ~   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ✓   | 2  6  4
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-account.type              |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   | 3  9  0
-account.descriptor        |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   | 6  6  0
-account.name              |  -   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  -   |  -   | 7  2  3
-account.description       |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0  9
-account.active            |  ✓   |  -   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ~   |  -   |  -   |  -   | 1  4  7
-account.output_type       |  ✓   |  -   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  -   |  ~   | 3  7  2
-account.change_descriptor |  ✓   |  -   |  ✓   |  ✓   |  ~   |  -   |  -   |  ~   |  ✓   |  ✓   |  ~   |  -   | 5  3  4
-account.receive_index     |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   | 7  4  1
-account.change_index      |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   | 6  5  1
-account.range_start       |  ✓   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   |  ~   |  -   |  -   | 1  2  9
-account.range_end         |  ✓   |  -   |  -   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ✓   |  -   |  ~   | 2  4  6
-account.change_range_start|  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 1  1 10
-account.change_range_end  |  ✓   |  -   |  -   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   |  -   |  ~   | 2  3  7
-account.birth_block       |  ~   |  ~   |  ~   |  ~   |  -   |  -   |  -   |  -   |  ~   |  ✓   |  ~   |  ✓   | 2  6  4
-account.last_height       |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   | 6  6  0
-account.bip352_labels     |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 0  1 11
-account.keys              |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ~   | 7  5  0
-account.labels            |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ~   | 7  5  0
-account.transactions      |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |10  2  0
-account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   | 3  0  9
-account.psbts             |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ~   |  ~   |  -   |  ✓   |  -   |  ~   | 4  3  5
-account.bip39_mnemonic    |  -   |  -   |  ~   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ~   |  -   |  ~   |  -   | 2  6  4
-account.proprietary       |  -   |  ✓   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   | 2  4  6
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-key.key                   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   | 9  3  0
-key.alias                 |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  -   |  ~   |  -   |  -   | 6  2  4
-key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ~   |  ✓   |  -   |  -   |  -   | 4  1  7
-key.key_type              |  -   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  -   |  ~   |  ~   | 4  6  2
-key.key_status            |  -   |  -   |  -   |  ✓   |  ~   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   | 1  2  9
-key.bip85_derivation_path |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ~   |  -   |  -   |  -   | 2  1  9
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |11  1  0
-transaction.wtxid         |  ✓   |  ~   |  ~   |  -   |  -   |  -   |  ~   |  ✓   |  -   |  -   |  -   |  ~   | 2  4  6
-transaction.hex           |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   | 9  1  2
-transaction.time          |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   | 6  6  0
-transaction.time_received |  ✓   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  ✓   |  ~   |  ✓   | 3  2  7
-transaction.blockhash     |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   | 8  0  4
-transaction.blockheight   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |11  1  0
-transaction.blockindex    |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   | 3  0  9
-transaction.abandoned     |  ✓   |  -   |  -   |  -   |  ~   |  -   |  -   |  ~   |  -   |  -   |  -   |  -   | 1  2  9
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-sp_output.outpoint        |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   | 3  0  9
-sp_output.tweak           |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   | 3  0  9
-sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   | 2  1  9
-sp_output.amount          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   | 3  0  9
-sp_output.script          |  -   |  -   |  ~   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   | 1  2  9
-sp_output.label           |  -   |  -   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   | 1  2  9
-sp_output.spend_status    |  -   |  -   |  ~   |  ~   |  -   |  -   |  -   |  -   |  ~   |  -   |  ~   |  -   | 0  4  8
+field                     | Core | Lian | Sprw | Bull | Nunc | Keep | BSaf | Elec | Grn  | Spec | Dana | Wasb | Bitk | ✓  ~  -
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
+wallet.version            |  ✓   |  ✓   |  -   |  -   |  ~   |  ✓   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  ✓   | 5  2  6
+wallet.accounts           |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |10  3  0
+wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ~   |  ~   |  -   |  ~   |  -   | 5  3  5
+wallet.description        |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 0  2 11
+wallet.network            |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   | 8  5  0
+wallet.last_height        |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 7  4  2
+wallet.proprietary        |  ~   |  ✓   |  ~   |  -   |  ~   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ✓   |  ✓   | 3  6  4
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
+account.type              |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   | 4  9  0
+account.descriptor        |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   | 7  6  0
+account.name              |  -   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  -   |  -   |  -   | 7  2  4
+account.description       |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 3  0 10
+account.active            |  ✓   |  -   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ~   |  -   |  -   |  -   |  ~   | 1  5  7
+account.output_type       |  ✓   |  -   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  -   |  ~   |  ✓   | 4  7  2
+account.change_descriptor |  ✓   |  -   |  ✓   |  ✓   |  ~   |  -   |  -   |  ~   |  ✓   |  ✓   |  ~   |  -   |  ✓   | 6  3  4
+account.receive_index     |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   |  -   | 7  4  2
+account.change_index      |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   |  -   | 6  5  2
+account.range_start       |  ✓   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 1  2 10
+account.range_end         |  ✓   |  -   |  -   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ✓   |  -   |  ~   |  -   | 2  4  7
+account.change_range_start|  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 1  1 11
+account.change_range_end  |  ✓   |  -   |  -   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   |  -   |  ~   |  -   | 2  3  8
+account.birth_block       |  ~   |  ~   |  ~   |  ~   |  -   |  -   |  -   |  -   |  ~   |  ✓   |  ~   |  ✓   |  -   | 2  6  5
+account.last_height       |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 6  7  0
+account.bip352_labels     |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 0  1 12
+account.keys              |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   | 7  6  0
+account.labels            |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ~   |  -   | 7  5  1
+account.transactions      |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |10  3  0
+account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
+account.psbts             |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ~   |  ~   |  -   |  ✓   |  -   |  ~   |  -   | 4  3  6
+account.bip39_mnemonic    |  -   |  -   |  ~   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ~   |  -   |  ~   |  -   |  ~   | 2  7  4
+account.proprietary       |  -   |  ✓   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   |  ✓   | 3  4  6
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
+key.key                   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |10  3  0
+key.alias                 |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  -   |  ~   |  -   |  -   |  ~   | 6  3  4
+key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ~   |  ✓   |  -   |  -   |  -   |  ✓   | 5  1  7
+key.key_type              |  -   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  -   |  ~   |  ~   |  ✓   | 5  6  2
+key.key_status            |  -   |  -   |  -   |  ✓   |  ~   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   | 1  3  9
+key.bip85_derivation_path |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ~   |  -   |  -   |  -   |  -   | 2  1 10
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
+transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |12  1  0
+transaction.wtxid         |  ✓   |  ~   |  ~   |  -   |  -   |  -   |  ~   |  ✓   |  -   |  -   |  -   |  ~   |  -   | 2  4  7
+transaction.hex           |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   | 9  1  3
+transaction.time          |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ~   | 6  7  0
+transaction.time_received |  ✓   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  ✓   |  ~   |  ✓   |  ~   | 3  3  7
+transaction.blockhash     |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   | 8  0  5
+transaction.blockheight   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |12  1  0
+transaction.blockindex    |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   |  -   | 3  0 10
+transaction.abandoned     |  ✓   |  -   |  -   |  -   |  ~   |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   | 1  2 10
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
+sp_output.outpoint        |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
+sp_output.tweak           |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
+sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 2  1 10
+sp_output.amount          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
+sp_output.script          |  -   |  -   |  ~   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 1  2 10
+sp_output.label           |  -   |  -   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 1  2 10
+sp_output.spend_status    |  -   |  -   |  ~   |  ~   |  -   |  -   |  -   |  -   |  ~   |  -   |  ~   |  -   |  -   | 0  4  9
 ```
 
 ## Headline findings
@@ -208,7 +210,7 @@ modelling assets or blinding at all.
 
 ### 3. Fields no surveyed wallet would populate
 
-One field scored zero ✓ across all twelve wallets:
+One field scored zero ✓ across all thirteen wallets:
 
 | Field                | Note                                                                     |
 |----------------------|--------------------------------------------------------------------------|
@@ -222,9 +224,9 @@ one change address. Bull Bitcoin uses only the reserved change label
 an empty label set (`net/ElectrumServer.java:1676`). The array-or-range shape has nothing
 to represent in any surveyed wallet.
 
-`key.role` scores 4 ✓ once the question is read as intended - does the wallet have the
+`key.role` scores 5 ✓ once the question is read as intended - does the wallet have the
 concept and would it want it round-tripped - rather than as "does it populate the field
-today". Nobody populates it today. But four wallets model spending-policy roles as a core
+today". Nobody populates it today. But five wallets model spending-policy roles as a core
 part of what they are:
 
 - **Liana**: the role of any key is already derivable from the descriptor.
@@ -243,6 +245,12 @@ part of what they are:
   value exactly.
 - **Nunchuk**: multisig-first with miniscript and timelock vaults, plus a `SignerTag::
   INHERITANCE` (`nunchuk.h:218-229`) and server/platform signer types.
+- **Bitkey**: a 2-of-3 where the three keys are distinct types in the code -
+  `appKey: AppSpendingPublicKey`, `hardwareKey: HwSpendingPublicKey`,
+  `serverKey: F8eSpendingKeyset` (`spending/SpendingKeyset.kt`). The mapping is
+  unambiguous - app and hardware are `main`/`internal`, the Block-held server key is
+  `cosigning`/`third_party` - but it is expressed as separate columns rather than an enum,
+  so an exporter hard-codes it.
 
 In all four the role is currently *implied by structure* rather than stored as an
 attribute, which is precisely the information a flat `keys{}` dictionary loses on export.
@@ -273,8 +281,8 @@ of the 4 ✓ is: four wallets want the field and can partially populate it, but 
 fill it completely without asking the user a question they are not currently asked. An
 importer should treat a missing `role` as normal rather than as data loss.
 
-`key.key_type` (`internal` / `external` / `third_party`) tracks the same four wallets at
-4 ✓, and for the same reason: each of them has at least one key it does not own, and the
+`key.key_type` (`internal` / `external` / `third_party`) tracks the same five wallets at
+5 ✓, and for the same reason: each of them has at least one key it does not own, and the
 classification is inferable without any new stored state.
 
 - **Liana** already populates it - `Some(KeyType::ThirdParty)` for cosigning-provider keys
@@ -628,11 +636,13 @@ spec rather than left to implementers.
 
 ## Decision: add `gap_limit`
 
-Five wallets store it and the format has no field for it: Nunchuk `DbKeys::GAP_LIMIT`
+Six wallets store it and the format has no field for it: Nunchuk `DbKeys::GAP_LIMIT`
 (user-tunable, `walletdb.cpp:214-216`), Sparrow `wallet.gapLimit`, Bitcoin Safe
 `Wallet.gap` (default 20, passed as `stop_gap` to `full_scan`, `wallet.py:750,1330`),
 Electrum `gap_limit` and `gap_limit_for_change` (20/10, `wallet.py:4093-4094`), Wasabi
-`MinGapLimit`/`AbsoluteMinGapLimit` = 21 (`KeyManager.cs:29,55`).
+`MinGapLimit`/`AbsoluteMinGapLimit` = 21 (`KeyManager.cs:29,55`), Bitkey
+`DEFAULT_STOP_GAP = 1000` (`BdkBlockchainProviderImpl.kt:165`, a build-time constant rather
+than per-wallet state, but a real value an exporter can emit).
 
 It is not covered by anything already present. `receive_index`/`change_index` record how far
 derivation got; `range_start`/`range_end` record the cached keypool window. Neither states
@@ -719,6 +729,36 @@ what you own and what you have decided about it - whereas `bip352_outputs` carri
 `tweak`, which is spend-critical key material without which the output cannot be swept at
 all. Tracking data and key material should not share an object, so both stay.
 
+## Bitkey validates the signer/device split
+
+Bitkey is the clearest test of the `signers` restructuring, because its three keys differ
+on exactly the axes the new object separates:
+
+- the **app key** is software on a phone - `modality: general`
+- the **hardware key** lives on a dedicated Bitkey device - `modality: dedicated`, with
+  `devices[]` populated as vendor `Block`, model `W1`/`W3` (`account/HardwareType.kt`) and
+  `transports: ["nfc"]`, since hardware signing is an NFC tap
+- the **server key** is held by Block's f8e service - `modality: general`,
+  `transports: ["service"]`
+
+Its `appGlobalAuthKeyHwSignature` (`Keybox.sq`) is close in spirit to
+`devices[].registration`: a proof that a specific app key was paired with a specific
+hardware unit. It attests key-to-device binding rather than descriptor registration, but it
+is the same category of per-(key, device) evidence the field exists to carry.
+
+Two Bitkey-specific gaps remain that no proposed field covers:
+
+- **Service identifiers.** `f8eEnvironment` and the server-issued `keysetId`
+  (`f8e/F8eSpendingKeyset.kt`) are what a restored wallet needs to re-establish contact with
+  the cosigning service. Without them a `third_party`/`cosigning` key is identified but
+  unusable. Green has the same problem in a different form; both would land in
+  `proprietary` today.
+- **Key rotation history.** Bitkey keeps inactive keysets (`spendingKeysetEntity` rows with
+  `isActive = 0`) that belong to the *same* account but describe an older descriptor.
+  BIP-139 has no way to say "this account, earlier keyset", so each rotation would have to
+  become its own account entry, losing the relationship. Worth noting as a general gap: any
+  wallet that rotates keys has wallet history the format cannot express.
+
 ## Missing fields
 
 Ranked by how many wallets want them.
@@ -789,20 +829,21 @@ Details worth carrying forward:
 
 ## Per-wallet difficulty
 
-| Wallet         | Verdict                                | Main blocker                                                                                           |
-|----------------|----------------------------------------|--------------------------------------------------------------------------------------------------------|
-| Bitcoin Core   | easy-moderate                          | Draft already exists. `keys{}`, BIP-85, BIP-39, BIP-352 are out of model                               |
-| Liana          | moderate                               | Mandatory-field type changes; `coins`/`chain_tip`/`date` have no home                                  |
-| Sparrow        | moderate                               | One-account-per-file; descriptor reconstructed from policy+keystores; no role/status vocabulary        |
-| Bull Bitcoin   | moderate (app) / hard (SP)             | `tweak` and `script` persist in Rust but are not exposed over the FFI to Dart - a cross-repo change    |
-| Nunchuk        | moderate                               | `ExportBackup()` is already close to BIP-139 shape; `type` enum needs translation; Liquid fits nothing |
-| Bitcoin Keeper | moderate                               | Label export and BSMS backup are ~80% there; tx cache and key roles are the gaps                       |
-| Bitcoin Safe   | moderate                               | Descriptor/label/tx plumbing is near-turnkey; `birth_block` does not exist at all                      |
-| Electrum       | moderate-hard                          | Mandatory `type`/`descriptor` unsatisfiable for imported-address and Old_KeyStore wallets              |
-| Green          | moderate (singlesig) / hard (multisig) | Multisig subaccounts have no descriptor representation whatsoever                                      |
-| Specter        | moderate                               | Closest structural match of any wallet; needs a top-level container to wrap N wallet files             |
-| Dana           | moderate-hard                          | No descriptor representation for a `bip_392` account exists to build on                                |
-| Wasabi         | hard                                   | No descriptors; one file holds 2-3 branches; core privacy state has no home                            |
+| Wallet         | Verdict                                | Main blocker                                                                                                             |
+|----------------|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
+| Bitcoin Core   | easy-moderate                          | Draft already exists. `keys{}`, BIP-85, BIP-39, BIP-352 are out of model                                                 |
+| Liana          | moderate                               | Mandatory-field type changes; `coins`/`chain_tip`/`date` have no home                                                    |
+| Sparrow        | moderate                               | One-account-per-file; descriptor reconstructed from policy+keystores; no role/status vocabulary                          |
+| Bull Bitcoin   | moderate (app) / hard (SP)             | `tweak` and `script` persist in Rust but are not exposed over the FFI to Dart - a cross-repo change                      |
+| Nunchuk        | moderate                               | `ExportBackup()` is already close to BIP-139 shape; `type` enum needs translation; Liquid fits nothing                   |
+| Bitcoin Keeper | moderate                               | Label export and BSMS backup are ~80% there; tx cache and key roles are the gaps                                         |
+| Bitcoin Safe   | moderate                               | Descriptor/label/tx plumbing is near-turnkey; `birth_block` does not exist at all                                        |
+| Electrum       | moderate-hard                          | Mandatory `type`/`descriptor` unsatisfiable for imported-address and Old_KeyStore wallets                                |
+| Green          | moderate (singlesig) / hard (multisig) | Multisig subaccounts have no descriptor representation whatsoever                                                        |
+| Specter        | moderate                               | Closest structural match of any wallet; needs a top-level container to wrap N wallet files                               |
+| Dana           | moderate-hard                          | No descriptor representation for a `bip_392` account exists to build on                                                  |
+| Wasabi         | hard                                   | No descriptors; one file holds 2-3 branches; core privacy state has no home                                              |
+| Bitkey         | moderate                               | Three-key structure fits well, but descriptor, indices and tx cache are all synthesised from BDK live rather than stored |
 
 ## Prior art worth reading
 
