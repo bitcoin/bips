@@ -775,14 +775,16 @@ got there. Six recurring reasons, in descending order of what they imply for the
 
 The strongest signal, because no amount of implementation work fixes it.
 
-- **`birth_block` (6 `~`).** The field is a block height. Six wallets store a **date**:
-  Liana `Account.timestamp` (unix, drives rescan, `lianad/commands/mod.rs:335`), Sparrow
-  `wallet.birthDate` (the user-facing field; `birthHeight` exists in the schema but nothing
-  populates it), Bull Bitcoin `birthday: DateTime?`, Dana `_keyBirthday` (a timestamp,
-  resolved to a height only transiently at sync), Core `WalletDescriptor::creation_time`,
-  Green `earliest_key_creation_time`. Only Specter and Wasabi store a real height. Converting
-  needs a chain lookup, so an offline exporter cannot comply at all. **This is the single
-  clearest case in the survey of a field the wallets cannot fill as defined.**
+- **`birth_block`.** The field is a block height. Five wallets store a **date**: Liana
+  `Account.timestamp` (unix, drives rescan, `lianad/commands/mod.rs:335`), Bull Bitcoin
+  `birthday: DateTime?`, Dana `_keyBirthday` (a timestamp, converted to a height at sync via
+  a mempool API), Core `WalletDescriptor::creation_time`, Green
+  `earliest_key_creation_time`. Three store a real height: Specter (first transaction height
+  minus a 101-block margin), Wasabi (`BlockchainState.BirthHeight`), and Sparrow, which
+  derives `birthHeight` from the earliest confirmed transaction and ratchets it down as sync
+  finds earlier ones (`WalletForm.java:313-317`). Converting a date needs a chain lookup, so
+  an offline exporter cannot do it - which is why the field now carries an explicit rule for
+  deriving and, failing that, omitting it.
 - **`account.last_height` (7 `~`).** Not a unit problem but the same shape: Core, Sparrow,
   Bull Bitcoin, Keeper, Green, Specter and Bitkey all hold one **wallet-global** sync
   height, not one per account. Specter's nearest value is a block *hash*, not a height.
