@@ -75,7 +75,7 @@ account.bip352_labels     |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  
 account.keys              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 account.labels            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |12  0  1
 account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-account.bip39_mnemonic    |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ✓   | 8  1  4
+account.bip39_mnemonic    |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   | 8  0  5
 account.proprietary       |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   | 7  0  6
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
 signer.key_status         |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   | 4  0  9
@@ -752,20 +752,19 @@ wallet holds, or because the wallet holds only part of what the field needs. A w
 holding *more* than the field can carry scores ✓; the loss is BIP-139's, and is recorded
 under missing fields rather than counted against the wallet.
 
-That moved 146 of the original 152 cells. The first pass had scored `~` for reasons that do
+That moved 147 of the original 152 cells. The first pass had scored `~` for reasons that do
 not bear on fillability: a different field name, a value computed on demand rather than
 stored, enum values spelled differently, data the wallet holds but its export code does not
-emit, or a type present in the code with nothing yet populating it. Six survive.
+emit, or a type present in the code with nothing yet populating it. Five survive.
 
-| Field                       | Wallets            | Why it cannot be filled                                                                                                                                                                                                                                           |
-|-----------------------------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `sp_output.label`           | Bull Bitcoin, Dana | Both store the raw 32-byte BIP-352 label scalar under this name. The field is documented as BIP-329-style text, and neither attaches free text at output granularity, so there is nothing to convert from.                                                        |
-| `account.bip39_mnemonic`    | Electrum           | Two reasons at once. Electrum's own seed format is deliberately not BIP-39, so those words would be wrong here; and when a wallet is restored from real BIP-39 words, `bip39_to_seed` derives the xprv and the words are discarded, unrecoverable on any network. |
-| `transaction.abandoned`     | Electrum           | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark.                                                                                                                                                  |
-| `transaction.time_received` | Bitcoin Safe       | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation.                                                                                                                                                         |
-| `key.alias`                 | Bitkey             | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint.                                                                                                                          |
+| Field                       | Wallets            | Why it cannot be filled                                                                                                                                                                                    |
+|-----------------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sp_output.label`           | Bull Bitcoin, Dana | Both store the raw 32-byte BIP-352 label scalar under this name. The field is documented as BIP-329-style text, and neither attaches free text at output granularity, so there is nothing to convert from. |
+| `transaction.abandoned`     | Electrum           | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark.                                                                                           |
+| `transaction.time_received` | Bitcoin Safe       | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation.                                                                                                  |
+| `key.alias`                 | Bitkey             | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint.                                                                   |
 
-Two of the six share one cause, and it is a defect in the format rather than the wallets.
+Two of the five share one cause, and it is a defect in the format rather than the wallets.
 **`sp_output.label` is the wrong field.** Both silent-payment wallets that could fill it use
 the name for protocol data instead. BIP-329 already labels outputs through `account.labels`
 with `type: "output"`, covering ordinary and silent-payment outputs alike, so this field
@@ -773,8 +772,13 @@ duplicates that mechanism while occupying the name the scalar needs. Dropping it
 a field for the BIP-352 label scalar resolves both cells and the asymmetry whereby the coin
 object has no label but `sp_output` does.
 
-The other three are honest wallet limits, not format problems: Electrum cannot recover
-BIP-39 words or a removed transaction, and BDK does not retain a first-seen time.
+The other three are honest wallet limits, not format problems: Electrum cannot recover a
+removed transaction, and BDK does not retain a first-seen time.
+
+Electrum scores `-` on `account.bip39_mnemonic` rather than `~`: its own seed format is
+deliberately not BIP-39, and a wallet restored from real BIP-39 words derives the xprv and
+discards them, so it holds no BIP-39 mnemonic to export on any network - an absent concept,
+not a field it fails to fill.
 
 Two earlier `~` clusters were resolved by structural changes rather than re-scoring.
 `account.psbts` and `account.transactions` both moved to wallet-level maps keyed by txid,
