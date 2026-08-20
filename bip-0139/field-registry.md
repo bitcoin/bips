@@ -94,6 +94,23 @@ The mandatory `fingerprints` field is defined in BIP-0139; all fields below are 
 - `bip85_derivation_path`: Optional string describing the
   [BIP-0085](https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki) derivation
   path used to derive this signer's key from a master key.  
+- `modality`: Optional string describing where the key material lives.  
+  Either `dedicated` (a device whose only job is signing) or `general` (software on a
+  general-purpose or network-connected device, including a remote service).  
+  The value can only degrade over a key's lifetime: material that has been on a general
+  device never becomes dedicated again. An importer that reads a value more dedicated than
+  the one it recorded MUST treat it as suspect, and MUST NOT silently promote it.  
+- `devices`: Optional array of records describing how this signer can be reached.  
+  Each entry may contain `vendor` and `model` strings naming the product, a `transports`
+  array of strings such as `usb`, `qr`, `nfc`, `sd` or `service`, a `registration` string
+  holding an opaque blob proving a descriptor was registered on that device, and a
+  `last_health_check` integer Unix timestamp recording when signing through it was last
+  proven to work.  
+  The whole array is advisory. It is a cache of how the signer was last reached, not a
+  statement that the key belongs to a device, and a key may be moved to other hardware at
+  any time. An importer MAY ignore it and MUST fall back to asking the user.  
+  `registration` is the one member that does not degrade gracefully: a blob produced on one
+  device is meaningless on another, so an importer MUST re-verify it rather than trust it.  
 
 ### Key Status
 
