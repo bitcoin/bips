@@ -31,8 +31,6 @@ are optional.
 - `name`: Optional string account name.  
 - `description`: Optional string account description.  
 - `active`: Optional boolean field indicating if the account is active.  
-- `output_type`: Optional string describing the output category of the account.  
-  Values used by Bitcoin Core are `legacy`, `p2sh-segwit`, `bech32`, and `bech32m`.  
 - `change_descriptor`: Optional string representing an explicit change-side
   descriptor, paired with `descriptor`. Intended for wallets that do not use BIP-389
   multipath descriptors (as e.g. Bitcoin Core does).  
