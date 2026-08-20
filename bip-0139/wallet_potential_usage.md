@@ -126,11 +126,11 @@ the descriptor family already covers every wallet surveyed:
   (`WpkhOutputDescriptorHelper.cs`), just for hardware registration rather than for export.
 
 Non-derivability is not a defect here. `addr()` is non-derivable by design - that is what
-BIP-385 exists for - and an account backed by one is watch-only by construction, which Core's
-own descriptor header states ("true for all descriptors except ones that use `raw` or `addr`
-constructions", `src/script/descriptor.h:114-116`). Worth stating in the spec so a consumer
-does not assume a descriptor implies spendability, but it does not stop the account being
-represented.
+BIP-385 exists for. It also carries no key or script information, so Core reports such
+descriptors as not solvable ("true for all descriptors except ones that use `raw` or `addr`
+constructions", `src/script/descriptor.h:114-116`), meaning an importer cannot work out how
+to sign from the descriptor alone. That says nothing about whether the keys exist; it only
+means they are not described here. Neither point stops the account being represented.
 
 One practical consequence remains. Expressing a wallet full of unrelated addresses as one
 `addr()` account per address would mean 200 accounts for 200 addresses, each repeating
