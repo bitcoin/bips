@@ -73,7 +73,7 @@ account.birth_block       |  ~   |  ~   |  ~   |  ~   |  -   |  -   |  -   |  - 
 account.last_height       |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 6  7  0
 account.bip352_labels     |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 0  1 12
 account.keys              |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   | 7  6  0
-account.labels            |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ~   |  -   | 7  5  1
+account.labels            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |12  0  1
 account.transactions      |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |10  3  0
 account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
 account.psbts             |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ~   |  ~   |  -   |  ✓   |  -   |  ~   |  -   | 4  3  6
@@ -857,6 +857,50 @@ Categories D and F need nothing. C is a registry job, already in hand for `type`
 **A is the open one, and `birth_block` is the case to revisit.** Six wallets hold a
 timestamp and two hold a height, so as defined the field is unfillable by the majority
 without a chain lookup - and an offline exporter cannot do one at all.
+
+## Labels: the gap belongs to BIP-329, not here
+
+`account.labels` originally scored 5 `~`. All five are now ✓, and no BIP-139 change was
+needed for any of them.
+
+Seven wallets already implement BIP-329 natively - Sparrow (whose author wrote it), Liana
+(the `bip329` crate), Nunchuk (`ExportBIP329`/`ImportBIP329`), Keeper, Bitcoin Safe, Bull
+Bitcoin and Green. That is the strongest adoption of any standard this format delegates to.
+
+The five `~` had two causes, both resolved:
+
+- **Mechanical conversion.** Electrum keeps a flat `{key: text}` dict and infers the record
+  type from the key's shape; Specter keeps `{label: [addresses]}`, address-only; Core's
+  draft synthesises `type: "tx"` entries from address-book data and transaction comments;
+  Dana has a per-transaction `user_note`. All are exporter work, nothing the spec must
+  change. Core's two real problems - the `bip329_labels` name and wallet-root placement -
+  are fixed separately.
+- **Multiple labels per item.** Wasabi's `LabelsArray` is a *set* of labels per address or
+  transaction feeding its cluster analysis; Nunchuk has `TAGS` and `COLLECTIONS` tables;
+  Bitcoin Safe has `category` and works around the single-string limit by concatenating it
+  into the label with a `" #"` separator. BIP-329 gives one `label` string per reference.
+
+The second is a real limitation, but it is BIP-329's, and BIP-329 already has the mechanism
+to fix it: an **Additional Fields** section (`bip-0329.mediawiki:142`) defining optional
+per-record fields such as `height`, `time`, `fee`, `value`, `rate`, `fmv` and `keypath`.
+
+A `tags` array of strings, valid on any record type, covers all three wallets:
+
+    { "type": "output", "ref": "abc...:1", "label": "rent",
+      "tags": ["kyc-free", "collection:cold-storage", "category:savings"] }
+
+Bare strings are plain tags; an optional `ns:value` prefix carries a second axis, which is
+what Nunchuk needs to keep tags and collections apart and what Bitcoin Safe needs for
+`category`. Splitting on the first colon leaves tag text free to contain others. It
+degrades cleanly: a wallet with only plain tags emits bare strings, and an importer that
+does not recognise a namespace still sees a usable tag.
+
+Adding this to BIP-139 instead would fork labelling into two mechanisms and undo the
+benefit of delegating, so the proposal belongs upstream.
+
+Separately, BIP-329's Additional Fields already cover something recorded below as missing:
+`rate` and `fmv` are exactly Electrum's per-transaction fiat cost-basis data
+(`set_fiat_value`), so that gap is closed upstream too.
 
 ## Missing fields
 
