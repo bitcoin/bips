@@ -72,11 +72,12 @@ Optional fields of the [account object][accountobj]. Its mandatory fields, `type
 |                      |                 | for the whole backup writes that same height into every account. Accounts   |
 |                      |                 | that sync independently, such as a separately scanned silent payments       |
 |                      |                 | account, carry their own.                                                   |
-| `bip352_labels`      | array or object | The silent payment label indices in use. Either an array of integers (`[0,  |
-|                      |                 | 1, 2]`) or an object with `start` and `end` members (`{"start": 0, "end":   |
-|                      |                 | 10}`), where `end` is exclusive, matching `range_start` and `range_end`. An |
-|                      |                 | importer that does not know which labels were issued cannot detect outputs  |
-|                      |                 | paid to them, so omitting a label in use loses the funds received on it.    |
+| `bip352_labels`      | array or object | The silent payment label indices in use. Either an array of integers        |
+|                      |                 | (`[0, 1, 2]`) or an object with `start` and `end` members                   |
+|                      |                 | (`{"start": 0, "end": 10}`), where `end` is exclusive, matching             |
+|                      |                 | `range_start` and `range_end`. An importer that does not know which labels  |
+|                      |                 | were issued cannot detect outputs paid to them, so omitting a label in use  |
+|                      |                 | loses the funds received on it.                                             |
 | `keys`               | object          | Maps a key fingerprint to a [key object][keyobj].                           |
 | `labels`             | array           | Label structures for transactions, addresses and keys, following            |
 |                      |                 | [BIP-0329][329].                                                            |
