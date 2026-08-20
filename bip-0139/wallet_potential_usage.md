@@ -177,7 +177,8 @@ modelling assets or blinding at all.
 
 ### 2. The closed `type` enum does not fit
 
-`account.type` scores 3 ✓ / 9 ~ / 0 - : nearly every wallet is a partial fit.
+`account.type` reaches 13 ✓ only once the field's purpose is stated; before that, nearly
+every wallet answered it with its own taxonomy.
 
 - Nunchuk `LIQUID` wallets (`elwpkh(...)`, `descriptor.cpp:352-365`) fit none of the three
   values. Green's Liquid networks likewise.
@@ -588,7 +589,7 @@ therefore agree, which avoids an obvious off-by-one trap.
 
 ## Decision: `spend_status` stays as defined
 
-`sp_output.spend_status` scored zero ✓ with four `~`, and no wallet has `replaced`. Bull
+`sp_output.spend_status` scored zero ✓ in the first pass, and no wallet has `replaced`. Bull
 Bitcoin's core models `OutputSpendStatus{Unspent, Spent{txid,block_hash}, Mined(block_hash)}`
 with a coarser `UnifiedCoinStatus{unconfirmed, unspent, spent}` at the FFI; Dana computes
 the status from a join and has no RBF tracking; Sparrow tracks `spentBy` with no matching
@@ -654,7 +655,7 @@ only costs scanning work while one that is too low loses addresses.
 
 ## Proposed: backup-event metadata
 
-`wallet.description` scored zero across all twelve wallets, and the two `~` are misfits -
+`wallet.description` scored zero across all wallets, and the two near-misses were misfits -
 Sparrow's `wallet.label` is not used as a description in reachable UI code, and Specter's
 is per-wallet where a Specter wallet *is* an account, so it maps to `account.description`.
 No wallet has anything to say about a wallet as a whole that would not sit better on the
@@ -776,111 +777,16 @@ outputs through `account.labels` with `type: "output"`. The field duplicates an 
 mechanism while occupying the name the scalar needs, so the survey recommends dropping it
 and registering a field for the scalar.
 
-## A. Wrong unit - the field cannot hold what the wallet has
-
-The strongest signal, because no amount of implementation work fixes it.
-
-- **`birth_block`.** The field is a block height. Five wallets store a **date**: Liana
-  `Account.timestamp` (unix, drives rescan, `lianad/commands/mod.rs:335`), Bull Bitcoin
-  `birthday: DateTime?`, Dana `_keyBirthday` (a timestamp, converted to a height at sync via
-  a mempool API), Core `WalletDescriptor::creation_time`, Green
-  `earliest_key_creation_time`. Three store a real height: Specter (first transaction height
-  minus a 101-block margin), Wasabi (`BlockchainState.BirthHeight`), and Sparrow, which
-  derives `birthHeight` from the earliest confirmed transaction and ratchets it down as sync
-  finds earlier ones (`WalletForm.java:313-317`). Converting a date needs a chain lookup, so
-  an offline exporter cannot do it - which is why the field now carries an explicit rule for
-  deriving and, failing that, omitting it.
-- **`account.last_height` (7 `~`).** Not a unit problem but the same shape: Core, Sparrow,
-  Bull Bitcoin, Keeper, Green, Specter and Bitkey all hold one **wallet-global** sync
-  height, not one per account. Specter's nearest value is a block *hash*, not a height.
-
-### B. Wrong granularity - the data exists one level away
-
-- `account.last_height` again: duplicated at wallet and account level in the format, while
-  wallets have it once.
-- `wallet.name` (3 `~`): Green, Specter and Wasabi have per-account or filename-derived
-  names, nothing at wallet level.
-- `wallet.accounts` (3 `~`): Sparrow, Electrum and Specter are one-account-per-file, so the
-  array is always length 1 and multi-account state lives in separate files.
-- `account.bip39_mnemonic` (7 `~`): a mnemonic belongs to a signer shared across accounts,
-  not to one account. Resolved by dropping the field.
-
-### C. Vocabulary mismatch - the concept matches, the values do not
-
-Cheap to fix, because these value lists live in the registry.
-
-- **`account.type` (9 `~`)** - the largest single cluster. Every wallet has its own
-  taxonomy: Nunchuk `WalletType` (5 values incl. `LIQUID`), Keeper `VaultType`
-  (`DEFAULT`/`COLLABORATIVE`/`CANARY`/`MINISCRIPT`), Sparrow `PolicyType` serialising as
-  `"SINGLE"`/`"MULTI"`, Electrum `wallet_type` strings, Green subaccount types. None maps
-  onto three values.
-- `account.output_type` (7 `~`): everyone has script types, spelled differently -
-  `p2wpkh` vs `bech32`, Specter's `"taproot"` vs `bech32m`.
-- `wallet.network` (5 `~`): no testnet3/testnet4 split in Nunchuk, Keeper, Bitkey or Bull
-  Bitcoin; Liquid missing entirely.
-- `key.key_type` (6 `~`): device modality offered where ownership was asked for. Addressed
-  by the new `modality` field.
-- `account.active` (5 `~`): wallets have `archived` (Nunchuk, Keeper), `hidden` (Green) or
-  `isDefault` (Bull Bitcoin) - inverse polarity, or a different axis altogether.
-- Liana's `KeyRole`/`KeyType` serialise PascalCase against the registry's lowercase, which
-  would fail silently even where the concept matches exactly.
-
-### D. Derivable but not stored - a wallet gap, not a field problem
-
-These need work in the exporter and nothing in the spec.
-
-- `account.descriptor` (6 `~`): Sparrow, Nunchuk, Keeper, Bitkey and Bitcoin Safe all
-  **reconstruct** the descriptor on demand from policy plus keys rather than persisting it.
-  Export is easy; import is harder, since a descriptor string must be parsed back into
-  signer objects.
-- `account.receive_index` / `change_index` (4-5 `~`): Sparrow, Nunchuk, Green and Wasabi
-  derive the index from the stored address list rather than keeping a counter.
-- `transaction.wtxid` (4 `~`): computable from the stored raw transaction everywhere.
-- `key.key` (3 `~`): the fingerprint is present inside descriptor key origins, just not
-  surfaced as its own record.
-
-### E. False friends - same name, different meaning
-
-The dangerous category, because a name-based mapping silently produces wrong data.
-
-- **`transaction.time` (7 `~`)** - defined as "block time when confirmed, otherwise
-  first-seen". No wallet stores that union: Nunchuk keeps only `blocktime`, Wasabi only
-  `FirstSeen` (its UI shows first-seen even for confirmed transactions), Sparrow only the
-  block date (null while unconfirmed), Specter the `min()` of three sources, Dana only
-  `confirmation_timestamp`. Since `time_received` already exists for first-seen, `time`
-  asking for either value makes the pair ambiguous - an importer cannot tell which meaning
-  a given `time` carries.
-- `sp_output.label` (2 `~`): Dana and Bull Bitcoin store the raw BIP-352 label **scalar**
-  under this name; the registry documents it as BIP-329-style text.
-- Specter's `key_type` means output script purpose; Specter's `last_block` is a hash.
-- Liana's `Coin.account` means keychain, and its `is_coinbase` holds immaturity.
-
-### F. Configuration-dependent - correct behaviour
-
-- `account.change_descriptor` (3 `~`): absent for BIP-389 multipath wallets by design.
-- `account.range_*` (2-4 `~`): meaningless for wallets that track concrete addresses.
-- `account.psbts` (3 `~`): Bitcoin Safe and Electrum persist PSBTs outside the wallet
-  record; Wasabi exports them one-shot to a file.
-
-### What this implies
-
-Categories D and F need nothing. C is a registry job, already in hand for `type` and
-`key_type`. B is mostly resolved by moving signers above the account.
-
-**A is the open one, and `birth_block` is the case to revisit.** Six wallets hold a
-timestamp and two hold a height, so as defined the field is unfillable by the majority
-without a chain lookup - and an offline exporter cannot do one at all.
-
 ## Labels: the gap belongs to BIP-329, not here
 
-`account.labels` originally scored 5 `~`. All five are now ✓, and no BIP-139 change was
+`account.labels` originally scored five partial matches. All five are now ✓, and no change was
 needed for any of them.
 
 Seven wallets already implement BIP-329 natively - Sparrow (whose author wrote it), Liana
 (the `bip329` crate), Nunchuk (`ExportBIP329`/`ImportBIP329`), Keeper, Bitcoin Safe, Bull
 Bitcoin and Green. That is the strongest adoption of any standard this format delegates to.
 
-The five `~` had two causes, both resolved:
+Those five had two causes, both resolved:
 
 - **Mechanical conversion.** Electrum keeps a flat `{key: text}` dict and infers the record
   type from the key's shape; Specter keeps `{label: [addresses]}`, address-only; Core's
@@ -917,7 +823,7 @@ Separately, BIP-329's Additional Fields already cover something recorded below a
 
 ## `proprietary` needs no change
 
-The six `~` on `wallet.proprietary` were a scoring artefact. No wallet has a field named
+The six partial scores on `wallet.proprietary` were an artefact. No wallet has a field named
 `proprietary`, but every one has application-specific data and nowhere else to put it -
 Core's wallet flags and node config, Sparrow's `walletConfig` and `walletTable`, Nunchuk's
 `tapsigners`/`deleted_wallets`, Electrum's `db_metadata`, Green's settings and client blob.
@@ -1045,6 +951,10 @@ Three wallets already ship something close to BIP-139:
 - **Specter `output_type` uses `"taproot"`** where Core and BIP-139 use `"bech32m"`.
 - **`sp_output.label` is a false friend.** Dana and Bull Bitcoin both persist the raw
   BIP-352 label scalar under that name; BIP-139 documents it as human text.
+- **Liana's `Coin.account` is not an account** - it is the keychain, `0` for receive and
+  `1` for change. Its `is_coinbase` is populated from `is_immature`, not from whether the
+  output is a coinbase.
+- **Keeper's `lastSynched` is a timestamp**, not a height, despite the name.
 - **Dana's `txid` is nullable** (`RecordedTransactionUnknownOutgoing`), conflicting with
   BIP-139's mandatory `txid`.
 - **The Core draft is not current with the spec.** It emits `version` as integer `1` and
