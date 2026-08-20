@@ -4,9 +4,8 @@ Which wallets would have interest in exporting or importing each BIP-139 field, 
 hard the format would be to implement for each.
 
 Scope: the 53 fields defined by `bip-0139.md` (8 mandatory) plus
-`bip-0139/field-registry.md` (45 optional), on branch `bip_wallet_backup`. The enum value
-lists (key roles, key types, key status, spend status) are values, not fields, so they are
-not rows.
+`bip-0139/field-registry.md` (45 optional). The enum value lists (key roles, key
+types, key status, spend status) are values, not fields, so they are not rows.
 
 Cell values answer: would this wallet have interest in round-tripping this field?
 
@@ -16,26 +15,27 @@ Cell values answer: would this wallet have interest in round-tripping this field
 
 ## Revisions read
 
-| Wallet         | Repo                                                                 | Commit                            |
-|----------------|----------------------------------------------------------------------|-----------------------------------|
-| Bitcoin Core   | `~/bitcoin` `refs/pyth-backup` (PR pythcoiner/bitcoin#1)             | `1e7ff0fe`                        |
-| Liana          | `~/liana` (read as-is, deliberately not synced)                      | `6ef57fb6`                        |
-| Sparrow        | `~/sparrow`                                                          | `194bd70`                         |
-| Bull Bitcoin   | `~/bb-mobile` branch `sp-feature` (deliberately not synced)          | `ce0add466`                       |
-| Nunchuk        | `~/libnunchuk` + `~/nunchuk-desktop` + `~/nunchuk-android`           | `a1d485a` / `025aba7` / `e091ed8` |
-| Bitcoin Keeper | `~/bitcoin-keeper` + `~/keeper-desktop`                              | `3a7b53c` / `f960b1f`             |
-| Bitcoin Safe   | `~/bitcoin-safe`                                                     | `4ce099e`                         |
-| Electrum       | `~/electrum`                                                         | `3d41451f2`                       |
-| Green          | `~/gdk` + `~/green_qt`                                               | `71b90dd` / `08464d6`             |
-| Specter        | `~/specter-desktop`                                                  | `b8679a4`                         |
-| Dana           | `~/dana`                                                             | `2b8ba6d`                         |
-| Wasabi         | `~/WalletWasabi`                                                     | `bbc25a3`                         |
-| Bitkey         | `~/bitkey` branch `disclosure` (0 behind / 5 ahead of `origin/main`) | `1c0858d09`                       |
+| Wallet         | Commit                            |
+|----------------|-----------------------------------|
+| Bitcoin Core   | `1e7ff0fe`                        |
+| Liana          | `6ef57fb6`                        |
+| Sparrow        | `194bd70`                         |
+| Bull Bitcoin   | `ce0add466`                       |
+| Nunchuk        | `a1d485a` / `025aba7` / `e091ed8` |
+| Bitcoin Keeper | `3a7b53c` / `f960b1f`             |
+| Bitcoin Safe   | `4ce099e`                         |
+| Electrum       | `3d41451f2`                       |
+| Green          | `71b90dd` / `08464d6`             |
+| Specter        | `b8679a4`                         |
+| Dana           | `2b8ba6d`                         |
+| Wasabi         | `bbc25a3`                         |
+| Bitkey         | `1c0858d09`                       |
 
-`keeper-desktop` is a pure HWI bridge with no database and no persistence; it contributes
-nothing to the matrix. Nunchuk has no public iOS repo and Green's Android/iOS repos are
-`green_android`/`green_ios`; both products keep their data model in a shared core lib
-(`libnunchuk`, `gdk`), which is what was read.
+Bitcoin Keeper's desktop companion is a pure HWI bridge with no database and no
+persistence, so it contributes nothing to the matrix. Nunchuk and Green each keep their
+data model in a shared core library (`libnunchuk` and `gdk`), which is what was read; the
+platform applications were read for storage and export paths only. Bull Bitcoin was read on
+its silent payments branch.
 
 ## The matrix
 
