@@ -3,8 +3,8 @@
 This file is the central repository of fields for the
 [BIP-0139](../bip-0139.md) wallet backup format.  
 New fields are registered by opening a pull request editing only this file, following
-the process described in the
-[Field Registry](../bip-0139.md#field-registry) section of BIP-0139.  
+the process described in the [Field Registry](../bip-0139.md#field-registry) section of the
+specification.  
 
 ## Wallet Fields
 
