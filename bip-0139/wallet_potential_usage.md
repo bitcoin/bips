@@ -27,12 +27,6 @@ current export code is ✓ - the question is what the wallet can produce.
 | Wasabi         | `bbc25a3`                         |
 | Bitkey         | `1c0858d09`                       |
 
-Bitcoin Keeper's desktop companion is a pure HWI bridge with no database and no
-persistence, so it contributes nothing to the matrix. Nunchuk and Green each keep their
-data model in a shared core library (`libnunchuk` and `gdk`), which is what was read; the
-platform applications were read for storage and export paths only. Bull Bitcoin was read on
-its silent payments branch.
-
 ## The matrix
 
 ```
@@ -101,30 +95,6 @@ sp_output.label              |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   
 sp_output.spend_status       |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
 ```
 
-## Decisions taken from this survey
-
-| Change                                                                                       | Evidence                                                                                          |
-|----------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| `type` names the descriptor language, not the kind of wallet; BIP-389 multipath is `bip_380` | 9 wallets had answered with their own taxonomy                                                    |
-| added `multi_bip380`, an account whose `descriptor` is an array                              | one `addr()` account per address is degenerate for imported-address wallets                       |
-| dropped `output_type`                                                                        | the mandatory descriptor already states it, more precisely                                        |
-| dropped `wallet.last_height`, kept it on the account                                         | 7 wallets hold one sync point; the registry says write it into every account                      |
-| `transaction.time` became `block_time`, absent while unconfirmed                             | no wallet stored the old "block time or first-seen" union                                         |
-| `active` became `status` (active/superseded/archived), `hidden` split out                    | Keeper distinguishes archived from superseded in production; hidden is orthogonal                 |
-| `birth_block` gained a derivation rule: convert, else estimate at or before, else omit       | 5 wallets hold a date, 3 a height                                                                 |
-| added `gap_limit`, single value                                                              | 6 wallets store one; `range_*` does not carry the scanning policy                                 |
-| added a coin object with `frozen`                                                            | 5 wallets hold UTXO state; frozen is user intent, unrecoverable from the chain                    |
-| signers moved above the account, with `fingerprints[]`                                       | Specter, Nunchuk and Keeper all keep signers above accounts; one signer holds several master keys |
-| added signer `modality`, `devices[]`, `bip85_application`/`index`                            | 6 wallets model how key material is held and how a signer is reached                              |
-| `transactions` and `psbts` became wallet-level maps keyed by txid, referenced per account    | an entry touching two accounts was duplicated; two wallets cannot attribute one at all            |
-| `wallet.description` became `wallet.note`, with `date`                                       | nothing had a wallet description; a note about the backup is a different thing                    |
-| `bip352_labels` range encoded as `{start, end}`, end exclusive                               | `{0-10}` was not valid JSON                                                                       |
-| mainnet mnemonics stay out of scope                                                          | 3 wallets hold them and must drop them on export                                                  |
-| Liquid stays out of scope, carried in `proprietary`                                          | 2 wallets, and it needs an asset model the format does not have                                   |
-
-Recommended and not yet applied: drop `sp_output.label` and register a field for the
-BIP-352 label scalar. Only Sparrow fills it, and both silent-payment wallets need the name
-for protocol data; BIP-329 already labels outputs through `account.labels`.
 
 ## Missing fields
 
@@ -152,47 +122,39 @@ Ranked by how many wallets want them.
 
 ## Liana legacy compatibility
 
-The question that prompted the survey: does the current draft break Liana's shipping
-backup format (`liana-gui/src/backup.rs`)? Yes, in six ways.
+Does the current draft break Liana's shipping backup format
+(`liana-gui/src/backup.rs`)? Five ways, down from nine as the survey added fields.
 
-| #  | Liana today                                               | BIP-139 now                         | Verdict                |
-|----|-----------------------------------------------------------|-------------------------------------|------------------------|
-| 1  | `version: u32`, serde default 0 (`backup.rs:60-66`)       | mandatory string `BIP139-1`         | **BREAKING**           |
-| 2  | `Backup.alias` + `Key.alias` (`backup.rs:52,425`)         | aliases dropped                     | **BREAKING** (lossy)   |
-| 3  | `Backup.date: Option<u64>` (`backup.rs:56,241`)           | no such field                       | LOSSY                  |
-| 4  | `Account.timestamp` unix time (`backup.rs:352`)           | `birth_block`, a height             | **BREAKING** (unit)    |
-| 5  | `Account.transactions: Vec<String>` hex (`backup.rs:358`) | array of tx objects                 | **BREAKING**           |
-| 6  | `Account.coins: BTreeMap<String, Coin>` (`backup.rs:362`) | no such object                      | LOSSY                  |
-| 7  | `Account.chain_tip{height,hash}` (`backup.rs:370-373`)    | `last_height` int                   | LOSSY (partial)        |
-| 8  | no `type` field                                           | `type` mandatory enum               | **BREAKING**           |
-| 9  | `network: Network` mandatory (`backup.rs:54`)             | optional                            | **BREAKING ON IMPORT** |
-| 10 | `Account.labels: Option<bip329::Labels>`                  | `bip329_labels` renamed to `labels` | SAFE                   |
-| 11 | `KeyRole`/`KeyType` serialise PascalCase                  | registry values are lowercase       | **BREAKING**           |
-| 12 | `descriptor_id`, `bip`, `bip174_psbts`, `bip370_psbts`    | removed                             | N/A, never adopted     |
+| Liana today                                                       | BIP-139 now                                         | Verdict                                                 |
+|-------------------------------------------------------------------|-----------------------------------------------------|---------------------------------------------------------|
+| `version: u32`, serde default `0`                                 | mandatory string `BIP139-1`                         | **BREAKING**, type                                      |
+| `Account.timestamp`, unix time                                    | `birth_block`, a height                             | **BREAKING**, unit                                      |
+| `Account.transactions: Vec<String>` hex                           | `wallet.transactions` map of objects + account refs | **BREAKING**, shape                                     |
+| `Account.psbts: Vec<String>` base64                               | `wallet.psbts` map keyed by txid + account refs     | **BREAKING**, shape                                     |
+| no `type` field                                                   | `type` mandatory                                    | **BREAKING**                                            |
+| `KeyRole`/`KeyType` serialise PascalCase                          | registry values are lowercase                       | **BREAKING**, silent                                    |
+| `network: Network` mandatory                                      | optional                                            | **BREAKING on import**                                  |
+| `Backup.alias`                                                    | no wallet-level alias                               | LOSSY                                                   |
+| `Account.chain_tip{height, hash}`                                 | `last_height`, an integer                           | lossy in principle; `block_hash` is always `None` today |
+| `Backup.date`                                                     | `wallet.date`                                       | resolved by this survey                                 |
+| `Account.coins: BTreeMap<String, Coin>`                           | the coin object                                     | resolved by this survey                                 |
+| `Account.labels`, `Account.keys`, `Key.{key,alias,role,key_type}` | unchanged                                           | SAFE                                                    |
 
-Details worth carrying forward:
+Notes:
 
-- **Row 1 is worse than a type change.** The field is optional-with-default today; a unit
-  test at `backup.rs:500-503` asserts a missing `version` defaults to `0`. A
-  `"version":"BIP139-1"` string fails to deserialise the whole struct
-  (`export.rs:1143`, `installer/decrypt.rs:153`).
-- **Row 4 needs a chain lookup, not a cast.** `Account.timestamp` is a unix timestamp that
-  drives rescan (`lianad/src/commands/mod.rs:335`). A naive rename silently corrupts
-  rescan behaviour.
-- **Row 5 is breaking but a net win.** The daemon already holds `txid`/`height`/`time`
-  (`daemon/model.rs:287,291-292`) that the hex-only export throws away. Moving to
-  transaction objects lets Liana capture more, not less.
-- **Row 9 runs the opposite way from expected.** Liana's format is stricter for backups it
-  *produces*, but a legal BIP-139 backup omitting `network` fails to deserialise into
-  Liana at all - a unit test at `backup.rs:505-508` asserts this is a parse error.
-- **Row 10 is a non-event.** Liana's field was *always* named `labels`, never
-  `bip329_labels`. The rename aligns the spec with Liana rather than breaking it.
-- **Row 11 was not previously noticed.** No `#[serde(rename_all)]` anywhere in
-  `backup.rs`, so the enums serialise as `"Main"`, `"ThirdParty"` against the registry's
-  `main`, `third_party`. Silent interop failure independent of the mandatory changes.
-- **Row 6 is the significant one.** Liana's `Coin` (amount, outpoint, address,
-  block_height, account, derivation_index, is_coinbase, is_from_self) has no home. This is
-  the same gap five wallets hit - see "a general (non-SP) UTXO/coin object" above.
+- The `version` change is worse than a type change: the field is optional-with-default
+  today, and `backup.rs:500-503` asserts a missing `version` reads as `0`. A
+  `"BIP139-1"` string fails to deserialise the whole struct.
+- `timestamp` drives rescan (`lianad/src/commands/mod.rs:335`), so a rename without the
+  chain lookup silently corrupts it. The registry now states the conversion.
+- The `network` row runs the opposite way from the rest: a legal BIP-139 backup omitting
+  `network` fails to parse in Liana, asserted at `backup.rs:505-508`.
+- `KeyRole`/`KeyType` have no `#[serde(rename_all)]`, so they emit `"Main"`, `"ThirdParty"`
+  against the registry's `main`, `third_party`.
+- Both transaction and PSBT changes are net wins: the daemon already holds
+  `txid`/`height`/`time` (`daemon/model.rs:287,291-292`) that the hex-only export discards.
+- `Coin` maps field for field, with two names corrected: `account` became `is_change`, and
+  `is_coinbase` became `is_immature` to match what it actually holds.
 
 ## Per-wallet difficulty
 
