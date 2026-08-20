@@ -123,7 +123,8 @@ Ranked by how many wallets want them.
 ## Liana legacy compatibility
 
 Does the current draft break Liana's shipping backup format
-(`liana-gui/src/backup.rs`)? Five ways, down from nine as the survey added fields.
+(`liana-gui/src/backup.rs`)? Seven breaking changes and one lossy one. Two earlier entries
+were resolved by fields this survey added.
 
 | Liana today                                                       | BIP-139 now                                         | Verdict                                                 |
 |-------------------------------------------------------------------|-----------------------------------------------------|---------------------------------------------------------|
