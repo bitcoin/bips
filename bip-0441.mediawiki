@@ -9,7 +9,7 @@
   Assigned: 2026-03-25
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
-  Version: 0.2.2
+  Version: 0.2.3
   Requires: 440
 </pre>
 
@@ -567,6 +567,8 @@ failure, as mathematicians agree the result would not be natural.
 
 The following opcodes have costs below:
 
+In this table, <code>sigcheck_cost(signature)</code> is 500,000 if the signature operand is nonempty, and 0 otherwise.  This rule also applies to unknown nonzero-length public-key types.
+
 {|
 ! Opcode
 ! Varops Budget Cost
@@ -581,22 +583,21 @@ The following opcodes have costs below:
 | LENGTHCONV
 |-
 | OP_CHECKSIGADD
-| MAX(wordspan(1), wordspan(number operand)) * 9 + 500,000
+| MAX(wordspan(1), wordspan(number operand)) * 9 + sigcheck_cost(signature)
 | ARITH + COPYING + SIGCHECK
 |-
 | OP_CHECKSIG
-| 500,000
+| sigcheck_cost(signature)
 | SIGCHECK
 |-
 | OP_CHECKSIGVERIFY
-| 500,000
+| sigcheck_cost(signature)
 | SIGCHECK
 |}
 
 ====Rationale====
 
-OP_CHECKSIGADD does an OP_1ADD on success, so we use the same cost as that.
-For simplicity, this is charged whether the OP_CHECKSIGADD succeeds or not.
+The arithmetic and copying component of OP_CHECKSIGADD uses the OP_1ADD cost and is charged whether or not the signature is empty or valid.  Its SIGCHECK component is charged only for a nonempty signature.
 
 ===Other Operators===
 
@@ -617,6 +618,7 @@ The varops costs of the following opcodes are defined in
 * OP_PICK
 * OP_TUCK
 * OP_ROLL
+* OP_BOOLAND
 * OP_BOOLOR
 * OP_NUMEQUAL
 * OP_NUMEQUALVERIFY
@@ -644,10 +646,11 @@ version, for backwards compatibility.
 
 Work in progress:
 
-	https://github.com/jmoik/bitcoin/tree/gsr
+	https://github.com/jmoik/bitcoin/tree/gsr-core
 
 ==Changelog==
 
+* 0.2.3: 2026-08-11: clarify that SIGCHECK cost applies only to nonempty signature operands.
 * 0.2.2: 2026-06-15: clarify wordspan costs, OP_RIGHT semantics, OP_UPSHIFT unaligned cost, CLTV/CSV bounds, and final success-check cost.
 * 0.2.1: 2023-03-27: fix OP_MUL cost to round length(B) up
 * 0.2.0: 2025-02-21: change costs to match those in varops budget
