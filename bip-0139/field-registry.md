@@ -12,27 +12,24 @@ Fields of the top-level wallet backup object.
 The mandatory `version`, `network` and `accounts` fields are defined in BIP-0139; all
 fields below are optional.
 
-- `name`: Optional string wallet name.  
-- `note`: Optional string note about this backup, written by the user when the backup is
-  made.  
-- `date`: Optional timestamp recording when the backup was made.  
-- `transactions`: Optional object mapping a transaction id to a transaction object.  
-  See [Transaction Object Structure](../bip-0139.md#transaction-object-structure).  
-  Transactions live here rather than on the account so that one touching several
-  accounts is stored once, and so that a wallet that cannot attribute a transaction to
-  an account can still carry it.  
-- `psbts`: Optional object mapping a transaction id to a partially signed transaction, as
-  defined by [BIP-0174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki) or
-  [BIP-0370](https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki).  
-  The key is the txid of the PSBT's unsigned transaction. That value is stable for the
-  whole signing process, whereas the txid of the finished transaction changes as legacy
-  inputs are signed.  
-  PSBTs live here rather than on the account so that one spending inputs from several
-  accounts is stored once, and so that a wallet holding PSBTs it cannot attribute to an
-  account can still carry them.  
-- `signers`: Optional array of signer objects.  
-  See [Signer Object Structure](../bip-0139.md#signer-object-structure).  
-- `proprietary`: Optional JSON object storing application-specific metadata.  
+| Field          | Type      | Description                                                                             |
+|----------------|-----------|-----------------------------------------------------------------------------------------|
+| `name`         | string    | Wallet name.                                                                            |
+| `note`         | string    | Note about this backup, written by the user when the backup is made.                    |
+| `date`         | timestamp | When the backup was made.                                                               |
+| `transactions` | object    | Maps a transaction id to a [transaction object][txobj].                                 |
+| `psbts`        | object    | Maps a transaction id to a partially signed transaction, as defined by [BIP-0174][174]  |
+|                |           | or [BIP-0370][370].                                                                     |
+| `signers`      | array     | [Signer objects][signerobj].                                                            |
+| `proprietary`  | object    | Application-specific metadata.                                                          |
+
+`transactions` and `psbts` are keyed here rather than held on the account so that an entry
+touching several accounts is stored once, and so that a wallet that cannot attribute one to
+an account can still carry it. Accounts reference them by transaction id.
+
+The `psbts` key is the transaction id of the PSBT's *unsigned* transaction. That value is
+stable for the whole signing process, whereas the transaction id of the finished
+transaction changes as legacy inputs are signed.
 
 ## Account Fields
 
@@ -92,7 +89,7 @@ are optional.
 - `keys`: Optional object mapping descriptor key fingerprints to key metadata objects.
   See [Key Object Structure](../bip-0139.md#key-object-structure).  
 - `labels`: Optional array containing label structures for transactions, addresses, and
-  keys following [BIP-0329](https://github.com/bitcoin/bips/blob/master/bip-0329.mediawiki).  
+  keys following [BIP-0329][329].  
 - `transactions`: Optional array of transaction ids referencing entries in the wallet's
   `transactions` map, listing the transactions that involve this account.  
   Present only where the wallet can attribute a transaction to an account. A wallet may
@@ -128,7 +125,7 @@ The mandatory `fingerprints` field is defined in BIP-0139; all fields below are 
 - `key_status`: Optional string describing the status of the signer's keys.  
   See [Key Status](#key-status).  
 - `bip85_derivation_path`: Optional string describing the
-  [BIP-0085](https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki) derivation
+  [BIP-0085][85] derivation
   path used to derive this signer's key from a master key.  
 - `bip85_application`: Optional string naming the BIP-0085 application the key was derived
   for. Needed alongside `bip85_derivation_path` when the derived secret is not itself a
@@ -259,3 +256,13 @@ The `spend_status` field may contain one of the following values.
 - `replaced`: The transaction has been replaced by a transaction confirmed in a block.
 - `unspent`: The transaction has been confirmed in a block and the output is unspent.
 - `spent`: The transaction has been confirmed in a block and the output is spent.
+
+[85]: https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki
+[174]: https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki
+[329]: https://github.com/bitcoin/bips/blob/master/bip-0329.mediawiki
+[370]: https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki
+[txobj]: ../bip-0139.md#transaction-object-structure
+[signerobj]: ../bip-0139.md#signer-object-structure
+[keyobj]: ../bip-0139.md#key-object-structure
+[coinobj]: ../bip-0139.md#coin-object-structure
+[spobj]: ../bip-0139.md#silent-payment-owned-output-object-structure
