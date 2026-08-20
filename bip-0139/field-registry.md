@@ -17,7 +17,13 @@ are optional.
   made.  
 - `date`: Optional timestamp recording when the backup was made.  
 - `network`: Optional string network identifier.  
-  Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, and `regtest`.  
+  Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, `mutinynet`
+  and `regtest`.  
+  A backup covers a single network. A wallet holding accounts on more than one writes one
+  backup per network.  
+  A signet is defined by its challenge script, so this list names only the well-known
+  ones. Any other signet uses `signet`, and a wallet needing to tell two of them apart
+  records the challenge in `proprietary`.  
 - `signers`: Optional array of signer objects.  
   See [Signer Object Structure](../bip-0139.md#signer-object-structure).  
 - `proprietary`: Optional JSON object storing application-specific metadata.  
