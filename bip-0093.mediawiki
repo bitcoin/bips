@@ -87,14 +87,16 @@ If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, a
 
 The last thirteen characters of a regular codex32 data part form a checksum and contain no information.
 Valid strings MUST pass the criteria for validity specified by the Python 3 code snippet below.
-The function <code>ms32_verify_checksum</code> must return true when its argument is the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
+The function <code>ms32_verify_checksum</code> selects the checksum variant required by codex32 and MUST return true when its argument is the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
+The functions <code>ms32_verify_regular_checksum</code> and <code>ms32_verify_long_checksum</code> verify only their respective checksum variants within their stated periods.
 
 Checksum selection depends on the expanded codeword length: the BIP-0173 expansion of the human-readable part followed by the complete data part.
 For the required human-readable part <code>ms</code>, the expansion contributes five values.
 The regular checksum MUST be used when this length is at most 93, and the long checksum MUST be used when this length is between 96 and 1023, inclusive.
 Expanded lengths 94 and 95, and lengths greater than 1023, are invalid.
 
-To construct a valid checksum given the data-part characters (excluding the checksum), the <code>ms32_create_checksum</code> function can be used.
+The functions <code>ms32_create_regular_checksum</code> and <code>ms32_create_long_checksum</code> construct the individual checksum variants.
+To construct the checksum variant required by codex32 given the data-part characters (excluding the checksum), the <code>ms32_create_checksum</code> function can be used.
 
 <source lang="python">
 MS32_CONST = 0x10ce0795c2fd1e62a
@@ -116,20 +118,26 @@ def ms32_polymod(values):
             residue ^= GEN[i] if ((b >> i) & 1) else 0
     return residue
 
+def ms32_verify_regular_checksum(data):
+    if MS32_HRP_EXPANDED_LENGTH + len(data) > 93:
+        return False
+    return ms32_polymod(data) == MS32_CONST
+
 def ms32_verify_checksum(data):
     expanded_length = MS32_HRP_EXPANDED_LENGTH + len(data)
-    if expanded_length >= 96:                      # See Long codex32
+    if expanded_length >= 96:                       # See Long codex32
         return ms32_verify_long_checksum(data)
-    if expanded_length <= 93:
-        return ms32_polymod(data) == MS32_CONST
-    return False
+    return ms32_verify_regular_checksum(data)
+
+def ms32_create_regular_checksum(data):
+    values = data
+    polymod = ms32_polymod(values + [0] * 13) ^ MS32_CONST
+    return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
 
 def ms32_create_checksum(data):
     if MS32_HRP_EXPANDED_LENGTH + len(data) > 80:  # See Long codex32
         return ms32_create_long_checksum(data)
-    values = data
-    polymod = ms32_polymod(values + [0] * 13) ^ MS32_CONST
-    return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
+    return ms32_create_regular_checksum(data)
 </source>
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
 guarantees detection of '''any error affecting at most 8 characters''' in expanded codewords up to 93 values long
@@ -191,7 +199,7 @@ def ms32_decode(codex):
     data = [CHARSET.index(x) for x in codex[pos+1:]]
     if not ms32_verify_checksum(data):
         return None
-    return data[:-13 if MS32_HRP_EXPANDED_LENGTH + len(data) <= 93 else -15]
+    return data[:-13 if MS32_HRP_EXPANDED_LENGTH + len(data) < 94 else -15]
 </source>
 
 ===Master seed format===
@@ -577,13 +585,52 @@ The 44-, 45-, and 46-byte strings are long-checksum replacements for the invalid
 * 46-byte master seed, 74-character payload, long checksum: <code>ms10testsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxdpu39xl2lkru3g4</code>
 * 47-byte master seed, 76-character payload, long checksum: <code>ms10testsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx307qvc427fmdl9a</code>
 
-The upper boundary can be tested without listing the resulting long strings:
+The strings above can be reproduced with:
 
 <source lang="python">
+for seed_bytes in range(43, 48):
+    payload_length = (8 * seed_bytes + 4) // 5
+    unchecksummed = "0tests" + "x" * payload_length
+    data = [CHARSET.index(c) for c in unchecksummed]
+
+    encoded = ms32_encode(data)
+    assert ms32_decode(encoded) == data
+    print(seed_bytes, encoded)
+</source>
+
+The checksum-selection boundaries and upper limit can be tested with:
+
+<source lang="python">
+max_regular_data = [0] * 75
+max_regular = max_regular_data + ms32_create_checksum(max_regular_data)
+first_long_data = [0] * 76
+first_long = first_long_data + ms32_create_checksum(first_long_data)
+
+assert ms32_verify_regular_checksum(max_regular)
+assert ms32_verify_long_checksum(first_long)
+assert ms32_verify_checksum(max_regular)
+assert ms32_verify_checksum(first_long)
+
+# Expanded lengths 94 and 95 with valid long checksums.
+invalid_94_data = [0] * 74
+invalid_95_data = [0] * 75
+invalid_94 = invalid_94_data + ms32_create_long_checksum(invalid_94_data)
+invalid_95 = invalid_95_data + ms32_create_long_checksum(invalid_95_data)
+assert ms32_verify_long_checksum(invalid_94)
+assert ms32_verify_long_checksum(invalid_95)
+assert not ms32_verify_checksum(invalid_94)
+assert not ms32_verify_checksum(invalid_95)
+
 max_data = [0] * 1003
-assert ms32_verify_checksum(max_data + ms32_create_checksum(max_data))
+max_codeword = max_data + ms32_create_checksum(max_data)
 oversize_data = [0] * 1004
-assert not ms32_verify_checksum(oversize_data + ms32_create_checksum(oversize_data))
+oversize_codeword = oversize_data + ms32_create_checksum(oversize_data)
+assert ms32_verify_long_checksum(max_codeword)
+assert ms32_verify_checksum(max_codeword)
+# A matching residue beyond the checksum period is not valid.
+assert ms32_long_polymod(oversize_codeword) == MS32_LONG_CONST
+assert not ms32_verify_long_checksum(oversize_codeword)
+assert not ms32_verify_checksum(oversize_codeword)
 </source>
 
 ===Invalid test vectors===
