@@ -94,6 +94,10 @@ The mandatory `fingerprints` field is defined in BIP-0139; all fields below are 
 - `bip85_derivation_path`: Optional string describing the
   [BIP-0085](https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki) derivation
   path used to derive this signer's key from a master key.  
+- `bip85_application`: Optional string naming the BIP-0085 application the key was derived
+  for. Needed alongside `bip85_derivation_path` when the derived secret is not itself a
+  BIP32 key.  
+- `bip85_index`: Optional integer index used in the BIP-0085 derivation.  
 - `modality`: Optional string describing where the key material lives.  
   Either `dedicated` (a device whose only job is signing) or `general` (software on a
   general-purpose or network-connected device, including a remote service).  
