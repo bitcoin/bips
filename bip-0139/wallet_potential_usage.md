@@ -101,7 +101,7 @@ sp_output.tweak           |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |
 sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
 sp_output.amount          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
 sp_output.script          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.label           |  -   |  -   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 1  2 10
+sp_output.label           |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 1  0 12
 sp_output.spend_status    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
 ```
 
@@ -752,38 +752,35 @@ wallet holds, or because the wallet holds only part of what the field needs. A w
 holding *more* than the field can carry scores ✓; the loss is BIP-139's, and is recorded
 under missing fields rather than counted against the wallet.
 
-That moved 147 of the original 152 cells. The first pass had scored `~` for reasons that do
+That moved 149 of the original 152 cells. The first pass had scored `~` for reasons that do
 not bear on fillability: a different field name, a value computed on demand rather than
 stored, enum values spelled differently, data the wallet holds but its export code does not
-emit, or a type present in the code with nothing yet populating it. Five survive.
+emit, or a type present in the code with nothing yet populating it. Three survive, and all
+three are wallet limits rather than defects in the format.
 
-| Field                       | Wallets            | Why it cannot be filled                                                                                                                                                                                    |
-|-----------------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `sp_output.label`           | Bull Bitcoin, Dana | Both store the raw 32-byte BIP-352 label scalar under this name. The field is documented as BIP-329-style text, and neither attaches free text at output granularity, so there is nothing to convert from. |
-| `transaction.abandoned`     | Electrum           | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark.                                                                                           |
-| `transaction.time_received` | Bitcoin Safe       | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation.                                                                                                  |
-| `key.alias`                 | Bitkey             | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint.                                                                   |
+| Field                       | Wallet       | Why it cannot be filled                                                                                                                  |
+|-----------------------------|--------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `key.alias`                 | Bitkey       | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint. |
+| `transaction.time_received` | Bitcoin Safe | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation.                                |
+| `transaction.abandoned`     | Electrum     | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark.                         |
 
-Two of the five share one cause, and it is a defect in the format rather than the wallets.
-**`sp_output.label` is the wrong field.** Both silent-payment wallets that could fill it use
-the name for protocol data instead. BIP-329 already labels outputs through `account.labels`
-with `type: "output"`, covering ordinary and silent-payment outputs alike, so this field
-duplicates that mechanism while occupying the name the scalar needs. Dropping it and adding
-a field for the BIP-352 label scalar resolves both cells and the asymmetry whereby the coin
-object has no label but `sp_output` does.
+Three earlier clusters were resolved by changing the format rather than the scores.
 
-The other three are honest wallet limits, not format problems: Electrum cannot recover a
-removed transaction, and BDK does not retain a first-seen time.
+**PSBTs and transactions moved to wallet-level maps** keyed by txid, with accounts carrying
+references. A wallet that cannot attribute an entry to an account can still carry it, which
+was exactly the case Bitcoin Safe and Wasabi were failing, and an entry touching several
+accounts is stored once instead of duplicated.
 
-Electrum scores `-` on `account.bip39_mnemonic` rather than `~`: its own seed format is
-deliberately not BIP-39, and a wallet restored from real BIP-39 words derives the xprv and
-discards them, so it holds no BIP-39 mnemonic to export on any network - an absent concept,
-not a field it fails to fill.
+**`type` and `descriptor` reached 13 ✓** once the test was read as representability rather
+than derivability. The descriptor family already covers every wallet: `addr()` and `raw()`
+for bare addresses, `sp()` for silent payments, and `multi_bip380` for sets.
 
-Two earlier `~` clusters were resolved by structural changes rather than re-scoring.
-`account.psbts` and `account.transactions` both moved to wallet-level maps keyed by txid,
-with the account carrying references, so a wallet that cannot attribute an entry to an
-account can still carry it - which is exactly the case Bitcoin Safe and Wasabi were failing.
+**`sp_output.label` is 1 ✓ and 12 `-`.** Only Sparrow fills it, and only because its
+generic TXO label column happens to cover silent-payment outputs too. Both silent-payment
+wallets instead use that name for the raw BIP-352 label scalar, and BIP-329 already labels
+outputs through `account.labels` with `type: "output"`. The field duplicates an existing
+mechanism while occupying the name the scalar needs, so the survey recommends dropping it
+and registering a field for the scalar instead.
 
 ## A. Wrong unit - the field cannot hold what the wallet has
 
