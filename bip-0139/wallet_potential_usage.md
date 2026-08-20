@@ -337,11 +337,17 @@ it lives at **key** granularity as a three-state enum, not at **account** granul
 boolean. `account.active` has no match in bb-mobile; the nearest account-level concept is
 `isDefault` (which wallet is primary per network), a different axis. Only Core scores ✓.
 
-### 5. Mnemonics are out of scope
+### 5. Mainnet mnemonics are out of scope
 
-**Decision: BIP-139 does not back up mnemonics.** The `bip39_mnemonic` field is therefore a
-candidate for removal from the registry rather than a field to fix. The survey evidence
-below is what led there.
+**Decision: mainnet mnemonics are out of scope. The field stays, and its test-network-only
+restriction stands unchanged.**
+
+The consequence is deliberate: a wallet holding a mainnet mnemonic must not put it in a
+BIP-139 backup, even though several would like to. Backing up mainnet seed material is a
+separate problem with different security requirements, and this format - plaintext metadata
+by design, possibly stored in cloud storage - is the wrong carrier for it.
+
+The survey evidence below is what the decision was weighed against.
 
 #### Why the current rule does not work
 
