@@ -169,10 +169,14 @@ The mandatory `txid` field is defined in BIP-0139; all fields below are optional
 
 - `wtxid`: Optional string containing the witness transaction id (hex). Segwit only.  
 - `hex`: Optional string containing the raw transaction (hex).  
-- `time`: Optional timestamp of the best-known transaction time. Block time when
-  confirmed, otherwise first-seen time.  
+- `block_time`: Optional timestamp of the block confirming the transaction. Absent while
+  the transaction is unconfirmed.  
 - `time_received`: Optional timestamp of when the exporting wallet first observed the
-  transaction. MAY be earlier than `time`.  
+  transaction. MAY be earlier than `block_time`.  
+  These two are separate measurements and neither substitutes for the other. An exporter
+  emits whichever it holds and omits the other; wallets commonly keep only one. A consumer
+  wanting a single best-known time derives it, preferring `block_time` and falling back to
+  `time_received`.  
 - `blockhash`: Optional string containing the confirming block hash (hex).  
 - `blockheight`: Optional integer containing the confirming block height.  
 - `blockindex`: Optional integer containing the position of the transaction in the
