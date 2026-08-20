@@ -199,7 +199,8 @@ The `key_type` field may contain one of the following values.
 ## Transaction Fields
 
 Fields of the [transaction object](../bip-0139.md#transaction-object-structure).  
-The mandatory `txid` field is defined in BIP-0139; all fields below are optional.
+The transaction id is the key of the wallet's `transactions` map, not a field; all fields
+below are optional.
 
 - `wtxid`: Optional string containing the witness transaction id (hex). Segwit only.  
 - `hex`: Optional string containing the raw transaction (hex).  
