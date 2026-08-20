@@ -56,7 +56,12 @@ are optional.
 - `birth_block`: Optional integer representing the account creation time as a bitcoin
   block height.  
 - `last_height`: Optional integer representing the last seen block height.  
-- `bip352_labels`: Optional array of silent payments labels (`[0,1,2]`), or range (`{0-10}`).  
+- `bip352_labels`: Optional list of the silent payment label indices in use.  
+  Either an array of integers (`[0, 1, 2]`) or an object with `start` and `end` members
+  (`{"start": 0, "end": 10}`), where `end` is exclusive, matching `range_start` and
+  `range_end`.  
+  An importer that does not know which labels were issued cannot detect outputs paid to
+  them, so omitting a label in use loses the funds received on it.  
 - `keys`: Optional object mapping descriptor key fingerprints to key metadata objects.
   See [Key Object Structure](../bip-0139.md#key-object-structure).  
 - `labels`: Optional array containing label structures for transactions, addresses, and
