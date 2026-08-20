@@ -33,80 +33,74 @@ transaction changes as legacy inputs are signed.
 
 ## Account Fields
 
-Fields of the [account object](../bip-0139.md#account-object-structure).  
+Fields of the [account object][accountobj].  
 The mandatory `type` and `descriptor` fields are defined in BIP-0139; all fields below
 are optional.
 
-- `name`: Optional string account name.  
-- `description`: Optional string account description.  
-- `status`: Optional string describing where the account is in its lifecycle.  
-  See [Account Status](#account-status).  
-- `hidden`: Optional boolean recording that the account is suppressed in the exporting
-  wallet's interface. This is independent of `status`: a hidden account may still be
-  active.  
-- `change_descriptor`: Optional string representing an explicit change-side
-  descriptor, paired with `descriptor`. Intended for wallets that do not use BIP-389
-  multipath descriptors (as e.g. Bitcoin Core does).  
-- `receive_index`: Optional integer representing the maximum receive index for generated
-  receive addresses.  
-- `change_index`: Optional integer representing the maximum change index for generated
-  change addresses.  
-- `range_start`: Optional integer representing the cached keypool range start of the
-  receive `descriptor`. Present only for ranged descriptors.  
-- `range_end`: Optional integer representing the cached keypool range end of the receive
-  `descriptor`. Present only for ranged descriptors.  
-- `change_range_start`: Optional integer representing the cached keypool range start of
-  the `change_descriptor`. Present only for ranged descriptors.  
-- `change_range_end`: Optional integer representing the cached keypool range end of the
-  `change_descriptor`. Present only for ranged descriptors.  
-- `gap_limit`: Optional integer number of consecutive unused addresses an importer must
-  scan past the last used one before concluding there are no more.  
-  A single value covers both the receive and change sides. An exporter holding a distinct
-  limit per side should emit the larger, since a limit that is too high only costs
-  scanning work while one that is too low misses addresses.  
-- `birth_block`: Optional integer representing the account creation time as a bitcoin
-  block height. An importer may start scanning at this height instead of the genesis
-  block.  
-  Most wallets record a creation date rather than a height. An exporter holding only a
-  date SHOULD convert it against a chain source.  
-  If it cannot, it MAY estimate the height, and the estimate MUST be at or before the true
-  height, never after. The error is asymmetric: too early only costs scanning time, while
-  too late silently misses transactions and the funds in them. An estimate from a date
-  should therefore subtract a margin covering the drift of a fixed block interval, on the
-  order of a difficulty period.  
-  An exporter that can do neither SHOULD omit the field. An absent `birth_block` means a
-  full scan, which is slow but correct.  
-- `last_height`: Optional integer height this account has been synced to.  
-  A wallet that tracks one sync point for the whole backup writes that same height into
-  every account. Accounts that sync independently, such as a separately scanned silent
-  payments account, carry their own.  
-- `bip352_labels`: Optional list of the silent payment label indices in use.  
-  Either an array of integers (`[0, 1, 2]`) or an object with `start` and `end` members
-  (`{"start": 0, "end": 10}`), where `end` is exclusive, matching `range_start` and
-  `range_end`.  
-  An importer that does not know which labels were issued cannot detect outputs paid to
-  them, so omitting a label in use loses the funds received on it.  
-- `keys`: Optional object mapping descriptor key fingerprints to key metadata objects.
-  See [Key Object Structure](../bip-0139.md#key-object-structure).  
-- `labels`: Optional array containing label structures for transactions, addresses, and
-  keys following [BIP-0329][329].  
-- `transactions`: Optional array of transaction ids referencing entries in the wallet's
-  `transactions` map, listing the transactions that involve this account.  
-  Present only where the wallet can attribute a transaction to an account. A wallet may
-  reference only transactions spending coins controlled by the account, only those funding
-  controlled coins, or both.  
-- `coins`: Optional array of outputs owned by the account.  
-  See [Coin Object Structure](../bip-0139.md#coin-object-structure).  
-- `bip352_outputs`: Optional array of
-  [Silent Payment Owned Output Object Structure](../bip-0139.md#silent-payment-owned-output-object-structure).  
-- `psbts`: Optional array of transaction ids referencing entries in the wallet's `psbts`
-  map, listing the partially signed transactions that involve this account.  
-  Present only where the wallet can attribute a PSBT to an account. A PSBT carried in the
-  wallet map need not be referenced by any account.  
-- `bip39_mnemonic`: Optional string containing mnemonic words following BIP39.  
-  Since backups may be stored online, this field is intended for test networks only
-  (`testnet3`, `testnet4`, `signet`, `regtest`); it MUST NOT be used to store mainnet mnemonics.  
-- `proprietary`: Optional JSON object storing account-specific metadata.  
+| Field                | Type            | Description                                                                 |
+|----------------------|-----------------|-----------------------------------------------------------------------------|
+| `name`               | string          | Account name.                                                               |
+| `description`        | string          | Account description.                                                        |
+| `status`             | enum            | Where the account is in its lifecycle. See                                  |
+|                      |                 | [Account Status](#account-status).                                          |
+| `hidden`             | boolean         | The account is suppressed in the exporting wallet's interface.              |
+| `change_descriptor`  | string          | Explicit change-side descriptor, paired with `descriptor`. For wallets that |
+|                      |                 | do not use BIP-389 multipath descriptors, as e.g. Bitcoin Core does.        |
+| `receive_index`      | integer         | Maximum receive index for generated receive addresses.                      |
+| `change_index`       | integer         | Maximum change index for generated change addresses.                        |
+| `range_start`        | integer         | Cached keypool range start of the receive `descriptor`. Ranged descriptors  |
+|                      |                 | only.                                                                       |
+| `range_end`          | integer         | Cached keypool range end of the receive `descriptor`. Ranged descriptors    |
+|                      |                 | only.                                                                       |
+| `change_range_start` | integer         | Cached keypool range start of the `change_descriptor`. Ranged descriptors   |
+|                      |                 | only.                                                                       |
+| `change_range_end`   | integer         | Cached keypool range end of the `change_descriptor`. Ranged descriptors     |
+|                      |                 | only.                                                                       |
+| `gap_limit`          | integer         | Consecutive unused addresses an importer must scan past the last used one   |
+|                      |                 | before concluding there are no more. See below.                             |
+| `birth_block`        | integer         | Account creation time as a block height. An importer may start scanning     |
+|                      |                 | here instead of at genesis. See below.                                      |
+| `last_height`        | integer         | Height this account has been synced to. See below.                          |
+| `bip352_labels`      | array or object | The silent payment label indices in use. See below.                         |
+| `keys`               | object          | Maps a key fingerprint to a [key object][keyobj].                           |
+| `labels`             | array           | Label structures for transactions, addresses and keys, following            |
+|                      |                 | [BIP-0329][329].                                                            |
+| `transactions`       | array           | Transaction ids referencing the wallet's `transactions` map, for            |
+|                      |                 | transactions involving this account.                                        |
+| `coins`              | array           | [Coin objects][coinobj] owned by the account.                               |
+| `bip352_outputs`     | array           | [Silent payment owned output objects][spobj].                               |
+| `psbts`              | array           | Transaction ids referencing the wallet's `psbts` map, for PSBTs involving   |
+|                      |                 | this account.                                                               |
+| `bip39_mnemonic`     | string          | Mnemonic words following BIP-39. Test networks only. See below.             |
+| `proprietary`        | object          | Application-specific metadata.                                              |
+
+`gap_limit` is a single value covering both the receive and change sides. An exporter
+holding a distinct limit per side should emit the larger, since a limit that is too high
+only costs scanning work while one that is too low misses addresses.
+
+`birth_block`: most wallets record a creation date rather than a height. An exporter
+holding only a date SHOULD convert it against a chain source. If it cannot, it MAY estimate
+the height, and the estimate MUST be at or before the true height, never after: too early
+only costs scanning time, while too late silently misses transactions and the funds in
+them. An estimate from a date should subtract a margin covering the drift of a fixed block
+interval, on the order of a difficulty period. An exporter that can do neither SHOULD omit
+the field; an absent `birth_block` means a full scan, which is slow but correct.
+
+`last_height`: a wallet that tracks one sync point for the whole backup writes that same
+height into every account. Accounts that sync independently, such as a separately scanned
+silent payments account, carry their own.
+
+`bip352_labels` is either an array of integers (`[0, 1, 2]`) or an object with `start` and
+`end` members (`{"start": 0, "end": 10}`), where `end` is exclusive, matching `range_start`
+and `range_end`. An importer that does not know which labels were issued cannot detect
+outputs paid to them, so omitting a label in use loses the funds received on it.
+
+`transactions` and `psbts` are present only where the wallet can attribute an entry to an
+account. An entry carried in a wallet map need not be referenced by any account.
+
+`bip39_mnemonic`: since backups may be stored online, this field is intended for test
+networks only (`testnet3`, `testnet4`, `signet`, `regtest`); it MUST NOT be used to store
+mainnet mnemonics.
 
 ### Account Status
 
@@ -266,3 +260,4 @@ The `spend_status` field may contain one of the following values.
 [keyobj]: ../bip-0139.md#key-object-structure
 [coinobj]: ../bip-0139.md#coin-object-structure
 [spobj]: ../bip-0139.md#silent-payment-owned-output-object-structure
+[accountobj]: ../bip-0139.md#account-object-structure
