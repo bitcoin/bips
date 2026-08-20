@@ -9,21 +9,13 @@ the process described in the
 ## Wallet Fields
 
 Fields of the top-level wallet backup object.  
-The mandatory `version` and `accounts` fields are defined in BIP-0139; all fields below
-are optional.
+The mandatory `version`, `network` and `accounts` fields are defined in BIP-0139; all
+fields below are optional.
 
 - `name`: Optional string wallet name.  
 - `note`: Optional string note about this backup, written by the user when the backup is
   made.  
 - `date`: Optional timestamp recording when the backup was made.  
-- `network`: Optional string network identifier.  
-  Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, `mutinynet`
-  and `regtest`.  
-  A backup covers a single network. A wallet holding accounts on more than one writes one
-  backup per network.  
-  A signet is defined by its challenge script, so this list names only the well-known
-  ones. Any other signet uses `signet`, and a wallet needing to tell two of them apart
-  records the challenge in `proprietary`.  
 - `transactions`: Optional object mapping a transaction id to a transaction object.  
   See [Transaction Object Structure](../bip-0139.md#transaction-object-structure).  
   Transactions live here rather than on the account so that one touching several
