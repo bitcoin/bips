@@ -7,11 +7,15 @@ Scope: the 53 fields defined by `bip-0139.md` (8 mandatory) plus
 `bip-0139/field-registry.md` (45 optional). The enum value lists (key roles, key
 types, key status, spend status) are values, not fields, so they are not rows.
 
-Cell values answer: would this wallet have interest in round-tripping this field?
+Cell values answer one question: can this wallet fill this field?
 
-    ✓   the wallet has the concept and would want it
-    ~   only in some configurations, or a lossy/partial match to its model
-    -   the wallet has no such concept
+    ✓   it can
+    -   it cannot, or has no such concept
+
+A wallet that holds *more* than a field can carry still scores ✓; the field is fillable and
+the loss is BIP-139's, recorded under missing fields rather than counted against the wallet.
+A value the wallet computes on demand, stores under another name, or does not emit yet is
+also ✓ - the question is what the wallet can produce, not what its current export code does.
 
 ## Revisions read
 
@@ -46,63 +50,63 @@ Sprw = Sparrow          Elec = Electrum         Bitk = Bitkey
 Bull = Bull Bitcoin     Grn = Green
 Nunc = Nunchuk          Spec = Specter
 
-field                     | Core | Lian | Sprw | Bull | Nunc | Keep | BSaf | Elec | Grn  | Spec | Dana | Wasb | Bitk | ✓  ~  -
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-wallet.version            |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  ✓   | 7  0  6
-wallet.accounts           |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   | 8  0  5
-wallet.note               |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 2  0 11
-wallet.network            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-wallet.proprietary        |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   | 9  0  4
-wallet.transactions       |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-wallet.psbts              |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   | 7  0  6
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-account.type              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-account.descriptor        |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-account.name              |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   | 8  0  5
-account.description       |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 3  0 10
-account.status            |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   | 6  0  7
-account.change_descriptor |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   | 8  0  5
-account.receive_index     |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |11  0  2
-account.change_index      |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |11  0  2
-account.range_start       |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 2  0 11
-account.range_end         |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  ✓   |  -   | 5  0  8
-account.change_range_start|  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 2  0 11
-account.change_range_end  |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  ✓   |  -   | 5  0  8
-account.birth_block       |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   | 8  0  5
-account.last_height       |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-account.bip352_labels     |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 1  0 12
-account.keys              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-account.labels            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |12  0  1
-account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-account.bip39_mnemonic    |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   | 8  0  5
-account.proprietary       |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   | 7  0  6
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-signer.key_status         |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   | 4  0  9
-signer.bip85_derivation_path|  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 2  0 11
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-key.key                   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-key.alias                 |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  -   |  ~   | 8  1  4
-key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   | 6  0  7
-key.key_type              |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   | 9  0  4
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-transaction.wtxid         |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   | 6  0  7
-transaction.hex           |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |10  0  3
-transaction.block_time    |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-transaction.time_received |  ✓   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   | 5  1  7
-transaction.blockhash     |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   | 8  0  5
-transaction.blockheight   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
-transaction.blockindex    |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   |  -   | 3  0 10
-transaction.abandoned     |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   | 2  1 10
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-sp_output.outpoint        |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.tweak           |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.amount          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.script          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.label           |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 1  0 12
-sp_output.spend_status    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
+field                     | Core | Lian | Sprw | Bull | Nunc | Keep | BSaf | Elec | Grn  | Spec | Dana | Wasb | Bitk |  ✓
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
+wallet.version            |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  ✓   |  7
+wallet.accounts           |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   |  8
+wallet.note               |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  2
+wallet.network            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+wallet.proprietary        |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  9
+wallet.transactions       |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+wallet.psbts              |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  7
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
+account.type              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+account.descriptor        |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+account.name              |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  8
+account.description       |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  3
+account.status            |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   |  6
+account.change_descriptor |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  8
+account.receive_index     |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   | 11
+account.change_index      |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   | 11
+account.range_start       |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  2
+account.range_end         |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  5
+account.change_range_start|  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  2
+account.change_range_end  |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  5
+account.birth_block       |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  8
+account.last_height       |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+account.bip352_labels     |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  1
+account.keys              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+account.labels            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   | 12
+account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
+account.bip39_mnemonic    |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   |  8
+account.proprietary       |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  7
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
+signer.key_status         |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  4
+signer.bip85_derivation_path|  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  2
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
+key.key                   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+key.alias                 |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  9
+key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  6
+key.key_type              |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  9
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
+transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+transaction.wtxid         |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  6
+transaction.hex           |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   | 10
+transaction.block_time    |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+transaction.time_received |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  5
+transaction.blockhash     |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  8
+transaction.blockheight   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   | 13
+transaction.blockindex    |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  3
+transaction.abandoned     |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  2
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
+sp_output.outpoint        |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
+sp_output.tweak           |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
+sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
+sp_output.amount          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
+sp_output.script          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
+sp_output.label           |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  1
+sp_output.spend_status    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  3
 ```
 
 ## Headline findings
@@ -744,43 +748,33 @@ Two Bitkey-specific gaps remain that no proposed field covers:
   become its own account entry, losing the relationship. Worth noting as a general gap: any
   wallet that rotates keys has wallet history the format cannot express.
 
-## Why fields score `~`
+## How the scores were reached
 
-Every `~` was re-assessed against one question: **can this wallet fill this field?** A field
-is `~` only when the wallet cannot - because the field's shape or unit cannot carry what the
-wallet holds, or because the wallet holds only part of what the field needs. A wallet
-holding *more* than the field can carry scores ✓; the loss is BIP-139's, and is recorded
-under missing fields rather than counted against the wallet.
+Scoring was done twice. The first pass asked whether a wallet already implements a field and
+produced a large middle category of partial matches. That was the wrong question: it counted
+naming differences, values computed rather than stored, unimplemented features and enum
+spellings against wallets that plainly hold the data.
 
-That moved 149 of the original 152 cells. The first pass had scored `~` for reasons that do
-not bear on fillability: a different field name, a value computed on demand rather than
-stored, enum values spelled differently, data the wallet holds but its export code does not
-emit, or a type present in the code with nothing yet populating it. Three survive, and all
-three are wallet limits rather than defects in the format.
+The second pass asked only whether a wallet **can fill** the field. On that basis 152 of the
+partial scores resolved: 149 to ✓ and 3 to `-`, leaving a two-value scale.
 
-| Field                       | Wallet       | Why it cannot be filled                                                                                                                  |
-|-----------------------------|--------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `key.alias`                 | Bitkey       | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint. |
-| `transaction.time_received` | Bitcoin Safe | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation.                                |
-| `transaction.abandoned`     | Electrum     | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark.                         |
-
-Three earlier clusters were resolved by changing the format rather than the scores.
+Three of those resolutions came from changing the format rather than the score.
 
 **PSBTs and transactions moved to wallet-level maps** keyed by txid, with accounts carrying
-references. A wallet that cannot attribute an entry to an account can still carry it, which
-was exactly the case Bitcoin Safe and Wasabi were failing, and an entry touching several
-accounts is stored once instead of duplicated.
+references. A wallet that cannot attribute an entry to an account can still carry it - the
+case Bitcoin Safe and Wasabi were failing - and an entry touching several accounts is stored
+once instead of duplicated.
 
 **`type` and `descriptor` reached 13 ✓** once the test was read as representability rather
 than derivability. The descriptor family already covers every wallet: `addr()` and `raw()`
-for bare addresses, `sp()` for silent payments, and `multi_bip380` for sets.
+for bare addresses, `sp()` for silent payments, `multi_bip380` for sets.
 
-**`sp_output.label` is 1 ✓ and 12 `-`.** Only Sparrow fills it, and only because its
+**`sp_output.label` fell to 1 ✓ and 12 `-`.** Only Sparrow fills it, and only because its
 generic TXO label column happens to cover silent-payment outputs too. Both silent-payment
-wallets instead use that name for the raw BIP-352 label scalar, and BIP-329 already labels
+wallets use that name for the raw BIP-352 label scalar instead, and BIP-329 already labels
 outputs through `account.labels` with `type: "output"`. The field duplicates an existing
 mechanism while occupying the name the scalar needs, so the survey recommends dropping it
-and registering a field for the scalar instead.
+and registering a field for the scalar.
 
 ## A. Wrong unit - the field cannot hold what the wallet has
 
