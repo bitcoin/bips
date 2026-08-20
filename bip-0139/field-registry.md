@@ -8,9 +8,8 @@ the process described in the
 
 ## Wallet Fields
 
-Fields of the top-level wallet backup object.  
-The mandatory `version`, `network` and `accounts` fields are defined in BIP-0139; all
-fields below are optional.
+Optional fields of the top-level wallet backup object. Its mandatory fields, `version`,
+`network` and `accounts`, are specified with the object itself.
 
 | Field          | Type      | Description                                                                             |
 |----------------|-----------|-----------------------------------------------------------------------------------------|
@@ -33,9 +32,8 @@ transaction changes as legacy inputs are signed.
 
 ## Account Fields
 
-Fields of the [account object][accountobj].  
-The mandatory `type` and `descriptor` fields are defined in BIP-0139; all fields below
-are optional.
+Optional fields of the [account object][accountobj]. Its mandatory fields, `type` and
+`descriptor`, are specified with the object itself.
 
 | Field                | Type            | Description                                                                 |
 |----------------------|-----------------|-----------------------------------------------------------------------------|
@@ -113,8 +111,8 @@ The `status` field may contain one of the following values.
 
 ## Signer Fields
 
-Fields of the [signer object][signerobj].  
-The mandatory `fingerprints` field is defined in BIP-0139; all fields below are optional.
+Optional fields of the [signer object][signerobj]. Its mandatory field, `fingerprints`,
+is specified with the object itself.
 
 | Field                   | Type    | Description                                                                      |
 |-------------------------|---------|----------------------------------------------------------------------------------|
@@ -155,8 +153,8 @@ The `key_status` field may contain one of the following values.
 
 ## Key Fields
 
-Fields of the [key object][keyobj].  
-The mandatory `key` field is defined in BIP-0139; all fields below are optional.
+Optional fields of the [key object][keyobj]. Its mandatory field, `key`, is specified
+with the object itself.
 
 | Field      | Type   | Description                                                                                    |
 |------------|--------|------------------------------------------------------------------------------------------------|
@@ -183,9 +181,8 @@ The `key_type` field may contain one of the following values.
 
 ## Transaction Fields
 
-Fields of the [transaction object][txobj].  
-The transaction id is the key of the wallet's `transactions` map, not a field; all fields
-below are optional.
+Optional fields of the [transaction object][txobj]. The transaction id is the key of the
+wallet's `transactions` map, not a field.
 
 | Field           | Type      | Description                                                                            |
 |-----------------|-----------|----------------------------------------------------------------------------------------|
@@ -206,8 +203,8 @@ falling back to `time_received`.
 
 ## Coin Fields
 
-Fields of the [coin object][coinobj].  
-The mandatory `outpoint` field is defined in BIP-0139; all fields below are optional.
+Optional fields of the [coin object][coinobj]. Its mandatory field, `outpoint`, is
+specified with the object itself.
 
 | Field              | Type    | Description                                                                           |
 |--------------------|---------|---------------------------------------------------------------------------------------|
@@ -228,9 +225,8 @@ backed up.
 
 ## Silent Payment Owned Output Fields
 
-Fields of the [silent payment owned output object][spobj].  
-The mandatory `outpoint` and `tweak` fields are defined in BIP-0139; all fields below are
-optional.
+Optional fields of the [silent payment owned output object][spobj]. Its mandatory fields,
+`outpoint` and `tweak`, are specified with the object itself.
 
 | Field          | Type    | Description                                                                               |
 |----------------|---------|-------------------------------------------------------------------------------------------|
