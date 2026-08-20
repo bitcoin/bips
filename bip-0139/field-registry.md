@@ -56,7 +56,17 @@ are optional.
   limit per side should emit the larger, since a limit that is too high only costs
   scanning work while one that is too low misses addresses.  
 - `birth_block`: Optional integer representing the account creation time as a bitcoin
-  block height.  
+  block height. An importer may start scanning at this height instead of the genesis
+  block.  
+  Most wallets record a creation date rather than a height. An exporter holding only a
+  date SHOULD convert it against a chain source.  
+  If it cannot, it MAY estimate the height, and the estimate MUST be at or before the true
+  height, never after. The error is asymmetric: too early only costs scanning time, while
+  too late silently misses transactions and the funds in them. An estimate from a date
+  should therefore subtract a margin covering the drift of a fixed block interval, on the
+  order of a difficulty period.  
+  An exporter that can do neither SHOULD omit the field. An absent `birth_block` means a
+  full scan, which is slow but correct.  
 - `last_height`: Optional integer representing the last seen block height.  
 - `bip352_labels`: Optional list of the silent payment label indices in use.  
   Either an array of integers (`[0, 1, 2]`) or an object with `start` and `end` members

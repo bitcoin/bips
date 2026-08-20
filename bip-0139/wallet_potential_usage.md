@@ -759,6 +759,105 @@ Two Bitkey-specific gaps remain that no proposed field covers:
   become its own account entry, losing the relationship. Worth noting as a general gap: any
   wallet that rotates keys has wallet history the format cannot express.
 
+## Why fields score `~`
+
+163 of the 689 cells are `~`, spread over 45 fields. The reason a cell is `~` matters more
+than the count, because it says whether the *field* is wrong or the *wallet* simply has not
+got there. Six recurring reasons, in descending order of what they imply for the spec.
+
+### A. Wrong unit - the field cannot hold what the wallet has
+
+The strongest signal, because no amount of implementation work fixes it.
+
+- **`birth_block` (6 `~`).** The field is a block height. Six wallets store a **date**:
+  Liana `Account.timestamp` (unix, drives rescan, `lianad/commands/mod.rs:335`), Sparrow
+  `wallet.birthDate` (the user-facing field; `birthHeight` exists in the schema but nothing
+  populates it), Bull Bitcoin `birthday: DateTime?`, Dana `_keyBirthday` (a timestamp,
+  resolved to a height only transiently at sync), Core `WalletDescriptor::creation_time`,
+  Green `earliest_key_creation_time`. Only Specter and Wasabi store a real height. Converting
+  needs a chain lookup, so an offline exporter cannot comply at all. **This is the single
+  clearest case in the survey of a field the wallets cannot fill as defined.**
+- **`account.last_height` (7 `~`).** Not a unit problem but the same shape: Core, Sparrow,
+  Bull Bitcoin, Keeper, Green, Specter and Bitkey all hold one **wallet-global** sync
+  height, not one per account. Specter's nearest value is a block *hash*, not a height.
+
+### B. Wrong granularity - the data exists one level away
+
+- `account.last_height` again: duplicated at wallet and account level in the format, while
+  wallets have it once.
+- `wallet.name` (3 `~`): Green, Specter and Wasabi have per-account or filename-derived
+  names, nothing at wallet level.
+- `wallet.accounts` (3 `~`): Sparrow, Electrum and Specter are one-account-per-file, so the
+  array is always length 1 and multi-account state lives in separate files.
+- `account.bip39_mnemonic` (7 `~`): a mnemonic belongs to a signer shared across accounts,
+  not to one account. Resolved by dropping the field.
+
+### C. Vocabulary mismatch - the concept matches, the values do not
+
+Cheap to fix, because these value lists live in the registry.
+
+- **`account.type` (9 `~`)** - the largest single cluster. Every wallet has its own
+  taxonomy: Nunchuk `WalletType` (5 values incl. `LIQUID`), Keeper `VaultType`
+  (`DEFAULT`/`COLLABORATIVE`/`CANARY`/`MINISCRIPT`), Sparrow `PolicyType` serialising as
+  `"SINGLE"`/`"MULTI"`, Electrum `wallet_type` strings, Green subaccount types. None maps
+  onto three values.
+- `account.output_type` (7 `~`): everyone has script types, spelled differently -
+  `p2wpkh` vs `bech32`, Specter's `"taproot"` vs `bech32m`.
+- `wallet.network` (5 `~`): no testnet3/testnet4 split in Nunchuk, Keeper, Bitkey or Bull
+  Bitcoin; Liquid missing entirely.
+- `key.key_type` (6 `~`): device modality offered where ownership was asked for. Addressed
+  by the new `modality` field.
+- `account.active` (5 `~`): wallets have `archived` (Nunchuk, Keeper), `hidden` (Green) or
+  `isDefault` (Bull Bitcoin) - inverse polarity, or a different axis altogether.
+- Liana's `KeyRole`/`KeyType` serialise PascalCase against the registry's lowercase, which
+  would fail silently even where the concept matches exactly.
+
+### D. Derivable but not stored - a wallet gap, not a field problem
+
+These need work in the exporter and nothing in the spec.
+
+- `account.descriptor` (6 `~`): Sparrow, Nunchuk, Keeper, Bitkey and Bitcoin Safe all
+  **reconstruct** the descriptor on demand from policy plus keys rather than persisting it.
+  Export is easy; import is harder, since a descriptor string must be parsed back into
+  signer objects.
+- `account.receive_index` / `change_index` (4-5 `~`): Sparrow, Nunchuk, Green and Wasabi
+  derive the index from the stored address list rather than keeping a counter.
+- `transaction.wtxid` (4 `~`): computable from the stored raw transaction everywhere.
+- `key.key` (3 `~`): the fingerprint is present inside descriptor key origins, just not
+  surfaced as its own record.
+
+### E. False friends - same name, different meaning
+
+The dangerous category, because a name-based mapping silently produces wrong data.
+
+- **`transaction.time` (7 `~`)** - defined as "block time when confirmed, otherwise
+  first-seen". No wallet stores that union: Nunchuk keeps only `blocktime`, Wasabi only
+  `FirstSeen` (its UI shows first-seen even for confirmed transactions), Sparrow only the
+  block date (null while unconfirmed), Specter the `min()` of three sources, Dana only
+  `confirmation_timestamp`. Since `time_received` already exists for first-seen, `time`
+  asking for either value makes the pair ambiguous - an importer cannot tell which meaning
+  a given `time` carries.
+- `sp_output.label` (2 `~`): Dana and Bull Bitcoin store the raw BIP-352 label **scalar**
+  under this name; the registry documents it as BIP-329-style text.
+- Specter's `key_type` means output script purpose; Specter's `last_block` is a hash.
+- Liana's `Coin.account` means keychain, and its `is_coinbase` holds immaturity.
+
+### F. Configuration-dependent - correct behaviour
+
+- `account.change_descriptor` (3 `~`): absent for BIP-389 multipath wallets by design.
+- `account.range_*` (2-4 `~`): meaningless for wallets that track concrete addresses.
+- `account.psbts` (3 `~`): Bitcoin Safe and Electrum persist PSBTs outside the wallet
+  record; Wasabi exports them one-shot to a file.
+
+### What this implies
+
+Categories D and F need nothing. C is a registry job, already in hand for `type` and
+`key_type`. B is mostly resolved by moving signers above the account.
+
+**A is the open one, and `birth_block` is the case to revisit.** Six wallets hold a
+timestamp and two hold a height, so as defined the field is unfillable by the majority
+without a chain lookup - and an offline exporter cannot do one at all.
+
 ## Missing fields
 
 Ranked by how many wallets want them.
