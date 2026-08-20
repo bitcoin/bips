@@ -48,50 +48,50 @@ Nunc = Nunchuk          Spec = Specter
 
 field                     | Core | Lian | Sprw | Bull | Nunc | Keep | BSaf | Elec | Grn  | Spec | Dana | Wasb | Bitk | ✓  ~  -
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-wallet.version            |  ✓   |  ✓   |  -   |  -   |  ~   |  ✓   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  ✓   | 5  2  6
-wallet.accounts           |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |10  3  0
+wallet.version            |  ✓   |  ✓   |  -   |  -   |  ~   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  ✓   | 6  1  6
+wallet.accounts           |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |12  1  0
 wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ~   |  ~   |  -   |  ~   |  -   | 5  3  5
 wallet.description        |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 0  2 11
-wallet.network            |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   | 8  5  0
+wallet.network            |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   | 9  4  0
 wallet.last_height        |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 7  4  2
 wallet.proprietary        |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   | 9  0  4
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-account.type              |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ~   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   | 4  9  0
-account.descriptor        |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   | 7  6  0
-account.name              |  -   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  -   |  -   |  -   | 7  2  4
+account.type              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
+account.descriptor        |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
+account.name              |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   | 8  0  5
 account.description       |  -   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 3  0 10
 account.active            |  ✓   |  -   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ~   |  -   |  -   |  -   |  ~   | 1  5  7
 account.output_type       |  ✓   |  -   |  ~   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ~   |  -   |  ~   |  ✓   | 4  7  2
-account.change_descriptor |  ✓   |  -   |  ✓   |  ✓   |  ~   |  -   |  -   |  ~   |  ✓   |  ✓   |  ~   |  -   |  ✓   | 6  3  4
-account.receive_index     |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   |  -   | 7  4  2
-account.change_index      |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   |  -   | 6  5  2
+account.change_descriptor |  ✓   |  -   |  ✓   |  ✓   |  ~   |  -   |  -   |  ~   |  ✓   |  ✓   |  -   |  -   |  ✓   | 6  2  5
+account.receive_index     |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   |  -   | 8  3  2
+account.change_index      |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ~   |  -   | 7  4  2
 account.range_start       |  ✓   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 1  2 10
 account.range_end         |  ✓   |  -   |  -   |  -   |  ~   |  ~   |  ~   |  -   |  -   |  ✓   |  -   |  ~   |  -   | 2  4  7
 account.change_range_start|  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 1  1 11
 account.change_range_end  |  ✓   |  -   |  -   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   |  -   |  ~   |  -   | 2  3  8
-account.birth_block       |  ~   |  ~   |  ~   |  ~   |  -   |  -   |  -   |  -   |  ~   |  ✓   |  ~   |  ✓   |  -   | 2  6  5
-account.last_height       |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 6  7  0
+account.birth_block       |  ~   |  ~   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  ~   |  ✓   |  ✓   |  ✓   |  -   | 4  4  5
+account.last_height       |  ~   |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   | 7  6  0
 account.bip352_labels     |  -   |  -   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 0  1 12
-account.keys              |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   | 7  6  0
+account.keys              |  ~   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ~   | 9  4  0
 account.labels            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |12  0  1
 account.transactions      |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |10  3  0
 account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-account.psbts             |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ~   |  ~   |  -   |  ✓   |  -   |  ~   |  -   | 4  3  6
+account.psbts             |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ~   |  -   | 5  2  6
 account.bip39_mnemonic    |  -   |  -   |  ~   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ~   |  -   |  ~   |  -   |  ~   | 2  7  4
-account.proprietary       |  -   |  ✓   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   |  ✓   | 3  4  6
+account.proprietary       |  -   |  ✓   |  ✓   |  -   |  ~   |  -   |  ~   |  -   |  ~   |  -   |  -   |  ✓   |  ✓   | 4  3  6
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-key.key                   |  ~   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |10  3  0
+key.key                   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |12  1  0
 key.alias                 |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  -   |  ~   |  -   |  -   |  ~   | 6  3  4
-key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ~   |  ✓   |  -   |  -   |  -   |  ✓   | 5  1  7
-key.key_type              |  -   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ~   |  ~   |  ✓   |  -   |  ~   |  ~   |  ✓   | 5  6  2
+key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   | 6  0  7
+key.key_type              |  -   |  ✓   |  -   |  ~   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  -   |  ✓   |  ~   |  ✓   | 7  3  3
 key.key_status            |  -   |  -   |  -   |  ✓   |  ~   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   | 1  3  9
 key.bip85_derivation_path |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ~   |  -   |  -   |  -   |  -   | 2  1 10
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |12  1  0
-transaction.wtxid         |  ✓   |  ~   |  ~   |  -   |  -   |  -   |  ~   |  ✓   |  -   |  -   |  -   |  ~   |  -   | 2  4  7
+transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
+transaction.wtxid         |  ✓   |  ~   |  ✓   |  -   |  -   |  -   |  ~   |  ✓   |  -   |  -   |  -   |  ~   |  -   | 3  3  7
 transaction.hex           |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   | 9  1  3
 transaction.time          |  ✓   |  ✓   |  ~   |  ✓   |  ~   |  ~   |  ✓   |  ✓   |  ✓   |  ~   |  ~   |  ~   |  ~   | 6  7  0
-transaction.time_received |  ✓   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  ✓   |  ~   |  ✓   |  ~   | 3  3  7
+transaction.time_received |  ✓   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ~   | 4  2  7
 transaction.blockhash     |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   | 8  0  5
 transaction.blockheight   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |12  1  0
 transaction.blockindex    |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |  ✓   |  -   | 3  0 10
@@ -99,76 +99,56 @@ transaction.abandoned     |  ✓   |  -   |  -   |  -   |  ~   |  -   |  -   |  
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
 sp_output.outpoint        |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
 sp_output.tweak           |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 2  1 10
+sp_output.block_height    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
 sp_output.amount          |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-sp_output.script          |  -   |  -   |  ~   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 1  2 10
+sp_output.script          |  -   |  -   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 2  1 10
 sp_output.label           |  -   |  -   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   | 1  2 10
-sp_output.spend_status    |  -   |  -   |  ~   |  ~   |  -   |  -   |  -   |  -   |  ~   |  -   |  ~   |  -   |  -   | 0  4  9
+sp_output.spend_status    |  -   |  -   |  ✓   |  ~   |  -   |  -   |  -   |  -   |  ~   |  -   |  ✓   |  -   |  -   | 2  2  9
 ```
 
 ## Headline findings
 
-### 1. Mandatory `descriptor` is satisfiable everywhere, but at a cost
+### 1. Mandatory `type` and `descriptor` are satisfiable everywhere
 
-Five wallets have shipping wallet types with no descriptor in their own model: Electrum
-watch-only imported-address wallets (`Imported_Wallet.is_watching_only()` when keystore is
-None, `wallet.py:3876`; `get_script_descriptor_for_address` returns `None` for
-`script_type in ('address','unknown')`, `wallet.py:2712-2716`); Electrum `Old_KeyStore`
-wallets (pre-BIP32 stretched mpk, `keystore.py:749-800`); Green multisig subaccounts (docs
-scope `core_descriptors` to "Singlesig only", `gdk-json.rst:392`); Wasabi (identity is
-`ExtPubKey` + hardcoded BIP-84/86 paths, `KeyManager.cs`); and Dana (scan/spend keys as raw
-secp256k1 scalars, `rust/src/api/wallet.rs:45-58`).
+Both score 13 ✓. The test is whether an account can be **represented** as a descriptor, not
+whether an importer can derive further addresses from it. Those are different questions, and
+the descriptor family already covers every wallet surveyed:
 
-None of these is actually unrepresentable. The descriptor family already covers them:
-
-- **`addr(ADDR)` and `raw(HEX)`** - BIP-385, Status **Deployed**. A bare address or script
-  is a valid top-level descriptor, which covers Electrum's imported-address wallets.
-- **`sp(KEY)` / `sp(KEY,KEY)`** - BIP-392, Status Draft, and precisely what the `type` value
-  `bip_392` refers to. Dana's scan and spend keys have a standard representation; it simply
-  has not implemented one.
-- **`wsh(multi(...))`** for Green multisig, synthesisable at export time since the service
-  xpub is derivable client-side from `network_parameters.cpp` constants plus `gait_path`.
+- **`addr(ADDR)` and `raw(HEX)`** - BIP-385, Status **Deployed**. A bare address or script is
+  a valid top-level descriptor, which covers Electrum's watch-only imported-address wallets
+  and, as a set, its pre-BIP32 `Old_KeyStore` wallets.
+- **`sp(KEY)` / `sp(KEY,KEY)`** - BIP-392, Status Draft, and exactly what the `type` value
+  `bip_392` refers to. Dana holds a scan key and a spend key, which is what `sp()` takes; it
+  simply has not implemented the serialisation.
+- **`wsh(multi(...))`** for Green multisig, synthesisable at export since the service xpub is
+  derivable client-side from `network_parameters.cpp` constants plus `gait_path`.
 - Wasabi already builds `wpkh([fp/84'/0'/0']xpub/<0;1>/*)` for its segwit branch
-  (`WpkhOutputDescriptorHelper.cs`), just for hardware registration rather than for export;
-  only the taproot branch lacks a builder.
+  (`WpkhOutputDescriptorHelper.cs`), just for hardware registration rather than for export.
 
-So the objection to mandatory `descriptor` is not impossibility. What remains are two real
-costs:
+Non-derivability is not a defect here. `addr()` is non-derivable by design - that is what
+BIP-385 exists for - and an account backed by one is watch-only by construction, which Core's
+own descriptor header states ("true for all descriptors except ones that use `raw` or `addr`
+constructions", `src/script/descriptor.h:114-116`). Worth stating in the spec so a consumer
+does not assume a descriptor implies spendability, but it does not stop the account being
+represented.
 
-**One account per address.** Expressing an Electrum imported-address wallet means one
-`addr()` account per address. A wallet with 200 imported addresses becomes 200 accounts,
-each with its own mandatory `type`. That is valid but degenerate, and it interacts badly
-with everything else the account object carries - 200 copies of `birth_block`,
-`last_height` and a `keys` map, for one wallet.
-
-A `multi_bip380` type fixes this: one account whose `descriptor` is an array of BIP-380
-descriptors rather than a single string. The 200 addresses become one
-account with 200 `addr()` entries, and everything account-scoped is written once.
+One practical consequence remains. Expressing a wallet full of unrelated addresses as one
+`addr()` account per address would mean 200 accounts for 200 addresses, each repeating
+`birth_block`, `last_height` and a `keys` map. That is what the `multi_bip380` type is for:
+one account whose `descriptor` is an array of BIP-380 descriptors, with everything
+account-scoped written once.
 
 Two consequences to settle if this is adopted:
 
 - **`descriptor` becomes shape-dependent on `type`** - a string for the single-descriptor
-  types, an array for the set type. That is consistent with how the field is already
-  defined ("representing the account structure as defined by the value in `type`", so
-  `type` is explicitly the discriminator), but it does partly reopen the string-only
-  decision. The narrower reading is that the field is always *either* a descriptor string
-  or a list of them, never an object.
+  types, an array for the set type. That is consistent with the field being defined as
+  "representing the account structure as defined by the value in `type`", so `type` is
+  explicitly the discriminator.
 - **The index and range fields stop applying.** `receive_index`, `change_index`,
-  `range_start`/`range_end` and `change_descriptor` are meaningless for a bag of
-  non-ranged `addr()` descriptors. The registry should say they are absent for this type
-  rather than leaving an importer to guess.
-
-**Loss of derivation for `Old_KeyStore`.** Already-derived addresses can be written as
-`addr()`, but BIP-380 has no key expression for Electrum's legacy stretching algorithm, so
-what survives the round trip is a **snapshot of used addresses, not a wallet**. The
-importer can see history and balances but cannot generate the next address. This is the one
-place where the format genuinely cannot carry what the wallet holds.
-
-Note also that `addr()` and `raw()` descriptors are not solvable - Bitcoin Core's own
-descriptor header says so explicitly ("true for all descriptors except ones that use `raw`
-or `addr` constructions", `src/script/descriptor.h:114-116`) - so an account backed by one
-is watch-only by construction. That is correct for the Electrum case but worth stating in
-the spec, since a consumer cannot assume a descriptor implies spendability.
+  `range_start`/`range_end` and `change_descriptor` are meaningless for a bag of non-ranged
+  `addr()` descriptors, and the spec says they MUST be absent for that type. The same holds
+  for `bip_392`: silent payments has no separate change keychain, since change is a different
+  label on the same address, so `change_descriptor` is inapplicable there too.
 
 ### 1b. Liquid is out of scope, carried in `proprietary`
 
