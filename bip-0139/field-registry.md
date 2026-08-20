@@ -15,6 +15,7 @@ are optional.
 - `name`: Optional string wallet name.  
 - `note`: Optional string note about this backup, written by the user when the backup is
   made.  
+- `date`: Optional integer Unix timestamp in seconds recording when the backup was made.  
 - `network`: Optional string network identifier.  
   Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, and `regtest`.  
 - `last_height`: Optional integer representing the last block height the exporter had
