@@ -13,7 +13,8 @@ The mandatory `version` and `accounts` fields are defined in BIP-0139; all field
 are optional.
 
 - `name`: Optional string wallet name.  
-- `description`: Optional string wallet description.  
+- `note`: Optional string note about this backup, written by the user when the backup is
+  made.  
 - `network`: Optional string network identifier.  
   Valid values are `bitcoin` (mainnet), `testnet3`, `testnet4`, `signet`, and `regtest`.  
 - `last_height`: Optional integer representing the last block height the exporter had
