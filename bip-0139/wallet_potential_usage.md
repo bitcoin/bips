@@ -51,9 +51,11 @@ field                     | Core | Lian | Sprw | Bull | Nunc | Keep | BSaf | Ele
 wallet.version            |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  ✓   | 7  0  6
 wallet.accounts           |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 wallet.name               |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   | 8  0  5
-wallet.note               |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ~   |  -   |  -   |  -   | 1  1 11
+wallet.note               |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   | 2  0 11
 wallet.network            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 wallet.proprietary        |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  ✓   |  ✓   | 9  0  4
+wallet.transactions       |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
+wallet.psbts              |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   | 7  0  6
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
 account.type              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 account.descriptor        |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
@@ -72,19 +74,17 @@ account.last_height       |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   
 account.bip352_labels     |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 1  0 12
 account.keys              |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 account.labels            |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |12  0  1
-account.transactions      |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 account.bip352_outputs    |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |  -   |  -   | 3  0 10
-account.psbts             |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ~   |  -   | 5  2  6
 account.bip39_mnemonic    |  -   |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ~   |  ✓   |  -   |  ✓   |  -   |  ✓   | 8  1  4
 account.proprietary       |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   | 7  0  6
+--------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
+signer.key_status         |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   | 4  0  9
+signer.bip85_derivation_path|  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 2  0 11
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
 key.key                   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 key.alias                 |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  -   |  -   |  ~   | 8  1  4
 key.role                  |  -   |  ✓   |  -   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   | 6  0  7
 key.key_type              |  -   |  ✓   |  -   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  ✓   | 9  0  4
---------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
-signer.key_status         |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   | 4  0  9
-signer.bip85_derivation_path|  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  -   | 2  0 11
 --------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+---------
 transaction.txid          |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |13  0  0
 transaction.wtxid         |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  ✓   |  -   |  -   |  -   |  ✓   |  -   | 6  0  7
@@ -752,35 +752,34 @@ wallet holds, or because the wallet holds only part of what the field needs. A w
 holding *more* than the field can carry scores ✓; the loss is BIP-139's, and is recorded
 under missing fields rather than counted against the wallet.
 
-That re-assessment moved 143 of 152 cells. The original pass had scored `~` for reasons
-that do not bear on fillability: a different field name, a value computed on demand rather
-than stored, enum values spelled differently, data the wallet holds but its current export
-code does not emit, or a type that exists in the code with nothing yet populating it.
+That moved 146 of the original 152 cells. The first pass had scored `~` for reasons that do
+not bear on fillability: a different field name, a value computed on demand rather than
+stored, enum values spelled differently, data the wallet holds but its export code does not
+emit, or a type present in the code with nothing yet populating it. Six survive.
 
-Nine remain, and they are the interesting ones.
+| Field                       | Wallets            | Why it cannot be filled                                                                                                                                                                                                                                           |
+|-----------------------------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sp_output.label`           | Bull Bitcoin, Dana | Both store the raw 32-byte BIP-352 label scalar under this name. The field is documented as BIP-329-style text, and neither attaches free text at output granularity, so there is nothing to convert from.                                                        |
+| `account.bip39_mnemonic`    | Electrum           | Two reasons at once. Electrum's own seed format is deliberately not BIP-39, so those words would be wrong here; and when a wallet is restored from real BIP-39 words, `bip39_to_seed` derives the xprv and the words are discarded, unrecoverable on any network. |
+| `transaction.abandoned`     | Electrum           | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark.                                                                                                                                                  |
+| `transaction.time_received` | Bitcoin Safe       | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation.                                                                                                                                                         |
+| `key.alias`                 | Bitkey             | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint.                                                                                                                          |
 
-| Field                       | Wallets              | Why it cannot be filled                                                                                                                                                                                                                                            |
-|-----------------------------|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `sp_output.label`           | Bull Bitcoin, Dana   | Both store the raw 32-byte BIP-352 label scalar under this name. The field is documented as BIP-329-style text, and neither wallet attaches free text at output granularity, so there is nothing to convert from.                                                  |
-| `account.psbts`             | Bitcoin Safe, Wasabi | Neither keeps an authoritative per-account PSBT store. Wasabi writes a PSBT straight to a user-chosen file; Bitcoin Safe's `opened_txlike` is keyed by network, mixes finalised transactions with PSBTs untagged, and only holds whatever tabs the user left open. |
-| `account.bip39_mnemonic`    | Electrum             | Two reasons at once. Electrum's own seed format is deliberately not BIP-39, so those words would be wrong here; and when a wallet is restored from real BIP-39 words, `bip39_to_seed` derives the xprv and the words are discarded, unrecoverable on any network.  |
-| `transaction.abandoned`     | Electrum             | "Remove" wipes every table keyed by the txid, so nothing survives - not even the txid - for an exporter to mark as abandoned.                                                                                                                                      |
-| `transaction.time_received` | Bitcoin Safe         | BDK keeps a *last-seen* watermark that ratchets forward on every sync, overwriting the first observation. The wallet cannot reconstruct when it first saw the transaction.                                                                                         |
-| `key.alias`                 | Bitkey               | `deviceNickname` is the operating system's name for the phone, stored once per backup, not a user-authored label indexed by fingerprint.                                                                                                                           |
-| `wallet.note`               | Specter              | `description` exists but no interface edits it, and the one-click backup flow never prompts for text, so nothing carries "written when this backup was made".                                                                                                      |
+Two of the six share one cause, and it is a defect in the format rather than the wallets.
+**`sp_output.label` is the wrong field.** Both silent-payment wallets that could fill it use
+the name for protocol data instead. BIP-329 already labels outputs through `account.labels`
+with `type: "output"`, covering ordinary and silent-payment outputs alike, so this field
+duplicates that mechanism while occupying the name the scalar needs. Dropping it and adding
+a field for the BIP-352 label scalar resolves both cells and the asymmetry whereby the coin
+object has no label but `sp_output` does.
 
-Two patterns are worth reading as findings about the format rather than the wallets.
+The other three are honest wallet limits, not format problems: Electrum cannot recover
+BIP-39 words or a removed transaction, and BDK does not retain a first-seen time.
 
-**`psbts` assumes persistence that is rare.** Two of the four wallets that hold PSBTs at all
-cannot produce an authoritative per-account list. Nunchuk, Keeper and Specter can, because
-pending multisig signatures are first-class state for them; for single-signature wallets a
-PSBT is a transient artefact of one send flow.
-
-**`sp_output.label` is the wrong field.** Both silent-payment wallets that could fill it
-instead use the name for protocol data. BIP-329 already labels outputs through
-`account.labels` with `type: "output"`, so ordinary and silent-payment outputs are covered
-there; this field duplicates that mechanism and occupies the name the scalar needs. The
-survey's recommendation is to drop it and add a field for the BIP-352 label scalar instead.
+Two earlier `~` clusters were resolved by structural changes rather than re-scoring.
+`account.psbts` and `account.transactions` both moved to wallet-level maps keyed by txid,
+with the account carrying references, so a wallet that cannot attribute an entry to an
+account can still carry it - which is exactly the case Bitcoin Safe and Wasabi were failing.
 
 ## A. Wrong unit - the field cannot hold what the wallet has
 
