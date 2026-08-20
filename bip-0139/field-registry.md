@@ -70,6 +70,8 @@ are optional.
   Wallets may include only transactions spending coins controlled by the account, only
   transactions funding controlled coins, or only their corresponding outpoints.  
   See [Transaction Object Structure](../bip-0139.md#transaction-object-structure).  
+- `coins`: Optional array of outputs owned by the account.  
+  See [Coin Object Structure](../bip-0139.md#coin-object-structure).  
 - `bip352_outputs`: Optional array of
   [Silent Payment Owned Output Object Structure](../bip-0139.md#silent-payment-owned-output-object-structure).  
 - `psbts`: Optional array containing unspent but partially signed transactions, as defined
@@ -138,6 +140,27 @@ The mandatory `txid` field is defined in BIP-0139; all fields below are optional
   confirming block.  
 - `abandoned`: Optional boolean representing user-driven abandoned state, separate
   from mempool eviction.  
+
+## Coin Fields
+
+Fields of the [coin object](../bip-0139.md#coin-object-structure).  
+The mandatory `outpoint` field is defined in BIP-0139; all fields below are optional.
+
+- `amount`: Optional integer representing the output amount value in sats.  
+- `address`: Optional string containing the address the output pays to.  
+- `script`: Optional hexadecimal string containing the output script.  
+- `block_height`: Optional integer height of the block containing the funding
+  transaction. If `null`, the funding transaction was unconfirmed at backup time.  
+- `is_change`: Optional boolean indicating the output was paid to the change keychain.  
+- `derivation_index`: Optional integer index the output's address was derived at.  
+- `is_immature`: Optional boolean indicating the output is an immature coinbase output.  
+- `is_from_self`: Optional boolean indicating the funding transaction was made by this
+  wallet.  
+- `frozen`: Optional boolean recording that the user marked this output do-not-spend.  
+  This is user intent and cannot be recovered from the chain, so it is lost unless it is
+  backed up.  
+- `spend_status`: Optional string describing the spend status of the output.  
+  See [Spend Status](#spend-status).  
 
 ## Silent Payment Owned Output Fields
 
