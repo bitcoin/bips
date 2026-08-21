@@ -114,24 +114,35 @@ coin.sp_label               |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |
 
 ## Missing fields
 
-Ranked by how many wallets want them. Six entries from the first pass are gone: the draft
-now carries `account.gap_limit`, `coin.frozen`, the coin object,
-`signer.modality`/`signer.devices`, `signer.bip85_application`/`signer.bip85_index`, and
-`coin.sp_label`.
+Seven entries from the first pass are gone: the draft now carries `account.gap_limit`,
+`coin.frozen`, the coin object, `signer.modality`/`signer.devices`,
+`signer.bip85_application`/`signer.bip85_index`, `coin.sp_label`, and the signer
+health-check timestamp as `devices[].last_health_check`.
+
+Two remain, both carried in `proprietary`:
 
 | Missing field                           | Wanted by | Evidence                                                                                                                                                                                                                                                         |
 |-----------------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **coin tags / categories**              | 2         | Nunchuk `TAGS`/`COLLECTIONS` tables; Bitcoin Safe `Label.category`, currently smuggled into the label string with a `" #"` separator on export                                                                                                                   |
-| **per-branch key role association**     | 2         | Nunchuk `Timelock`/`ScriptNode`; Keeper `MiniscriptElements` Phase/Path with per-path thresholds and timelocks. BIP-139's flat `keys{}` dict cannot say which spending branch a key belongs to                                                                   |
-| **descriptor cache (cached xpubs)**     | 1         | Core `DescriptorCache`. Without it a watch-only restore cannot top up hardened-derivation descriptors without re-consulting the signer                                                                                                                           |
-| **BIP-39 passphrase**                   | 1         | Bull Bitcoin `MnemonicSeedModel.passphrase`                                                                                                                                                                                                                      |
-| **CoinJoin / anonymity state**          | 1         | Wasabi. Per-address `AnonymitySet`, `AnonScoreTarget`, `AutoCoinJoin`, `PlebStopThreshold`, `ExcludedCoinsFromCoinJoin`, and `PrisonedCoins.json`. A round-trip preserves keys and history but strips every signal driving the wallet's actual privacy behaviour |
+| **CoinJoin / anonymity state**          | 1         | Wasabi. Per-address `AnonymitySet`, `AnonScoreTarget`, `AutoCoinJoin`, `PlebStopThreshold`, `ExcludedCoinsFromCoinJoin`, and `PrisonedCoins.json`. A round-trip preserves keys and history but strips every signal driving the wallet's actual privacy behaviour `AnonymitySet` is a score recomputed from chain history, not state to restore; `ExcludedCoinsFromCoinJoin` is not `coin.frozen`, it blocks coinjoin rounds rather than spending |
 | **Liquid / asset support**              | 2         | Green (confidential amounts, blinders, SLIP-77 master blinding key, asset IDs); Nunchuk `LIQUID` wallet type. decision: out of scope, carried in `proprietary` (see 1b)                                                                                          |
-| **payment requests / invoices**         | 1         | Electrum `invoices.py`                                                                                                                                                                                                                                           |
-| **contacts / address book**             | 2         | Electrum `contacts.py`; Dana `contacts` table                                                                                                                                                                                                                    |
-| **Lightning channel state**             | 1         | Electrum, entire `lnworker`/`lnchannel` plus `export_channel_backup`                                                                                                                                                                                             |
-| **backup verification state**           | 1         | Bull Bitcoin `isEncryptedVaultTested`/`isPhysicalBackupTested`                                                                                                                                                                                                   |
-| **signer health-check timestamp**       | 2         | Nunchuk `last_health_check`; Keeper `HealthCheckDetails[]`                                                                                                                                                                                                       |
+
+Decided out of scope:
+
+- **coin tags / categories** (2). Annotation, not protocol data. It belongs in the
+  BIP-0329 label record through that spec's additional-fields mechanism, not in the coin
+  object.
+- **per-branch key role association** (2). The mandatory descriptor already encodes path
+  membership, thresholds and timelocks. A second copy in the key object could disagree
+  with it, and the descriptor would have to win.
+- **descriptor cache** (1). A rare descriptor shape, regenerable whenever the signer is
+  available, and not emitted by the Core draft either.
+- **BIP-39 passphrase** (1). Resolved instead by restricting `bip39_mnemonic` to seeds
+  without a passphrase, so a passphrase-protected seed is never half backed up.
+- **payment requests / invoices** (1). The durable part is already expressible as a
+  BIP-0329 label. What is not expressible is what expires.
+- **contacts / address book** (2).
+- **Lightning channel state** (1).
+- **backup verification state** (1).
 
 ## Liana legacy compatibility
 
