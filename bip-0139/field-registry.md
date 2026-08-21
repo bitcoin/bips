@@ -297,15 +297,26 @@ too, with `tweak` set.
 |                  |         | cannot be recovered from the chain, so it is lost unless it is      |
 |                  |         | backed up.                                                          |
 |------------------|---------|---------------------------------------------------------------------|
-| spent            | boolean | The output has been spent. Whether the spending transaction         |
-|                  |         | confirmed is not recorded here; a wallet that tracks which          |
-|                  |         | transaction spent an output can rebuild that from the transactions  |
-|                  |         | it holds.                                                           |
+| spend_status     | enum    | Spend status of the output. See Spend Status.                       |
 |------------------|---------|---------------------------------------------------------------------|
 | tweak            | string  | Silent payment outputs only: the tweak needed to derive the output, |
 |                  |         | as defined by BIP-0352. Absent for ordinary outputs.                |
 |------------------|---------|---------------------------------------------------------------------|
+| sp_label         | string  | Silent payment outputs only: the BIP-0352 label scalar of the       |
+|                  |         | labelled address the output was paid to, in hexadecimal. Absent for |
+|                  |         | the unlabelled address. This is protocol data, not an annotation; a |
+|                  |         | human label goes in the account labels with type output.            |
+|------------------|---------|---------------------------------------------------------------------|
 ```
+
+### Spend Status
+
+The `spend_status` field may contain one of the following values.  
+
+- `unconfirmed`: The transaction is broadcast but not yet confirmed in a block.
+- `replaced`: The transaction has been replaced by a transaction confirmed in a block.
+- `unspent`: The transaction has been confirmed in a block and the output is unspent.
+- `spent`: The transaction has been confirmed in a block and the output is spent.
 
 [txobj]: ../bip-0139.md#transaction-object-structure
 [signerobj]: ../bip-0139.md#signer-object-structure
