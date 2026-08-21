@@ -1,15 +1,14 @@
-# BIP-0139 Wallet Support Annex
+# BIP-0139 Wallet Field Usage Annex
 
 This file maps each surveyed wallet to the fields of the
-[BIP-0139](../bip-0139.md) metadata export format it could fill from the data it already holds.
+[BIP-0139](../bip-0139.md) metadata export format it could have a use for.
 It is informational and forms no part of the specification.
 
-    ✓   the wallet could fill the field
+    ✓   the wallet could have a use for the field
     -   it could not, or has no such concept
 
-The question is what a wallet could produce, not what its current export code emits. A
-value computed on demand or stored under another name is still ✓, and so is a wallet that
-holds more detail than the field can carry.
+The table is not a statement about current implementation support. It records whether
+the wallet model has data or behavior for which the field could be useful.
 
 ## Revisions read
 
@@ -79,9 +78,7 @@ account.proprietary         |  -   |  ✓   |  ✓   |  -   |  ✓   |  -   |  �
 signer.fingerprints         |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  12
 signer.key_status           |  -   |  -   |  -   |  ✓   |  ✓   |  ✓   |  -   |  -   |  -   |  -   |  -   |  -   |  ✓   |   4
 signer.bip85_derivation_path|  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |   3
-signer.bip85_application    |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |   3
-signer.bip85_index          |  -   |  -   |  -   |  ✓   |  -   |  ✓   |  -   |  -   |  ✓   |  -   |  -   |  -   |  -   |   3
-signer.modality             |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  11
+signer.key_storage          |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  11
 signer.devices              |  -   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  -   |  ✓   |  ✓   |  11
 ----------------------------+------+------+------+------+------+------+------+------+------+------+------+------+------+-----
 key.key                     |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  ✓   |  13
