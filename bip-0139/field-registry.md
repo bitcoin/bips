@@ -137,7 +137,11 @@ Optional fields of the [account object][accountobj]. Its mandatory fields, `type
 | bip39_mnemonic     | string          | Mnemonic words following BIP-39. Since backups may be     |
 |                    |                 | stored online, this field is intended for test networks   |
 |                    |                 | only (testnet3, testnet4, signet, regtest); it MUST NOT   |
-|                    |                 | be used to store mainnet mnemonics.                       |
+|                    |                 | be used to store mainnet mnemonics. The field carries the |
+|                    |                 | words alone. A seed protected by a BIP-39 passphrase MUST |
+|                    |                 | NOT use it, since the words without the passphrase        |
+|                    |                 | restore a different wallet and give no sign that anything |
+|                    |                 | is wrong.                                                 |
 |--------------------|-----------------|-----------------------------------------------------------|
 | proprietary        | object          | Application-specific metadata.                            |
 |--------------------|-----------------|-----------------------------------------------------------|
