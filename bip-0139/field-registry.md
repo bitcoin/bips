@@ -127,9 +127,8 @@ Optional fields of the [account object][accountobj]. Its mandatory fields, `type
 |                    |                 | account; an entry in the wallet map need not be           |
 |                    |                 | referenced by any account.                                |
 |--------------------|-----------------|-----------------------------------------------------------|
-| coins              | array           | Coin objects owned by the account.                        |
-|--------------------|-----------------|-----------------------------------------------------------|
-| bip352_outputs     | array           | Silent payment owned output objects.                      |
+| coins              | array           | Coin objects owned by the account, including silent       |
+|                    |                 | payment outputs.                                          |
 |--------------------|-----------------|-----------------------------------------------------------|
 | psbts              | array           | Transaction ids referencing the wallet's psbts map, for   |
 |                    |                 | PSBTs involving this account. Present only where the      |
@@ -273,14 +272,13 @@ wallet's `transactions` map, not a field.
 ## Coin Fields
 
 Optional fields of the [coin object][coinobj]. Its mandatory field, `outpoint`, is
-specified with the object itself.
+specified with the object itself. Silent payment outputs are coins and use this object
+too, with `tweak` set.
 
 ```
 | field            | type    | description                                                         |
 |------------------|---------|---------------------------------------------------------------------|
 | amount           | integer | Output amount in sats.                                              |
-|------------------|---------|---------------------------------------------------------------------|
-| address          | string  | Address the output pays to.                                         |
 |------------------|---------|---------------------------------------------------------------------|
 | script           | string  | Output script (hex).                                                |
 |------------------|---------|---------------------------------------------------------------------|
@@ -299,43 +297,18 @@ specified with the object itself.
 |                  |         | cannot be recovered from the chain, so it is lost unless it is      |
 |                  |         | backed up.                                                          |
 |------------------|---------|---------------------------------------------------------------------|
-| spend_status     | enum    | Spend status of the output. See Spend Status.                       |
+| spent            | boolean | The output has been spent. Whether the spending transaction         |
+|                  |         | confirmed is not recorded here; a wallet that tracks which          |
+|                  |         | transaction spent an output can rebuild that from the transactions  |
+|                  |         | it holds.                                                           |
+|------------------|---------|---------------------------------------------------------------------|
+| tweak            | string  | Silent payment outputs only: the tweak needed to derive the output, |
+|                  |         | as defined by BIP-0352. Absent for ordinary outputs.                |
 |------------------|---------|---------------------------------------------------------------------|
 ```
-
-## Silent Payment Owned Output Fields
-
-Optional fields of the [silent payment owned output object][spobj]. Its mandatory fields,
-`outpoint` and `tweak`, are specified with the object itself.
-
-```
-| field        | type    | description                                                             |
-|--------------|---------|-------------------------------------------------------------------------|
-| block_height | integer | Height of the block containing the transaction. If null, the outpoint   |
-|              |         | belongs to a transaction that was unconfirmed at backup time.           |
-|--------------|---------|-------------------------------------------------------------------------|
-| amount       | integer | Output amount in sats.                                                  |
-|--------------|---------|-------------------------------------------------------------------------|
-| script       | string  | Spending script for this outpoint (hex).                                |
-|--------------|---------|-------------------------------------------------------------------------|
-| label        | string  | Label attached to this output, similar to a BIP-0329 label.             |
-|--------------|---------|-------------------------------------------------------------------------|
-| spend_status | enum    | Spend status of the output. See Spend Status.                           |
-|--------------|---------|-------------------------------------------------------------------------|
-```
-
-### Spend Status
-
-The `spend_status` field may contain one of the following values.  
-
-- `unconfirmed`: The transaction is broadcast but not yet confirmed in a block.
-- `replaced`: The transaction has been replaced by a transaction confirmed in a block.
-- `unspent`: The transaction has been confirmed in a block and the output is unspent.
-- `spent`: The transaction has been confirmed in a block and the output is spent.
 
 [txobj]: ../bip-0139.md#transaction-object-structure
 [signerobj]: ../bip-0139.md#signer-object-structure
 [keyobj]: ../bip-0139.md#key-object-structure
 [coinobj]: ../bip-0139.md#coin-object-structure
-[spobj]: ../bip-0139.md#silent-payment-owned-output-object-structure
 [accountobj]: ../bip-0139.md#account-object-structure
