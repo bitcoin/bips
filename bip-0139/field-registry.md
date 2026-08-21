@@ -250,6 +250,10 @@ wallet's `transactions` map, not a field.
 |---------------|-----------|----------------------------------------------------------------------|
 | hex           | string    | Raw transaction (hex).                                               |
 |---------------|-----------|----------------------------------------------------------------------|
+| fee           | integer   | Transaction fee in sats. Computing it needs the funding transaction  |
+|               |           | of every input, which a wallet may no longer have after restoring    |
+|               |           | from this backup.                                                    |
+|---------------|-----------|----------------------------------------------------------------------|
 | block_time    | timestamp | Time of the block confirming the transaction. Absent while           |
 |               |           | unconfirmed. This and time_received are separate measurements and    |
 |               |           | neither substitutes for the other; an exporter emits whichever it    |
