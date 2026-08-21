@@ -1,32 +1,32 @@
 # BIP-0139 Field Registry
 
 This file is the central repository of fields for the
-[BIP-0139](../bip-0139.md) wallet backup format.  
+[BIP-0139](../bip-0139.md) wallet metadata export format.  
 The `optional` column marks the optional fields, a blank means the field is mandatory.
 Mandatory fields are fixed by BIP-0139, so a pull request against this file may add or
 change optional fields only.  
 
 ## Wallet Fields
 
-Fields of the top-level wallet backup object.
+Fields of the top-level wallet object.
 
 ```
 | field        | optional | type      | description                                                |
 |--------------|----------|-----------|------------------------------------------------------------|
-| version      |          | string    | Backup format and version. See Wallet Backup Structure for |
+| version      |          | string    | Export format and version. See Wallet Object Structure for |
 |              |          |           | the required value.                                        |
 |--------------|----------|-----------|------------------------------------------------------------|
-| network      |          | string    | Network the backup covers. See Wallet Backup Structure for |
-|              |          |           | the permitted values.                                      |
+| network      |          | string    | Network of the wallet. See Wallet Object Structure for the |
+|              |          |           | permitted values.                                          |
 |--------------|----------|-----------|------------------------------------------------------------|
 | accounts     |          | array     | Account objects. Must contain at least one.                |
 |--------------|----------|-----------|------------------------------------------------------------|
 | name         | optional | string    | Wallet name.                                               |
 |--------------|----------|-----------|------------------------------------------------------------|
-| note         | optional | string    | Note about this backup, written by the user when the       |
-|              |          |           | backup is made.                                            |
+| note         | optional | string    | Note about this export, written by the user when the       |
+|              |          |           | export is made.                                            |
 |--------------|----------|-----------|------------------------------------------------------------|
-| date         | optional | timestamp | When the backup was made.                                  |
+| date         | optional | timestamp | When the export was made.                                  |
 |--------------|----------|-----------|------------------------------------------------------------|
 | transactions | optional | object    | Maps a transaction id to a transaction object.             |
 |              |          |           | Transactions are keyed here rather than held on the        |
@@ -128,7 +128,7 @@ Fields of the [account object][accountobj].
 |--------------------|----------|-----------------|------------------------------------------------|
 | last_height        | optional | integer         | Height this account has been synced to. A      |
 |                    |          |                 | wallet that tracks one sync point for the      |
-|                    |          |                 | whole backup writes that same height into      |
+|                    |          |                 | whole export writes that same height into      |
 |                    |          |                 | every account. Accounts that sync              |
 |                    |          |                 | independently, such as a separately scanned    |
 |                    |          |                 | silent payments account, carry their own.      |
@@ -163,7 +163,7 @@ Fields of the [account object][accountobj].
 |                    |          |                 | only where the wallet can attribute a PSBT to  |
 |                    |          |                 | an account.                                    |
 |--------------------|----------|-----------------|------------------------------------------------|
-| bip39_mnemonic     | optional | string          | Mnemonic words following BIP-39. Since backups |
+| bip39_mnemonic     | optional | string          | Mnemonic words following BIP-039. Since exports|
 |                    |          |                 | may be stored online, this field is intended   |
 |                    |          |                 | for test networks only (testnet3, testnet4,    |
 |                    |          |                 | signet, regtest); it MUST NOT be used to store |
@@ -289,7 +289,7 @@ wallet's `transactions` map, not a field.
 |---------------|----------|-----------|-----------------------------------------------------------|
 | fee           | optional | integer   | Transaction fee in sats. Computing it needs the funding   |
 |               |          |           | transaction of every input, which a wallet may no longer  |
-|               |          |           | have after restoring from this backup.                    |
+|               |          |           | have after restoring from this export.                    |
 |---------------|----------|-----------|-----------------------------------------------------------|
 | block_time    | optional | timestamp | Time of the block confirming the transaction. Absent      |
 |               |          |           | while unconfirmed. This and time_received are separate    |
@@ -326,8 +326,7 @@ too, with `tweak` set.
 | script           | optional | string  | Output script (hex).                                     |
 |------------------|----------|---------|----------------------------------------------------------|
 | block_height     | optional | integer | Height of the block containing the funding transaction.  |
-|                  |          |         | If null, that transaction was unconfirmed at backup      |
-|                  |          |         | time.                                                    |
+|                  |          |         | If null, that transaction was unconfirmed at export.     |
 |------------------|----------|---------|----------------------------------------------------------|
 | is_change        | optional | boolean | The output was paid to the change keychain.              |
 |------------------|----------|---------|----------------------------------------------------------|
