@@ -58,12 +58,11 @@ Fields of the [account object][accountobj].
 ```
 | field              | optional | type            | description                                    |
 |--------------------|----------|-----------------|------------------------------------------------|
-| type               |          | string          | Language `descriptor` is written in. See       |
-|                    |          |                 | Account Object Structure for the permitted     |
-|                    |          |                 | values.                                        |
+| type               |          | string          | Type of account descriptor. See Account Object |
+|                    |          |                 | Structure for the permitted values.            |
 |--------------------|----------|-----------------|------------------------------------------------|
-| descriptor         |          | string/array    | The account structure, written in the language |
-|                    |          |                 | named by `type`. See Account Object Structure. |
+| descriptor         |          | string/array    | Account descriptor. Its structure is defined   |
+|                    |          |                 | by `type`. See Account Object Structure.       |
 |--------------------|----------|-----------------|------------------------------------------------|
 | name               | optional | string          | Account name.                                  |
 |--------------------|----------|-----------------|------------------------------------------------|
@@ -77,9 +76,9 @@ Fields of the [account object][accountobj].
 |                    |          |                 | hidden account may still be active.            |
 |--------------------|----------|-----------------|------------------------------------------------|
 | change_descriptor  | optional | string          | Explicit change-side descriptor, paired with   |
-|                    |          |                 | descriptor. For wallets that do not use        |
-|                    |          |                 | BIP-389 multipath descriptors, as e.g. Bitcoin |
-|                    |          |                 | Core does.                                     |
+|                    |          |                 | descriptor. For wallets that keep receive and  |
+|                    |          |                 | change descriptors separate, such as Bitcoin   |
+|                    |          |                 | Core exports.                                  |
 |--------------------|----------|-----------------|------------------------------------------------|
 | receive_index      | optional | integer         | Maximum receive index for generated receive    |
 |                    |          |                 | addresses.                                     |
@@ -102,11 +101,7 @@ Fields of the [account object][accountobj].
 | gap_limit          | optional | integer         | Consecutive unused addresses an importer must  |
 |                    |          |                 | scan past the last used one before concluding  |
 |                    |          |                 | there are no more. A single value covers both  |
-|                    |          |                 | the receive and change sides. An exporter      |
-|                    |          |                 | holding a distinct limit per side should emit  |
-|                    |          |                 | the larger, since a limit that is too high     |
-|                    |          |                 | only costs scanning work while one that is too |
-|                    |          |                 | low misses addresses.                          |
+|                    |          |                 | the receive and change sides.                  |
 |--------------------|----------|-----------------|------------------------------------------------|
 | birth_block        | optional | integer         | Account creation time as a block height. An    |
 |                    |          |                 | importer may start scanning here instead of at |
@@ -132,9 +127,7 @@ Fields of the [account object][accountobj].
 | last_height        | optional | integer         | Height this account has been synced to. A      |
 |                    |          |                 | wallet that tracks one sync point for the      |
 |                    |          |                 | whole export writes that same height into      |
-|                    |          |                 | every account. Accounts that sync              |
-|                    |          |                 | independently, such as a separately scanned    |
-|                    |          |                 | silent payments account, carry their own.      |
+|                    |          |                 | every account.                                 |
 |--------------------|----------|-----------------|------------------------------------------------|
 | bip352_labels      | optional | array or object | The silent payment label indices in use.       |
 |                    |          |                 | Either an array of integers ([0, 1, 2]) or an  |
@@ -203,38 +196,12 @@ Fields of the [signer object][signerobj].
 | bip85_derivation_path | optional | string  | BIP-0085 derivation path used to derive this        |
 |                       |          |         | signer's key from a master key.                     |
 |-----------------------|----------|---------|-----------------------------------------------------|
-| bip85_application     | optional | string  | The BIP-0085 application the key was derived for.   |
-|                       |          |         | Needed alongside bip85_derivation_path when the     |
-|                       |          |         | derived secret is not itself a BIP32 key.           |
+| key_storage           | optional | enum    | Whether the signer's key is `hot` or `cold`.        |
 |-----------------------|----------|---------|-----------------------------------------------------|
-| bip85_index           | optional | integer | Index used in the BIP-0085 derivation.              |
-|-----------------------|----------|---------|-----------------------------------------------------|
-| modality              | optional | enum    | Where the key material lives: dedicated (a device   |
-|                       |          |         | whose only job is signing) or general (software on  |
-|                       |          |         | a general- purpose or network- connected device,    |
-|                       |          |         | including a remote service). The value can only     |
-|                       |          |         | degrade over a key's lifetime: material that has    |
-|                       |          |         | been on a general device never becomes dedicated    |
-|                       |          |         | again. An importer that reads a value more          |
-|                       |          |         | dedicated than the one it recorded MUST treat it as |
-|                       |          |         | suspect, and MUST NOT silently promote it.          |
-|-----------------------|----------|---------|-----------------------------------------------------|
-| devices               | optional | array   | Records of how this signer can be reached. Each     |
-|                       |          |         | entry may contain vendor and model strings naming   |
-|                       |          |         | the product, a transports array of strings such as  |
-|                       |          |         | usb, qr, nfc, sd or service, a registration string  |
-|                       |          |         | holding an opaque blob proving a descriptor was     |
-|                       |          |         | registered on that device, and a last_health_check  |
-|                       |          |         | timestamp recording when signing through it was     |
-|                       |          |         | last proven to work. The array is advisory: it      |
-|                       |          |         | caches how the signer was last reached, not a claim |
-|                       |          |         | that the key belongs to a device, and a key may be  |
-|                       |          |         | moved to other hardware at any time. An importer    |
-|                       |          |         | MAY ignore it and MUST fall back to asking the      |
-|                       |          |         | user. registration is the one member that does not  |
-|                       |          |         | degrade gracefully, since a blob produced on one    |
-|                       |          |         | device is meaningless on another, so an importer    |
-|                       |          |         | MUST re-verify it rather than trust it.             |
+| devices               | optional | array   | Metadata and connection preferences for the last    |
+|                       |          |         | seen devices holding this key. Entries may include  |
+|                       |          |         | vendor, model, transports, registration and         |
+|                       |          |         | last_health_check.                                  |
 ```
 
 ### Key Status
