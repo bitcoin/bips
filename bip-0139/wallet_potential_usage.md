@@ -1,7 +1,7 @@
 # BIP-0139 Wallet Support Annex
 
 This file maps each surveyed wallet to the fields of the
-[BIP-0139](../bip-0139.md) backup format it could fill from the data it already holds.
+[BIP-0139](../bip-0139.md) metadata export format it could fill from the data it already holds.
 It is informational and forms no part of the specification.
 
     ✓   the wallet could fill the field
