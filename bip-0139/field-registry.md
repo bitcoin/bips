@@ -86,15 +86,18 @@ Optional fields of the [account object][accountobj]. Its mandatory fields, `type
 |                    |                 | start scanning here instead of at genesis. Most wallets   |
 |                    |                 | record a creation date rather than a height. An exporter  |
 |                    |                 | holding only a date SHOULD convert it against a chain     |
-|                    |                 | source. If it cannot, it MAY estimate the height, and the |
-|                    |                 | estimate MUST be at or before the true height, never      |
-|                    |                 | after: too early only costs scanning time, while too late |
-|                    |                 | silently misses transactions and the funds in them. An    |
-|                    |                 | estimate from a date should subtract a margin covering    |
-|                    |                 | the drift of a fixed block interval, on the order of a    |
-|                    |                 | difficulty period. An exporter that can do neither SHOULD |
-|                    |                 | omit the field; an absent birth_block means a full scan,  |
-|                    |                 | which is slow but correct.                                |
+|                    |                 | source. If it cannot, it MAY estimate the height as (date |
+|                    |                 | - genesis block time) / 600, anchored at the network's    |
+|                    |                 | genesis block and never at the chain tip: the chain has   |
+|                    |                 | historically run slightly ahead of the ten-minute target, |
+|                    |                 | so extrapolating forward from genesis lands below the     |
+|                    |                 | true height while counting back from the tip lands above  |
+|                    |                 | it. The estimate MUST be at or before the true height,    |
+|                    |                 | never after, because too early only costs scanning time   |
+|                    |                 | while too late silently misses transactions and the funds |
+|                    |                 | in them. An exporter that can do neither SHOULD omit the  |
+|                    |                 | field; an absent birth_block means a full scan, which is  |
+|                    |                 | slow but correct.                                         |
 |--------------------|-----------------|-----------------------------------------------------------|
 | last_height        | integer         | Height this account has been synced to. A wallet that     |
 |                    |                 | tracks one sync point for the whole backup writes that    |

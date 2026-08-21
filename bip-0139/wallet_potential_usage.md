@@ -169,7 +169,7 @@ Notes:
 | Electrum       | moderate-hard                          | Mandatory `type`/`descriptor` unsatisfiable for imported-address and Old_KeyStore wallets                                |
 | Green          | moderate (singlesig) / hard (multisig) | Multisig subaccounts have no descriptor representation whatsoever                                                        |
 | Specter        | moderate                               | Closest structural match of any wallet; needs a top-level container to wrap N wallet files                               |
-| Dana           | moderate-hard                          | No descriptor representation for a `bip_392` account exists to build on                                                  |
+| Dana           | moderate-hard                          | No descriptor representation for a `bip392` account exists to build on                                                  |
 | Wasabi         | hard                                   | No descriptors; one file holds 2-3 branches; core privacy state has no home                                              |
 | Bitkey         | moderate                               | Three-key structure fits well, but descriptor, indices and tx cache are all synthesised from BDK live rather than stored |
 
