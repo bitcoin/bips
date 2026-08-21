@@ -1,13 +1,15 @@
-# BIP-139 wallet survey
+# BIP-0139 Wallet Support Annex
 
-Can each wallet fill each BIP-139 field?
+This file maps each surveyed wallet to the fields of the
+[BIP-0139](../bip-0139.md) backup format it could fill from the data it already holds.
+It is informational and forms no part of the specification.
 
-    ✓   it can
-    -   it cannot, or has no such concept
+    ✓   the wallet could fill the field
+    -   it could not, or has no such concept
 
-A wallet holding more than a field can carry still scores ✓; the loss is listed under
-missing fields. A value computed on demand, stored under another name, or not emitted by
-current export code is ✓ - the question is what the wallet can produce.
+The question is what a wallet could produce, not what its current export code emits. A
+value computed on demand or stored under another name is still ✓, and so is a wallet that
+holds more detail than the field can carry.
 
 ## Revisions read
 
