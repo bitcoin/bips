@@ -114,20 +114,17 @@ coin.sp_label               |  -   |  -   |  -   |  ✓   |  -   |  -   |  -   |
 
 ## Missing fields
 
-Ranked by how many wallets want them.
+Ranked by how many wallets want them. Six entries from the first pass are gone: the draft
+now carries `account.gap_limit`, `coin.frozen`, the coin object,
+`signer.modality`/`signer.devices`, `signer.bip85_application`/`signer.bip85_index`, and
+`coin.sp_label`.
 
 | Missing field                           | Wanted by | Evidence                                                                                                                                                                                                                                                         |
 |-----------------------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **gap limit**                           | 5         | Nunchuk `DbKeys::GAP_LIMIT`; Sparrow `wallet.gapLimit`; Bitcoin Safe `Wallet.gap` (=20); Electrum `gap_limit`/`gap_limit_for_change`; Wasabi `MinGapLimit`/`AbsoluteMinGapLimit`=21 - **decision: add**                                                          |
-| **frozen / do-not-spend UTXO flag**     | 6         | Nunchuk `COININFO.LOCKED`; Sparrow `Status.FROZEN`; Electrum `set_frozen_state_of_addresses`; Keeper `isManualOverride`/`dustReason`; Specter `wallet.frozen_utxo`; Bull Bitcoin `FrozenUtxos` table                                                             |
-| **a general (non-SP) UTXO/coin object** | 5         | Liana `Coin`; Wasabi `SmartCoin`; Sparrow `BlockTransactionHashIndex`; Nunchuk `UnspentOutput`; Green tx-list outputs. The only outpoint-level object in BIP-139 is `bip352_outputs`, which is silent-payments-only                                              |
-| **hardware signer device identity**     | 5         | Sparrow `keystore.deviceRegistration`; Keeper `Signer.type`; Bitcoin Safe `KeyStore.hardware_signer_id`; Nunchuk `SignerType`; Specter `Device.device_type`. All lose which device a key lives on                                                                |
 | **coin tags / categories**              | 2         | Nunchuk `TAGS`/`COLLECTIONS` tables; Bitcoin Safe `Label.category`, currently smuggled into the label string with a `" #"` separator on export                                                                                                                   |
 | **per-branch key role association**     | 2         | Nunchuk `Timelock`/`ScriptNode`; Keeper `MiniscriptElements` Phase/Path with per-path thresholds and timelocks. BIP-139's flat `keys{}` dict cannot say which spending branch a key belongs to                                                                   |
 | **descriptor cache (cached xpubs)**     | 1         | Core `DescriptorCache`. Without it a watch-only restore cannot top up hardened-derivation descriptors without re-consulting the signer                                                                                                                           |
 | **BIP-39 passphrase**                   | 1         | Bull Bitcoin `MnemonicSeedModel.passphrase`                                                                                                                                                                                                                      |
-| **BIP-85 application + index**          | 1         | Bull Bitcoin derives non-key secrets; `bip85_derivation_path` alone does not round-trip them                                                                                                                                                                     |
-| **SP label index as protocol data**     | 2         | Dana persists the raw 32-byte BIP-352 label scalar in `owned_outputs.label`; Bull Bitcoin the same. BIP-139's `sp_output.label` is documented as "similar to a BIP-0329 label" (human text). Same name, different semantics - a false friend                     |
 | **CoinJoin / anonymity state**          | 1         | Wasabi. Per-address `AnonymitySet`, `AnonScoreTarget`, `AutoCoinJoin`, `PlebStopThreshold`, `ExcludedCoinsFromCoinJoin`, and `PrisonedCoins.json`. A round-trip preserves keys and history but strips every signal driving the wallet's actual privacy behaviour |
 | **Liquid / asset support**              | 2         | Green (confidential amounts, blinders, SLIP-77 master blinding key, asset IDs); Nunchuk `LIQUID` wallet type. decision: out of scope, carried in `proprietary` (see 1b)                                                                                          |
 | **payment requests / invoices**         | 1         | Electrum `invoices.py`                                                                                                                                                                                                                                           |
@@ -209,16 +206,17 @@ Three wallets already ship something close to BIP-139:
 - **Specter `Key.key_type` means output script purpose** (`wpkh`/`sh-wsh`/`wsh`/`tr`,
   `key.py:36`), not BIP-139's ownership axis. Copying by name produces garbage.
 - **Specter `output_type` uses `"taproot"`** where Core and BIP-139 use `"bech32m"`.
-- **`sp_output.label` is a false friend.** Dana and Bull Bitcoin both persist the raw
-  BIP-352 label scalar under that name; BIP-139 documents it as human text.
 - **Liana's `Coin.account` is not an account** - it is the keychain, `0` for receive and
   `1` for change. Its `is_coinbase` is populated from `is_immature`, not from whether the
   output is a coinbase.
 - **Keeper's `lastSynched` is a timestamp**, not a height, despite the name.
 - **Dana's `txid` is nullable** (`RecordedTransactionUnknownOutgoing`), conflicting with
   BIP-139's mandatory `txid`.
-- **The Core draft is not current with the spec.** It emits `version` as integer `1` and
-  checks it as `getInt<int>()`; it places `labels` and `transactions` at the **wallet
-  root** rather than per-account (a structural, not naming, divergence); and it emits
-  `receive_range_start`/`receive_range_end`, `bip329_labels`, and `block_height` where the
-  spec now says `range_start`/`range_end`, `labels`, and `birth_block`.
+- **The Core draft is not current with the spec** (`pyth-backup`, `1e7ff0fe`). It emits
+  `version` as the integer `1` and checks it with `getInt<int>()` where the spec requires
+  the string `BIP139-1`; `bip_380` where the account type enum is now `bip380`;
+  `bip329_labels` at the wallet root where labels are per-account `labels`; `transactions`
+  as a root array where the spec keys a map by txid; and `receive_range_start`,
+  `receive_range_end`, `descriptor_id`, `change_descriptor_id` and `block_height` where the
+  spec says `range_start`, `range_end`, `birth_block` and no descriptor id at all. It has
+  no coin object, no `signers` and no `psbts`.
