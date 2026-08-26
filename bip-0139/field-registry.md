@@ -203,7 +203,8 @@ The device object may contain any of these fields.
 |-------------------|----------|-----------|------------------------------------------------------|
 | model             | optional | string    | Device model name.                                   |
 |-------------------|----------|-----------|------------------------------------------------------|
-| transports        | optional | TBD       | TBD; usb/sdcard/bluetooth/nfc/qr                     |
+| transports        | optional | array     | Media over which the device can be reached, in order |
+|                   |          |           | of preference. See Device Transports.                |
 |-------------------|----------|-----------|------------------------------------------------------|
 | registered        | optional | bool      | Whether the descriptor has been registered on the    |
 |                   |          |           | device.                                              |
@@ -214,6 +215,20 @@ The device object may contain any of these fields.
 | last_health_check | optional | timestamp | Timestamp of the last health check processed on this |
 |                   |          |           | device.                                              |
 ```
+
+### Device Transports
+
+The `transports` array may contain any of the following values.  
+
+- `usb`: Wired connection, whether the device presents as an HID device or as a serial
+  port.  
+- `bluetooth`: Wireless connection to the host.  
+- `nfc`: Tap, including devices presenting as a smartcard.  
+- `qr`: QR codes, animated or not. The encoding is not recorded here.  
+- `sdcard`: A file carried to the device on removable storage.  
+
+Entries are ordered by preference, most preferred first. An importer MUST ignore a
+value it does not know rather than reject the whole array.
 
 ## Key Fields
 
