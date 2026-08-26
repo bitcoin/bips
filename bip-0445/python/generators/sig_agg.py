@@ -3,7 +3,6 @@ from typing import List
 from frost_ref import (
     InvalidContributionError,
     SessionContext,
-    SignersContext,
     nonce_agg,
     partial_sig_agg,
     partial_sig_verify,
@@ -59,14 +58,22 @@ class SigAggGroupBuilder:
         is_xonly: List[bool],
         msg: bytes,
         comment: str,
-    ) -> None:
-        pubshares = [self.inputs.pubshares[i] for i in set_indices]
+        pubshares_absent: bool = False,
+    ) -> bytes:
+        # An absent public share list drops every check that needs them: partial
+        # signature verification, the session's key material check, and Sign's
+        # check of the signer's own secshare.
+        pubshares = (
+            None
+            if pubshares_absent
+            else [self.inputs.pubshares[i] for i in set_indices]
+        )
         pubnonces = [self.inputs.pubnonces[i] for i in set_indices]
         ids = list(set_indices)
         aggnonce = nonce_agg(pubnonces)
         tweaks = [COMMON_TWEAKS[i] for i in tweak_indices]
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(signers, aggnonce, tweaks, is_xonly, msg)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+        session = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
         psigs = []
         for signer_index, my_id in enumerate(set_indices):
             psig = sign(
@@ -76,15 +83,17 @@ class SigAggGroupBuilder:
                 session,
             )
             psigs.append(psig)
-            assert partial_sig_verify(
-                psig, pubnonces, signers, tweaks, is_xonly, msg, signer_index
-            )
+            if pubshares is not None:
+                verify_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+                assert partial_sig_verify(
+                    psig, pubnonces, *verify_set, tweaks, is_xonly, msg, signer_index
+                )
         expected = partial_sig_agg(psigs, session)
         self.group["valid_tests"].append(
             {
                 "comment": comment,
                 "ids": ids,
-                "pubshare_indices": list(set_indices),
+                "pubshare_indices": None if pubshares_absent else list(set_indices),
                 "aggnonce": bytes_to_hex(aggnonce),
                 "tweak_indices": tweak_indices,
                 "is_xonly": is_xonly,
@@ -93,6 +102,7 @@ class SigAggGroupBuilder:
                 "expected": bytes_to_hex(expected),
             }
         )
+        return expected
 
     def _append_error(
         self, set_indices: List[int], fault: str, error: str, comment: str
@@ -102,8 +112,8 @@ class SigAggGroupBuilder:
         ids = list(set_indices)
         aggnonce = nonce_agg(pubnonces)
         msg = COMMON_MSGS[0]
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(signers, aggnonce, [], [], msg)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+        session = SessionContext(*signer_set, aggnonce, [], [], msg)
         psigs = []
         for signer_index, my_id in enumerate(set_indices):
             psig = sign(
@@ -114,7 +124,7 @@ class SigAggGroupBuilder:
             )
             psigs.append(psig)
             assert partial_sig_verify(
-                psig, pubnonces, signers, [], [], msg, signer_index
+                psig, pubnonces, *signer_set, [], [], msg, signer_index
             )
 
         if fault == "psig_out_of_range":
@@ -143,13 +153,22 @@ class SigAggGroupBuilder:
     def add_valid_tests(self) -> None:
         t, n = self.t, self.n
         # Minimum threshold subset.
-        self._append_valid(
+        sig_min = self._append_valid(
             self.min_s,
             [],
             [],
             COMMON_MSGS[0],
             "Minimum threshold subset of signers, no tweaks",
         )
+        sig_no_pubshares = self._append_valid(
+            self.min_s,
+            [],
+            [],
+            COMMON_MSGS[0],
+            "Public shares list is absent",
+            pubshares_absent=True,
+        )
+        assert sig_no_pubshares == sig_min
         # Order-invariance (needs a set of size >= 2 to be meaningful).
         if t >= 2:
             rev = list(reversed(self.min_s))

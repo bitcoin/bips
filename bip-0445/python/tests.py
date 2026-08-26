@@ -11,7 +11,6 @@ from frost_ref.signing import (
     InvalidContributionError,
     PlainPk,
     SessionContext,
-    SignersContext,
     XonlyPk,
     deterministic_sign,
     get_xonly_pk,
@@ -169,7 +168,13 @@ def test_sign_verify_vectors():
 
         for tc in group["valid_tests"]:
             ids_tmp = tc["ids"]
-            pubshares_tmp = [PlainPk(pubshares[i]) for i in tc["pubshare_indices"]]
+            # A null pubshare_indices is a session whose public share list is absent,
+            # which leaves it unable to run partial signature verification.
+            valid_pubshares = (
+                None
+                if tc["pubshare_indices"] is None
+                else [PlainPk(pubshares[i]) for i in tc["pubshare_indices"]]
+            )
             pubnonces_tmp = [pubnonces[i] for i in tc["pubnonce_indices"]]
             aggnonce_tmp = bytes.fromhex(tc["aggnonce"])
             # Make sure that pubnonces and aggnonce in the test vector are consistent
@@ -180,16 +185,18 @@ def test_sign_verify_vectors():
             secshare = secshares[tc["secshare_index"]]
             expected = bytes.fromhex(tc["expected"])
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
-            session_ctx = SessionContext(signers_tmp, aggnonce_tmp, [], [], msg)
+            signer_set = (n, t, ids_tmp, valid_pubshares, thresh_pk)
+            session_ctx = SessionContext(*signer_set, aggnonce_tmp, [], [], msg)
             # WARNING: An actual implementation should _not_ copy the secnonce.
             # Reusing the secnonce, as we do here for testing purposes, can leak the
             # secret key.
             secnonce_tmp = bytearray(secnonces[tc["secnonce_index"]])
             assert sign(secnonce_tmp, secshare, my_id, session_ctx) == expected
-            assert partial_sig_verify(
-                expected, pubnonces_tmp, signers_tmp, [], [], msg, signer_index
-            )
+            if valid_pubshares is not None:
+                verify_set = (n, t, ids_tmp, valid_pubshares, thresh_pk)
+                assert partial_sig_verify(
+                    expected, pubnonces_tmp, *verify_set, [], [], msg, signer_index
+                )
 
         for tc in group["sign_error_tests"]:
             exception, except_fn = get_error_details(tc)
@@ -201,8 +208,8 @@ def test_sign_verify_vectors():
             secnonce_tmp = bytearray(secnonces[tc["secnonce_index"]])
             secshare_tmp = secshares[tc["secshare_index"]]
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
-            session_ctx = SessionContext(signers_tmp, aggnonce_tmp, [], [], msg)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            session_ctx = SessionContext(*signer_set, aggnonce_tmp, [], [], msg)
             assert_raises(
                 exception,
                 lambda: sign(secnonce_tmp, secshare_tmp, my_id, session_ctx),
@@ -217,11 +224,11 @@ def test_sign_verify_vectors():
             msg = bytes.fromhex(tc["msg"])
             signer_index = tc["signer_index"]
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
             assert not partial_sig_verify(
                 psig,
                 pubnonces_tmp,
-                signers_tmp,
+                *signer_set,
                 [],
                 [],
                 msg,
@@ -237,11 +244,11 @@ def test_sign_verify_vectors():
             pubnonces_tmp = [pubnonces[i] for i in tc["pubnonce_indices"]]
             msg = bytes.fromhex(tc["msg"])
             signer_index = tc["signer_index"]
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
             assert_raises(
                 exception,
                 lambda: partial_sig_verify(
-                    psig, pubnonces_tmp, signers_tmp, [], [], msg, signer_index
+                    psig, pubnonces_tmp, *signer_set, [], [], msg, signer_index
                 ),
                 except_fn,
             )
@@ -284,15 +291,15 @@ def test_tweak_vectors():
             secnonce = bytearray(secnonces[test_case["secnonce_index"]])
             expected = bytes.fromhex(test_case["expected"])
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
             session_ctx = SessionContext(
-                signers_tmp, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
+                *signer_set, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
             )
             assert sign(secnonce, secshare, my_id, session_ctx) == expected
             assert partial_sig_verify(
                 expected,
                 pubnonces_tmp,
-                signers_tmp,
+                *signer_set,
                 tweaks_tmp,
                 tweak_modes_tmp,
                 msg,
@@ -313,9 +320,9 @@ def test_tweak_vectors():
             secshare = secshares[test_case["secshare_index"]]
             secnonce = bytearray(secnonces[test_case["secnonce_index"]])
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
             session_ctx = SessionContext(
-                signers_tmp, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
+                *signer_set, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
             )
             assert_raises(
                 exception,
@@ -339,9 +346,12 @@ def test_det_sign_vectors():
 
         for test_case in group["valid_tests"]:
             ids_tmp = test_case["ids"]
-            pubshares_tmp = [
-                PlainPk(pubshares[i]) for i in test_case["pubshare_indices"]
-            ]
+            # A null pubshare_indices is a session whose public share list is absent.
+            valid_pubshares = (
+                None
+                if test_case["pubshare_indices"] is None
+                else [PlainPk(pubshares[i]) for i in test_case["pubshare_indices"]]
+            )
             secshare = secshares[test_case["secshare_index"]]
             aggothernonce = (
                 bytes.fromhex(test_case["aggothernonce"])
@@ -360,12 +370,12 @@ def test_det_sign_vectors():
             )
             expected = fromhex_all(test_case["expected"])
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, valid_pubshares, thresh_pk)
             pubnonce, psig = deterministic_sign(
                 secshare,
                 my_id,
                 aggothernonce,
-                signers_tmp,
+                *signer_set,
                 tweaks,
                 is_xonly,
                 msg,
@@ -381,10 +391,17 @@ def test_det_sign_vectors():
             else:
                 aggnonce_tmp = pubnonce
             session_ctx = SessionContext(
-                signers_tmp, aggnonce_tmp, tweaks, is_xonly, msg
+                *signer_set, aggnonce_tmp, tweaks, is_xonly, msg
+            )
+            # A signer always knows its own public share, even in a session whose
+            # public share list is absent, so the self-check runs either way.
+            own_pubshare = (
+                pubshares[my_id]
+                if valid_pubshares is None
+                else valid_pubshares[signer_index]
             )
             assert partial_sig_verify_internal(
-                psig, my_id, pubnonce, pubshares_tmp[signer_index], session_ctx
+                psig, my_id, pubnonce, own_pubshare, session_ctx
             )
 
         for test_case in group["error_tests"]:
@@ -409,14 +426,14 @@ def test_det_sign_vectors():
                 else None
             )
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
             assert_raises(
                 exception,
                 lambda: deterministic_sign(
                     secshare,
                     my_id,
                     aggothernonce,
-                    signers_tmp,
+                    *signer_set,
                     tweaks,
                     is_xonly,
                     msg,
@@ -439,9 +456,12 @@ def test_sig_agg_vectors():
 
         for test_case in group["valid_tests"]:
             ids_tmp = test_case["ids"]
-            pubshares_tmp = [
-                PlainPk(pubshares[i]) for i in test_case["pubshare_indices"]
-            ]
+            # A null pubshare_indices is a session whose public share list is absent.
+            valid_pubshares = (
+                None
+                if test_case["pubshare_indices"] is None
+                else [PlainPk(pubshares[i]) for i in test_case["pubshare_indices"]]
+            )
             aggnonce_tmp = bytes.fromhex(test_case["aggnonce"])
             tweaks_tmp = [tweaks[i] for i in test_case["tweak_indices"]]
             tweak_modes_tmp = test_case["is_xonly"]
@@ -449,9 +469,9 @@ def test_sig_agg_vectors():
             msg = bytes.fromhex(test_case["msg"])
             expected = bytes.fromhex(test_case["expected"])
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, valid_pubshares, thresh_pk)
             session_ctx = SessionContext(
-                signers_tmp, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
+                *signer_set, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
             )
             bip340sig = partial_sig_agg(psigs_tmp, session_ctx)
             assert bip340sig == expected
@@ -472,15 +492,20 @@ def test_sig_agg_vectors():
             psigs_tmp = fromhex_all(test_case["psigs"])
             msg = bytes.fromhex(test_case["msg"])
 
-            signers_tmp = SignersContext(n, t, ids_tmp, pubshares_tmp, thresh_pk)
+            signer_set = (n, t, ids_tmp, pubshares_tmp, thresh_pk)
             session_ctx = SessionContext(
-                signers_tmp, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
+                *signer_set, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
             )
             assert_raises(
                 exception,
                 lambda: partial_sig_agg(psigs_tmp, session_ctx),
                 except_fn,
             )
+
+
+# Whether the signer at position i holds the participants' pubshares list
+def knows_pubshares(i: int) -> bool:
+    return i % 2 == 1
 
 
 def test_sign_and_verify_random(iterations: int) -> None:
@@ -507,7 +532,11 @@ def test_sign_and_verify_random(iterations: int) -> None:
         # we do it here to improve the code readability
         signer_secshares = [secshares[i] for i in signer_indices]
 
-        signers_ctx = SignersContext(n, t, signer_ids, signer_pubshares, thresh_pk)
+        signer_set = (n, t, signer_ids, signer_pubshares, thresh_pk)
+        # Not every signer holds the participants' pubshares list. A signer
+        # without them can still produce a partial signature, but it cannot
+        # run partial_sig_verify.
+        signer_set_no_pubshares = (n, t, signer_ids, None, thresh_pk)
 
         # In this example, the message and threshold pubkey are known
         # before nonce generation, so they can be passed into the nonce
@@ -555,11 +584,18 @@ def test_sign_and_verify_random(iterations: int) -> None:
         else:
             aggothernonce = nonce_agg(signer_pubnonces)
             aux_rand = secrets.token_bytes(32)
+            # The last signer follows the same rule as everyone else, so it
+            # signs deterministically without the public shares whenever the
+            # number of signers is odd.
+            det_pubshares = (
+                signer_pubshares if knows_pubshares(signer_count - 1) else None
+            )
+            det_signer_set = (n, t, signer_ids, det_pubshares, thresh_pk)
             pubnonce_final, psig_final = deterministic_sign(
                 signer_secshares[-1],
                 signer_ids[-1],
                 aggothernonce,
-                signers_ctx,
+                *det_signer_set,
                 tweaks,
                 tweak_modes,
                 msg,
@@ -568,7 +604,10 @@ def test_sign_and_verify_random(iterations: int) -> None:
 
         signer_pubnonces.append(pubnonce_final)
         aggnonce = nonce_agg(signer_pubnonces)
-        session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, tweak_modes, msg)
+        session_ctx = SessionContext(*signer_set, aggnonce, tweaks, tweak_modes, msg)
+        session_ctx_no_pubshares = SessionContext(
+            *signer_set_no_pubshares, aggnonce, tweaks, tweak_modes, msg
+        )
 
         signer_psigs = []
         for i in range(signer_count):
@@ -576,17 +615,22 @@ def test_sign_and_verify_random(iterations: int) -> None:
                 psig_i = psig_final  # last signer would have already deterministically signed
             else:
                 psig_i = sign(
-                    signer_secnonces[i], signer_secshares[i], signer_ids[i], session_ctx
+                    signer_secnonces[i],
+                    signer_secshares[i],
+                    signer_ids[i],
+                    session_ctx if knows_pubshares(i) else session_ctx_no_pubshares,
                 )
-            assert partial_sig_verify(
-                psig_i,
-                signer_pubnonces,
-                signers_ctx,
-                tweaks,
-                tweak_modes,
-                msg,
-                i,
-            )
+            # Only a signer holding the pubshares list can verify.
+            if knows_pubshares(i):
+                assert partial_sig_verify(
+                    psig_i,
+                    signer_pubnonces,
+                    *signer_set,
+                    tweaks,
+                    tweak_modes,
+                    msg,
+                    i,
+                )
             signer_psigs.append(psig_i)
 
         # An exception is thrown if secnonce is accidentally reused
@@ -602,7 +646,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
         assert not partial_sig_verify(
             signer_psigs[0],
             signer_pubnonces,
-            signers_ctx,
+            *signer_set,
             tweaks,
             tweak_modes,
             msg,
@@ -612,7 +656,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
         assert not partial_sig_verify(
             signer_psigs[0],
             signer_pubnonces,
-            signers_ctx,
+            *signer_set,
             tweaks,
             tweak_modes,
             secrets.token_bytes(32),

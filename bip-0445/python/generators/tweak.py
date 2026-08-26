@@ -2,7 +2,6 @@ from typing import List
 
 from frost_ref import (
     SessionContext,
-    SignersContext,
     nonce_agg,
     partial_sig_verify,
     sign,
@@ -81,13 +80,13 @@ class TweakGroupBuilder:
         pubshares = [self.inputs.pubshares[i] for i in pubshare_indices]
         tweaks = [self.tweaks_pool[i] for i in tweak_indices]
         secnonce = bytearray(self.inputs.secnonces[my_id])
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(signers, aggnonce, tweaks, is_xonly, msg)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+        session = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
         psig = sign(secnonce, self.inputs.secshares[my_id], my_id, session)
         assert partial_sig_verify(
             psig,
             [self.inputs.pubnonces[i] for i in pubnonce_indices],
-            signers,
+            *signer_set,
             tweaks,
             is_xonly,
             msg,
@@ -127,8 +126,8 @@ class TweakGroupBuilder:
         tweaks = [self.tweaks_pool[i] for i in tweak_indices]
         secnonce = bytearray(self.inputs.secnonces[secnonce_index])
         secshare = self.inputs.secshares[secshare_index]
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(signers, aggnonce, tweaks, is_xonly, msg)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+        session = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
         err = expect_exception(
             lambda: sign(secnonce, secshare, my_id, session), ValueError
         )

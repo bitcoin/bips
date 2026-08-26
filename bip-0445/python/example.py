@@ -2,7 +2,7 @@
 
 """Example of a full FROST signing session."""
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import asyncio
 import argparse
 import secrets
@@ -14,7 +14,6 @@ from frost_ref import (
     sign,
     partial_sig_agg,
     partial_sig_verify,
-    SignersContext,
     SessionContext,
     PlainPk,
 )
@@ -103,7 +102,7 @@ async def participant(
     secshare: bytes,
     pubshare: PlainPk,
     my_id: int,
-    signers_ctx: SignersContext,
+    signer_set: Tuple[int, int, List[int], Optional[List[PlainPk]], PlainPk],
     tweaks: List[bytes],
     is_xonly: List[bool],
     msg: bytes,
@@ -111,11 +110,15 @@ async def participant(
     """
     Participant in FROST signing protocol.
 
+    The signer_set may not carry pubshares list. Signing doesn't need them, and
+    the partial_sig_verify_internal check below takes our own share directly.
+
     Returns:
         (psig, final_sig): Partial signature and final BIP340 signature
     """
     # Get tweaked threshold pubkey
-    tweak_ctx = thresh_pubkey_and_tweak(signers_ctx.thresh_pk, tweaks, is_xonly)
+    _, _, _, _, thresh_pk = signer_set
+    tweak_ctx = thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
     tweaked_thresh_pk = get_xonly_pk(tweak_ctx)
 
     # Round 1: Nonce generation
@@ -124,7 +127,7 @@ async def participant(
     aggnonce = await chan.receive()
 
     # Round 2: Signing
-    session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, is_xonly, msg)
+    session_ctx = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
     psig = sign(secnonce, secshare, my_id, session_ctx)
     assert partial_sig_verify_internal(psig, my_id, pubnonce, pubshare, session_ctx), (
         "Partial signature verification failed"
@@ -138,7 +141,7 @@ async def participant(
 
 async def coordinator(
     chans: CoordinatorChannels,
-    signers_ctx: SignersContext,
+    signer_set: Tuple[int, int, List[int], List[PlainPk], PlainPk],
     tweaks: List[bytes],
     is_xonly: List[bool],
     msg: bytes,
@@ -150,7 +153,7 @@ async def coordinator(
         final_sig: Final BIP340 signature (64 bytes)
     """
     # Determine the signers
-    signer_ids = signers_ctx.ids
+    _, _, signer_ids, _, _ = signer_set
     num_signers = len(signer_ids)
 
     # Round 1: Collect pubnonces
@@ -164,13 +167,13 @@ async def coordinator(
     chans.send_all(aggnonce)
 
     # Round 2: Collect partial signatures
-    session_ctx = SessionContext(signers_ctx, aggnonce, tweaks, is_xonly, msg)
+    session_ctx = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
     psigs = []
     for i in range(num_signers):
         psig = await chans.receive_from(i)
         assert partial_sig_verify(
-            psig, pubnonces, signers_ctx, tweaks, is_xonly, msg, i
-        ), f"Partial signature verification failed for singer {i}"
+            psig, pubnonces, *signer_set, tweaks, is_xonly, msg, i
+        ), f"Partial signature verification failed for signer {i}"
         psigs.append(psig)
 
     # Aggregate partial signatures
@@ -187,7 +190,7 @@ async def coordinator(
 
 def simulate_frost_signing(
     secshares: List[bytes],
-    signers_ctx: SignersContext,
+    signer_set: Tuple[int, int, List[int], List[PlainPk], PlainPk],
     msg: bytes,
     tweaks: List[bytes],
     is_xonly: List[bool],
@@ -197,10 +200,12 @@ def simulate_frost_signing(
     Returns:
         (final_sig, psigs): Final signature and list of partial signatures
     """
-    # Extract signer set from signers_ctx
-    signer_ids = signers_ctx.ids
-    pubshares = signers_ctx.pubshares
+    # Unpack the signer set
+    n, t, signer_ids, pubshares, thresh_pk = signer_set
     num_signers = len(signer_ids)
+
+    # The first signer signs without knowing the pubshares list
+    signer_set_no_pubshares = (n, t, signer_ids, None, thresh_pk)
 
     async def session():
         # Set up channels
@@ -213,13 +218,13 @@ def simulate_frost_signing(
         )
 
         # Create coroutines
-        coroutines = [coordinator(coord_chans, signers_ctx, tweaks, is_xonly, msg)] + [
+        coroutines = [coordinator(coord_chans, signer_set, tweaks, is_xonly, msg)] + [
             participant(
                 participant_chans[i],
                 secshares[i],
                 pubshares[i],
                 signer_ids[i],
-                signers_ctx,
+                signer_set_no_pubshares if i == 0 else signer_set,
                 tweaks,
                 is_xonly,
                 msg,
@@ -269,11 +274,12 @@ def main():
     signer_secshares = [all_secshares[i] for i in signer_indices]
     signer_pubshares = [all_pubshares[i] for i in signer_indices]
 
-    # 3. Initialize the signers context
+    # 3. Assemble the signer set
     print("=== Signing Set ===")
     print(f"Selected signers: {signer_ids}")
+    print(f"Signer {signer_ids[0]} signs without knowing the pubshares list")
     print()
-    signers_ctx = SignersContext(n, t, signer_ids, signer_pubshares, thresh_pk)
+    signer_set = (n, t, signer_ids, signer_pubshares, thresh_pk)
 
     # 4. Create message and tweaks
     msg = secrets.token_bytes(32)
@@ -295,7 +301,7 @@ def main():
     # 5. Run signing protocol
     final_sig, psigs = simulate_frost_signing(
         signer_secshares,
-        signers_ctx,
+        signer_set,
         msg,
         tweaks,
         is_xonly,

@@ -1,9 +1,8 @@
-from typing import List
+from typing import List, Optional
 
 from frost_ref import (
     InvalidContributionError,
     SessionContext,
-    SignersContext,
     nonce_agg,
     partial_sig_verify,
     sign,
@@ -76,21 +75,28 @@ class SignVerifyGroupBuilder:
         self,
         my_id: int,
         ids: List[int],
-        pubshare_indices: List[int],
+        pubshare_indices: Optional[List[int]],
         pubnonce_indices: List[int],
         aggnonce: bytes,
         msg: bytes,
         comment: str,
-    ) -> None:
-        pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
+    ) -> bytes:
+        # A null pubshare_indices is a session whose public share list is absent.
+        pubshares = (
+            None
+            if pubshare_indices is None
+            else [self.inputs.pool_pubshares[i] for i in pubshare_indices]
+        )
         pubnonces = [self.inputs.pool_pubnonces[i] for i in pubnonce_indices]
         secnonce = bytearray(self.inputs.pool_secnonces[my_id])
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(signers, aggnonce, [], [], msg)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+        session = SessionContext(*signer_set, aggnonce, [], [], msg)
         psig = sign(secnonce, self.inputs.pool_secshares[my_id], my_id, session)
-        assert partial_sig_verify(
-            psig, pubnonces, signers, [], [], msg, ids.index(my_id)
-        )
+        if pubshares is not None:
+            verify_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+            assert partial_sig_verify(
+                psig, pubnonces, *verify_set, [], [], msg, ids.index(my_id)
+            )
         self.group["valid_tests"].append(
             {
                 "comment": comment,
@@ -105,6 +111,7 @@ class SignVerifyGroupBuilder:
                 "expected": bytes_to_hex(psig),
             }
         )
+        return psig
 
     def _append_sign_error(
         self,
@@ -121,8 +128,8 @@ class SignVerifyGroupBuilder:
         pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
         secshare = self.inputs.pool_secshares[secshare_idx]
         secnonce = bytearray(self.inputs.pool_secnonces[secnonce_idx])
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
-        session = SessionContext(signers, aggnonce, [], [], msg)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
+        session = SessionContext(*signer_set, aggnonce, [], [], msg)
         expected_exc = ValueError if error == "value" else InvalidContributionError
         err = expect_exception(
             lambda: sign(secnonce, secshare, my_id, session), expected_exc
@@ -154,11 +161,11 @@ class SignVerifyGroupBuilder:
         pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
         pubnonces = [self.inputs.pool_pubnonces[i] for i in pubnonce_indices]
         msg = COMMON_MSGS[0]
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
         expected_exc = ValueError if error == "value" else InvalidContributionError
         err = expect_exception(
             lambda: partial_sig_verify(
-                psig, pubnonces, signers, [], [], msg, signer_index
+                psig, pubnonces, *signer_set, [], [], msg, signer_index
             ),
             expected_exc,
         )
@@ -187,9 +194,9 @@ class SignVerifyGroupBuilder:
         pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
         pubnonces = [self.inputs.pool_pubnonces[i] for i in pubnonce_indices]
         msg = COMMON_MSGS[0]
-        signers = SignersContext(self.n, self.t, ids, pubshares, self.thresh_pk)
+        signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
         assert not partial_sig_verify(
-            psig, pubnonces, signers, [], [], msg, signer_index
+            psig, pubnonces, *signer_set, [], [], msg, signer_index
         )
         self.group["verify_fail_tests"].append(
             {
@@ -208,7 +215,7 @@ class SignVerifyGroupBuilder:
     def add_valid_tests(self) -> None:
         t, n = self.t, self.n
         # Minimum threshold subset.
-        self._append_valid(
+        psig_min = self._append_valid(
             0,
             self.min_s,
             self.min_s,
@@ -217,6 +224,16 @@ class SignVerifyGroupBuilder:
             COMMON_MSGS[0],
             "Minimum threshold subset of signers",
         )
+        psig_no_pubshares = self._append_valid(
+            0,
+            self.min_s,
+            None,
+            self.min_s,
+            self.aggnonce_min,
+            COMMON_MSGS[0],
+            "Signing without the public share list",
+        )
+        assert psig_no_pubshares == psig_min
         # Order-invariance (needs a set of size >= 2 to be meaningful).
         if t >= 2:
             rev = list(reversed(self.min_s))
@@ -462,7 +479,7 @@ class SignVerifyGroupBuilder:
             "Secret nonce's second half is out of range (zero)",
         )
         # Fewer signers than the threshold (empty set at t=1). The aggnonce, secshare,
-        # and secnonce fields are inert placeholders: SignersContext rejects the
+        # and secnonce fields are inert placeholders: session validation rejects the
         # sub-threshold set before sign() reads them.
         below = list(range(t - 1))
         self._append_sign_error(
@@ -497,14 +514,16 @@ class SignVerifyGroupBuilder:
         # signer_index 1, which needs a 2-signer set. min2 == min_s for t >= 2, so this
         # only differs at t=1.
         secnonce = bytearray(self.inputs.pool_secnonces[0])
-        signers = SignersContext(
+        signer_set = (
             self.n,
             self.t,
             self.min2,
             [self.inputs.pool_pubshares[i] for i in self.min2],
             self.thresh_pk,
         )
-        session = SessionContext(signers, self._agg(self.min2), [], [], COMMON_MSGS[0])
+        session = SessionContext(
+            *signer_set, self._agg(self.min2), [], [], COMMON_MSGS[0]
+        )
         psig = sign(secnonce, self.inputs.pool_secshares[0], 0, session)
         neg_psig = (-Scalar.from_bytes_checked(psig)).to_bytes()
 
@@ -538,14 +557,14 @@ class SignVerifyGroupBuilder:
     def add_verify_error_tests(self) -> None:
         # Base partial signature: signer 0 over the minimum set.
         secnonce = bytearray(self.inputs.pool_secnonces[0])
-        signers = SignersContext(
+        signer_set = (
             self.n,
             self.t,
             self.min_s,
             [self.inputs.pool_pubshares[i] for i in self.min_s],
             self.thresh_pk,
         )
-        session = SessionContext(signers, self.aggnonce_min, [], [], COMMON_MSGS[0])
+        session = SessionContext(*signer_set, self.aggnonce_min, [], [], COMMON_MSGS[0])
         psig_min = sign(secnonce, self.inputs.pool_secshares[0], 0, session)
 
         # Off-curve public nonce at position 0.

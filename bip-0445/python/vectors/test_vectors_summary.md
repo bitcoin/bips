@@ -15,6 +15,11 @@ the files.
 | `det_sign_vectors.json` | `deterministic_sign` | `valid_tests`, `error_tests` |
 | `sig_agg_vectors.json` | `partial_sig_agg` | `valid_tests`, `error_tests` |
 
+`ValidateThresholdInfo` ships no vectors. It checks key material that a key
+generation protocol produced, so vectors for it belong with that protocol rather
+than here. RFC 9591 makes the same call, requiring `vss_verify` while shipping no
+vectors for it.
+
 ## How test cases are laid out
 
 Most files don't repeat shared inputs inside every test case. Instead each file
@@ -42,7 +47,17 @@ A few things stay out of that scheme:
   (the `(t, n)` label and the shared key setup), not part of the index scheme.
 - Per-session values stay inline in the case, with no shared input: the
   message (`msg`), the aggregate nonce (`aggnonce`, or `aggothernonce` in
-  `det_sign`), and the signer's own id (`my_id`).
+  `det_sign`), and the signer's own id (`my_id`). In `det_sign`,
+  `aggothernonce` is `null` when the session has a single signer, so
+  there are no other nonces to aggregate.
+- `pubshare_indices` is `null` in one `sign`, `deterministic_sign` and
+  `partial_sig_agg` case per group. That is a session whose public share list
+  is absent: the signers know the threshold public key and who is signing, but
+  not each other's public shares. Signing, deterministic signing and
+  aggregation all work without them, and each of those cases produces exactly
+  the same bytes as the case before it, which does carry them.
+  `partial_sig_verify` is the one algorithm that cannot run without the list,
+  so it takes the list as a required argument and no case omits it there.
 - `tweaks` and `is_xonly` are parallel lists: position `k` in `is_xonly` says
   whether tweak `k` is x-only. They mirror the API, which takes the two as
   separate arguments. `tweak_vectors` keeps its tweak values in a shared input
@@ -64,10 +79,10 @@ is generated independently, so it has its own `t`, `n`, `thresh_pk`, and `n`
 real signers with identifiers `0 .. n - 1`. The examples elsewhere in this
 document use the `2-of-3` group.
 
-In every group, one bogus public share and an out-of-range identifier (the
-value `n`) are appended after the real signers, but only error cases use them
-to trigger "invalid public share" and out-of-range-id failures, so don't treat
-them as valid signers.
+In every signing file's group, one bogus public share and an out-of-range
+identifier (the value `n`) are appended after the real signers, but only error
+cases use them to trigger "invalid public share" and out-of-range-id failures,
+so don't treat them as valid signers.
 
 Valid cases exercise different threshold-sized subsets of the group's `n`
 signers, so the `ids` list varies from case to case: a single signer in the
