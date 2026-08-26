@@ -29,19 +29,17 @@ Fields of the top-level wallet object.
 | date         | optional | timestamp | When the export was made.                                  |
 |--------------|----------|-----------|------------------------------------------------------------|
 | transactions | optional | object    | Maps a transaction id to a transaction object.             |
-|              |          |           | Transactions are keyed here rather than held on the        |
-|              |          |           | account so that one touching several accounts is stored    |
-|              |          |           | once, and so that a wallet that cannot attribute a         |
-|              |          |           | transaction to an account can still carry it. Accounts     |
-|              |          |           | reference them by transaction id.                          |
+|              |          |           | Transactions are recorded here rather than in the          |
+|              |          |           | `account` object so a transaction related to several       |
+|              |          |           | accounts is stored only once. Accounts reference them by   |
+|              |          |           | transaction id.                                            |
 |--------------|----------|-----------|------------------------------------------------------------|
-| psbts        | optional | object    | Maps a transaction id to a partially signed transaction,   |
-|              |          |           | as defined by BIP-0174 or BIP-0370. The key is the         |
-|              |          |           | transaction id of the PSBT's *unsigned* transaction, which |
-|              |          |           | stays stable for the whole signing process, whereas the id |
-|              |          |           | of the finished transaction changes as legacy inputs are   |
-|              |          |           | signed. Kept at wallet level for the same reason as        |
-|              |          |           | transactions.                                              |
+| psbts        | optional | object    | Maps a transaction id to a PSBT, as defined by BIP-0174 or |
+|              |          |           | BIP-0370. The key is the transaction id of the PSBT's      |
+|              |          |           | *unsigned* transaction, which stays stable for the whole   |
+|              |          |           | signing process, whereas the id of the finalized           |
+|              |          |           | transaction changes as legacy inputs are signed. Kept at   |
+|              |          |           | wallet level for the same reason as transactions.          |
 |--------------|----------|-----------|------------------------------------------------------------|
 | signers      | optional | array     | Signer objects.                                            |
 |--------------|----------|-----------|------------------------------------------------------------|
@@ -116,10 +114,8 @@ Fields of the [account object][accountobj].
 |                    |          |                 | estimate MUST be at or before the true height, |
 |                    |          |                 | never after, because too early only costs      |
 |                    |          |                 | scanning time while too late silently misses   |
-|                    |          |                 | transactions and the funds in them. An         |
-|                    |          |                 | exporter that can do neither SHOULD omit the   |
-|                    |          |                 | field; an absent birth_block means a full      |
-|                    |          |                 | scan, which is slow but correct.               |
+|                    |          |                 | transactions. A software that can do neither   |
+|                    |          |                 | SHOULD omit this field.                        |
 |--------------------|----------|-----------------|------------------------------------------------|
 | last_height        | optional | integer         | Height this account has been synced to. A      |
 |                    |          |                 | wallet that tracks one sync point for the      |
@@ -129,12 +125,7 @@ Fields of the [account object][accountobj].
 | bip352_labels      | optional | array or object | The silent payment label indices in use.       |
 |                    |          |                 | Either an array of integers ([0, 1, 2]) or an  |
 |                    |          |                 | object with start and end members ({"start":   |
-|                    |          |                 | 0, "end": 10}), where end is exclusive,        |
-|                    |          |                 | matching range_start and range_end. An         |
-|                    |          |                 | importer that does not know which labels were  |
-|                    |          |                 | issued cannot detect outputs paid to them, so  |
-|                    |          |                 | omitting a label in use loses the funds        |
-|                    |          |                 | received on it.                                |
+|                    |          |                 | 0, "end": 10}), where end is exclusive.        |
 |--------------------|----------|-----------------|------------------------------------------------|
 | keys               | optional | object          | Maps a key fingerprint to a key object.        |
 |--------------------|----------|-----------------|------------------------------------------------|
@@ -142,29 +133,22 @@ Fields of the [account object][accountobj].
 |                    |          |                 | and keys, following BIP-0329.                  |
 |--------------------|----------|-----------------|------------------------------------------------|
 | transactions       | optional | array           | Transaction ids referencing the wallet's       |
-|                    |          |                 | transactions map, for transactions involving   |
-|                    |          |                 | this account. Present only where the wallet    |
-|                    |          |                 | can attribute a transaction to an account; an  |
-|                    |          |                 | entry in the wallet map need not be referenced |
-|                    |          |                 | by any account.                                |
+|                    |          |                 | transactions map, for transactions related to  |
+|                    |          |                 | this account.                                  |
 |--------------------|----------|-----------------|------------------------------------------------|
 | coins              | optional | array           | Coin objects owned by the account, including   |
 |                    |          |                 | silent payment outputs.                        |
 |--------------------|----------|-----------------|------------------------------------------------|
 | psbts              | optional | array           | Transaction ids referencing the wallet's psbts |
-|                    |          |                 | map, for PSBTs involving this account. Present |
-|                    |          |                 | only where the wallet can attribute a PSBT to  |
-|                    |          |                 | an account.                                    |
+|                    |          |                 | map, for PSBTs related to this account.        |
 |--------------------|----------|-----------------|------------------------------------------------|
-| bip39_mnemonic     | optional | string          | Mnemonic words following BIP-039. Since exports|
-|                    |          |                 | may be stored online, this field is intended   |
-|                    |          |                 | for test networks only (testnet3, testnet4,    |
-|                    |          |                 | signet, regtest); it MUST NOT be used to store |
-|                    |          |                 | mainnet mnemonics. The field carries the words |
-|                    |          |                 | alone. A seed protected by a BIP-39 passphrase |
-|                    |          |                 | MUST NOT use it, since the words without the   |
-|                    |          |                 | passphrase restore a different wallet and give |
-|                    |          |                 | no sign that anything is wrong.                |
+| bip39_mnemonic     | optional | string          | Mnemonic words following BIP-0039. Since       |
+|                    |          |                 | exports may be stored online, this field is    |
+|                    |          |                 | intended for test networks only (testnet3,     |
+|                    |          |                 | testnet4, signet, regtest); it MUST NOT be     |
+|                    |          |                 | used to store mainnet mnemonics. The field     |
+|                    |          |                 | carries the words alone. A seed protected by a |
+|                    |          |                 | BIP-39 passphrase MUST NOT use it.             |
 |--------------------|----------|-----------------|------------------------------------------------|
 | proprietary        | optional | object          | Application-specific metadata.                 |
 ```
@@ -254,9 +238,7 @@ wallet's `transactions` map, not a field.
 |---------------|----------|-----------|-----------------------------------------------------------|
 | hex           | optional | string    | Raw transaction (hex).                                    |
 |---------------|----------|-----------|-----------------------------------------------------------|
-| fee           | optional | integer   | Transaction fee in sats. Computing it needs the funding   |
-|               |          |           | transaction of every input, which a wallet may no longer  |
-|               |          |           | have after restoring from this export.                    |
+| fee           | optional | integer   | Transaction fee in sats.                                  |
 |---------------|----------|-----------|-----------------------------------------------------------|
 | block_time    | optional | timestamp | Time of the block confirming the transaction. Absent      |
 |               |          |           | while unconfirmed. This and time_received are separate    |
@@ -264,9 +246,7 @@ wallet's `transactions` map, not a field.
 |               |          |           | exporter emits whichever it holds.                        |
 |---------------|----------|-----------|-----------------------------------------------------------|
 | time_received | optional | timestamp | When the exporting wallet first observed the transaction. |
-|               |          |           | MAY be earlier than block_time. A consumer wanting a      |
-|               |          |           | single best- known time derives it, preferring block_time |
-|               |          |           | and falling back to this.                                 |
+|               |          |           | MAY be earlier than block_time.                           |
 |---------------|----------|-----------|-----------------------------------------------------------|
 | blockhash     | optional | string    | Confirming block hash (hex).                              |
 |---------------|----------|-----------|-----------------------------------------------------------|
@@ -303,9 +283,7 @@ too, with `tweak` set.
 |------------------|----------|---------|----------------------------------------------------------|
 | is_from_self     | optional | boolean | The funding transaction was made by this wallet.         |
 |------------------|----------|---------|----------------------------------------------------------|
-| frozen           | optional | boolean | The user marked this output do-not-spend. This is user   |
-|                  |          |         | intent and cannot be recovered from the chain, so it is  |
-|                  |          |         | lost unless it is backed up.                             |
+| frozen           | optional | boolean | The user marked this output as do-not-spend.             |
 |------------------|----------|---------|----------------------------------------------------------|
 | spend_status     | optional | enum    | Spend status of the output. See Spend Status.            |
 |------------------|----------|---------|----------------------------------------------------------|
@@ -316,8 +294,7 @@ too, with `tweak` set.
 | sp_label         | optional | string  | Silent payment outputs only: the BIP-0352 label scalar   |
 |                  |          |         | of the labelled address the output was paid to, in       |
 |                  |          |         | hexadecimal. Absent for the unlabelled address. This is  |
-|                  |          |         | protocol data, not an annotation; a human label goes in  |
-|                  |          |         | the account labels with type output.                     |
+|                  |          |         | protocol data, not an annotation.                        |
 ```
 
 ### Spend Status
