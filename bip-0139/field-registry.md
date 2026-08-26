@@ -178,10 +178,8 @@ Fields of the [signer object][signerobj].
 |-----------------------|----------|---------|-----------------------------------------------------|
 | key_storage           | optional | enum    | Whether the signer's key is `hot` or `cold`.        |
 |-----------------------|----------|---------|-----------------------------------------------------|
-| devices               | optional | array   | Metadata and connection preferences for the last    |
-|                       |          |         | seen devices holding this key. Entries may include  |
-|                       |          |         | vendor, model, transports, registration and         |
-|                       |          |         | last_health_check.                                  |
+| devices               | optional | array   | Device objects for the last-seen devices holding    |
+|                       |          |         | this key. See Device object.                        |
 ```
 
 ### Key Status
