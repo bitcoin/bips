@@ -6,13 +6,13 @@ go 1.25.0
 // (btcsuite/btcd#2568), and the module proxy cannot resolve a commit that is
 // not on a branch or tag of the repository, so the very same commit is taken
 // from the fork it was pushed from. Once it is merged, this line can go.
-replace github.com/btcsuite/btcd/descriptors => github.com/guggero/btcd/descriptors v0.0.0-20260822123210-2f50ef071048
+replace github.com/btcsuite/btcd/descriptors => github.com/guggero/btcd/descriptors v0.0.0-20260826062414-83042e60419f
 
 require (
 	github.com/btcsuite/btcd/address/v2 v2.0.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
-	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0 // indirect
-	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
+	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0
+	github.com/btcsuite/btcd/chainhash/v2 v2.0.0
 	// The descriptors module isn't in master yet, see replace directive above.
 	github.com/btcsuite/btcd/descriptors v0.0.0-00000000000000-000000000000
 	github.com/btcsuite/btcd/txscript/v2 v2.0.0
