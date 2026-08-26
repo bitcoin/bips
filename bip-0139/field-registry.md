@@ -19,9 +19,9 @@ Fields of the top-level wallet object.
 | network      |          | string    | Network of the wallet. See Wallet Object Structure for the |
 |              |          |           | permitted values.                                          |
 |--------------|----------|-----------|------------------------------------------------------------|
-| accounts     |          | array     | Account objects. Must contain at least one.                |
+| accounts     |          | array     | Account objects. Must not be empty.                        |
 |--------------|----------|-----------|------------------------------------------------------------|
-| name         | optional | string    | Wallet name.                                               |
+| name         | optional | string    | Wallet name or alias.                                      |
 |--------------|----------|-----------|------------------------------------------------------------|
 | note         | optional | string    | Note about this export, written by the user when the       |
 |              |          |           | export is made.                                            |
@@ -59,26 +59,26 @@ Fields of the [account object][accountobj].
 | descriptor         |          | string/array    | Account descriptor. Its structure is defined   |
 |                    |          |                 | by `type`. See Account Object Structure.       |
 |--------------------|----------|-----------------|------------------------------------------------|
-| name               | optional | string          | Account name.                                  |
+| name               | optional | string          | Account name/alias.                            |
 |--------------------|----------|-----------------|------------------------------------------------|
 | description        | optional | string          | Account description.                           |
 |--------------------|----------|-----------------|------------------------------------------------|
 | status             | optional | enum            | Where the account is in its lifecycle. See     |
 |                    |          |                 | Account Status.                                |
 |--------------------|----------|-----------------|------------------------------------------------|
-| hidden             | optional | boolean         | The account is suppressed in the exporting     |
-|                    |          |                 | wallet's interface. Independent of status: a   |
-|                    |          |                 | hidden account may still be active.            |
+| hidden             | optional | boolean         | Whether the account is hidden in the wallet's  |
+|                    |          |                 | interface. Independent of status: a hidden     |
+|                    |          |                 | account may still be active.                   |
 |--------------------|----------|-----------------|------------------------------------------------|
 | change_descriptor  | optional | string          | Explicit change-side descriptor, paired with   |
 |                    |          |                 | descriptor. For wallets that keep receive and  |
 |                    |          |                 | change descriptors separate, such as Bitcoin   |
 |                    |          |                 | Core.                                          |
 |--------------------|----------|-----------------|------------------------------------------------|
-| receive_index      | optional | integer         | Maximum receive index for generated receive    |
+| receive_index      | optional | integer         | Maximum generated receive index for receive    |
 |                    |          |                 | addresses.                                     |
 |--------------------|----------|-----------------|------------------------------------------------|
-| change_index       | optional | integer         | Maximum change index for generated change      |
+| change_index       | optional | integer         | Maximum generated change index for change      |
 |                    |          |                 | addresses.                                     |
 |--------------------|----------|-----------------|------------------------------------------------|
 | range_start        | optional | integer         | Cached keypool range start of the receive      |
@@ -93,29 +93,29 @@ Fields of the [account object][accountobj].
 | change_range_end   | optional | integer         | Cached keypool range end of the                |
 |                    |          |                 | change_descriptor. Ranged descriptors only.    |
 |--------------------|----------|-----------------|------------------------------------------------|
-| gap_limit          | optional | integer         | Consecutive unused addresses an importer must  |
+| gap_limit          | optional | integer         | Consecutive unused addresses a wallet must     |
 |                    |          |                 | scan past the last used one before concluding  |
 |                    |          |                 | there are no more. A single value covers both  |
 |                    |          |                 | the receive and change sides.                  |
 |--------------------|----------|-----------------|------------------------------------------------|
 | birth_block        | optional | integer         | Account creation time as a block height. An    |
 |                    |          |                 | importer may start scanning here instead of at |
-|                    |          |                 | genesis. Most wallets record a creation date   |
-|                    |          |                 | rather than a height. An exporter holding only |
-|                    |          |                 | a date SHOULD convert it against a chain       |
-|                    |          |                 | source. If it cannot, it MAY estimate the      |
-|                    |          |                 | height as (date - genesis block time) / 600,   |
-|                    |          |                 | anchored at the network's genesis block and    |
-|                    |          |                 | never at the chain tip: the chain has          |
-|                    |          |                 | historically run slightly ahead of the ten-    |
-|                    |          |                 | minute target, so extrapolating forward from   |
-|                    |          |                 | genesis lands below the true height while      |
-|                    |          |                 | counting back from the tip lands above it. The |
-|                    |          |                 | estimate MUST be at or before the true height, |
-|                    |          |                 | never after, because too early only costs      |
-|                    |          |                 | scanning time while too late silently misses   |
-|                    |          |                 | transactions. A software that can do neither   |
-|                    |          |                 | SHOULD omit this field.                        |
+|                    |          |                 | genesis. Many wallets record a creation date   |
+|                    |          |                 | rather than a block height. An exporter        |
+|                    |          |                 | holding only a date SHOULD convert it against  |
+|                    |          |                 | a chain source. If it cannot, it MAY estimate  |
+|                    |          |                 | the height as (date - genesis_block_time) /    |
+|                    |          |                 | 600, anchored at the network's genesis block   |
+|                    |          |                 | and never at the chain tip: the chain has      |
+|                    |          |                 | historically run slightly ahead of the         |
+|                    |          |                 | ten-minute target, so extrapolating forward    |
+|                    |          |                 | from genesis should land below the true height |
+|                    |          |                 | while counting back from the tip lands above   |
+|                    |          |                 | it. The estimate MUST be at or before the true |
+|                    |          |                 | height, never after, because too early only    |
+|                    |          |                 | costs scanning time while too late silently    |
+|                    |          |                 | misses transactions. An exporter that can do   |
+|                    |          |                 | neither SHOULD omit this field.                |
 |--------------------|----------|-----------------|------------------------------------------------|
 | last_height        | optional | integer         | Height this account has been synced to. A      |
 |                    |          |                 | wallet that tracks one sync point for the      |
@@ -136,8 +136,8 @@ Fields of the [account object][accountobj].
 |                    |          |                 | transactions map, for transactions related to  |
 |                    |          |                 | this account.                                  |
 |--------------------|----------|-----------------|------------------------------------------------|
-| coins              | optional | array           | Coin objects owned by the account, including   |
-|                    |          |                 | silent payment outputs.                        |
+| coins              | optional | array           | Coin objects owned by the account, silent      |
+|                    |          |                 | payment outputs included.                      |
 |--------------------|----------|-----------------|------------------------------------------------|
 | psbts              | optional | array           | Transaction ids referencing the wallet's psbts |
 |                    |          |                 | map, for PSBTs related to this account.        |
@@ -169,13 +169,12 @@ Fields of the [signer object][signerobj].
 ```
 | field                 | optional | type    | description                                         |
 |-----------------------|----------|---------|-----------------------------------------------------|
-| fingerprints          |          | array   | BIP32 fingerprints held by this signer, in          |
-|                       |          |         | hexadecimal form.                                   |
+| fingerprints          |          | array   | BIP32 fingerprints of keys held by this signer.     |
 |-----------------------|----------|---------|-----------------------------------------------------|
 | key_status            | optional | enum    | Status of the signer's keys. See Key Status.        |
 |-----------------------|----------|---------|-----------------------------------------------------|
 | bip85_derivation_path | optional | string  | BIP-0085 derivation path used to derive this        |
-|                       |          |         | signer's key from a master key.                     |
+|                       |          |         | signer's key from a master key, if one was used.    |
 |-----------------------|----------|---------|-----------------------------------------------------|
 | key_storage           | optional | enum    | Whether the signer's key is `hot` or `cold`.        |
 |-----------------------|----------|---------|-----------------------------------------------------|
@@ -200,7 +199,7 @@ Fields of the [key object][keyobj].
 ```
 | field    | optional | type   | description                                                       |
 |----------|----------|--------|-------------------------------------------------------------------|
-| key      |          | string | Public key fingerprint in hexadecimal form.                       |
+| key      |          | string | BIP-0032 public key fingerprint.                                  |
 |----------|----------|--------|-------------------------------------------------------------------|
 | alias    | optional | string | User-defined alias for the key.                                   |
 |----------|----------|--------|-------------------------------------------------------------------|
@@ -254,8 +253,7 @@ wallet's `transactions` map, not a field.
 |---------------|----------|-----------|-----------------------------------------------------------|
 | blockindex    | optional | integer   | Position of the transaction in the confirming block.      |
 |---------------|----------|-----------|-----------------------------------------------------------|
-| abandoned     | optional | boolean   | User-driven abandoned state, separate from mempool        |
-|               |          |           | eviction.                                                 |
+| abandoned     | optional | boolean   | Whether the user decided to abandon this transaction.     |
 ```
 
 ## Coin Fields
@@ -275,7 +273,7 @@ too, with `tweak` set.
 | block_height     | optional | integer | Height of the block containing the funding transaction.  |
 |                  |          |         | If null, that transaction was unconfirmed at export.     |
 |------------------|----------|---------|----------------------------------------------------------|
-| is_change        | optional | boolean | The output was paid to the change keychain.              |
+| is_change        | optional | boolean | Whether the output was paid to a change address.         |
 |------------------|----------|---------|----------------------------------------------------------|
 | derivation_index | optional | integer | Index the output's address was derived at.               |
 |------------------|----------|---------|----------------------------------------------------------|
