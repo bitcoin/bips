@@ -5,13 +5,13 @@
   Author: corepool <24285740+corepool@users.noreply.github.com>
   Comments-Summary: No comments yet.
   Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-TSPOW
-               https://groups.google.com/g/bitcoindev/c/4bbb1017-8080-4916-8f85-082d2ebf5eacn
+               https://groups.google.com/d/msgid/bitcoindev/4bbb1017-8080-4916-8f85-082d2ebf5eacn
   Status: Draft
   Type: Informational
   Created: 2026-08-27
   License: BSD-2-Clause
   Discussions-To: https://groups.google.com/g/bitcoindev
-  Post-History: 2026-08-27: https://groups.google.com/g/bitcoindev/c/4bbb1017-8080-4916-8f85-082d2ebf5eacn
+  Post-History: 2026-08-27: https://groups.google.com/d/msgid/bitcoindev/4bbb1017-8080-4916-8f85-082d2ebf5eacn
 ```
 
 ## Abstract
