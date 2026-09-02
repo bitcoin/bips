@@ -9,6 +9,7 @@
   Assigned: 2024-02-10
   License: CC0-1.0
   Discussion: 2024-02-13: https://groups.google.com/g/bitcoindev/c/uATaflkYglQ [bitcoin-dev] Mapping Human-Readable Names to Payment Instructions
+  Version: 1.0.1
 </pre>
 
 
@@ -145,6 +146,34 @@ In most cases where payments are accepted from any third-party, user enumeration
 
 This work is intended to extend and subsume the existing "Lightning Address" scheme, which maps similar names (without the ₿ prefix) using HTTPS servers to Lightning BOLT 11 payment instructions. Wallets implementing this scheme MAY fall back to existing "Lightning Address" logic if DNS resolution fails but SHOULD NOT do so after this scheme is sufficiently broadly deployed to avoid leaking sender IP address information.
 
+== Security Considerations ==
+
+=== The validated record is the only record ===
+
+A client which validates a DNSSEC proof and then pays instructions obtained by some other means has gained nothing from the validation. Clients MUST construct the payment only from the <code>bitcoin:</code> URI reconstructed from the TXT record covered by the proof they validated, and MUST NOT complete or supplement it from any source that proof does not cover, including a second lookup of the same name or a cached entry whose proof was not retained.
+
+Where the proof is validated in one component and the payment constructed in another, implementations SHOULD pass the validated URI across that boundary rather than the human-readable name, so that the bytes which were proven are the bytes which are paid.
+
+=== Validation cannot be delegated ===
+
+The requirement above that clients not trust a remote resolver to validate DNSSEC on their behalf is a security requirement, and the reason is not otherwise apparent.
+
+The AD bit is set by the resolver and covered by no signature. Over an unauthenticated transport anyone on the path can set it; over an authenticated one it reduces the security of the payment to the honesty of the resolver operator, who is then free to return payment instructions of their own choosing for any name. A client which reads the AD bit rather than validating the chain itself offers its user no more security than an unsigned lookup, while presenting the result as verified.
+
+=== Falling back to unauthenticated resolution is a downgrade attack ===
+
+DNSSEC authenticates records; it does not make them available. An attacker able to drop DNS traffic can cause resolution to fail at will, and the client cannot distinguish that from a recipient who has published no record. Where a wallet falls back to an unauthenticated scheme on failure (see Backwards Compatibility, above), that attacker also chooses which scheme the payment is made under, and will choose whichever one it can most easily attack. Wallets implementing such a fallback SHOULD obtain explicit user confirmation that the payment is no longer covered by a DNSSEC proof, and MUST NOT present a fallback result with any indication of verification, including the ₿ prefix described above.
+
+=== Offline validation depends on state the device cannot refresh ===
+
+Validating an RFC 9102 proof as described in Display and in PSBT types above requires two things the proof does not carry: the DNSSEC root trust anchor, and the current time.
+
+An offline signing device holds an anchor fixed when its firmware was built, and the root zone key signing key is rolled over periodically. Devices which validate proofs SHOULD support updating the anchor through a firmware update, and MUST fail closed, declining to present the name as verified, when no chain to a held anchor can be built.
+
+The RRSig inception and expiry checks required in PSBT types above are only as strong as the device's clock. A device which cannot establish the current time cannot perform them and MUST NOT present the name as verified; a device which takes the time from the host it is connected to has made the check meaningless, because the same party then supplies the proof and the time it is checked against.
+
+Note also that a proof stays cryptographically valid for the lifetime of its signatures after the record it covers has been replaced, so a device validating a proof in isolation cannot tell that the recipient has since rotated or withdrawn those instructions.
+
 == Examples ==
 
 <code>matt@mattcorallo.com</code> resolves to
@@ -196,6 +225,11 @@ Generated proofs can be tested against the below <code>dnssec-prover</code> impl
 == Footnotes ==
 
 <references />
+
+== Changelog ==
+
+* '''1.0.1''' (2026-09-02): Add a Security Considerations section.
+* '''1.0.0''' (2025-04-12): Promotion to Complete.
 
 == Acknowledgements ==
 
