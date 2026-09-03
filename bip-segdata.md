@@ -52,7 +52,7 @@ Therefore a carrier using SegData allows the burden it places on the network to 
 
 Consequently, prunability enables a resource-constrained node to receive and retain a lighter but fully valid view of a block without SegData, making the case that data carriage can contribute to decentralisation rather than only burden it.
 
-SegData is priced at witness parity or less, making it cost-competitive and economically rational, and places no restriction on the existing vectors. By offering this region, a channel is provided for data to be carried honestly (§Rationale) by Bitcoin and the operators that consent to it.
+SegData is priced at witness parity or less, making it cost-competitive and economically rational, and places no restriction on the existing vectors. By offering this region, a channel is provided for data to be carried honestly ([Rationale](#rationale)) by Bitcoin and the operators that consent to it.
 
 ### Design lineage
 
@@ -66,7 +66,7 @@ The pattern satisfies four architectural criteria that recur in Bitcoin's layer 
 
 3. **No semantic overload.** A region designed for one purpose is not pressed into service for another. Transaction outputs and UTXO entries are not needed to carry payloads they were not intended for. The application-data region is defined as a parallel channel with specific semantic meaning.
 
-4. **Bounded by weight.** SegData keeps the existing single block weight limit. The region competes for the same weight budget, and its only further constraint is a committed-length cap, set so the region never exceeds the single relay message limit (§Validation rules, rule 7).
+4. **Bounded by weight.** SegData keeps the existing single block weight limit. The region competes for the same weight budget, and its only further constraint is a committed-length cap, set so the region never exceeds the single relay message limit ([Validation rules](#validation-rules-consensus), rule 7).
 
 A consensus-level prohibition on data carriage in existing vectors is not able or expected to produce these properties. Data-carriage demand would still be able to route through opcodes and outputs not designed for it. A separate region such as SegData addresses the encoding mismatch rather than the payload size, and lets node operators opt in to supporting it.
 
@@ -98,9 +98,9 @@ The SegData commitment hash is computed as:
 commitment_hash = tagged_hash("SegData/commitment", SegData Merkle root)
 ```
 
-where `tagged_hash(tag, m) = SHA256(SHA256(tag) || SHA256(tag) || m)` is the tagged hash of [BIP-340](bip-0340.mediawiki), which domain-separates SegData hashes from every other hash in the protocol (the tag strings are bound to the `dat0` suite). The SegData Merkle root is computed over the entry hashes of all SegData entries referenced by transactions in this block, in canonical order. Its construction is defined in §SegData Merkle tree.
+where `tagged_hash(tag, m) = SHA256(SHA256(tag) || SHA256(tag) || m)` is the tagged hash of [BIP-340](bip-0340.mediawiki), which domain-separates SegData hashes from every other hash in the protocol (the tag strings are bound to the `dat0` suite). The SegData Merkle root is computed over the entry hashes of all SegData entries referenced by transactions in this block, in canonical order. Its construction is defined in [SegData Merkle tree](#segdata-merkle-tree).
 
-The region length is the byte length of the `segdata` region. It is exactly the `SegData` byte-length operand of the weight formula (§Weight accounting), so with the consensus rate `r` a node holding only the base serialisation can compute and bound a block's total weight without fetching the region (§Uniform validation). The length is a visible field rather than part of the commitment hash because a node that skips the region must read it from the base serialisation. Its fixed 4-byte width keeps the commitment a constant 42-byte scriptPubKey matched by its exact form, as the BIP-141 witness commitment is.
+The region length is the byte length of the `segdata` region and the `SegData` operand of the weight formula ([Weight accounting](#weight-accounting)). Validation rule 9 requires it to equal the sum of the per-reference entry lengths, so a node holding only the base serialisation can not only read but verify a block's total weight without fetching the region ([Uniform validation](#uniform-validation)). The length is a visible field rather than part of the commitment hash because a node that skips the region reads it directly from the base serialisation. Its fixed 4-byte width keeps the commitment a constant 42-byte scriptPubKey matched by its exact form.
 
 A SegData commitment output scriptPubKey is exactly 42 bytes: `6a2864617430` followed by the 32-byte commitment hash and 4-byte region length, with no trailing data. If more than one coinbase output matches this form, the one with the highest output index is the canonical SegData commitment. The others have no consensus meaning.
 
@@ -110,10 +110,10 @@ SegData adds only this coinbase output, leaving the coinbase input witness and i
 
 ### SegData reference in transactions
 
-A transaction MAY include one or more SegData references. A reference is encoded as a 36-byte witness-v2 program, the same 4-byte marker + 32-byte hash as encoded in the commitment:
+A transaction MAY include one or more SegData references. A reference is encoded as a 40-byte witness-v2 program: the 4-byte marker and 32-byte hash also carried in the commitment, followed by the entry's byte length.
 
 ```
-scriptPubKey: OP_2 OP_PUSHBYTES_36 <4-byte marker> <32-byte SegData entry hash>
+scriptPubKey: OP_2 OP_PUSHBYTES_40 <4-byte marker> <32-byte SegData entry hash> <4-byte entry length>
 value:        0 (consensus-required)
 ```
 
@@ -121,10 +121,13 @@ with the following structure:
 
 ```
  1-byte  - OP_2 (0x52)
- 1-byte  - Push the following 36 bytes (0x24)
+ 1-byte  - Push the following 40 bytes (0x28)
  4-byte  - SegData marker (0x64617430, ASCII "dat0")
 32-byte  - SegData entry hash = tagged_hash("SegData/entry", SegData entry bytes)
+ 4-byte  - SegData entry byte length (little-endian uint32)
 ```
+
+The entry length is the byte length of the entry payload the hash commits to. Being part of the reference output, it is signed by the transaction author and so cannot be altered by a miner. Every node can therefore sum the declared lengths across a block's references and derive the region's total byte length, and hence the SegData weight term, from the base serialisation alone (validation rules 8 and 9).
 
 The matching reference and commitment pattern gives the protocol one identifying byte sequence at both layers. The marker selects the cryptographic suite defined by this BIP. A future BIP revising that suite would define a successor marker (`dat1`, `dat2`, and so on).
 
@@ -138,9 +141,9 @@ Witness-v2 outputs that do not match this exact encoding are not SegData referen
 
 SegData is a pure-data write-only layer where entries are byte strings that exist solely to be committed and retrieved, never interpreted. The protocol's only handle on a SegData entry is its 32-byte tagged entry hash, which appears in the SegData reference scriptPubKey and in the SegData Merkle commitment. The hash itself is accessible to script like any other byte sequence in scriptPubKey, whereas the entry bytes it commits to are not.
 
-SegData entries MUST NOT be accessible to script execution. No present or future opcode may read, inspect, branch on, or otherwise depend on the contents of a SegData entry (§Why script isolation is a permanent invariant).
+SegData entries MUST NOT be accessible to script execution. No present or future opcode may read, inspect, branch on, or otherwise depend on the contents of a SegData entry ([Why script isolation is a permanent invariant](#why-script-isolation-is-a-permanent-invariant)).
 
-Nothing in consensus depends on a SegData entry at all. The commitment binds the entry hashes carried in the reference outputs, which are base-transaction data, so it is checked without the entry (§Uniform validation). Entry content and availability are never an input to consensus, nor to spend validity, the UTXO set, or any future opcode, and their relay and retention are not guaranteed. SegData is for data that nothing needs to rely on, which is the same property that makes it prunable.
+Nothing in consensus depends on a SegData entry at all. The commitment binds the entry hashes carried in the reference outputs, which are base-transaction data, so it is checked without the entry ([Uniform validation](#uniform-validation)). Entry content and availability are never an input to consensus, nor to spend validity, the UTXO set, or any future opcode, and their relay and retention are not guaranteed. SegData is for data that nothing needs to rely on, which is the same property that makes it prunable.
 
 ### SegData entry encoding
 
@@ -175,13 +178,13 @@ The SegData Merkle root committed by the SegData commitment is computed over the
 
 Let the canonical entry list be `e[0], e[1], ..., e[n-1]`, where each `e[i]` is the 32-byte entry hash `tagged_hash("SegData/entry", entry bytes)` and `n` equals the `segdata` count varint and the number of distinct entries referenced in the block. The Merkle root `MR` is defined recursively:
 
-- `n == 0`: `MR` is the all-zero Merkle root value. This case arises only when a block with no references carries the optional commitment (§SegData commitment, validation rule 5). This is an explicit deviation from RFC-6962, which hashes the empty string.
+- `n == 0`: `MR` is the all-zero Merkle root value. This case arises only when a block with no references carries the optional commitment ([SegData commitment](#segdata-commitment-in-coinbase), validation rule 5). This is an explicit deviation from RFC-6962, which hashes the empty string.
 - `n == 1`: `MR = tagged_hash("SegData/leaf", e[0])`.
 - `n >= 2`: let `k` be the largest power of two strictly less than `n`; then `MR = tagged_hash("SegData/branch", MR(e[0:k]) || MR(e[k:n]))`, where each sublist root is computed by these same rules. The split places a perfect subtree of `k` leaves on the left and the remainder on the right.
 
 The distinct leaf and branch tags mean no internal node can collide with a leaf. The deterministic split makes the tree shape a pure function of `n`, with no padding to introduce ambiguity, so every entry list of a given length has exactly one valid tree and two distinct canonical lists cannot share a Merkle root.
 
-Each `e[i]` is exactly the 32-byte hash carried in the corresponding SegData reference output, and the canonical order is fixed by the referencing transactions. The leaf set, and therefore the Merkle root, are determined by the block's transactions alone, so a validator can compute `MR` and check the commitment (validation rule 2) without holding the `segdata` region. Confirming that entries hashing to those leaves are actually present and correctly encoded requires the region and is a relay-policy check, not consensus (§Validation rules).
+Each `e[i]` is exactly the 32-byte hash carried in the corresponding SegData reference output, and the canonical order is fixed by the referencing transactions. The leaf set, and therefore the Merkle root, are determined by the block's transactions alone, so a validator can compute `MR` and check the commitment (validation rule 2) without holding the `segdata` region. Confirming that entries hashing to those leaves are actually present and correctly encoded requires the region and is a relay-policy check, not consensus ([Validation rules](#validation-rules-consensus)).
 
 ### Weight accounting
 
@@ -191,7 +194,7 @@ BIP-141 defines block weight as `Base × 3 + Total`, where _Base_ is the block s
 Block weight = Base × 3 + Total + (r × SegData)
 ```
 
-where `SegData` is the byte length of the `segdata` region (including its `count` varint and all entry length-prefixes) and `r` is the SegData weight rate in weight units per byte. The rate satisfies `r ≤ 1`, witness parity is the ceiling, so SegData never costs more than the cheapest existing vector, and its exact value is left open (§Open Questions). Because the region length is committed in the coinbase and `r` is a consensus parameter, the SegData weight term is derivable from the base serialisation alone.
+where `SegData` is the byte length of the `segdata` region (including its `count` varint and all entry length-prefixes) and `r` is the SegData weight rate in weight units per byte. The rate satisfies `r ≤ 1`, witness parity is the ceiling, so SegData never costs more than the cheapest existing vector, and its exact value is left open ([Open Questions](#open-questions)). Because each reference declares its entry length ([SegData reference in transactions](#segdata-reference-in-transactions)) and `r` is a consensus parameter, the SegData weight term is derivable and verifiable from the base serialisation alone, the committed region length being bound to the sum of those declared lengths (validation rule 9).
 
 To calculate block weight with integer arithmetic at every rate, `r` is expressed as a rational `r_n / r_d`, where the numerator `r_n` and denominator `r_d` are consensus-fixed positive integers (for `r = 1/2`, `r_n = 1` and `r_d = 2`). The SegData contribution is `ceil(SegData × r_n / r_d)`, computed in integers as `(SegData × r_n + r_d − 1) / r_d`, rounding up so the bound stays conservative as `(weight + 3) / 4` does for vsize.
 
@@ -199,27 +202,27 @@ The block weight limit is unchanged. SegData entries therefore compete with tran
 
 The consensus bounds on the `segdata` region are the block weight limit (validation rule 6) and the region-length cap `MAX_SEGDATA_REGION_LENGTH` (validation rule 7). Per-entry size caps are relay policy, as standardness limits are for transactions.
 
-**Per-payload cost.** A payload of `N` bytes carried as one entry with one reference of a fixed 47 bytes contributes `r × N + 188 WU`.
+**Per-payload cost.** A payload of `N` bytes carried as one entry with one reference of a fixed 51 bytes contributes `r × N + 204 WU`.
 
-The tables below give the full cost of a standalone publication, showing a SegData transaction with P2WPKH funding and one reference, against an estimated commit-reveal inscription of the same payload. Each SegData figure is the marginal `r × N + 188` WU plus roughly 420 WU for the funding input and change.
+The tables below give the full cost of a standalone publication, showing a SegData transaction with P2WPKH funding and one reference, against an estimated commit-reveal inscription of the same payload. Each SegData figure is the marginal `r × N + 204` WU plus roughly 420 WU for the funding input and change.
 
 At parity (`r = 1`) the saving is a fixed overhead difference, largest for small payloads and shrinking as `N` grows:
 
 | Payload | SegData | Witness Commit+Reveal | Saving | Saving % |
 |----|----|----|----|----|
-| 256 B | ~865 WU (216 vB) | ~1,210 WU (303 vB) | ~345 WU (86 vB) | ~28% |
-| 1 KB | ~1,633 WU (408 vB) | ~1,996 WU (499 vB) | ~363 WU (91 vB) | ~18% |
-| 10 KB | ~10,849 WU (2,712 vB) | ~11,266 WU (2,817 vB) | ~417 WU (104 vB) | ~4% |
-| 100 KB | ~103,009 WU (25,752 vB) | ~103,960 WU (25,990 vB) | ~951 WU (238 vB) | ~1% |
+| 256 B | ~880 WU (220 vB) | ~1,210 WU (303 vB) | ~330 WU (82 vB) | ~27% |
+| 1 KB | ~1,648 WU (412 vB) | ~1,996 WU (499 vB) | ~348 WU (87 vB) | ~17% |
+| 10 KB | ~10,864 WU (2,716 vB) | ~11,266 WU (2,817 vB) | ~402 WU (100 vB) | ~4% |
+| 100 KB | ~103,024 WU (25,756 vB) | ~103,960 WU (25,990 vB) | ~936 WU (234 vB) | ~1% |
 
 At half the witness price (`r = 0.5`) the saving grows with payload size rather than shrinking:
 
 | Payload | SegData | Witness Commit+Reveal | Saving | Saving % |
 |----|----|----|----|----|
-| 256 B | ~737 WU (184 vB) | ~1,210 WU (303 vB) | ~473 WU (118 vB) | ~39% |
-| 1 KB | ~1,121 WU (280 vB) | ~1,996 WU (499 vB) | ~875 WU (219 vB) | ~44% |
-| 10 KB | ~5,729 WU (1,432 vB) | ~11,266 WU (2,817 vB) | ~5,537 WU (1,384 vB) | ~49% |
-| 100 KB | ~51,809 WU (12,952 vB) | ~103,960 WU (25,990 vB) | ~52,151 WU (13,038 vB) | ~50% |
+| 256 B | ~752 WU (188 vB) | ~1,210 WU (303 vB) | ~458 WU (114 vB) | ~38% |
+| 1 KB | ~1,136 WU (284 vB) | ~1,996 WU (499 vB) | ~860 WU (215 vB) | ~43% |
+| 10 KB | ~5,744 WU (1,436 vB) | ~11,266 WU (2,817 vB) | ~5,522 WU (1,380 vB) | ~49% |
+| 100 KB | ~51,824 WU (12,956 vB) | ~103,960 WU (25,990 vB) | ~52,136 WU (13,034 vB) | ~50% |
 
 ### Validation rules (consensus)
 
@@ -230,10 +233,12 @@ A block is valid only if:
 3. A SegData reference output MUST have value zero (0). A transaction containing a SegData reference output with non-zero value is invalid.
 4. A transaction spending a SegData reference output is invalid. Being unspendable and value zero, such outputs MUST NOT be added to the UTXO set, receiving the same treatment as OP_RETURN outputs so that data carriage adds no UTXO-set entries.
 5. If no transaction in the block contains a SegData reference output, the SegData commitment output (if present) MUST commit to the empty Merkle root and a region length of zero.
-6. The block weight, computed with the SegData region length committed in the coinbase (§Weight accounting), MUST NOT exceed the block weight limit (`MAX_BLOCK_WEIGHT`).
-7. The SegData region length committed in the coinbase MUST NOT exceed `MAX_SEGDATA_REGION_LENGTH`, defined as `MAX_BLOCK_WEIGHT` less the 32-byte block hash a `segdata` message prepends. It is chosen so the region plus its 32-byte wire prefix stays within the peer-to-peer message limit, and that holds at every block weight, since the message limit already tracks `MAX_BLOCK_WEIGHT` so ordinary blocks relay. The whole region therefore always fits a single relay message. The committed region length is a byte count and `MAX_BLOCK_WEIGHT` is a weight in weight units, so the comparison is against the numeric value of `MAX_BLOCK_WEIGHT`. The region's own weight contribution is `r` times its byte length (§Weight accounting) and is bounded separately by rule 6.
+6. The block weight, computed with the SegData region length committed in the coinbase ([Weight accounting](#weight-accounting)), MUST NOT exceed the block weight limit (`MAX_BLOCK_WEIGHT`).
+7. The SegData region length committed in the coinbase MUST NOT exceed `MAX_SEGDATA_REGION_LENGTH`, defined as `MAX_BLOCK_WEIGHT` less the 32-byte block hash a `segdata` message prepends. It is chosen so the region plus its 32-byte wire prefix stays within the peer-to-peer message limit, and that holds at every block weight, since the message limit already tracks `MAX_BLOCK_WEIGHT` so ordinary blocks relay. The whole region therefore always fits a single relay message. The committed region length is a byte count and `MAX_BLOCK_WEIGHT` is a weight in weight units, so the comparison is against the numeric value of `MAX_BLOCK_WEIGHT`. The region's own weight contribution is `r` times its byte length ([Weight accounting](#weight-accounting)) and is bounded separately by rule 6.
+8. All SegData reference outputs in the block that carry the same entry hash MUST declare the same entry length. This is checkable from the block's transactions alone.
+9. If any transaction in the block contains a SegData reference output, the region length committed in the coinbase MUST equal the region's serialised byte length ([SegData entry encoding](#segdata-entry-encoding)), computed with each entry at its reference's declared length. This binds the committed length, and therefore the SegData weight term (rule 6), to lengths the transaction authors signed, so no party can mis-report it. It is checkable from the block's transactions alone.
 
-No rule above needs the `segdata` region (§Uniform validation). The region itself is governed by relay policy, not consensus. That each referenced entry is present and hashes to its leaf, that the region carries no unreferenced entries, that it is canonically encoded, and that its byte length equals the committed length, are checks a node applies when it receives the region, as a condition of relaying and building on the block, not of the block's validity. They are specified in the companion peer-services BIP (§Region validation).
+No rule above needs the `segdata` region ([Uniform validation](#uniform-validation)). The region itself is governed by relay policy, not consensus. That each referenced entry is present and hashes to its leaf, that the region carries no unreferenced entries, that it is canonically encoded, and that its byte length equals the committed length, are checks a node applies when it receives the region, as a condition of relaying and building on the block, not of the block's validity. They are specified in the companion peer-services BIP ([Region validation](bip-segdata-peer-services.md#region-validation)).
 
 ### Uniform validation
 
@@ -241,7 +246,7 @@ Consensus validation is identical at every depth. Every node applies the rules a
 
 ### Prunability
 
-A SegData entry is never a consensus input. The commitment binds the entry hashes carried in the reference outputs, not the entry bytes (§SegData Merkle tree), so a block validates from its base serialisation whether or not any entry is held. A node MAY therefore discard any or all entries at any depth and keep only the commitment, so SegData is structurally prunable, independently of the rest of the block.
+A SegData entry is never a consensus input. The commitment binds the entry hashes carried in the reference outputs, not the entry bytes ([SegData Merkle tree](#segdata-merkle-tree)), so a block validates from its base serialisation whether or not any entry is held. A node MAY therefore discard any or all entries at any depth and keep only the commitment, so SegData is structurally prunable, independently of the rest of the block.
 
 This extends the established notion of pruning, discarding data once it has served validation, to a higher precision. Block pruning drops whole blocks by depth, SegData pruning discards individual or bulk entries by type.
 
@@ -262,9 +267,9 @@ Activation follows [BIP-8](bip-0008.mediawiki) with parameters:
 | `start_height` | TBD |
 | `timeout_height` | TBD (start + 1 year) |
 | `min_activation_height` | TBD (start + 18 months) |
-| `lockinontimeout` | TBD (§Open Questions) |
+| `lockinontimeout` | TBD ([Open Questions](#open-questions)) |
 
-Pre-activation, any output matching the SegData reference encoding (witness-v2 with a 36-byte program whose first 4 bytes are `0x64617430`) is treated as anyone-can-spend per BIP-141 §Witness program. Post-activation, such outputs become unspendable per this BIP's validation rules.
+Pre-activation, any output matching the SegData reference encoding (witness-v2 with a 40-byte program whose first 4 bytes are `0x64617430`) is treated as anyone-can-spend per BIP-141 §Witness program. Post-activation, such outputs become unspendable per this BIP's validation rules.
 
 At the activation height, any unspent output matching the encoding is removed from the UTXO set, the treatment rule 4 prescribes for outputs created after activation. This keeps chainstate contents, and therefore UTXO-set hashes, implementation-independent. Any value carried becomes permanently unspendable, as rule 4 already implies. The `dat0` marker makes accidental matches improbable and value-zero outputs are nonstandard pre-activation, so this set is expected to be empty.
 
@@ -279,7 +284,7 @@ With SegData available, a carrier's choice becomes legible. A cost-competitive, 
 - Carriage needing only a minimal commitment, its data kept off-chain (timestamping, off-chain protocol commitments), has no reason to move. For a bare hash SegData is overhead, so OP_RETURN stays the cheaper home for it.
 - Carriage that no script reads (application-layer assets, published content) has reason to migrate. SegData carries it at least as cheaply, with clean layer separation and a commitment that stays permanent for every node.
 - Carriage with specific dependencies on existing properties (value transfer, script binding) remains on existing vectors, and those dependencies are now explicitly signalled by the carrier's choice rather than masked by the absence of alternatives.
-- Carriage that specifically targets the uniform-retention property of witness (§Security Considerations item 7) becomes distinguishable from carriage that prefers witness for unrelated reasons.
+- Carriage that specifically targets the uniform-retention property of witness ([Security Considerations](#security-considerations) item 7) becomes distinguishable from carriage that prefers witness for unrelated reasons.
 
 Bitcoin has taken this approach before, and SegData applies it one layer deeper. A provably-unspendable OP_RETURN output is a content-blind declaration that the output is not a coin, and on that declaration every node excludes it from the UTXO set. It was made standard precisely to draw data carriage out of the fake keys and addresses that stored it as spendable outputs and bloated the UTXO set permanently. SegData extends the same logic to the data itself. A reference output and the region typing declare that the carried bytes are script-isolated, read by no opcode now or in any future one, so once the commitment is verified no node needs them again and the payload becomes prunable while the commitment remains.
 
@@ -287,11 +292,15 @@ OP_RETURN permits exclusion from the UTXO set. SegData permits exclusion of all 
 
 ### Why "honest" is a technical term
 
-§Motivation describes SegData as letting data be carried "honestly". The term is technical, not moral. It refers to the transparency of the encoding. A SegData reference declares its bytes as a data payload, so an operator can recognise them and exercise a retention choice, and the network can differentiate declared data from monetary use. Data placed in witness envelopes or vanity addresses is opaque only in the narrow sense that it presents itself as a script or a key rather than as the data it is. This says nothing about whether the content is legitimate or should exist, only whether the carriage discloses what it is.
+[Motivation](#motivation) describes SegData as letting data be carried "honestly". The term is technical, not moral. It refers to the transparency of the encoding. A SegData reference enables declaring its bytes as a data payload, so an operator can recognise them and exercise a retention choice, and the network can differentiate declared data from monetary use. Data placed in witness envelopes or vanity addresses is opaque only in the narrow sense that it presents itself as a script or a key rather than as the data it is. This says nothing about whether the content is legitimate or should exist, only whether the carriage discloses what it is.
 
 ### Why entry integrity is relay policy
 
 Consensus rules must be replayable and deterministic, such that every node must reach the same verdict on a block from the block alone, whenever it validates it. The region's integrity checks cannot be consensus rules because the region is prunable and may never be received. A block one node would reject for a missing or mismatched entry is indistinguishable, to a node syncing later after that entry was validly discarded, from a correctly pruned block, so making these checks consensus would tie a block's validity to when and from whom a node first saw it, splitting the network on data availability. Binding the commitment to the entry hashes in the reference outputs instead keeps the only data-derived consensus check computable from the base serialisation, so validity stays replayable while the payloads stay prunable.
+
+### Why references commit to entry length
+
+An entry's contents are not consensus-relevant, but its length is, because the length sets the SegData weight term ([Weight accounting](#weight-accounting)). The length is signed by the transaction author, and every node sums the declared lengths to verify the region length from the base serialisation alone (validation rules 8 and 9). This prevents a miner from incorrectly reporting region length and block weight.
 
 ### Why script isolation is a permanent invariant
 
@@ -305,7 +314,7 @@ SegData lets a node keep the commitment and whatever subset of entries its opera
 
 ### Why selective retention preserves permanence
 
-Selective retention leaves the permanent record intact. The commitment is permanent for every node forever, and the payload behind it persists wherever a willing party retains it, exactly as witness and OP_RETURN data do today, which no consensus rule compels any node to store. What SegData offers is consensual storage rather than coercing operators to store payloads they would prefer to decline. A genuine durability need survives, since the carrier can keep its data or request others to. The carrier that turns down an equally priced consensual channel reveals what it was really seeking (§Why a dedicated data channel). Guaranteed availability is a different requirement, out of scope, and witness does not provide it either.
+Selective retention leaves the permanent record intact. The commitment is permanent for every node forever, and the payload behind it persists wherever a willing party retains it, exactly as witness and OP_RETURN data do today, which no consensus rule compels any node to store. What SegData offers is consensual storage rather than coercing operators to store payloads they would prefer to decline. A genuine durability need survives, since the carrier can keep its data or request others to. The carrier that turns down an equally priced consensual channel reveals what it was really seeking ([Why a dedicated data channel](#why-a-dedicated-data-channel)). Guaranteed availability is a different requirement, out of scope, and witness does not provide it either.
 
 ### Why selective retention is not censorship
 
@@ -333,7 +342,7 @@ The [BIP-341](bip-0341.mediawiki) annex is the existing reserved slot for additi
 
 The distinction is between two meanings of prunable. Witness data is prunable in the discard-after-validation sense: every node must still receive and validate it, including the full history during IBD. SegData is prunable in the operator-choice sense: discard to commitments at any depth, retain selectively per entry, and never download the region at all if the operator does not want it.
 
-Assigning data-carriage meaning to the annex would also overload a slot BIP-341 reserves for future extensions (its cited example is signalling the validation cost of new opcodes), violating the no-semantic-overload criterion (§Design lineage).
+Assigning data-carriage meaning to the annex would also overload a slot BIP-341 reserves for future extensions (its cited example is signalling the validation cost of new opcodes), violating the no-semantic-overload criterion ([Design lineage](#design-lineage)).
 
 ### Why no signing or sighash semantics are required
 
@@ -345,7 +354,7 @@ A natural adversarial framing asks whether SegData could be inadvertently used f
 
 1. **Reference output value=0** (validation rule 3): SegData reference outputs cannot hold value, so SegData cannot directly carry satoshis.
 
-2. **Script isolation** (Specification §Script isolation): opcodes cannot read SegData entry contents, so SegData cannot influence script execution or gate spending. The same rule that prevents script-time content access also prevents content-driven monetary semantics.
+2. **Script isolation** (Specification [Script isolation](#script-isolation)): opcodes cannot read SegData entry contents, so SegData cannot influence script execution or gate spending. The same rule that prevents script-time content access also prevents content-driven monetary semantics.
 
 3. **No sighash binding**: entry bytes never enter any signature hash, so no signature verification rule reads, requires, or acts on them. A signer whose sighash covers the reference output does commit to the entry content transitively through its hash, which is the timestamping use case, but that commitment is application-layer evidence only. Consensus never evaluates it, so it cannot gate spending or carry monetary semantics.
 
@@ -361,24 +370,24 @@ Since this BIP proposes a soft fork, pre-activation nodes will:
 - Not validate SegData commitment consistency or entry presence.
 - Receive only the base block serialisation and therefore not retain SegData entries.
 
-Post-activation nodes enforce the rules in §Specification. A miner producing a block that violates them has it rejected by activated nodes, while pre-activation nodes follow it until the upgraded majority's chain accumulates more work. This is the standard soft-fork exposure window every deployment since [BIP-34](bip-0034.mediawiki) has carried, identically shaped for BIP-141 and BIP-341.
+Post-activation nodes enforce the rules in [Specification](#specification). A miner producing a block that violates them has it rejected by activated nodes, while pre-activation nodes follow it until the upgraded majority's chain accumulates more work. This is the standard soft-fork exposure window every deployment since [BIP-34](bip-0034.mediawiki) has carried, identically shaped for BIP-141 and BIP-341.
 
 Because the SegData reference encoding requires the `dat0` marker prefix, no non-SegData wallet produces a matching output by accident. SegData-aware software MUST set value zero from the start. Pre-activation a matching output is anyone-can-spend but carries no value, so the activation window exposes no funds, and post-activation rule 3 makes any non-zero-value reference invalid. The encoding makes data carriage an explicit, inspectable output rather than bytes hidden in witness or key fields, so wallets have everything needed to surface it.
 
-Witness-v2 outputs that do not match the SegData reference encoding are unaffected, and future BIPs MAY assign meaning to them. [BIP-360](bip-0360.mediawiki) (P2MR) already defines a 32-byte witness-v2 program. Being length-disjoint from SegData's 36-byte reference, the two coexist in either activation order.
+Witness-v2 outputs that do not match the SegData reference encoding are unaffected, and future BIPs MAY assign meaning to them. [BIP-360](bip-0360.mediawiki) (P2MR) already defines a 32-byte witness-v2 program. Being length-disjoint from SegData's 40-byte reference, the two coexist in either activation order.
 
 Existing transactions, address formats, and non-SegData-aware wallet software are unaffected. UTXO-set handling changes for exactly one output class and reference outputs are never added to the set (validation rule 4). All other outputs, including non-matching witness-v2 outputs, are handled as today.
 
 Block weight remains derivable for software outside the node. Although the `segdata` region is absent from the base serialisation, the SegData commitment carries the region byte length, so any holder of the base bytes computes a block's full weight from a proof-of-work-committed field without fetching the region.
 
-Per-transaction weight is a new break. BIP-141 kept the witness inside the transaction, so a transaction stayed computable from its own bytes. SegData puts the entry bytes outside the transaction, so a SegData transaction's weight, and therefore its feerate, needs the entry sizes and their attribution from a node (§Reference Implementation item 4). Committing the length in each reference (§Open Questions) would remove this break for SegData-aware software.
+Per-transaction weight is a new break. BIP-141 kept the witness inside the transaction, so a transaction stayed computable from its own bytes. SegData puts the entry bytes outside the transaction, so a SegData transaction's weight, and therefore its feerate, needs the entry sizes and their attribution from a node ([Reference Implementation](#reference-implementation) item 4). Committing the length in each reference ([Open Questions](#open-questions)) would remove this break for SegData-aware software.
 
 ## Reference Implementation
 
 A reference implementation of the consensus-layer rules in this BIP requires:
 
-1. Block validation changes: commitment-output detection, canonical-commitment selection, and reference-output validation (value, unspendability, and Merkle-root match). The `segdata` region itself is not parsed by consensus (§Uniform validation); region receipt and matching is a peer-services concern.
-2. Weight-accounting changes: per the extended formula in §Weight accounting.
+1. Block validation changes: commitment-output detection, canonical-commitment selection, and reference-output validation (value, unspendability, and Merkle-root match). The `segdata` region itself is not parsed by consensus ([Uniform validation](#uniform-validation)); region receipt and matching is a peer-services concern.
+2. Weight-accounting changes: per the extended formula in [Weight accounting](#weight-accounting).
 3. Storage layer changes: per-entry addressable `segdata` storage with a single allocation parameter, following the `-prune` idiom: the default retains everything, as unpruned block storage does, and the parameter opts into less. Storage MAY deduplicate identical entries across blocks, since each block's canonical entry list is derivable from its reference outputs and reconstructs the region from a content-addressed store exactly.
 4. RPC interface: inspection of retained entries, plus a manual `prunesegdata` call discarding a block's `segdata` or a single entry within it, refusing targets the node is committed to serve under its retention policy, as `pruneblockchain` refuses heights inside the pruned-node minimum. Selective retention policy thereby lives in external tooling driving this RPC, not in the node. Block and mempool reporting exposes weight with and without the SegData term: the full consensus weight, the three-term BIP-141 weight byte-holding tooling can still derive and cross-check, and the SegData component per block and per transaction (attributed entry weight). This keeps weight statistics comparable across activation and makes each block's data-carriage share directly observable.
 
@@ -400,7 +409,7 @@ P2P propagation, service-bit advertising, request/response messages for SegData 
 
 4. **Arbitrary content embedding.**
   - *Risk*: no vector, SegData included, can prevent content that some jurisdictions classify as illicit from being committed. The concern is the node operator who must then store it.
-  - *Mitigation*: content carried in SegData can be pruned by any operator at any depth. Content embedded in the existing vectors cannot. Mitigating the latter is out of scope for this BIP (§Open Questions).
+  - *Mitigation*: content carried in SegData can be pruned by any operator at any depth. Content embedded in the existing vectors cannot. Mitigating the latter is out of scope for this BIP ([Open Questions](#open-questions)).
 
 5. **Centralisation of archival, and de facto deletion.**
   - *Risk*: because retention is voluntary, an entry survives only where someone keeps it. If the dominant implementation defaulted to pruning SegData, or retention concentrated in a few relay hubs, the redundancy behind an entry could erode until it is effectively deleted network-wide, and archival capacity would concentrate in a small number of operators.
@@ -408,7 +417,7 @@ P2P propagation, service-bit advertising, request/response messages for SegData 
 
 6. **Re-org-induced segdata loss.**
   - *Risk*: a re-org could surface a block whose SegData entries a pruning node has already discarded.
-  - *Mitigation*: this poses no validity risk. A block validates from its base serialisation at any depth (§Uniform validation), so a re-org never requires the region to re-validate. Availability of a re-orged block's entries is the same best-effort property as any SegData and defaults to archival retention. Entries should be considered "permanently committed" only after the same depth used for transaction finality.
+  - *Mitigation*: this poses no validity risk. A block validates from its base serialisation at any depth ([Uniform validation](#uniform-validation)), so a re-org never requires the region to re-validate. Availability of a re-orged block's entries is the same best-effort property as any SegData and defaults to archival retention. Entries should be considered "permanently committed" only after the same depth used for transaction finality.
 
 7. **Adversarial witness-vector retention.**
   - *Risk*: carriers specifically motivated by witness fields' uniform-retention property have a positive reason to prefer witness over SegData regardless of fee parity, because the non-cost properties of witness are exactly what SegData removes.
@@ -416,11 +425,11 @@ P2P propagation, service-bit advertising, request/response messages for SegData 
 
 8. **Future opcode access to SegData entries.**
   - *Risk*: a future BIP introducing an opcode that read SegData entry contents would defeat prunability and could be exploited to force universal retention.
-  - *Mitigation*: the script-isolation constraint (Specification §Script isolation) forbids this. See Rationale §Why script isolation is a permanent invariant for the full argument.
+  - *Mitigation*: the script-isolation constraint (Specification [Script isolation](#script-isolation)) forbids this. See Rationale [Why script isolation is a permanent invariant](#why-script-isolation-is-a-permanent-invariant) for the full argument.
 
 9. **Withheld or corrupted region.**
   - *Risk*: a miner can mine a consensus-valid block while withholding its SegData region, or serving a region that does not match the commitment. Nodes that wanted those entries do not receive them.
-  - *Mitigation*: this is a data-availability concern, not a consensus split. Entry presence and integrity are relay policy, never consensus (§Validation rules), so a withheld or mismatched region cannot make one node accept a block another rejects; every node reaches the same verdict from the base serialisation. A relaying peer that receives a region not matching the commitment rejects it as a relay violation and does not propagate it, and a node that never receives a region it wants can request it from any retaining peer (peer-services BIP). Data that needs the strongest retention the network offers belongs in a non-prunable vector such as the witness, which every non-pruned node keeps.
+  - *Mitigation*: this is a data-availability concern, not a consensus split. Entry presence and integrity are relay policy, never consensus ([Validation rules](#validation-rules-consensus)), so a withheld or mismatched region cannot make one node accept a block another rejects; every node reaches the same verdict from the base serialisation. A relaying peer that receives a region not matching the commitment rejects it as a relay violation and does not propagate it, and a node that never receives a region it wants can request it from any retaining peer (peer-services BIP). Data that needs the strongest retention the network offers belongs in a non-prunable vector such as the witness, which every non-pruned node keeps.
 
 10. **Selective inclusion and class filtering.**
   - *Risk*: the explicit `dat0` marker makes SegData references trivially identifiable, so a miner, a relay policy, or a regulator mandating one can filter the entire class by pattern match, with no content inspection. This is cheaper than identifying data hidden in witness envelopes or key fields, so SegData marginally lowers the cost of class-level filtering.
@@ -432,11 +441,9 @@ The above are non-exhaustive. Community review is expected to surface additional
 
 - **Activation parameters and `lockinontimeout`**: the `bit`, heights, and the LOT setting are left for the activation discussion.
 
-- **Discount depth**: the SegData weight rate is witness parity or less (§Weight accounting), and the exact value of `r ≤ 1` is left open. Parity is the ceiling. The grounds for going below it, and against, are developed in §Why a discounted weight unit. The guiding target is a rate deep enough to migrate existing witness carriage without conjuring net-new data. The discount is a price lever, not a capacity one. A sub-parity rate makes region bytes cheaper in weight, not more numerous, and the region-length cap (validation rule 7) holds per-block data capacity near a single relay message at any rate. How much data a block carries within that is left to the fee market, and any tighter per-block or per-entry limit is relay policy, tunable like `datacarriersize`.
+- **Discount depth**: the SegData weight rate is witness parity or less ([Weight accounting](#weight-accounting)), and the exact value of `r ≤ 1` is left open. Parity is the ceiling. The grounds for going below it, and against, are developed in [Why a discounted weight unit](#why-a-discounted-weight-unit). The guiding target is a rate deep enough to migrate existing witness carriage without conjuring net-new data. The discount is a price lever, not a capacity one. A sub-parity rate makes region bytes cheaper in weight, not more numerous, and the region-length cap (validation rule 7) holds per-block data capacity near a single relay message at any rate. How much data a block carries within that is left to the fee market, and any tighter per-block or per-entry limit is relay policy, tunable like `datacarriersize`.
 
-- **Witness version and length slot**: the reference uses witness v2 with a 36-byte program, distinguished from other v2 uses by the `dat0` marker and program length. This makes SegData references unambiguous in any version, so the choice between sharing v2 and taking a dedicated version is a matter of coordination, not of correctness.
-
-- **Committing to per-reference entry length**: the per-transaction counterpart to the region length committed in the coinbase (§SegData commitment). Encoding each entry's byte length beside its hash in the reference output (a maximum 40-byte program) would make a transaction's SegData weight, and therefore its feerate, computable from its own bytes by any SegData-aware node. Because references live in the base transaction and are never pruned, this survives entry pruning, so a commitments-only node could still report accurate historical feerates without querying a retaining peer. Shared entries resolve under the existing canonical ordering. It does not help non-SegData-aware nodes, whose feerate view skews until upgrade as it did under BIP-141. Costs: every reference grows to the 40-byte maximum, one added validation rule, and the reference stops being a pure content hash.
+- **Witness version and length slot**: the reference uses witness v2 with a 40-byte program, distinguished from other v2 uses by the `dat0` marker and program length. This makes SegData references unambiguous in any version, so the choice between sharing v2 and taking a dedicated version is a matter of coordination, not of correctness.
 
 ## Copyright
 
@@ -457,5 +464,5 @@ This BIP is licensed under the Creative Commons Attribution 4.0 International Li
 - [BIP-144](bip-0144.mediawiki) - Segregated Witness (Peer Services)
 - [BIP-340](bip-0340.mediawiki) - Schnorr Signatures for secp256k1 (tagged-hash construction)
 - [BIP-341](bip-0341.mediawiki) - Taproot: SegWit version 1 spending rules
-- [BIP-360](bip-0360.mediawiki) - Pay-to-Merkle-Root (P2MR): the other draft claim on witness v2 (length-disjoint, §SegData reference in transactions)
+- [BIP-360](bip-0360.mediawiki) - Pay-to-Merkle-Root (P2MR): the other draft claim on witness v2 (length-disjoint, [SegData reference in transactions](#segdata-reference-in-transactions))
 - [RFC-6962](https://www.rfc-editor.org/rfc/rfc6962) - Certificate Transparency (Merkle tree construction)

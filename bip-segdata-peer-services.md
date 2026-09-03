@@ -26,7 +26,7 @@ The structural terms entry, reference, region, and commitment are used as define
 
 **Recent-block floor**: The most recent 288 blocks, within which a SegData peer MUST retain and serve every **available** entry.
 
-**Retention policy**: A node's local choice of how much history to keep and which entries to exclude, above the mandatory recent-block floor. It determines what the node can serve, and its depth is what the coverage tier advertises. The amount and exclusion controls are defined in the consensus BIP (§Prunability, §Reference Implementation), and this BIP standardises only the coverage signal, not their format.
+**Retention policy**: A node's local choice of how much history to keep and which entries to exclude, above the mandatory recent-block floor. It determines what the node can serve, and its depth is what the coverage tier advertises. The amount and exclusion controls are defined in the consensus BIP ([Prunability](bip-segdata.md#prunability), [Reference Implementation](bip-segdata.md#reference-implementation)), and this BIP standardises only the coverage signal, not their format.
 
 **SegData peer**: A peer advertising either SegData service bit, and so able to relay and serve entries.
 
@@ -40,7 +40,7 @@ SegData entries are deliberately outside transaction identity (see D2 below), wh
 
 ### D1. Bundled delivery, not on-demand fetch
 
-Entries MUST be relayed together with their referencing transaction in one message (`txent`, §Entry-bearing transaction relay), not fetched separately after the fact.
+Entries MUST be relayed together with their referencing transaction in one message (`txent`, [Entry-bearing transaction relay](#entry-bearing-transaction-relay-txent)), not fetched separately after the fact.
 
 *Rationale*: bundling means entries are held with their mempool transactions, so the `segdata` region can be reconstructed locally when a block arrives (see D6), as the mempool pre-populates compact-block transaction reconstruction. It also avoids any scenario where a reference arrives without its entry.
 
@@ -52,9 +52,9 @@ An entry is not in the preimage of the transaction's `txid` or `wtxid`. The cons
 
 ### D3. Service bits
 
-SegData capability is advertised with a service-bit pair mirroring [BIP-159](bip-0159.mediawiki) (§Service bits and negotiation). A peer advertising either is a SegData peer, and the bits are a discovery hint carried in `addr` gossip.
+SegData capability is advertised with a service-bit pair mirroring [BIP-159](bip-0159.mediawiki) ([Service bits and negotiation](#service-bits-and-negotiation)). A peer advertising either is a SegData peer, and the bits are a discovery hint carried in `addr` gossip.
 
-Entry-bearing relay is active only between two peers that have also exchanged the `sendsegdata` handshake (§Service bits and negotiation). Any other connection, to a peer advertising neither bit, or one where the handshake did not complete, carries entry-stripped relay, the standard base serialisation only.
+Entry-bearing relay is active only between two peers that have also exchanged the `sendsegdata` handshake ([Service bits and negotiation](#service-bits-and-negotiation)). Any other connection, to a peer advertising neither bit, or one where the handshake did not complete, carries entry-stripped relay, the standard base serialisation only.
 
 A reference-bearing transaction SHOULD NOT be announced to a peer that has not negotiated entry relay, since that peer cannot accept it:
 
@@ -81,7 +81,7 @@ The `segdata` region is not carried in a compact block. A node that takes the re
 
 For efficient propagation a SegData peer MUST retain and serve every *available* entry of every block within the most recent 288, the `NODE_SEGDATA_LIMITED` floor, keeping recent entries reliably available for nodes repopulating after a reorg or catching up across the recent range.
 
-Serving is best-effort since a node cannot serve what it never received. A miner can mine a consensus-valid block while withholding or corrupting any part of its region, a whole region or a single entry, and because a region is served only whole (§Block relay), one such entry that never enters relay leaves the entire region unassemblable for every peer alike (consensus BIP §Security Considerations, withheld or corrupted region). A within-floor `notfound` for such a region is that data-availability event rather than a serving violation, recognised by every honest peer answering alike rather than one peer diverging from the rest. No per-entry exclusion applies inside the floor, mirroring the `NODE_NETWORK_LIMITED` convention of serving recent blocks whole.
+Serving is best-effort since a node cannot serve what it never received. A miner can mine a consensus-valid block while withholding or corrupting any part of its region, a whole region or a single entry, and because a region is served only whole ([Block relay](#block-relay-reconstruction-getsegdata-segdata)), one such entry that never enters relay leaves the entire region unassemblable for every peer alike (consensus BIP [Security Considerations](bip-segdata.md#security-considerations), withheld or corrupted region). A within-floor `notfound` for such a region is that data-availability event rather than a serving violation, recognised by every honest peer answering alike rather than one peer diverging from the rest. No per-entry exclusion applies inside the floor, mirroring the `NODE_NETWORK_LIMITED` convention of serving recent blocks whole.
 
 A node unwilling to even hold a recent entry can opt out of SegData serving rather than dropping the entry. The retention policy begins beyond the floor (D8), so what a peer serves older than 288 depends on how much it has chosen to retain.
 
@@ -89,7 +89,7 @@ A node unwilling to even hold a recent entry can opt out of SegData serving rath
 
 Coverage beyond the recent-block floor is advertised in coarse tiers. The advertisement helps only the voluntary cases above that floor, such as a node choosing to retain and serve deep history, or an application fetching old entries. It lets them find a peer that retained the range rather than guess. Retention itself stays optional, and what a peer advertises must be honest, as BIP-159 requires for pruned block serving.
 
-*Rationale*: Tiers are used rather than an exact height because a node's exact retention depth comes from a private storage amount, making it nearly unique to that node and stable over time. Coarse tiers put each node in a large anonymity set, and a node serves only to its advertised tier, so probing recovers the tier and no more (§Retention-coverage advertising). Whether a specific entry is held is answered by the request itself (a `notfound` if absent, with no reason given).
+*Rationale*: Tiers are used rather than an exact height because a node's exact retention depth comes from a private storage amount, making it nearly unique to that node and stable over time. Coarse tiers put each node in a large anonymity set, and a node serves only to its advertised tier, so probing recovers the tier and no more ([Retention-coverage advertising](#retention-coverage-advertising-segdatacov)). Whether a specific entry is held is answered by the request itself (a `notfound` if absent, with no reason given).
 
 ## Specification
 
@@ -97,10 +97,10 @@ Wire constants below are proposed values pending assignment. The message formats
 
 ### Service bits and negotiation
 
-- **`NODE_SEGDATA`** = `(1 << 12)`: the peer relays SegData entries and serves the full `segdata` archive since activation. The guarantee is one of depth, the full range since activation, not of every individual entry. Per-entry exclusions are permitted and answered with `notfound`, and only systematic failure to serve within range forfeits the claim (§Retention-coverage advertising). A node not covering the full range MUST NOT set the bit, the BIP-159 rule for `NODE_NETWORK`. Service bits travel in `addr` relay, so syncing nodes discover archival coverage before connecting.
+- **`NODE_SEGDATA`** = `(1 << 12)`: the peer relays SegData entries and serves the full `segdata` archive since activation. The guarantee is one of depth, the full range since activation, not of every individual entry. Per-entry exclusions are permitted and answered with `notfound`, and only systematic failure to serve within range forfeits the claim ([Retention-coverage advertising](#retention-coverage-advertising-segdatacov)). A node not covering the full range MUST NOT set the bit, the BIP-159 rule for `NODE_NETWORK`. Service bits travel in `addr` relay, so syncing nodes discover archival coverage before connecting.
 - **`NODE_SEGDATA_LIMITED`** = `(1 << 13)`: the peer relays SegData entries and guarantees serving `segdata` for the most recent 288 blocks (D7). The direct analogue of `NODE_NETWORK_LIMITED`, with the same 288-block window and the same reorg-serving rationale. Nodes setting `NODE_SEGDATA` SHOULD also set `NODE_SEGDATA_LIMITED`, as archival nodes signal both BIP-159 bits today.
 
-Both bits imply entry-relay capability. By default a node retains SegData for the blocks it stores, so a default-configured unpruned node is archival and sets both bits. A node retaining less sets only `NODE_SEGDATA_LIMITED` and advertises any intermediate coverage (§Retention-coverage advertising). If a connection's advertised coverage states a tier lower than the bits imply, that coverage governs for the connection. Bits are discovery hints in `addr` gossip and may be stale, and the advertised coverage is the per-connection commitment.
+Both bits imply entry-relay capability. By default a node retains SegData for the blocks it stores, so a default-configured unpruned node is archival and sets both bits. A node retaining less sets only `NODE_SEGDATA_LIMITED` and advertises any intermediate coverage ([Retention-coverage advertising](#retention-coverage-advertising-segdatacov)). If a connection's advertised coverage states a tier lower than the bits imply, that coverage governs for the connection. Bits are discovery hints in `addr` gossip and may be stale, and the advertised coverage is the per-connection commitment.
 
 - **`sendsegdata`**: an empty negotiation message sent between `version` and `verack`, following the [BIP-339](bip-0339.mediawiki) (`wtxidrelay`) pattern. A node sends it only to SegData peers (either bit) at a protocol version of 70017 or higher (proposed, pending assignment). Entry-bearing relay is active on a connection only when both sides have sent it. Otherwise the connection carries entry-stripped relay (D3). Sending `sendsegdata` after `verack` is a protocol violation.
 
@@ -112,18 +112,18 @@ Following the [BIP-144](bip-0144.mediawiki) pattern of a witness flag bit on an 
 
 On negotiated connections, a node requests all transactions with `MSG_SEGDATA_TX`. A `wtxid` announcement does not reveal whether the transaction carries references, and for a transaction without references the `txent` count is zero, costing one byte.
 
-A node fetches a block's region separately from its base, for blocks whose region it wants, by default the recent-block floor and any deeper range it retains. The base comes from the existing `MSG_BLOCK` / `MSG_WITNESS_BLOCK` and the region from a whole-region `getsegdata` (`count` zero), the two issued in parallel and assembled locally. There is no combined extended-block message, so a peer that lacks the region never withholds the base, and a block whose extended serialisation exceeds the message limit needs no special path, since base and region always travel as separate messages each within the limit. The requester verifies any region it receives against the committed manifest (§Region validation) and refetches on mismatch (§Retention-coverage advertising).
+A node fetches a block's region separately from its base, for blocks whose region it wants, by default the recent-block floor and any deeper range it retains. The base comes from the existing `MSG_BLOCK` / `MSG_WITNESS_BLOCK` and the region from a whole-region `getsegdata` (`count` zero), the two issued in parallel and assembled locally. There is no combined extended-block message, so a peer that lacks the region never withholds the base, and a block whose extended serialisation exceeds the message limit needs no special path, since base and region always travel as separate messages each within the limit. The requester verifies any region it receives against the committed manifest ([Region validation](#region-validation)) and refetches on mismatch ([Retention-coverage advertising](#retention-coverage-advertising-segdatacov)).
 
 ### Region validation
 
-A node that receives or reconstructs a block's `segdata` region validates it before relaying the region or building on the block. These are the relay-policy checks the consensus BIP defers to this document (consensus BIP §Validation rules). A region is accepted only if all hold:
+A node that receives or reconstructs a block's `segdata` region validates it before relaying the region or building on the block. These are the relay-policy checks the consensus BIP defers to this document (consensus BIP [Validation rules](bip-segdata.md#validation-rules-consensus)). A region is accepted only if all hold:
 
 1. Every entry referenced by the block's reference outputs is present, and each hashes under `tagged_hash("SegData/entry", ...)` to its committed leaf.
 2. The region carries no entry that no reference output names.
-3. The region is canonically ordered (consensus BIP §Canonical ordering) and canonically encoded, meaning each entry appears once, the `count` and every entry `length` use the minimal varint encoding, and no padding is present.
-4. The region's serialised byte length equals the region length committed in the coinbase. The length is measured exactly as the consensus weight input (consensus BIP §Weight accounting).
+3. The region is canonically ordered (consensus BIP [Canonical ordering](bip-segdata.md#canonical-ordering)) and canonically encoded, meaning each entry appears once, the `count` and every entry `length` use the minimal varint encoding, and no padding is present.
+4. The region's serialised byte length equals the region length committed in the coinbase. The length is measured exactly as the consensus weight input (consensus BIP [Weight accounting](bip-segdata.md#weight-accounting)).
 
-A region failing any check is rejected and not propagated, and the receiver refetches from another peer. None of these are consensus checks. A block whose region is absent or fails them stays valid from its base serialisation (consensus BIP §Uniform validation), so a mismatch is a data-availability event on that connection, not a fork.
+A region failing any check is rejected and not propagated, and the receiver refetches from another peer. None of these are consensus checks. A block whose region is absent or fails them stays valid from its base serialisation (consensus BIP [Uniform validation](bip-segdata.md#uniform-validation)), so a mismatch is a data-availability event on that connection, not a fork.
 
 ### Entry-bearing transaction relay: `txent`
 
@@ -157,7 +157,7 @@ A node accepts entry bytes from exactly three sources:
 
 Unsolicited entries are discarded. Because entries arrive only bundled with or keyed to known references, no orphan-entry state exists, and the reference-without-entry state is likewise excluded by D1.
 
-### Block relay: reconstruction and `getsegdata` / `segdata`
+### Block relay: reconstruction, getsegdata, segdata
 
 Compact blocks are unchanged on the wire and never carry entries. On SegData-negotiated connections, the `blocktxn` response to `getblocktxn` returns each missing transaction in `txent` framing (transaction plus its entries), the same per-negotiation serialisation variance [BIP-152](bip-0152.mediawiki) v2 already applies for witness.
 
@@ -176,7 +176,7 @@ A `segdata` response payload is the requested entries prefixed by the 32-byte bl
 
 Keying is by (block hash, index), not by entry hash. The requests it serves (reorg repopulation, catch-up) are anchored to a block, and hash-keyed fetching would reintroduce the speculative reference-without-entry fetch pattern D1 excludes.
 
-A `getsegdata` response is all-or-nothing. Its entries sit positionally against the requested indexes, so an incomplete answer would misalign every entry after the first omission. A peer therefore returns the full requested set or `notfound`, according to its serving obligations, the recent-block floor (D7) and the advertised coverage tier beyond it (§Retention-coverage advertising).
+A `getsegdata` response is all-or-nothing. Its entries sit positionally against the requested indexes, so an incomplete answer would misalign every entry after the first omission. A peer therefore returns the full requested set or `notfound`, according to its serving obligations, the recent-block floor (D7) and the advertised coverage tier beyond it ([Retention-coverage advertising](#retention-coverage-advertising-segdatacov)).
 
 **Large blocks.** Base and region always travel as separate messages, each within the wire message limit. A block whose extended serialisation exceeds the limit at a sub-parity rate therefore needs no special path. Tip reconstruction from held mempool entries is unaffected, and a transaction a node lacks arrives in the existing `getblocktxn` round trip.
 
@@ -211,15 +211,15 @@ Serving beyond the recent-block floor counts against the same upload budget as h
 
 Headers-first sync is unchanged. A syncing node validates every block from the base serialisation, requested from any peer, at every depth, and never needs an entry or a SegData peer to complete or stay in sync. A node that wants to retain and serve the region requests each block's region (`getsegdata`) alongside its base for the range it keeps, by default the recent-block floor, from SegData peers, and that floor is exactly the range every SegData peer MUST serve (D7). Sync never depends on voluntary retention, regardless of how old the syncing software is.
 
-A node choosing to retain deeper history SHOULD select peers whose advertised coverage spans the desired range, `NODE_SEGDATA` peers discovered via `addr` relay first, then `segdatacov` tiers sampled on connection. Retention of that range is voluntary (consensus BIP §Prunability), and the signal guarantees that whoever retained it is discoverable. If no peer can supply an entry, the node simply does not hold it, its validation unaffected since it never needed the region. Voluntary deeper retention never stalls sync.
+A node choosing to retain deeper history SHOULD select peers whose advertised coverage spans the desired range, `NODE_SEGDATA` peers discovered via `addr` relay first, then `segdatacov` tiers sampled on connection. Retention of that range is voluntary (consensus BIP [Prunability](bip-segdata.md#prunability)), and the signal guarantees that whoever retained it is discoverable. If no peer can supply an entry, the node simply does not hold it, its validation unaffected since it never needed the region. Voluntary deeper retention never stalls sync.
 
 ### DoS bounds
 
-- Entry weight: bounded per transaction by `MAX_STANDARD_TX_WEIGHT` on the attributed weight (§Mempool acceptance) and in aggregate by `maxmempool`, with `minrelaytxfee` pricing every byte. These weight bounds cap total data and entry count together, since each entry needs a reference output, so fragmenting into smaller entries costs the same weight. A separate per-entry size limit would add no protection.
+- Entry weight: bounded per transaction by `MAX_STANDARD_TX_WEIGHT` on the attributed weight ([Mempool acceptance](#mempool-acceptance)) and in aggregate by `maxmempool`, with `minrelaytxfee` pricing every byte. These weight bounds cap total data and entry count together, since each entry needs a reference output, so fragmenting into smaller entries costs the same weight. A separate per-entry size limit would add no protection.
 - `txent` bounds: `count` is bounded by the transaction's reference outputs, and oversized or mismatched bundles are protocol violations.
 - `getsegdata` bounds: requests are answered only for known blocks. The recent-block serve obligation (D7) follows the BIP-159 precedent (a pruned node serves its most recent 288 blocks to any requester), not the announcement-gated `getblocktxn` rule, since it must answer for blocks the responder never announced (reorg repopulation, catch-up). As with recent-block serving today, the obligation coexists with per-peer rate limiting and abuse disconnection.
-- Entry memory: counts against `maxmempool`, evicted with the referencing transaction (§Mempool acceptance), and never accepted unsolicited.
-- Coverage serving: beyond the recent-block floor, obligations are bounded by the advertised tier and by the historical-serving upload budget (§Retention-coverage advertising). Within the floor, D7 applies.
+- Entry memory: counts against `maxmempool`, evicted with the referencing transaction ([Mempool acceptance](#mempool-acceptance)), and never accepted unsolicited.
+- Coverage serving: beyond the recent-block floor, obligations are bounded by the advertised tier and by the historical-serving upload budget ([Retention-coverage advertising](#retention-coverage-advertising-segdatacov)). Within the floor, D7 applies.
 
 ## Consequences
 
@@ -244,7 +244,7 @@ No SegData peers are needed for consensus, since a node validates every block fr
 
 ## Reference Implementation
 
-To be developed in the same implementation track as the companion consensus BIP, which also specifies the storage and RPC surface (consensus BIP §Reference Implementation). The relay components required are:
+To be developed in the same implementation track as the companion consensus BIP, which also specifies the storage and RPC surface (consensus BIP [Reference Implementation](bip-segdata.md#reference-implementation)). The relay components required are:
 
 - the negotiation handshake,
 - the `txent` serialisation and its `blocktxn` framing variant,
