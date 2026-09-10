@@ -7,7 +7,6 @@
 from typing import List, Optional, Tuple, NewType, NamedTuple
 import hashlib
 import secrets
-import time
 
 #
 # The following helper functions were copied from the BIP-340 reference implementation:
@@ -838,9 +837,9 @@ def test_sign_and_verify_random(iters: int) -> None:
         # On even iterations use regular signing algorithm for signer 2,
         # otherwise use deterministic signing algorithm
         if i % 2 == 0:
-            # Use a clock for extra_in
-            t = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-            secnonce_2, pubnonce_2 = nonce_gen(sk_2, pk_2, aggpk, msg, t.to_bytes(8, 'big'))
+            # Use random extra_in of random length
+            extra_in = secrets.token_bytes(secrets.randbelow(42))
+            secnonce_2, pubnonce_2 = nonce_gen(sk_2, pk_2, aggpk, msg, extra_in)
         else:
             aggothernonce = nonce_agg([pubnonce_1])
             rand = secrets.token_bytes(32)
