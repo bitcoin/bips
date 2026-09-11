@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-The preferred approach to report a security vulnerability is to contact the
+The preferred way to report a security vulnerability is to contact the
 respective BIP owners and affected projects that implement a BIP. Should
 attempts to contact the affected parties fail, the report can be sent by email
 to one or more of the BIP Editors listed below. The contacted BIP Editors will
