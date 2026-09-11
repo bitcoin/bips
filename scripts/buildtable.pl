@@ -91,6 +91,7 @@ my %AcceptableLicenses = (
 	'CC0-1.0' => undef,
 	'FSFAP' => undef,
 	'MIT' => undef,
+	'MIT-0' => undef,
 	'CC-BY-4.0' => undef,
 	'Apache-2.0' => undef,
 	'BSL-1.0' => undef,
