@@ -313,7 +313,8 @@ def validate_output_scripts(psbt: PSBT) -> Tuple[bool, str]:
             output_index = struct.unpack("<I", output_index_bytes)[0]
             outpoints.append(COutPoint(txid_int, output_index))
 
-    # Track k values per scan key
+    # Track k values per scan key: k is assigned in output index order among
+    # the outputs sharing a scan key (BIP375, Computing the Output Scripts)
     scan_key_k_values = {}
 
     # Validate each SP output
