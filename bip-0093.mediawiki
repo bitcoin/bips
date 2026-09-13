@@ -60,7 +60,7 @@ However, BIP-0039 has no error-correcting ability, cannot sensibly be extended t
 
 We first describe the general checksummed base32<ref>'''Why use base32 at all?''' The lack of mixed case makes it more
 efficient to read out loud, write, type or to put into QR codes.</ref> format called
-''codex32'' and then define a BIP-0032 master seed encoding using it.
+''codex32'' and then define a secret sharing scheme and BIP-0032 master seed encoding using it.
 
 ===codex32===
 
@@ -70,11 +70,12 @@ It reuses the base-32 character set from BIP-0173, and consists of:
 * A human-readable part, which is the string "ms" (or "MS").
 * A separator, which is always "1".
 * A data part which is in turn subdivided into:
-** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
-*** If the threshold parameter is "0" then the share index, defined below, MUST have a value of "s" (or "S").
-** An identifier consisting of 4 bech32 characters.
-** A share index, which is any bech32 character. Note that a share index value of "s" (or "S") is special and denotes the unshared secret (see section "Unshared Secret").
-** A payload which is a sequence of up to 69 bech32 characters. (However, see '''Long Checksum''' below for an exception to this limit.)
+** A header consisting of the first six data characters:
+*** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
+**** If the threshold parameter is "0" then the share index, defined below, MUST have a value of "s" (or "S").
+*** An identifier consisting of 4 bech32 characters.
+*** A share index, which is any bech32 character. Note that a share index value of "s" (or "S") is special and denotes the unshared secret (see [[#Unshared_Secret|Unshared secret]]).
+** A payload which is a sequence of up to 69 bech32 characters. (However, see [[#Long_Checksum|Long checksum]] below for an exception to this limit.)
 ** A checksum which consists of 13 or 15 bech32 characters as described below.
 
 See [[#Master_seed_format|Master seed format]] for the payload-length and payload-conversion requirements for BIP-0032 master seeds.
@@ -84,6 +85,17 @@ Note that per BIP-0173, the lowercase form is used when determining a character'
 In particular, given an all uppercase codex32 string, we still use lowercase <code>ms</code> as the human-readable part during checksum construction.
 For presentation, lowercase is usually preferable, but uppercase SHOULD be used for handwritten codex32 strings.
 If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, as this is encoded more compactly.
+
+<span id="Unshared_Secret"></span><span id="unshared-secret"></span>
+'''Unshared secret'''
+
+When the share index of a valid codex32 string (converted to lowercase) is the letter "s", we call the string a codex32 secret.
+
+The secret's payload is decoded by application-specific rules.
+
+For an unshared secret, the threshold parameter (the first character of the data part) is ignored (beyond the fact it must be a digit for the codex32 string to be valid).
+We recommend using the digit "0" for the threshold parameter in this case.
+The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets in cases where they have more than one.
 
 ====Checksum====
 
@@ -99,6 +111,8 @@ Expanded lengths 94 and 95, and lengths greater than 1023, are invalid.
 
 The functions <code>ms32_create_regular_checksum</code> and <code>ms32_create_long_checksum</code> construct the individual checksum variants.
 To construct the checksum variant required by codex32 given the data-part characters (excluding the checksum), the <code>ms32_create_checksum</code> function can be used.
+
+'''Regular checksum'''
 
 <source lang="python">
 MS32_CONST = 0x10ce0795c2fd1e62a
@@ -127,7 +141,7 @@ def ms32_verify_regular_checksum(data):
 
 def ms32_verify_checksum(data):
     expanded_length = MS32_HRP_EXPANDED_LENGTH + len(data)
-    if expanded_length >= 96:                       # See Long Checksum
+    if expanded_length >= 96:                       # See Long checksum
         return ms32_verify_long_checksum(data)
     return ms32_verify_regular_checksum(data)
 
@@ -137,7 +151,7 @@ def ms32_create_regular_checksum(data):
     return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
 
 def ms32_create_checksum(data):
-    if MS32_HRP_EXPANDED_LENGTH + len(data) + 13 > 93:  # See Long Checksum
+    if MS32_HRP_EXPANDED_LENGTH + len(data) + 13 > 93:  # See Long checksum
         return ms32_create_long_checksum(data)
     return ms32_create_regular_checksum(data)
 </source>
@@ -146,7 +160,8 @@ guarantees detection of '''any error changing at most 8 symbols''' in expanded c
 and has less than a 3 in 10<sup>20</sup> chance of failing to detect more
 random errors.
 
-====Long Checksum====
+<span id="Long_Checksum"></span><span id="long-checksum"></span>
+'''Long checksum'''
 
 <source lang="python">
 MS32_LONG_CONST = 0x43381e570bf4798ab26
@@ -187,9 +202,8 @@ A codex32 string using the long checksum follows the same specification as one u
 * The payload is a sequence of up to 997 bech32 characters.
 * The checksum consists of 15 bech32 characters as defined above.
 
-Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>ms32_interpolate</code> function.
-
-====Error Correction====
+<span id="Error_Correction"></span>
+====Error correction====
 
 A codex32 string without a valid checksum MUST NOT be used.
 Both checksums are designed to correct up to 4 character substitutions or up to 8 unreadable characters (called erasures).
@@ -205,28 +219,25 @@ We do not specify how an implementation should implement error correction. Howev
 * If a string with 8 or fewer erasures can have those erasures filled in to make a valid codex32 string, then the implementation suggests such a string as a correction.
 * If a string consisting of valid bech32 characters in the proper case can be made valid by substituting 4 or fewer characters, then the implementation suggests such a string as a correction.
 
-===Unshared Secret===
-
-When the share index of a valid codex32 string (converted to lowercase) is the letter "s", we call the string a codex32 secret.
-
-The secret's payload is decoded by application-specific rules.
-
-For an unshared secret, the threshold parameter (the first character of the data part) is ignored (beyond the fact it must be a digit for the codex32 string to be valid).
-We recommend using the digit "0" for the threshold parameter in this case.
-The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets in cases where they have more than one.
-
-===Recovering Secret===
+===SSSS-awareness===
 
 When the share index of a valid codex32 string (converted to lowercase) is not the letter "s", we call the string a codex32 share.
 The first character of the data part indicates the threshold of the share, and it is required to be a non-"0" digit.
+The corresponding secret has index "s", as described in [[#Unshared_Secret|Unshared secret]].
 
-In order to recover a secret, one needs a set of valid shares such that:
+Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>ms32_interpolate</code> function.
 
-* All shares have the same threshold value, the same identifier, and the same length.
-* All of the share index values are distinct.
-* The number of shares is exactly equal to the (common) threshold value.
+<span id="Generating_Shares"></span>
+====Generating shares====
 
-If all the above conditions are satisfied, the <code>ms32_recover</code> function will return a codex32 secret when its argument is the list of codex32 shares with each share represented as a list of integers representing the characters converted using the bech32 character table from BIP-0173. 
+If we already have ''k'' valid codex32 strings such that:
+
+* All strings have the same threshold value ''k'', the same identifier, and the same length
+* All of the share index values are distinct
+
+Then we can derive additional shares with the <code>ms32_interpolate</code> function by passing it a list of exactly ''k'' of these codex32 strings, together with a fresh share index distinct from all of the existing share indexes.
+The newly derived share will have the provided share index.
+
 <source lang="python">
 BECH32_INV = [
     0, 1, 20, 24, 10, 8, 12, 29, 5, 11, 4, 9, 6, 28, 26, 31,
@@ -261,27 +272,15 @@ def ms32_interpolate(l, x):
             n ^= bech32_mul(w[j], l[j][i])
         res.append(n)
     return res
-
-def ms32_recover(shares):
-    return ms32_interpolate(shares, 16)
 </source>
-
-===Generating Shares===
-
-If we already have ''k'' valid codex32 strings such that:
-
-* All strings have the same threshold value ''k'', the same identifier, and the same length
-* All of the share index values are distinct
-
-Then we can derive additional shares with the <code>ms32_interpolate</code> function by passing it a list of exactly ''k'' of these codex32 strings, together with a fresh share index distinct from all of the existing share indexes.
-The newly derived share will have the provided share index.
 
 Once a user has generated ''n'' shares, they may discard the codex32 secret (if it exists).
 The ''n'' shares form a ''k'' of ''n'' Shamir's secret sharing scheme of a codex32 secret.
 
 There are two ways to create an initial set of ''k'' valid codex32 strings, depending on whether the user already has an existing secret to split.
 
-====For a fresh secret====
+<span id="For_a_fresh_secret"></span><span id="for-a-fresh-secret"></span>
+'''For a fresh secret'''
 
 In the case that the user wishes to generate a fresh secret, the user generates random initial shares, as follows:
 
@@ -299,7 +298,8 @@ The result will be ''k'' distinct shares, all with the same initial 8 characters
 
 With this set of ''k'' shares, new shares can be derived as discussed above. This process generates a fresh secret, whose value can be retrieved by running the recovery process on any ''k'' of these shares.
 
-====For an existing secret====
+<span id="For_an_existing_secret"></span><span id="for-an-existing-secret"></span>
+'''For an existing secret'''
 
 Before generating shares for an existing secret, it first must be codex32-encoded.
 The conversion process consists of:
@@ -308,13 +308,28 @@ The conversion process consists of:
 # Choose a 4 bech32 character identifier
 #* We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every set of shares the user may need to disambiguate
 # Set the share index to <code>s</code>
-# Set the payload to a bech32 encoding of the application-specified secret payload bits; for a master seed, follow "Master seed format".
+# Set the payload to a bech32 encoding of the application-specified secret payload bits; for a master seed, follow [[#Master_seed_format|Master seed format]].
 # Generate a valid checksum in accordance with the Checksum section
 
 Along with the codex32 secret, the user must generate ''k''-1 other codex32 shares, each with the same threshold value, the same identifier, and a distinct share index.
-These shares should be generated as described in the "fresh secret" section.
+These shares should be generated as described in [[#For_a_fresh_secret|For a fresh secret]].
 
 The codex32 secret and the ''k''-1 codex32 shares form a set of ''k'' valid initial codex32 strings from which additional shares can be derived as described above.
+
+<span id="Recovering_Secret"></span>
+====Recovering secret====
+
+In order to recover a secret, one needs a set of valid shares such that:
+
+* All shares have the same threshold value, the same identifier, and the same length.
+* All of the share index values are distinct.
+* The number of shares is exactly equal to the (common) threshold value.
+
+If all the above conditions are satisfied, the <code>ms32_recover</code> function will return a codex32 secret when its argument is the list of codex32 shares with each share represented as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
+<source lang="python">
+def ms32_recover(shares):
+    return ms32_interpolate(shares, 16)
+</source>
 
 ===Master seed format===
 
@@ -384,7 +399,8 @@ If the prefix is damaged and a user is guessing that the data might be using thi
 
 <references />
 
-===Not BIP-0039 Entropy===
+<span id="Not_BIP-0039_Entropy"></span>
+===Not BIP-0039 entropy===
 
 Instead of encoding a BIP-0032 master seed, an alternative would be to encode BIP-0039 entropy.
 However this alternative approach is fraught with difficulties.
@@ -416,9 +432,10 @@ The main advantage of this alternative approach would be that wallets could give
 In practice, we do not expect users in switch back and forth between backup formats, and instead just generate a fresh master seed using Codex32.
 
 Seeing little value with BIP-0039 compatibility (English-only), all the difficulties with BIP-0039 language choice, not to mention the PBKDF2 overhead of using BIP-0039, we think it is best to abandon BIP-0039 and encode BIP-0032 master seeds directly.
-Our approach is semi-convertible with BIP-0039's 512-bit master seeds (in all languages, see Backwards Compatibility) and interconvertible with SLIP-0039 master seeds or any other encoding of BIP-0032 master seeds with a supported length.
+Our approach is semi-convertible with BIP-0039's 512-bit master seeds (in all languages, see [[#Backwards_Compatibility|Backwards compatibility]]) and interconvertible with SLIP-0039 master seeds or any other encoding of BIP-0032 master seeds with a supported length.
 
-==Backwards Compatibility==
+<span id="Backwards_Compatibility"></span>
+==Backwards compatibility==
 
 Earlier revisions accepted every master seed length from 16 through 64 bytes using regular checksum up to 93 data characters and long checksum from 96 data characters.
 This revision retains 16-, 20-, 24-, 28-, 32-, and 64-byte master seeds.
@@ -435,13 +452,15 @@ However, SLIP-0039 '''shares''' cannot be converted to codex32 shares because th
 The authors of this BIP do not recommend interconversion.
 Instead, users who wish to switch to codex32 should generate a fresh seed and sweep their coins.
 
-==Reference Implementation==
+<span id="Reference_Implementation"></span>
+==Reference implementation==
 
 The inline code in this BIP text provides Python reference implementations of the checksum and interpolation primitives.
 A complete Python implementation is available in the [https://github.com/BenWestgate/python-codex32 python-codex32 repository].
 The [https://github.com/BlockstreamResearch/codex32 original project repository] contains implementations in Rust and PostScript.
 
-==Test Vectors==
+<span id="Test_Vectors"></span>
+==Test vectors==
 
 ===Test vector 1===
 
@@ -644,7 +663,8 @@ These examples all incorrectly mix upper and lower case characters.
 
 ==Appendix==
 
-===Mathematical Companion===
+<span id="Mathematical_Companion"></span>
+===Mathematical companion===
 
 Below we use the bech32 character set to denote values in GF[32].
 In bech32, the letter <code>Q</code> denotes zero and the letter <code>P</code> denotes one.
