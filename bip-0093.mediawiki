@@ -81,6 +81,8 @@ It reuses the base-32 character set from BIP-0173, and consists of:
 
 See [[#Master_seed_format|Master seed format]] for the payload-length and payload-conversion requirements for BIP-0032 master seeds.
 
+'''Uppercase/lowercase'''
+
 As with bech32 strings, a codex32 string MUST be entirely uppercase or entirely lowercase.
 Note that per BIP-0173, the lowercase form is used when determining a character's value for checksum purposes.
 In particular, given an all uppercase codex32 string, we still use lowercase <code>ms</code> as the human-readable part during checksum construction.
@@ -226,18 +228,13 @@ When the share index of a valid codex32 string (converted to lowercase) is not t
 The first character of the data part indicates the threshold of the share, and it is required to be a non-"0" digit.
 The corresponding secret has index "s", as described in [[#Unshared_Secret|Unshared secret]].
 
-Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>ms32_interpolate</code> function.
+The share generation and secret recovery procedures below are the same for both checksum variants.
 
-<span id="Generating_Shares"></span>
-====Generating shares====
+The functions in this section represent each codex32 string as a list of integers obtained by converting the data-part characters to their values using the bech32 character table from BIP-0173.
 
-If we already have ''k'' valid codex32 strings such that:
-
-* All strings have the same threshold value ''k'', the same identifier, and the same length
-* All of the share index values are distinct
-
-Then we can derive additional shares with the <code>ms32_interpolate</code> function by passing it a list of exactly ''k'' of these codex32 strings, together with a fresh share index distinct from all of the existing share indexes.
-The newly derived share will have the provided share index.
+The first argument to the <code>ms32_interpolate</code> function is a list of codex32 strings in this representation.
+Its second argument is a target share index converted to its integer value using the same character table, distinct from all input share indexes.
+The result represents the codex32 string at that index.
 
 <source lang="python">
 BECH32_INV = [
@@ -274,6 +271,17 @@ def ms32_interpolate(l, x):
         res.append(n)
     return res
 </source>
+
+<span id="Generating_Shares"></span>
+====Generating shares====
+
+If we already have ''k'' valid codex32 strings such that:
+
+* All strings have the same threshold value ''k'', the same identifier, and the same length
+* All of the share index values are distinct
+
+Then we can derive additional shares with the <code>ms32_interpolate</code> function.
+Pass a list of exactly ''k'' of these codex32 strings in the representation defined above, together with the integer value of a fresh share index distinct from all of the existing share indexes.
 
 Once a user has generated ''n'' shares, they may discard the codex32 secret (if it exists).
 The ''n'' shares form a ''k'' of ''n'' Shamir's secret sharing scheme of a codex32 secret.
@@ -326,7 +334,8 @@ In order to recover a secret, one needs a set of valid shares such that:
 * All of the share index values are distinct.
 * The number of shares is exactly equal to the (common) threshold value.
 
-If all the above conditions are satisfied, the <code>ms32_recover</code> function will return a codex32 secret when its argument is the list of codex32 shares with each share represented as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
+If all the above conditions are satisfied, the <code>ms32_recover</code> function returns the corresponding codex32 secret from a list of the shares.
+Both the input shares and the returned secret use the representation defined above.
 <source lang="python">
 def ms32_recover(shares):
     return ms32_interpolate(shares, 16)
@@ -389,7 +398,7 @@ However, the checksum does not protect against maliciously constructed errors.
 For 256-bit seeds and shares our strings are 74 characters, which fits into the 96 character format of the 24 four-letter word format of the BIP-0039 mnemonic, with plenty of room to spare.
 
 The supported 128-, 160-, 192-, 224-, and 256-bit sizes are the entropy sizes defined by BIP-0039, while 512 bits is the BIP-0032 seed size produced by BIP-0039 recovery.
-These encoded lengths have at least six-character gaps, reducing target length ambiguity for optional insertion/deletion correction workflows.
+These encoded lengths have at least six-character gaps, reducing target length ambiguity for optional insertion/deletion correction.
 
 While the regular checksum is enough to support the 256-bit advised size of BIP-0032 master seeds, BIP-0032 allows seeds to be up to 512 bits in size.
 We define a long checksum to support the maximum seed size because its expanded codewords exceed the regular checksum's limit.
