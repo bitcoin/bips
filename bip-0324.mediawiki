@@ -323,7 +323,7 @@ def initialize_v2_transport(peer, ecdh_secret, initiating):
         peer.recv_garbage_terminator = initiator_garbage_terminator
 
     # To achieve forward secrecy we must wipe the key material used to initialize the ciphers:
-    memory_cleanse(ecdh_secret, prk, initiator_L, initiator_P, responder_L, responder_K)
+    memory_cleanse(ecdh_secret, prk, initiator_L, initiator_P, responder_L, responder_P)
 </pre>
 
 The session ID uniquely identifies the encrypted channel. v2 clients supporting this proposal may present the entire session ID (encoded as a hex string) to the node operator to allow for manual, out of band comparison with the peer node operator. Future transport versions may introduce optional authentication methods that compare the session ID as seen by the two endpoints in order to bind the encrypted channel to the authentication.
@@ -353,7 +353,7 @@ def respond_v2_handshake(peer, garbage_len):
         if peer.received_prefix[-1] != V1_PREFIX[len(peer.received_prefix) - 1]:
             peer.privkey_ours, peer.ellswift_ours = ellswift_create()
             peer.sent_garbage = rand_bytes(garbage_len)
-            send(peer, ellswift_Y + peer.sent_garbage)
+            send(peer, peer.ellswift_ours + peer.sent_garbage)
             return
     use_v1_protocol()
 </pre>
@@ -363,13 +363,13 @@ Upon receiving the encoded responder public key, the initiator derives the share
 <pre>
 def complete_handshake(peer, initiating, decoy_content_lengths=[]):
     received_prefix = b'' if initiating else peer.received_prefix
-    ellswift_theirs = receive(peer, 64 - len(received_prefix))
+    ellswift_theirs = received_prefix + receive(peer, 64 - len(received_prefix))
     if not initiating and ellswift_theirs[4:16] == V1_PREFIX[4:16]:
         # Looks like a v1 peer from the wrong network.
         disconnect(peer)
     ecdh_secret = v2_ecdh(peer.privkey_ours, ellswift_theirs, peer.ellswift_ours,
                           initiating=initiating)
-    initialize_v2_transport(peer, ecdh_secret, initiating=True)
+    initialize_v2_transport(peer, ecdh_secret, initiating=initiating)
     # Send garbage terminator
     send(peer, peer.send_garbage_terminator)
     # Optionally send decoy packets after garbage terminator.
