@@ -116,6 +116,19 @@ def gen_all_verify_proof_vectors(f):
                      C.to_bytes_compressed().hex(), proof.hex(), msg_damaged.hex(), "FALSE", f"Tampered message (random bit-flip)"))
     idx += 1
 
+    # out-of-range proof values should fail (e and s must both be valid scalars)
+    order_bytes = GE.ORDER.to_bytes(32, "big")
+    proof_e_out_of_range = order_bytes + proof[32:]
+    assert not dleq_verify_proof(A, B, C, proof_e_out_of_range, G=G, m=msg)
+    writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+                     C.to_bytes_compressed().hex(), proof_e_out_of_range.hex(), msg.hex(), "FALSE", f"Proof with e equal to curve order"))
+    idx += 1
+    proof_s_out_of_range = proof[:32] + order_bytes
+    assert not dleq_verify_proof(A, B, C, proof_s_out_of_range, G=G, m=msg)
+    writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+                     C.to_bytes_compressed().hex(), proof_s_out_of_range.hex(), msg.hex(), "FALSE", f"Proof with s equal to curve order"))
+    idx += 1
+
 
 if __name__ == "__main__":
     print(f"Generating {FILENAME_GENERATE_PROOF_TEST}...")
