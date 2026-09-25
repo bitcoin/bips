@@ -192,10 +192,12 @@ while (++$bipnum <= $topbip) {
 			$layer = $val;
 		} elsif ($field =~ /^License(?:\-Code)?$/) {
 			die "License continued across lines in $fn, use SPDX expression (... OR $val) instead" if $continuation;
-			$val =~ s/ OR .*//;
-			die "Undefined license $val in $fn" unless exists $DefinedLicenses{$val};
+			my @licenses = split / OR /, $val;
+			for my $license (@licenses) {
+				die "Undefined license $license in $fn" unless exists $DefinedLicenses{$license};
+			}
 			if (not $found{$field}) {
-				die "Unacceptable license $val in $fn" unless exists $AcceptableLicenses{$val} or ($val eq 'PD' and exists $GrandfatheredPD{$bipnum}) or ($val eq 'CC-BY-SA-4.0' and exists $GrandfatheredCCBySA{$bipnum});
+				die "Unacceptable license $val in $fn" unless grep { exists $AcceptableLicenses{$_} or ($_ eq 'PD' and exists $GrandfatheredPD{$bipnum}) or ($_ eq 'CC-BY-SA-4.0' and exists $GrandfatheredCCBySA{$bipnum}) } @licenses;
 			}
 		} elsif ($field eq 'Comments-URI') {
 			if (not $found{'Comments-URI'}) {
