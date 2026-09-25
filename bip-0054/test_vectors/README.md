@@ -30,9 +30,20 @@ is (in)valid according to BIP54.  All test cases are valid according to current 
 rules. It is intended to be used to test a BIP54 implementation by feeding the header chain to a
 Bitcoin node implementation, enforcing the BIP54 rules on this chain from genesis.
 
-The test vector file features a JSON array of JSON objects, each corresponding to a test case. Each
-JSON object features the following entries:
-- `header_chain`: a JSON array of strings. An ordered list of hex-encoded mainnet block headers.
+The test vector file is a tree of JSON objects, in which each leaf corresponds to a test case. Test
+cases whose header chains start with the same headers share the nodes containing those headers. Every
+node features the following entry:
+- `block_headers`: a JSON array of strings. An ordered list of hex-encoded mainnet block headers. The
+  headers of the root node start with the genesis block, and the headers of any other node directly
+  follow the last header of its parent node.
+
+The header chain of a test case is the concatenation of the `block_headers` of all nodes on the path
+from the root to the leaf of this test case.
+
+Inner nodes additionally feature the following entry:
+- `extensions`: a JSON array of JSON objects. The child nodes of this node.
+
+Leaf nodes additionally feature the following entries:
 - `valid`: a JSON boolean. Whether this chain of headers is valid according to BIP54.
 - `comment`: a JSON string. Description of the test case.
 
