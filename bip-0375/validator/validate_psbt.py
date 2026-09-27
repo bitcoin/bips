@@ -46,6 +46,7 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
     Checks:
     - Each output must have PSBT_OUT_SCRIPT or PSBT_OUT_SP_V0_INFO
     - PSBT_OUT_SP_V0_LABEL requires PSBT_OUT_SP_V0_INFO
+    - SP_V0_LABEL must be 4 bytes (32-bit little-endian uint)
     - SP_V0_INFO must be 66 bytes (33-byte scan key + 33-byte spend key)
     - ECDH shares must be 33 bytes
     - DLEQ proofs must be 64 bytes
@@ -72,6 +73,15 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
                 False,
                 f"Output {i} has PSBT_OUT_SP_V0_LABEL but missing PSBT_OUT_SP_V0_INFO",
             )
+
+        # Validate SP_V0_LABEL field length
+        if has_sp_label:
+            sp_label = output_map[PSBT_OUT_SP_V0_LABEL]
+            if len(sp_label) != 4:
+                return (
+                    False,
+                    f"Output {i} PSBT_OUT_SP_V0_LABEL has wrong length ({len(sp_label)} bytes, expected 4)",
+                )
 
         # Validate SP_V0_INFO field length
         if has_sp_info:
