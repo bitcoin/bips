@@ -30,11 +30,25 @@ is (in)valid according to BIP54.  All test cases are valid according to current 
 rules. It is intended to be used to test a BIP54 implementation by feeding the header chain to a
 Bitcoin node implementation, enforcing the BIP54 rules on this chain from genesis.
 
-The test vector file features a JSON array of JSON objects, each corresponding to a test case. Each
-JSON object features the following entries:
-- `header_chain`: a JSON array of strings. An ordered list of hex-encoded mainnet block headers.
-- `valid`: a JSON boolean. Whether this chain of headers is valid according to BIP54.
-- `comment`: a JSON string. Description of the test case.
+The test vector file contains a single JSON object, with child objects nested recursively in
+`extensions` arrays. Each object contains a segment of a header chain, and its children contain
+alternative continuations of that chain. Each path from the top-level object to a leaf represents
+one complete test case, allowing test cases to share common prefixes.
+
+Every object contains:
+- `block_headers`: a JSON array of strings containing consecutive, hex-encoded mainnet block
+  headers. The top-level object's headers start with genesis. Each child object's headers directly
+  follow the last header of its parent.
+
+An object that branches into further continuations also contains:
+- `extensions`: a JSON array of child objects with the same format.
+
+A leaf object has no `extensions` entry and instead contains:
+- `valid`: a JSON boolean indicating whether the complete header chain is valid according to BIP54.
+- `comment`: a JSON string describing the test case.
+
+To reconstruct a test case's header chain, concatenate the `block_headers` arrays along the path
+from the top-level object to that test case's leaf, in that order.
 
 For the purpose of testing a Timewarp fix, a Timewarp attack was included early on in the history of
 testnet3. An implementer of BIP54 may want to ensure that syncing testnet3 by enforcing BIP54 since
