@@ -48,6 +48,7 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
     - PSBT_OUT_SP_V0_LABEL requires PSBT_OUT_SP_V0_INFO
     - SP_V0_LABEL must be 4 bytes (32-bit little-endian uint)
     - SP_V0_INFO must be 66 bytes (33-byte scan key + 33-byte spend key)
+    - ECDH share and DLEQ proof keydata must be 33-byte scan keys
     - ECDH shares must be 33 bytes
     - DLEQ proofs must be 64 bytes
     - TX_MODIFIABLE is zero when PSBT_OUT_SCRIPT set for SP output
@@ -92,9 +93,14 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
                     f"Output {i} SP_V0_INFO has wrong length ({len(sp_info)} bytes, expected 66)",
                 )
 
-    # Validate ECDH share lengths (global and per-input)
+    # Validate ECDH share keydata and value lengths (global and per-input)
     global_ecdh_shares = psbt.g.get_all_by_type(PSBT_GLOBAL_SP_ECDH_SHARE)
-    for _, ecdh_share in global_ecdh_shares:
+    for scan_key, ecdh_share in global_ecdh_shares:
+        if len(scan_key) != 33:
+            return (
+                False,
+                f"Global ECDH share scan key has wrong length ({len(scan_key)} bytes, expected 33)",
+            )
         if len(ecdh_share) != 33:
             return (
                 False,
@@ -103,16 +109,26 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
 
     for i, input_map in enumerate(psbt.i):
         input_ecdh_shares = input_map.get_all_by_type(PSBT_IN_SP_ECDH_SHARE)
-        for _, ecdh_share in input_ecdh_shares:
+        for scan_key, ecdh_share in input_ecdh_shares:
+            if len(scan_key) != 33:
+                return (
+                    False,
+                    f"Input {i} ECDH share scan key has wrong length ({len(scan_key)} bytes, expected 33)",
+                )
             if len(ecdh_share) != 33:
                 return (
                     False,
                     f"Input {i} ECDH share has wrong length ({len(ecdh_share)} bytes, expected 33)",
                 )
 
-    # Validate DLEQ proof lengths (global and per-input)
+    # Validate DLEQ proof keydata and value lengths (global and per-input)
     global_dleq_proofs = psbt.g.get_all_by_type(PSBT_GLOBAL_SP_DLEQ)
-    for _, dleq_proof in global_dleq_proofs:
+    for scan_key, dleq_proof in global_dleq_proofs:
+        if len(scan_key) != 33:
+            return (
+                False,
+                f"Global DLEQ proof scan key has wrong length ({len(scan_key)} bytes, expected 33)",
+            )
         if len(dleq_proof) != 64:
             return (
                 False,
@@ -121,7 +137,12 @@ def validate_psbt_structure(psbt: PSBT) -> Tuple[bool, str]:
 
     for i, input_map in enumerate(psbt.i):
         input_dleq_proofs = input_map.get_all_by_type(PSBT_IN_SP_DLEQ)
-        for _, dleq_proof in input_dleq_proofs:
+        for scan_key, dleq_proof in input_dleq_proofs:
+            if len(scan_key) != 33:
+                return (
+                    False,
+                    f"Input {i} DLEQ proof scan key has wrong length ({len(scan_key)} bytes, expected 33)",
+                )
             if len(dleq_proof) != 64:
                 return (
                     False,
