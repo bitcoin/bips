@@ -145,8 +145,9 @@ def validate_ecdh_coverage(psbt: PSBT) -> Tuple[bool, str]:
     Validate ECDH share coverage and DLEQ proof correctness
 
     Checks:
+    - Every ECDH share must have a corresponding DLEQ proof, whether or not
+      PSBT_OUT_SCRIPT has been computed
     - Verify ECDH share coverage for each scan key associated with SP outputs
-    - Every ECDH share must have a corresponding DLEQ proof
     - If PSBT_OUT_SCRIPT is set, all eligible inputs must have ECDH coverage
     - DLEQ proofs must verify correctly
     """
@@ -177,12 +178,22 @@ def validate_ecdh_coverage(psbt: PSBT) -> Tuple[bool, str]:
         if scan_key_has_computed_output and not has_global_ecdh and not has_input_ecdh:
             return False, "Silent payment output present but no ECDH share for scan key"
 
+        # Every ECDH share must be paired with a DLEQ proof. This is a
+        # field-level invariant: an in-progress PSBT may omit PSBT_OUT_SCRIPT,
+        # but a share that has been set always requires its proof.
+        if has_global_ecdh and not psbt.g.get_by_key(PSBT_GLOBAL_SP_DLEQ, scan_key):
+            return False, "Global ECDH share missing DLEQ proof"
+
+        for i, input_map in enumerate(psbt.i):
+            if input_map.get_by_key(
+                PSBT_IN_SP_ECDH_SHARE, scan_key
+            ) and not input_map.get_by_key(PSBT_IN_SP_DLEQ, scan_key):
+                return False, f"Input {i} ECDH share missing DLEQ proof"
+
         # Verify global DLEQ proof if global ECDH present
         if has_global_ecdh:
             ecdh_share = psbt.g.get_by_key(PSBT_GLOBAL_SP_ECDH_SHARE, scan_key)
             dleq_proof = psbt.g.get_by_key(PSBT_GLOBAL_SP_DLEQ, scan_key)
-            if not dleq_proof:
-                return False, "Global ECDH share missing DLEQ proof"
 
             _, summed_pubkey_bytes = collect_input_ecdh_and_pubkey(psbt, scan_key)
             assert summed_pubkey_bytes is not None, "No public keys found for inputs"
@@ -204,10 +215,9 @@ def validate_ecdh_coverage(psbt: PSBT) -> Tuple[bool, str]:
                         f"Output script set but eligible input {i} missing ECDH share",
                     )
                 else:
-                    # Verify per-input DLEQ proofs
+                    # Verify the per-input DLEQ proof; its presence is already
+                    # enforced above for every input carrying an ECDH share
                     dleq_proof = input_map.get_by_key(PSBT_IN_SP_DLEQ, scan_key)
-                    if not dleq_proof:
-                        return False, f"Input {i} ECDH share missing DLEQ proof"
 
                     # Get input public key A
                     A = pubkey_from_eligible_input(input_map)
