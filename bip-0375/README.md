@@ -25,6 +25,7 @@ python test_runner.py -v                 # Verbose mode with detailed validation
 python test_runner.py -vv                # More verbose with validation check failure reason
 
 python test_runner.py -f vectors.json    # Use custom test vector file
+python test_structure.py                 # Run field-length unit tests
 ```
 
 ### Generating Test Vectors
