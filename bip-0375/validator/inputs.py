@@ -124,7 +124,8 @@ def parse_witness_utxo(witness_utxo: bytes) -> bytes:
 def _parse_non_witness_utxo(non_witness_utxo: bytes, output_index: int) -> bytes:
     """Extract scriptPubKey from non_witness_utxo"""
     tx = from_binary(CTransaction, non_witness_utxo)
-    assert output_index < len(tx.vout), "Invalid output index"
+    if output_index >= len(tx.vout):
+        raise ValueError("Invalid output index")
     return tx.vout[output_index].scriptPubKey
 
 
@@ -136,9 +137,8 @@ def _parse_non_witness_utxo(non_witness_utxo: bytes, output_index: int) -> bytes
 def is_input_eligible(input_map: BIP375PSBTMap) -> bool:
     """Check if input is eligible for silent payments"""
     script_pubkey = _script_pubkey_from_psbt_input(input_map)
-    assert script_pubkey is not None, (
-        "scriptPubKey could not be extracted from PSBT input"
-    )
+    if script_pubkey is None:
+        raise ValueError("scriptPubKey could not be extracted from PSBT input")
 
     if not _has_eligible_script_type(script_pubkey):
         return False
@@ -157,7 +157,7 @@ def is_input_eligible(input_map: BIP375PSBTMap) -> bool:
             if not _is_p2wpkh(redeem_script):
                 return False
         else:
-            assert False
+            raise ValueError("P2SH input missing PSBT_IN_REDEEM_SCRIPT")
     return True
 
 
