@@ -50,7 +50,10 @@ def validate_bip375_psbt(
 
         check_fn = CHECK_FUNCTIONS[check_name]
 
-        is_valid, msg = check_fn(psbt)
+        try:
+            is_valid, msg = check_fn(psbt)
+        except ValueError as e:
+            is_valid, msg = False, str(e)
         if debug:
             msg = f"{check_name.upper()}: {msg}" if msg else msg
 
