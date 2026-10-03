@@ -156,7 +156,7 @@ fn parse_inout_selection(
                 first as usize
             } else {
                 let next_byte = bytes.next().ok_or("expected another index byte")?;
-                (((first & (1 << 7)) as usize) << 8) + next_byte as usize
+                (((first & !(1 << 7)) as usize) << 8) + next_byte as usize
             };
 
             let idx = if absolute {
@@ -666,6 +666,23 @@ mod test_vectors {
             }
             TestCase { tx, prevs, vectors }
         }).collect()
+    }
+
+    /// The spec says a two-byte index is "the remaining 7 bits [of the first byte],
+    /// together with the next byte's 8 bits", so both encodings of the same index
+    /// select the same in/output and must yield the same TxHash. The control bit is
+    /// left unset so that the TxFieldSelector bytes themselves are not committed to.
+    #[test]
+    fn two_byte_individual_index_matches_single_byte() {
+        let (tx, prevs) = test_vector_tx();
+        let allio = TXFS_INPUTS_ALL | TXFS_OUTPUTS_ALL;
+        let sel = TXFS_INOUT_SELECTION_MODE | 0x01; // individual, absolute, one index
+        let single = [0x00, allio, sel, 0x01, TXFS_INOUT_SELECTION_NONE];
+        let double = [0x00, allio, sel, 0x80, 0x01, TXFS_INOUT_SELECTION_NONE];
+        assert_eq!(
+            calculate_txhash(&single, &tx, &prevs, 0, None),
+            calculate_txhash(&double, &tx, &prevs, 0, None),
+        );
     }
 
     pub fn write_vector_file(path: impl AsRef<std::path::Path>) {
