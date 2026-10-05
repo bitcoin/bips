@@ -106,14 +106,14 @@ The 4 character identifier also has no effect beyond aiding users in distinguish
 The last thirteen characters of a regular codex32 data part form a checksum and contain no information.
 Valid strings MUST pass the criteria for validity specified by the Python 3 code snippet below.
 The function <code>codex32_verify_checksum</code> selects the checksum variant required by codex32 and MUST return true when its arguments are the human-readable part, converted to lowercase, and the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
-The functions <code>codex32_verify_regular_checksum</code> and <code>codex32_verify_long_checksum</code> verify only their respective checksum variants within their stated periods.
+The functions <code>codex32_verify_regular_checksum</code> and <code>codex32_verify_long_checksum</code> verify only their respective checksum variants within their stated periods, given the expanded codeword as a list of integers.
 
 Checksum selection depends on the expanded codeword length: the BIP-0173 expansion of the human-readable part followed by the complete data part.
 A human-readable part of ''n'' characters contributes 2''n'' + 1 values to the expansion, so <code>ms</code> contributes five.
 The regular checksum MUST be used when this length is at most 93, and the long checksum MUST be used when this length is between 96 and 1023, inclusive.
 Expanded lengths 94 and 95, and lengths greater than 1023, are invalid.
 
-The functions <code>codex32_create_regular_checksum</code> and <code>codex32_create_long_checksum</code> construct the individual checksum variants.
+The functions <code>codex32_create_regular_checksum</code> and <code>codex32_create_long_checksum</code> construct the individual checksum variants from the expanded human-readable part and data-part characters (excluding the checksum).
 To construct the checksum variant required by codex32 given the human-readable part and the data-part characters (excluding the checksum), the <code>codex32_create_checksum</code> function can be used.
 
 '''Regular checksum'''
@@ -140,27 +140,26 @@ def codex32_polymod(values):
 def bech32_hrp_expand(hrp):
     return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
 
-def codex32_verify_regular_checksum(hrp, data):
-    values = bech32_hrp_expand(hrp) + data
+def codex32_verify_regular_checksum(values):
     if len(values) > 93:
         return False
     return codex32_polymod(values) == CODEX32_CONST
 
 def codex32_verify_checksum(hrp, data):
-    expanded_length = len(bech32_hrp_expand(hrp)) + len(data)
-    if expanded_length >= 96:                       # See Long checksum
-        return codex32_verify_long_checksum(hrp, data)
-    return codex32_verify_regular_checksum(hrp, data)
-
-def codex32_create_regular_checksum(hrp, data):
     values = bech32_hrp_expand(hrp) + data
+    if len(values) >= 96:                            # See Long checksum
+        return codex32_verify_long_checksum(values)
+    return codex32_verify_regular_checksum(values)
+
+def codex32_create_regular_checksum(values):
     polymod = codex32_polymod(values + [0] * 13) ^ CODEX32_CONST
     return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
 
 def codex32_create_checksum(hrp, data):
-    if len(bech32_hrp_expand(hrp)) + len(data) + 13 > 93:  # See Long checksum
-        return codex32_create_long_checksum(hrp, data)
-    return codex32_create_regular_checksum(hrp, data)
+    values = bech32_hrp_expand(hrp) + data
+    if len(values) + 13 > 93:                        # See Long checksum
+        return codex32_create_long_checksum(values)
+    return codex32_create_regular_checksum(values)
 </source>
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
 guarantees detection of '''any error changing at most 8 symbols''' in expanded codewords up to 93 symbols long
@@ -189,14 +188,12 @@ def codex32_long_polymod(values):
             residue ^= GEN[i] if ((b >> i) & 1) else 0
     return residue
 
-def codex32_verify_long_checksum(hrp, data):
-    values = bech32_hrp_expand(hrp) + data
+def codex32_verify_long_checksum(values):
     if len(values) > 1023:
         return False
     return codex32_long_polymod(values) == CODEX32_LONG_CONST
 
-def codex32_create_long_checksum(hrp, data):
-    values = bech32_hrp_expand(hrp) + data
+def codex32_create_long_checksum(values):
     polymod = codex32_long_polymod(values + [0] * 15) ^ CODEX32_LONG_CONST
     return [(polymod >> 5 * (14 - i)) & 31 for i in range(15)]
 </source>
