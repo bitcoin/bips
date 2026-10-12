@@ -10,6 +10,7 @@ from frost_ref.signing import nonce_gen_internal
 from generators.common import (
     COMMON_MSGS,
     COMMON_TWEAKS,
+    INVALID_CONFIG_2OF129,
     CONFIGS,
     AGGNONCE_WRONG_TAG,
     OUT_OF_RANGE_TWEAK,
@@ -19,21 +20,18 @@ from generators.common import (
     bytes_to_hex,
     expect_exception,
     get_subset,
-    has_excl0_subset,
     set_group_config,
     swap_last_two,
     write_test_vectors,
 )
 
-# Aux-randomness pool: all-zeros, None (omitted), all-ones.
+# Aux-randomness pool: all-zeros, None (omitted), arbitrary non-zero.
 RANDS = [
     bytes.fromhex("0000000000000000000000000000000000000000000000000000000000000000"),
     None,
-    bytes.fromhex("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"),
+    bytes.fromhex("B664640DA62E96ACAF94BDD3C892B1C1952304E7C98103EA9729891155BA99EF"),
 ]
 
-# Fault literals that are case payloads rather than pool material (config-independent,
-# never indexed from a pool), so they stay local to this generator.
 AGGOTHERNONCE_FIRST_HALF_ZERO = bytes.fromhex(
     "0000000000000000000000000000000000000000000000000000000000000000000287BF891D2A6DEAEBADC909352AA9405D1428C15F4B75F04DAE642A95C2548480"
 )
@@ -46,11 +44,9 @@ AGGOTHERNONCE_EXCEEDS_FIELD = bytes.fromhex(
 
 
 class DetSignGroupBuilder:
-    """Builds one (t, n) test group for det_sign_vectors.json. Shared inputs and
-    subsets live on self. Each add_* method appends its category to self.group.
+    """Builds one (t, n) test group for det_sign_vectors.json.
 
-    Index convention: valid cases use secshare_index == my_id (a signer signs with
-    its own share at pool position my_id)."""
+    Index convention: valid cases use secshare_index == signer_id."""
 
     def __init__(self, cfg):
         self.inputs = SharedGroupInputs(cfg)
@@ -60,9 +56,9 @@ class DetSignGroupBuilder:
 
         self.cfg = cfg
         self.min_s = get_subset(cfg, "min")
-        self.full = get_subset(cfg, "full")
         self.alt = get_subset(cfg, "alt")
         self.min2 = get_subset(cfg, "min2")
+        self.tplus1 = get_subset(cfg, "tplus1")
 
         self.group = {}
         set_group_config(self.group, cfg, self.inputs)
@@ -74,28 +70,25 @@ class DetSignGroupBuilder:
     def _derive_aggothernonce(
         self,
         ids_set: List[int],
-        my_id: int,
+        signer_id: int,
         msg: bytes,
         aux_rand: Optional[bytes],
     ) -> Optional[bytes]:
-        """Return None when the set holds no signer other than my_id, so there is
-        nothing to aggregate. Otherwise aggregate the other signers' public nonces.
-
-        An empty ids_set satisfies this vacuously, which is what the sub-threshold
-        error cases rely on: aggregating nothing yields a 66-byte all-zero string
-        that deterministic_sign would reject as an invalid coordinator
-        contribution, masking the signer-count error the case is testing."""
-        if all(pid == my_id for pid in ids_set):
+        """Return None when u <= 1 (aggothernonce is omitted iff u = 1), else the
+        aggregate of the other signers' public nonces. Keying on u rather than on
+        signer_id's membership keeps the u = 1 error cases reaching the check they test."""
+        if len(ids_set) <= 1:
             return None
         tmp = b"" if aux_rand is None else aux_rand
         other_pubnonces = []
-        for pid in ids_set:
-            if pid == my_id:
+        for id_k in ids_set:
+            if id_k == signer_id:
                 continue
             _, pub = nonce_gen_internal(
                 tmp,
-                self.inputs.pool_secshares[pid],
-                self.inputs.pool_pubshares[pid],
+                self.inputs.pool_secshares[id_k],
+                id_k,
+                self.inputs.pool_pubshares[id_k],
                 self.inputs.xonly_thresh_pk,
                 msg,
                 None,
@@ -105,7 +98,7 @@ class DetSignGroupBuilder:
 
     def _append_valid(
         self,
-        my_id: int,
+        signer_id: int,
         ids: List[int],
         pubshare_indices: Optional[List[int]],
         aux_rand: Optional[bytes],
@@ -114,7 +107,7 @@ class DetSignGroupBuilder:
         is_xonly: List[bool],
         comment: str,
     ) -> Tuple[bytes, bytes]:
-        curr_aggothernonce = self._derive_aggothernonce(ids, my_id, msg, aux_rand)
+        curr_aggothernonce = self._derive_aggothernonce(ids, signer_id, msg, aux_rand)
         # A null pubshare_indices is a session whose public share list is absent.
         pubshares = (
             None
@@ -122,10 +115,10 @@ class DetSignGroupBuilder:
             else [self.inputs.pool_pubshares[i] for i in pubshare_indices]
         )
         signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
-        secshare = self.inputs.pool_secshares[my_id]
+        secshare = self.inputs.pool_secshares[signer_id]
         result = deterministic_sign(
             secshare,
-            my_id,
+            signer_id,
             curr_aggothernonce,
             *signer_set,
             tweaks,
@@ -136,10 +129,10 @@ class DetSignGroupBuilder:
         self.group["valid_tests"].append(
             {
                 "comment": comment,
-                "my_id": my_id,
+                "signer_id": signer_id,
                 "ids": ids,
                 "pubshare_indices": pubshare_indices,
-                "secshare_index": my_id,
+                "secshare_index": signer_id,
                 "aggothernonce": bytes_to_hex(curr_aggothernonce)
                 if curr_aggothernonce is not None
                 else None,
@@ -154,9 +147,9 @@ class DetSignGroupBuilder:
 
     def _append_error(
         self,
-        my_id: int,
+        signer_id: int,
         ids: List[int],
-        pubshare_indices: List[int],
+        pubshare_indices: Optional[List[int]],
         secshare_index: int,
         aux_rand: Optional[bytes],
         msg: bytes,
@@ -165,21 +158,29 @@ class DetSignGroupBuilder:
         error: str,
         comment: str,
         aggothernonce: Optional[bytes] = None,
+        omit_aggothernonce: bool = False,
     ) -> None:
-        # A caller may supply a crafted aggothernonce to exercise an error path.
         curr_aggothernonce: Optional[bytes]
-        if aggothernonce is not None:
+        if omit_aggothernonce:
+            curr_aggothernonce = None
+        elif aggothernonce is not None:
             curr_aggothernonce = aggothernonce
         else:
-            curr_aggothernonce = self._derive_aggothernonce(ids, my_id, msg, aux_rand)
-        pubshares = [self.inputs.pool_pubshares[i] for i in pubshare_indices]
+            curr_aggothernonce = self._derive_aggothernonce(
+                ids, signer_id, msg, aux_rand
+            )
+        pubshares = (
+            None
+            if pubshare_indices is None
+            else [self.inputs.pool_pubshares[i] for i in pubshare_indices]
+        )
         signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
         secshare = self.inputs.pool_secshares[secshare_index]
         expected_exc = ValueError if error == "value" else InvalidContributionError
         err = expect_exception(
             lambda: deterministic_sign(
                 secshare,
-                my_id,
+                signer_id,
                 curr_aggothernonce,
                 *signer_set,
                 tweaks,
@@ -192,7 +193,7 @@ class DetSignGroupBuilder:
         self.group["error_tests"].append(
             {
                 "comment": comment,
-                "my_id": my_id,
+                "signer_id": signer_id,
                 "ids": ids,
                 "pubshare_indices": pubshare_indices,
                 "secshare_index": secshare_index,
@@ -207,16 +208,13 @@ class DetSignGroupBuilder:
             }
         )
 
-    # --- Array A: valid_tests ---
-
     def add_valid_tests(self) -> None:
         t, n = self.t, self.n
-        # minimum threshold subset.
         result_min = self._append_valid(
             0,
             self.min_s,
             self.min_s,
-            RANDS[0],
+            RANDS[2],
             COMMON_MSGS[0],
             [],
             [],
@@ -226,31 +224,30 @@ class DetSignGroupBuilder:
             0,
             self.min_s,
             None,
-            RANDS[0],
+            RANDS[2],
             COMMON_MSGS[0],
             [],
             [],
             "Signing without the public share list",
         )
         assert result_no_pubshares == result_min
-        # reordering (needs a set of size >= 2 to be meaningful, matching sign_verify).
-        if t >= 2:
-            rev = list(reversed(self.min_s))
-            self._append_valid(
-                0,
-                rev,
-                rev,
-                RANDS[0],
-                COMMON_MSGS[0],
-                [],
-                [],
-                "Reordering the signer set leaves the deterministic output unchanged, because the identifiers are sorted before they are bound into the nonce derivation and the binding value",
-            )
-        # a different threshold subset (needs t >= 2; at t=1 alt collapses to the
-        # minimum set, matching sign_verify).
+        # u = min(t+1, n) signers, excluding id 0 where possible.
+        shifted = get_subset(self.cfg, "tplus1_shifted")
+        rev = list(reversed(shifted))
+        self._append_valid(
+            shifted[1],
+            rev,
+            rev,
+            RANDS[0],
+            COMMON_MSGS[0],
+            [],
+            [],
+            "Signer set in descending order, so the identifiers must be sorted before hashing",
+        )
+        # Needs t >= 2 and t < n, else the alt set is a lone id or repeats id 1.
         if t >= 2 and t < n:
             self._append_valid(
-                0,
+                1,
                 self.alt,
                 self.alt,
                 RANDS[0],
@@ -259,7 +256,6 @@ class DetSignGroupBuilder:
                 [],
                 "A different threshold subset gives a different deterministic nonce, since the signer set is bound into the nonce derivation",
             )
-        # null randomness.
         self._append_valid(
             0,
             self.min_s,
@@ -270,29 +266,6 @@ class DetSignGroupBuilder:
             [],
             "Auxiliary randomness omitted (null), which is not equivalent to all-zeros randomness",
         )
-        # all-ones randomness.
-        self._append_valid(
-            0,
-            self.min_s,
-            self.min_s,
-            RANDS[2],
-            COMMON_MSGS[0],
-            [],
-            [],
-            "Auxiliary randomness is all ones, distinct from the all-zeros and omitted cases",
-        )
-        # all signers, non-first member signs.
-        self._append_valid(
-            1,
-            self.full,
-            self.full,
-            RANDS[0],
-            COMMON_MSGS[0],
-            [],
-            [],
-            "All signers participate, signed by a non-first member of the signer set",
-        )
-        # empty message.
         self._append_valid(
             0,
             self.min_s,
@@ -303,7 +276,6 @@ class DetSignGroupBuilder:
             [],
             "Empty message",
         )
-        # non-standard message length.
         self._append_valid(
             0,
             self.min_s,
@@ -314,7 +286,6 @@ class DetSignGroupBuilder:
             [],
             "Non-standard message length (38 bytes)",
         )
-        # single x-only tweak.
         self._append_valid(
             0,
             self.min_s,
@@ -326,25 +297,22 @@ class DetSignGroupBuilder:
             "Single x-only tweak applied",
         )
 
-    # --- Array B: error_tests ---
-
     def add_error_tests(self) -> None:
         t, n = self.t, self.n
-        # my_id is absent from the signer set (only when t < n).
+        # Shares absent, so only the id membership check can reject it.
         if t < n:
             self._append_error(
                 t,
                 self.min_s,
-                self.min_s,
+                None,
                 0,
                 RANDS[0],
                 COMMON_MSGS[0],
                 [],
                 [],
                 "value",
-                "Signer's identifier is absent from the signer set",
+                "Signer's id is absent from the signer set",
             )
-        # duplicate id in the signer set.
         self._append_error(
             0,
             [0, 1, 1],
@@ -357,22 +325,21 @@ class DetSignGroupBuilder:
             "value",
             "Signer set contains a duplicate id",
         )
-        # signer loads share 0 but the set excludes id 0 (needs t >= 2 and t < n).
-        if has_excl0_subset(t, n):
-            excl0 = get_subset(self.cfg, "excl0")
+        # Share 0 is listed at position 0, not at signer 1's position, so a whole-list lookup misses it.
+        if t >= 2:
             self._append_error(
                 1,
-                excl0,
-                excl0,
+                self.min_s,
+                self.min_s,
                 0,
                 RANDS[0],
                 COMMON_MSGS[0],
                 [],
                 [],
                 "value",
-                "Signer's public share is not in the public share list",
+                "Signer's public share does not match the public share listed at its index",
             )
-        # off-curve pubshare at position 1 (min2 forces size >= 2).
+        # Position 1 needs at least two signers, hence min2.
         pubshare_indices_offcurve = [
             self.min2[0],
             self.inputs.INVALID_PUBSHARE_IDX,
@@ -389,17 +356,13 @@ class DetSignGroupBuilder:
             "value",
             "A public share is not a valid point",
         )
-        # A signer id equals n, outside the valid range. For t >= 2 an in-range
-        # member signs. At t=1 the lone id is out of range and the check fires
-        # first, so the self fields are inert. This assumes signer-id range
-        # validation runs before the pubshare/threshold-key checks; a different
-        # order would surface a different error.
+        # Shares absent, so only the id range check can reject it.
         if t >= 2:
             ids_out_of_range = [self.inputs.OUT_OF_RANGE_ID] + list(range(1, t))
             self._append_error(
                 1,
                 ids_out_of_range,
-                list(range(t)),
+                None,
                 1,
                 RANDS[0],
                 COMMON_MSGS[0],
@@ -421,14 +384,12 @@ class DetSignGroupBuilder:
                 "value",
                 "A signer id is outside the valid range [0, n-1]",
             )
-        # pubshares don't match the threshold public key. Needs t >= 2: at t=1 the lone
-        # pubshare must equal the threshold key, so there is no last-two pair to swap. The
-        # 1of3 config intentionally omits this case, matching sign_verify.
+        # Signer 0's own share stays in place, so only the key check fires.
         if t >= 2:
             self._append_error(
                 0,
-                self.min_s,
-                swap_last_two(self.min_s),
+                self.tplus1,
+                swap_last_two(self.tplus1),
                 0,
                 RANDS[0],
                 COMMON_MSGS[0],
@@ -437,7 +398,21 @@ class DetSignGroupBuilder:
                 "value",
                 "Signer set's public shares do not match the threshold public key",
             )
-        # Bad aggothernonce literals passed directly to bypass the helper.
+        # First t shares honest, last one wrong, so a check interpolating only the first t accepts it.
+        if t < n:
+            self._append_error(
+                0,
+                self.tplus1,
+                self.tplus1[:-1] + [self.inputs.WRONG_PUBSHARE_IDX],
+                0,
+                RANDS[0],
+                COMMON_MSGS[0],
+                [],
+                [],
+                "value",
+                "Public share beyond the first t signers is inconsistent with the threshold public key",
+            )
+        # Invalid aggregate nonces are passed directly instead of derived from the other signers' public nonces.
         self._append_error(
             0,
             self.min2,
@@ -490,7 +465,36 @@ class DetSignGroupBuilder:
             "Aggregate of the other signers' nonces is invalid: second half's x-coordinate exceeds the field size",
             aggothernonce=AGGOTHERNONCE_EXCEEDS_FIELD,
         )
-        # tweak exceeds the group order.
+        self._append_error(
+            0,
+            self.min2,
+            self.min2,
+            0,
+            RANDS[0],
+            COMMON_MSGS[0],
+            [],
+            [],
+            "value",
+            "Aggregate of the other signers' nonces is absent although there are multiple signers",
+            omit_aggothernonce=True,
+        )
+        # Only reachable at t = 1, since u = 1 < t fails the signer-count check first.
+        if t == 1:
+            self._append_error(
+                0,
+                [0],
+                [0],
+                0,
+                RANDS[0],
+                COMMON_MSGS[0],
+                [],
+                [],
+                "value",
+                "Aggregate of the other signers' nonces is present although the signer is the only signer",
+                aggothernonce=self._derive_aggothernonce(
+                    self.min2, 0, COMMON_MSGS[0], RANDS[0]
+                ),
+            )
         self._append_error(
             0,
             self.min_s,
@@ -501,16 +505,14 @@ class DetSignGroupBuilder:
             [OUT_OF_RANGE_TWEAK],
             [False],
             "value",
-            "Tweak exceeds the group order",
+            "Tweak equals the group order, which is out of range",
         )
-        # Fewer signers than the threshold (empty set at t=1). The helper returns no
-        # aggregate for a set that holds no signer other than my_id, so this case
-        # reaches the signer-count check.
+        # Shares absent for t >= 2, so the key check cannot mask a missing size check.
         below = list(range(t - 1))
         self._append_error(
             0,
             below,
-            below,
+            None if t >= 2 else below,
             0,
             RANDS[0],
             COMMON_MSGS[0],
@@ -519,7 +521,6 @@ class DetSignGroupBuilder:
             "value",
             "Fewer signers than the threshold t",
         )
-        # signing with a zero secret share
         self._append_error(
             0,
             self.min_s,
@@ -538,8 +539,27 @@ class DetSignGroupBuilder:
         self.add_error_tests()
         return self.group
 
+    def build_n_bound(self) -> dict:
+        # n = 129 is over the limit, so only the n-bound error case is built.
+        self._append_error(
+            0,
+            [0, 1],
+            [0, 1],
+            0,
+            RANDS[0],
+            COMMON_MSGS[0],
+            [],
+            [],
+            "value",
+            "Number of participants n exceeds the maximum of 128",
+        )
+        self.group["pubshares"] = bytes_list_to_hex(self.inputs.pubshares[:2])
+        self.group["secshares"] = bytes_list_to_hex(self.inputs.secshares[:2])
+        return self.group
+
 
 def generate_det_sign_vectors() -> None:
     groups = [DetSignGroupBuilder(cfg).build() for cfg in CONFIGS]
+    groups.append(DetSignGroupBuilder(INVALID_CONFIG_2OF129).build_n_bound())
     assign_tc_ids(groups)
     write_test_vectors("det_sign_vectors.json", {"test_groups": groups})

@@ -16,10 +16,10 @@ from frost_ref import (
     partial_sig_verify,
     SessionContext,
     PlainPk,
+    get_xonly_pk,
 )
 from frost_ref.signing import (
     thresh_pubkey_and_tweak,
-    get_xonly_pk,
     partial_sig_verify_internal,
 )
 
@@ -101,7 +101,7 @@ async def participant(
     chan: ParticipantChannel,
     secshare: bytes,
     pubshare: PlainPk,
-    my_id: int,
+    signer_id: int,
     signer_set: Tuple[int, int, List[int], Optional[List[PlainPk]], PlainPk],
     tweaks: List[bytes],
     is_xonly: List[bool],
@@ -122,16 +122,18 @@ async def participant(
     tweaked_thresh_pk = get_xonly_pk(tweak_ctx)
 
     # Round 1: Nonce generation
-    secnonce, pubnonce = nonce_gen(secshare, pubshare, tweaked_thresh_pk, msg, None)
+    secnonce, pubnonce = nonce_gen(
+        secshare, signer_id, pubshare, tweaked_thresh_pk, msg, None
+    )
     chan.send(pubnonce)
     aggnonce = await chan.receive()
 
     # Round 2: Signing
     session_ctx = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
-    psig = sign(secnonce, secshare, my_id, session_ctx)
-    assert partial_sig_verify_internal(psig, my_id, pubnonce, pubshare, session_ctx), (
-        "Partial signature verification failed"
-    )
+    psig = sign(secnonce, secshare, signer_id, session_ctx)
+    assert partial_sig_verify_internal(
+        psig, signer_id, pubnonce, pubshare, session_ctx
+    ), "Partial signature verification failed"
     chan.send(psig)
 
     # Receive final signature

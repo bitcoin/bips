@@ -7,21 +7,25 @@ import sys
 import time
 from typing import List, Optional, Tuple
 
-from frost_ref.signing import (
+from frost_ref import (
     InvalidContributionError,
     PlainPk,
     SessionContext,
+    ThresholdInfo,
     XonlyPk,
     deterministic_sign,
     get_xonly_pk,
-    thresh_pubkey_and_tweak,
     nonce_agg,
     nonce_gen,
-    nonce_gen_internal,
     partial_sig_agg,
     partial_sig_verify,
-    partial_sig_verify_internal,
     sign,
+    validate_threshold_info,
+)
+from frost_ref.signing import (
+    thresh_pubkey_and_tweak,
+    nonce_gen_internal,
+    partial_sig_verify_internal,
 )
 from secp256k1lab.keys import pubkey_gen_plain
 from secp256k1lab.secp256k1 import G
@@ -110,6 +114,7 @@ def test_nonce_gen_vectors():
 
         rand = get_value("rand")
         secshare = get_value_maybe("secshare")
+        signer_id = test_case["signer_id"]
         pubshare = get_value_maybe("pubshare")
         if pubshare is not None:
             pubshare = PlainPk(pubshare)
@@ -121,7 +126,7 @@ def test_nonce_gen_vectors():
         expected = test_case["expected"]
 
         assert nonce_gen_internal(
-            rand, secshare, pubshare, thresh_pk_xonly, msg, extra_in
+            rand, secshare, signer_id, pubshare, thresh_pk_xonly, msg, extra_in
         ) == (bytes.fromhex(expected[0]), bytes.fromhex(expected[1]))
 
 
@@ -156,7 +161,8 @@ def test_sign_verify_vectors():
         pubnonces = fromhex_all(group["pubnonces"])
         secshares = fromhex_all(group["secshares"])
         secnonces = fromhex_all(group["secnonces"])
-        for i in range(n):
+        # n = 129 groups has pubshares of length 2, hence the min.
+        for i in range(min(n, len(pubshares))):
             assert pubshares[i] == PlainPk(pubkey_gen_plain(secshares[i]))
         k_1 = int_from_bytes(secnonces[0][0:32])
         k_2 = int_from_bytes(secnonces[0][32:64])
@@ -180,8 +186,8 @@ def test_sign_verify_vectors():
             # Make sure that pubnonces and aggnonce in the test vector are consistent
             assert nonce_agg(pubnonces_tmp) == aggnonce_tmp
             msg = bytes.fromhex(tc["msg"])
-            my_id = tc["my_id"]
-            signer_index = ids_tmp.index(my_id)
+            signer_id = tc["signer_id"]
+            signer_index = ids_tmp.index(signer_id)
             secshare = secshares[tc["secshare_index"]]
             expected = bytes.fromhex(tc["expected"])
 
@@ -191,7 +197,7 @@ def test_sign_verify_vectors():
             # Reusing the secnonce, as we do here for testing purposes, can leak the
             # secret key.
             secnonce_tmp = bytearray(secnonces[tc["secnonce_index"]])
-            assert sign(secnonce_tmp, secshare, my_id, session_ctx) == expected
+            assert sign(secnonce_tmp, secshare, signer_id, session_ctx) == expected
             if valid_pubshares is not None:
                 verify_set = (n, t, ids_tmp, valid_pubshares, thresh_pk)
                 assert partial_sig_verify(
@@ -201,10 +207,14 @@ def test_sign_verify_vectors():
         for tc in group["sign_error_tests"]:
             exception, except_fn = get_error_details(tc)
             ids_tmp = tc["ids"]
-            pubshares_tmp = [PlainPk(pubshares[i]) for i in tc["pubshare_indices"]]
+            pubshares_tmp = (
+                None
+                if tc["pubshare_indices"] is None
+                else [PlainPk(pubshares[i]) for i in tc["pubshare_indices"]]
+            )
             aggnonce_tmp = bytes.fromhex(tc["aggnonce"])
             msg = bytes.fromhex(tc["msg"])
-            my_id = tc["my_id"]
+            signer_id = tc["signer_id"]
             secnonce_tmp = bytearray(secnonces[tc["secnonce_index"]])
             secshare_tmp = secshares[tc["secshare_index"]]
 
@@ -212,7 +222,7 @@ def test_sign_verify_vectors():
             session_ctx = SessionContext(*signer_set, aggnonce_tmp, [], [], msg)
             assert_raises(
                 exception,
-                lambda: sign(secnonce_tmp, secshare_tmp, my_id, session_ctx),
+                lambda: sign(secnonce_tmp, secshare_tmp, signer_id, session_ctx),
                 except_fn,
             )
 
@@ -282,8 +292,8 @@ def test_tweak_vectors():
             msg = bytes.fromhex(test_case["msg"])
             tweaks_tmp = [tweaks[i] for i in test_case["tweak_indices"]]
             tweak_modes_tmp = test_case["is_xonly"]
-            my_id = test_case["my_id"]
-            signer_index = ids_tmp.index(my_id)
+            signer_id = test_case["signer_id"]
+            signer_index = ids_tmp.index(signer_id)
             secshare = secshares[test_case["secshare_index"]]
             # WARNING: An actual implementation should _not_ copy the secnonce.
             # Reusing the secnonce, as we do here for testing purposes, can leak the
@@ -295,7 +305,7 @@ def test_tweak_vectors():
             session_ctx = SessionContext(
                 *signer_set, aggnonce_tmp, tweaks_tmp, tweak_modes_tmp, msg
             )
-            assert sign(secnonce, secshare, my_id, session_ctx) == expected
+            assert sign(secnonce, secshare, signer_id, session_ctx) == expected
             assert partial_sig_verify(
                 expected,
                 pubnonces_tmp,
@@ -316,7 +326,7 @@ def test_tweak_vectors():
             msg = bytes.fromhex(test_case["msg"])
             tweaks_tmp = [tweaks[i] for i in test_case["tweak_indices"]]
             tweak_modes_tmp = test_case["is_xonly"]
-            my_id = test_case["my_id"]
+            signer_id = test_case["signer_id"]
             secshare = secshares[test_case["secshare_index"]]
             secnonce = bytearray(secnonces[test_case["secnonce_index"]])
 
@@ -326,7 +336,7 @@ def test_tweak_vectors():
             )
             assert_raises(
                 exception,
-                lambda: sign(secnonce, secshare, my_id, session_ctx),
+                lambda: sign(secnonce, secshare, signer_id, session_ctx),
                 except_fn,
             )
 
@@ -341,7 +351,8 @@ def test_det_sign_vectors():
         thresh_pk = bytes.fromhex(group["thresh_pk"])
         pubshares = fromhex_all(group["pubshares"])
         secshares = fromhex_all(group["secshares"])
-        for i in range(n):
+        # n = 129 groups has pubshares of length 2, hence the min.
+        for i in range(min(n, len(pubshares))):
             assert pubshares[i] == PlainPk(pubkey_gen_plain(secshares[i]))
 
         for test_case in group["valid_tests"]:
@@ -361,8 +372,8 @@ def test_det_sign_vectors():
             tweaks = fromhex_all(test_case["tweaks"])
             is_xonly = test_case["is_xonly"]
             msg = bytes.fromhex(test_case["msg"])
-            my_id = test_case["my_id"]
-            signer_index = ids_tmp.index(my_id)
+            signer_id = test_case["signer_id"]
+            signer_index = ids_tmp.index(signer_id)
             aux_rand = (
                 bytes.fromhex(test_case["aux_rand"])
                 if test_case["aux_rand"] is not None
@@ -373,7 +384,7 @@ def test_det_sign_vectors():
             signer_set = (n, t, ids_tmp, valid_pubshares, thresh_pk)
             pubnonce, psig = deterministic_sign(
                 secshare,
-                my_id,
+                signer_id,
                 aggothernonce,
                 *signer_set,
                 tweaks,
@@ -395,21 +406,23 @@ def test_det_sign_vectors():
             )
             # A signer always knows its own public share, even in a session whose
             # public share list is absent, so the self-check runs either way.
-            own_pubshare = (
-                pubshares[my_id]
+            signer_pubshare = (
+                pubshares[signer_id]
                 if valid_pubshares is None
                 else valid_pubshares[signer_index]
             )
             assert partial_sig_verify_internal(
-                psig, my_id, pubnonce, own_pubshare, session_ctx
+                psig, signer_id, pubnonce, signer_pubshare, session_ctx
             )
 
         for test_case in group["error_tests"]:
             exception, except_fn = get_error_details(test_case)
             ids_tmp = test_case["ids"]
-            pubshares_tmp = [
-                PlainPk(pubshares[i]) for i in test_case["pubshare_indices"]
-            ]
+            pubshares_tmp = (
+                None
+                if test_case["pubshare_indices"] is None
+                else [PlainPk(pubshares[i]) for i in test_case["pubshare_indices"]]
+            )
             secshare = secshares[test_case["secshare_index"]]
             aggothernonce = (
                 bytes.fromhex(test_case["aggothernonce"])
@@ -419,7 +432,7 @@ def test_det_sign_vectors():
             tweaks = fromhex_all(test_case["tweaks"])
             is_xonly = test_case["is_xonly"]
             msg = bytes.fromhex(test_case["msg"])
-            my_id = test_case["my_id"]
+            signer_id = test_case["signer_id"]
             aux_rand = (
                 bytes.fromhex(test_case["aux_rand"])
                 if test_case["aux_rand"] is not None
@@ -431,7 +444,7 @@ def test_det_sign_vectors():
                 exception,
                 lambda: deterministic_sign(
                     secshare,
-                    my_id,
+                    signer_id,
                     aggothernonce,
                     *signer_set,
                     tweaks,
@@ -503,6 +516,44 @@ def test_sig_agg_vectors():
             )
 
 
+def test_threshold_info_vectors():
+    with open(os.path.join(sys.path[0], "vectors", "threshold_info_vectors.json")) as f:
+        test_data = json.load(f)
+
+    for group in test_data["test_groups"]:
+        pubshares = fromhex_all(group["pubshares"])
+
+        for test_case in group["valid_tests"]:
+            t = test_case["t"]
+            thresh_pk = bytes.fromhex(test_case["thresh_pk"])
+            pubshares_tmp = []
+            for i in test_case["pubshare_indices"]:
+                if i is None:
+                    pubshares_tmp.append(None)
+                else:
+                    pubshares_tmp.append(PlainPk(pubshares[i]))
+
+            validate_threshold_info(ThresholdInfo(t, PlainPk(thresh_pk), pubshares_tmp))
+
+        for test_case in group["error_tests"]:
+            exception, except_fn = get_error_details(test_case)
+            t = test_case["t"]
+            thresh_pk = bytes.fromhex(test_case["thresh_pk"])
+            pubshares_tmp = []
+            for i in test_case["pubshare_indices"]:
+                if i is None:
+                    pubshares_tmp.append(None)
+                else:
+                    pubshares_tmp.append(PlainPk(pubshares[i]))
+
+            threshold_info = ThresholdInfo(t, PlainPk(thresh_pk), pubshares_tmp)
+            assert_raises(
+                exception,
+                lambda: validate_threshold_info(threshold_info),
+                except_fn,
+            )
+
+
 # Whether the signer at position i holds the participants' pubshares list
 def knows_pubshares(i: int) -> bool:
     return i % 2 == 1
@@ -561,6 +612,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
             timestamp = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
             secnonce_i, pubnonce_i = nonce_gen(
                 signer_secshares[i],
+                signer_ids[i],
                 signer_pubshares[i],
                 tweaked_thresh_pk,
                 msg,
@@ -575,6 +627,7 @@ def test_sign_and_verify_random(iterations: int) -> None:
             timestamp = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
             secnonce_final, pubnonce_final = nonce_gen(
                 signer_secshares[-1],
+                signer_ids[-1],
                 signer_pubshares[-1],
                 tweaked_thresh_pk,
                 msg,
@@ -688,6 +741,7 @@ if __name__ == "__main__":
         run_test("test_tweak_vectors", test_tweak_vectors),
         run_test("test_det_sign_vectors", test_det_sign_vectors),
         run_test("test_sig_agg_vectors", test_sig_agg_vectors),
+        run_test("test_threshold_info_vectors", test_threshold_info_vectors),
         run_test("test_sign_and_verify_random", lambda: test_sign_and_verify_random(6)),
     ]
     sys.exit(0 if all(results) else 1)

@@ -36,8 +36,8 @@ def polynomial_evaluate(coeffs: List[Scalar], x: Scalar) -> Scalar:
 def secret_share_combine(shares: List[Scalar], ids: List[int]) -> Scalar:
     assert len(shares) == len(ids)
     secret = Scalar(0)
-    for share, my_id in zip(shares, ids):
-        lam = derive_interpolating_value(ids, my_id)
+    for share, id_i in zip(shares, ids):
+        lam = derive_interpolating_value(ids, id_i)
         secret += share * lam
     return secret
 

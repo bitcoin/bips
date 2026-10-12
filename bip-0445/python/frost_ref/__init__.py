@@ -13,6 +13,12 @@ from .signing import (
     deterministic_sign,
     partial_sig_verify,
     partial_sig_agg,
+    tweak_ctx_init,
+    apply_tweak,
+    get_xonly_pk,
+    get_plain_pk,
+    # Constants
+    MAX_PARTICIPANTS,
     # Exceptions
     InvalidContributionError,
     # Types
@@ -32,6 +38,12 @@ __all__ = [
     "deterministic_sign",
     "partial_sig_verify",
     "partial_sig_agg",
+    "tweak_ctx_init",
+    "apply_tweak",
+    "get_xonly_pk",
+    "get_plain_pk",
+    # Constants
+    "MAX_PARTICIPANTS",
     # Exceptions
     "InvalidContributionError",
     # Types

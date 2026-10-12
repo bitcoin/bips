@@ -37,6 +37,10 @@ MAX_PARTICIPANTS = 128
 #   - InvalidContributionError for indicating that a signer (or the
 #     coordinator) is misbehaving in the protocol.
 #
+# Byte arrays received from other parties (pubnonces, aggnonce, aggothernonce,
+# psigs) are always length-checked. The signer's own inputs are assumed to have
+# the lengths the BIP specifies (only nonce_gen and apply_tweak check them).
+#
 # Assertions are used to (1) satisfy the type-checking system, and (2) check for
 # inconvenient events that can't happen except with negligible probability (e.g.
 # output of a hash function is 0) and can't be manually triggered by any
@@ -48,7 +52,7 @@ MAX_PARTICIPANTS = 128
 # contributions. Instead, they should hold the offending party accountable.
 class InvalidContributionError(Exception):
     def __init__(self, signer_index: Optional[int], contrib: ContribKind) -> None:
-        # index of the signer who sent the invalid value, or None for coordinator
+        # position in ids of the signer who sent the invalid value, or None for coordinator
         self.signer_index = signer_index
         self.contrib = contrib
 
@@ -57,17 +61,17 @@ def has_duplicates(lst: List[int]) -> bool:
     return len(set(lst)) != len(lst)
 
 
-def derive_interpolating_value(ids: List[int], my_id: int) -> Scalar:
-    assert my_id in ids
-    assert 0 <= my_id < 2**32
+def derive_interpolating_value(ids: List[int], id_i: int) -> Scalar:
+    assert id_i in ids
+    assert 0 <= id_i < 2**32
     assert not has_duplicates(ids)
     num = Scalar(1)
     deno = Scalar(1)
-    for curr_id in ids:
-        if curr_id == my_id:
+    for id_k in ids:
+        if id_k == id_i:
             continue
-        num *= Scalar(curr_id + 1)
-        deno *= Scalar(curr_id - my_id)
+        num *= Scalar(id_k + 1)
+        deno *= Scalar(id_k - id_i)
     return num / deno
 
 
@@ -75,15 +79,15 @@ def derive_pubshare_at(ids: List[int], pubshares: List[GE], x: int) -> GE:
     assert len(ids) == len(pubshares)
     assert not has_duplicates(ids)
     Q = GE()
-    for my_id, X_i in zip(ids, pubshares):
-        assert 0 <= my_id < 2**32
+    for id_i, X_i in zip(ids, pubshares):
+        assert 0 <= id_i < 2**32
         num = Scalar(1)
         deno = Scalar(1)
-        for curr_id in ids:
-            if curr_id == my_id:
+        for id_k in ids:
+            if id_k == id_i:
                 continue
-            num *= Scalar(x - curr_id)
-            deno *= Scalar(my_id - curr_id)
+            num *= Scalar(x - id_k)
+            deno *= Scalar(id_i - id_k)
         Q += (num / deno) * X_i
     return Q  # can be infinity
 
@@ -122,7 +126,7 @@ def validate_threshold_info(info: ThresholdInfo) -> None:
     try:
         GE.from_bytes_compressed(thresh_pk)
     except ValueError:
-        raise ValueError("Invalid threshold public key.")
+        raise ValueError("The thresh_pk is not a valid point.")
 
     # 2. Extract and parse present public shares
     parsed_shares = []
@@ -133,7 +137,7 @@ def validate_threshold_info(info: ThresholdInfo) -> None:
             point = GE.from_bytes_compressed(pubshare_bytes)
             parsed_shares.append((i, point))
         except ValueError:
-            raise ValueError(f"Invalid pubshare at index {i}.")
+            raise ValueError(f"The pubshare at index {i} is not a valid point.")
 
     if len(parsed_shares) < t:
         raise ValueError("At least t pubshares must be present.")
@@ -172,7 +176,10 @@ def get_plain_pk(tweak_ctx: TweakContext) -> PlainPk:
 
 
 def tweak_ctx_init(thresh_pk: PlainPk) -> TweakContext:
-    Q = GE.from_bytes_compressed(thresh_pk)
+    try:
+        Q = GE.from_bytes_compressed(thresh_pk)
+    except ValueError:
+        raise ValueError("The thresh_pk is not a valid point.")
     gacc = Scalar(1)
     tacc = Scalar(0)
     return TweakContext(Q, gacc, tacc)
@@ -192,7 +199,9 @@ def apply_tweak(tweak_ctx: TweakContext, tweak: bytes, is_xonly: bool) -> TweakC
         raise ValueError("The tweak value is out of range.")
     Q_ = g * Q + twk * G
     if Q_.infinity:
-        raise ValueError("The result of tweaking cannot be infinity.")
+        raise ValueError(
+            "The tweaked threshold public key must not be the point at infinity."
+        )
     gacc_ = g * gacc
     tacc_ = twk + g * tacc
     return TweakContext(Q_, gacc_, tacc_)
@@ -200,6 +209,7 @@ def apply_tweak(tweak_ctx: TweakContext, tweak: bytes, is_xonly: bool) -> TweakC
 
 def nonce_hash(
     rand_: bytes,
+    signer_id_: bytes,
     pubshare: PlainPk,
     thresh_pk_xonly: XonlyPk,
     i: int,
@@ -208,6 +218,8 @@ def nonce_hash(
 ) -> bytes:
     buf = b""
     buf += rand_
+    buf += len(signer_id_).to_bytes(1, "big")
+    buf += signer_id_
     buf += len(pubshare).to_bytes(1, "big")
     buf += pubshare
     buf += len(thresh_pk_xonly).to_bytes(1, "big")
@@ -222,6 +234,7 @@ def nonce_hash(
 def nonce_gen_internal(
     rand: bytes,
     secshare: Optional[bytes],
+    signer_id: Optional[int],
     pubshare: Optional[PlainPk],
     thresh_pk_xonly: Optional[XonlyPk],
     msg: Optional[bytes],
@@ -231,6 +244,10 @@ def nonce_gen_internal(
         rand_ = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, rand))
     else:
         rand_ = rand
+    if signer_id is None:
+        signer_id_ = b""
+    else:
+        signer_id_ = signer_id.to_bytes(4, "big")
     if pubshare is None:
         pubshare = PlainPk(b"")
     if thresh_pk_xonly is None:
@@ -244,10 +261,14 @@ def nonce_gen_internal(
     if extra_in is None:
         extra_in = b""
     k_1 = Scalar.from_bytes_wrapping(
-        nonce_hash(rand_, pubshare, thresh_pk_xonly, 0, msg_prefixed, extra_in)
+        nonce_hash(
+            rand_, signer_id_, pubshare, thresh_pk_xonly, 0, msg_prefixed, extra_in
+        )
     )
     k_2 = Scalar.from_bytes_wrapping(
-        nonce_hash(rand_, pubshare, thresh_pk_xonly, 1, msg_prefixed, extra_in)
+        nonce_hash(
+            rand_, signer_id_, pubshare, thresh_pk_xonly, 1, msg_prefixed, extra_in
+        )
     )
     # k_1 == 0 or k_2 == 0 cannot occur except with negligible probability.
     assert k_1 != 0
@@ -264,22 +285,30 @@ def nonce_gen_internal(
 
 def nonce_gen(
     secshare: Optional[bytes],
+    signer_id: Optional[int],
     pubshare: Optional[PlainPk],
     thresh_pk_xonly: Optional[XonlyPk],
     msg: Optional[bytes],
     extra_in: Optional[bytes],
 ) -> Tuple[bytearray, bytes]:
     if secshare is not None and len(secshare) != 32:
-        raise ValueError("The optional byte array secshare must have length 32.")
+        raise ValueError("The optional secshare must be a 32-byte array.")
+    if signer_id is not None and not 0 <= signer_id <= 2**32 - 1:
+        raise ValueError("The optional signer_id must be a 4-byte integer.")
     if pubshare is not None and len(pubshare) != 33:
-        raise ValueError("The optional byte array pubshare must have length 33.")
+        raise ValueError("The optional pubshare must be a 33-byte array.")
     if thresh_pk_xonly is not None and len(thresh_pk_xonly) != 32:
-        raise ValueError("The optional byte array thresh_pk_xonly must have length 32.")
+        raise ValueError("The optional thresh_pk_xonly must be a 32-byte array.")
     rand = secrets.token_bytes(32)
-    return nonce_gen_internal(rand, secshare, pubshare, thresh_pk_xonly, msg, extra_in)
+    return nonce_gen_internal(
+        rand, secshare, signer_id, pubshare, thresh_pk_xonly, msg, extra_in
+    )
 
 
 def nonce_agg(pubnonces: List[bytes]) -> bytes:
+    for idx, pubnonce in enumerate(pubnonces):
+        if len(pubnonce) != 66:
+            raise ValueError(f"The pubnonce at index {idx} must be a 66-byte array.")
     aggnonce = b""
     for j in (1, 2):
         R_j = GE()
@@ -309,7 +338,7 @@ def thresh_pubkey_and_tweak(
     thresh_pk: PlainPk, tweaks: List[bytes], is_xonly: List[bool]
 ) -> TweakContext:
     if len(tweaks) != len(is_xonly):
-        raise ValueError("The tweaks and is_xonly arrays must have the same length.")
+        raise ValueError("The tweaks and is_xonly lists must have the same length.")
     tweak_ctx = tweak_ctx_init(thresh_pk)
     v = len(tweaks)
     for i in range(v):
@@ -329,19 +358,19 @@ def validate_session_params(
     if n > MAX_PARTICIPANTS:
         raise ValueError(f"The number of participants must be n <= {MAX_PARTICIPANTS}.")
     if not (t <= len(ids) <= n):
-        raise ValueError("The number of signers must be between t and n.")
+        raise ValueError("The number of signers must satisfy t <= u <= n.")
     if pubshares is not None and len(pubshares) != len(ids):
         raise ValueError("The pubshares and ids lists must have the same length.")
     # ensure all pubshares and ids are within the valid range
     pubshare_points = []
-    for idx, i in enumerate(ids):
-        if not 0 <= i <= n - 1:
-            raise ValueError(f"Invalid id at index {idx}")
+    for idx, id_i in enumerate(ids):
+        if not 0 <= id_i <= n - 1:
+            raise ValueError(f"The id at index {idx} must satisfy 0 <= id <= n - 1.")
         if pubshares is not None:
             try:
                 pubshare_points.append(GE.from_bytes_compressed(pubshares[idx]))
             except ValueError:
-                raise ValueError(f"Invalid pubshare at index {idx}.")
+                raise ValueError(f"The pubshare at index {idx} is not a valid point.")
     if has_duplicates(ids):
         raise ValueError("The ids list contains duplicate elements.")
     # ensure that the derived threshold public key matches the provided one
@@ -360,6 +389,8 @@ def get_session_values(
     (n, t, ids, pubshares, thresh_pk, aggnonce, tweaks, is_xonly, msg) = session_ctx
     validate_session_params(n, t, ids, pubshares, thresh_pk)
     Q, gacc, tacc = thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
+    if len(aggnonce) != 66:
+        raise ValueError("The aggnonce must be a 66-byte array.")
     # the signers are a set, so serialize_ids sorts to keep b independent of ids order
     ser_ids = serialize_ids(ids)
     b = Scalar.from_bytes_wrapping(
@@ -392,17 +423,17 @@ def serialize_ids(ids: List[int]) -> bytes:
 
 
 def sign(
-    secnonce: bytearray, secshare: bytes, my_id: int, session_ctx: SessionContext
+    secnonce: bytearray, secshare: bytes, signer_id: int, session_ctx: SessionContext
 ) -> bytes:
     (Q, gacc, _, ids, pubshares, b, R, e) = get_session_values(session_ctx)
     try:
         k_1_ = Scalar.from_bytes_nonzero_checked(bytes(secnonce[0:32]))
     except ValueError:
-        raise ValueError("first secnonce value is out of range.")
+        raise ValueError("The first half of secnonce is out of range.")
     try:
         k_2_ = Scalar.from_bytes_nonzero_checked(bytes(secnonce[32:64]))
     except ValueError:
-        raise ValueError("second secnonce value is out of range.")
+        raise ValueError("The second half of secnonce is out of range.")
     # Overwrite the secnonce argument with zeros, so the subsequent calls of
     # sign with the same secnonce raise a ValueError.
     secnonce[:] = bytearray(b"\x00" * 64)
@@ -411,15 +442,17 @@ def sign(
     try:
         d_ = Scalar.from_bytes_nonzero_checked(secshare)
     except ValueError:
-        raise ValueError("The signer's secret share value is out of range.")
+        raise ValueError("The secshare is out of range.")
     P = d_ * G
     assert not P.infinity
-    my_pubshare = P.to_bytes_compressed()
-    if my_id not in ids:
+    signer_pubshare = P.to_bytes_compressed()
+    if signer_id not in ids:
         raise ValueError("The signer's id is missing from the ids list.")
-    if pubshares is not None and pubshares[ids.index(my_id)] != my_pubshare:
-        raise ValueError("The signer's pubshare is missing from the pubshares list.")
-    a = derive_interpolating_value(ids, my_id)
+    if pubshares is not None and pubshares[ids.index(signer_id)] != signer_pubshare:
+        raise ValueError(
+            "The signer's pubshare does not match its entry in the pubshares list."
+        )
+    a = derive_interpolating_value(ids, signer_id)
     g = Scalar(1) if Q.has_even_y() else Scalar(-1)
     d = g * gacc * d_
     s = k_1 + b * k_2 + e * a * d
@@ -430,13 +463,15 @@ def sign(
     assert not R2_partial.infinity
     pubnonce = R1_partial.to_bytes_compressed() + R2_partial.to_bytes_compressed()
     # Optional correctness check. The result of signing should pass signature verification.
-    assert partial_sig_verify_internal(psig, my_id, pubnonce, my_pubshare, session_ctx)
+    assert partial_sig_verify_internal(
+        psig, signer_id, pubnonce, signer_pubshare, session_ctx
+    )
     return psig
 
 
 def det_nonce_hash(
-    secshare_: bytes,
-    my_id: int,
+    masked_secshare: bytes,
+    signer_id: int,
     ids: List[int],
     aggothernonce: bytes,
     tweaked_thresh_pk_xonly: bytes,
@@ -444,10 +479,11 @@ def det_nonce_hash(
     i: int,
 ) -> bytes:
     buf = b""
-    buf += secshare_
-    buf += my_id.to_bytes(4, "big")
+    buf += masked_secshare
+    buf += signer_id.to_bytes(4, "big")
     buf += len(ids).to_bytes(4, "big")
     buf += serialize_ids(ids)
+    buf += len(aggothernonce).to_bytes(1, "big")
     buf += aggothernonce
     buf += tweaked_thresh_pk_xonly
     buf += len(msg).to_bytes(8, "big")
@@ -458,7 +494,7 @@ def det_nonce_hash(
 
 def deterministic_sign(
     secshare: bytes,
-    my_id: int,
+    signer_id: int,
     aggothernonce: Optional[bytes],
     n: int,
     t: int,
@@ -471,17 +507,29 @@ def deterministic_sign(
     aux_rand: Optional[bytes],
 ) -> Tuple[bytes, bytes]:
     validate_session_params(n, t, ids, pubshares, thresh_pk)
+    # aggothernonce is omitted if and only if there is a sole signer (u = 1). A sole
+    # signer hashes the empty byte string and uses its own pubnonce as the aggnonce.
+    if len(ids) == 1 and aggothernonce is not None:
+        raise ValueError("The aggothernonce must be omitted when u = 1.")
+    if len(ids) > 1 and (aggothernonce is None or len(aggothernonce) != 66):
+        raise ValueError(
+            "The aggothernonce must be present and a 66-byte array when u > 1."
+        )
+    tweak_ctx = thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
+    Q, gacc, _ = tweak_ctx
+    tweaked_thresh_pk_xonly = get_xonly_pk(tweak_ctx)
+    try:
+        d_ = Scalar.from_bytes_nonzero_checked(secshare)
+    except ValueError:
+        raise ValueError("The secshare is out of range.")
+    g = Scalar(1) if Q.has_even_y() else Scalar(-1)
+    # hash the possibly negated secshare, so the nonce binds to g * gacc
+    d = g * gacc * d_
     if aux_rand is not None:
-        secshare_ = xor_bytes(secshare, tagged_hash(FROST_TAG_AUX, aux_rand))
+        masked_secshare = xor_bytes(d.to_bytes(), tagged_hash(FROST_TAG_AUX, aux_rand))
     else:
-        secshare_ = secshare
-    tweaked_thresh_pk_xonly = get_xonly_pk(
-        thresh_pubkey_and_tweak(thresh_pk, tweaks, is_xonly)
-    )
+        masked_secshare = d.to_bytes()
 
-    # A sole signer (u = 1) has no other nonces to aggregate, so aggothernonce is
-    # omitted. Bind the empty byte string into the nonce hash and use the signer's
-    # own pubnonce as the aggregate nonce below.
     if aggothernonce is None:
         aggothernonce_ = b""
     else:
@@ -489,12 +537,24 @@ def deterministic_sign(
 
     k_1 = Scalar.from_bytes_wrapping(
         det_nonce_hash(
-            secshare_, my_id, ids, aggothernonce_, tweaked_thresh_pk_xonly, msg, 0
+            masked_secshare,
+            signer_id,
+            ids,
+            aggothernonce_,
+            tweaked_thresh_pk_xonly,
+            msg,
+            0,
         )
     )
     k_2 = Scalar.from_bytes_wrapping(
         det_nonce_hash(
-            secshare_, my_id, ids, aggothernonce_, tweaked_thresh_pk_xonly, msg, 1
+            masked_secshare,
+            signer_id,
+            ids,
+            aggothernonce_,
+            tweaked_thresh_pk_xonly,
+            msg,
+            1,
         )
     )
     # k_1 == 0 or k_2 == 0 cannot occur except with negligible probability.
@@ -518,7 +578,7 @@ def deterministic_sign(
     session_ctx = SessionContext(
         n, t, ids, pubshares, thresh_pk, aggnonce, tweaks, is_xonly, msg
     )
-    psig = sign(secnonce, secshare, my_id, session_ctx)
+    psig = sign(secnonce, secshare, signer_id, session_ctx)
     return (pubnonce, psig)
 
 
@@ -555,12 +615,14 @@ def partial_sig_verify(
 
 def partial_sig_verify_internal(
     psig: bytes,
-    my_id: int,
+    signer_id: int,
     pubnonce: bytes,
     pubshare: bytes,
     session_ctx: SessionContext,
 ) -> bool:
     (Q, gacc, _, ids, _, b, R, e) = get_session_values(session_ctx)
+    if len(psig) != 32:
+        return False
     try:
         s = Scalar.from_bytes_checked(psig)
     except ValueError:
@@ -576,7 +638,7 @@ def partial_sig_verify_internal(
         P = GE.from_bytes_compressed(pubshare)
     except ValueError:
         return False
-    a = derive_interpolating_value(ids, my_id)
+    a = derive_interpolating_value(ids, signer_id)
     g = Scalar(1) if Q.has_even_y() else Scalar(-1)
     g_ = g * gacc
     return s * G == Re_s + (e * a * g_) * P
@@ -586,6 +648,9 @@ def partial_sig_agg(psigs: List[bytes], session_ctx: SessionContext) -> bytes:
     (Q, _, tacc, ids, _, _, R, e) = get_session_values(session_ctx)
     if len(psigs) != len(ids):
         raise ValueError("The psigs and ids lists must have the same length.")
+    for idx, psig in enumerate(psigs):
+        if len(psig) != 32:
+            raise ValueError(f"The psig at index {idx} must be a 32-byte array.")
     s = Scalar(0)
     for idx, psig in enumerate(psigs):
         try:

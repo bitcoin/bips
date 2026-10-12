@@ -20,18 +20,11 @@ from generators.common import (
     write_test_vectors,
 )
 
-# an invalid 33-byte tweak value, kept local to this generator rather than in common.py
-INVALID_33_BYTE_TWEAK = bytes.fromhex(
-    "E8F791FF9225A2AF0102AFFF4A9A723D9612A682A25EBE79802B263CDFCD83BBFF"
-)
-
 
 class TweakGroupBuilder:
-    """Builds one (t, n) test group for tweak_vectors.json. Shared inputs and
-    subsets live on self. Each add_* method appends its category to self.group.
+    """Builds one (t, n) test group for tweak_vectors.json.
 
-    Index convention: valid cases use secshare_index == secnonce_index == my_id (a
-    signer signs with its own material at pool position my_id)."""
+    Index convention: valid cases use secshare_index == secnonce_index == signer_id."""
 
     def __init__(self, cfg):
         self.inputs = SharedGroupInputs(cfg)
@@ -40,20 +33,17 @@ class TweakGroupBuilder:
         self.thresh_pk = self.inputs.thresh_pk
 
         self.min_s = get_subset(cfg, "min")
-        self.full = get_subset(cfg, "full")
+        self.min2 = get_subset(cfg, "min2")
         self.aggnonce_min = self._agg(self.min_s)
 
-        # Build the tweaks pool: self.inputs.tweaks_pool has 6 entries (indices 0-5).
-        # Append INVALID_33_BYTE_TWEAK at the next slot (len of the shared pool).
-        self.tweaks_pool = list(self.inputs.tweaks_pool) + [INVALID_33_BYTE_TWEAK]
+        # Shared tweaks pool with an invalid 33-byte tweak appended as the last entry. It is a
+        # zero byte followed by a valid tweak, so only the length check can reject it.
+        invalid_33_byte_tweak = b"\x00" + self.inputs.tweaks_pool[0]
+        self.tweaks_pool = list(self.inputs.tweaks_pool) + [invalid_33_byte_tweak]
 
         self.group = {}
         set_group_config(self.group, cfg, self.inputs)
-        # Tweak error cases fault only the tweak value, so the group serializes the
-        # real (non-pool) pubshares, pubnonces, secshares, and secnonces. The tweaks
-        # array is the extended pool with the invalid 33-byte entry appended. Invalid
-        # pubshare, nonce, and secret-share faults are covered in
-        # sign_verify_vectors.json, not here.
+        # Error cases fault only the tweak, so the other arrays are the real (non-pool) ones.
         self.group["pubshares"] = bytes_list_to_hex(self.inputs.pubshares)
         self.group["pubnonces"] = bytes_list_to_hex(self.inputs.pubnonces)
         self.group["secshares"] = bytes_list_to_hex(self.inputs.secshares)
@@ -67,7 +57,7 @@ class TweakGroupBuilder:
 
     def _append_valid(
         self,
-        my_id: int,
+        signer_id: int,
         ids: List[int],
         pubshare_indices: List[int],
         pubnonce_indices: List[int],
@@ -79,10 +69,10 @@ class TweakGroupBuilder:
     ) -> None:
         pubshares = [self.inputs.pubshares[i] for i in pubshare_indices]
         tweaks = [self.tweaks_pool[i] for i in tweak_indices]
-        secnonce = bytearray(self.inputs.secnonces[my_id])
+        secnonce = bytearray(self.inputs.secnonces[signer_id])
         signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
         session = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
-        psig = sign(secnonce, self.inputs.secshares[my_id], my_id, session)
+        psig = sign(secnonce, self.inputs.secshares[signer_id], signer_id, session)
         assert partial_sig_verify(
             psig,
             [self.inputs.pubnonces[i] for i in pubnonce_indices],
@@ -90,17 +80,17 @@ class TweakGroupBuilder:
             tweaks,
             is_xonly,
             msg,
-            ids.index(my_id),
+            ids.index(signer_id),
         )
         self.group["valid_tests"].append(
             {
                 "comment": comment,
-                "my_id": my_id,
+                "signer_id": signer_id,
                 "ids": ids,
                 "pubshare_indices": pubshare_indices,
                 "pubnonce_indices": pubnonce_indices,
-                "secshare_index": my_id,
-                "secnonce_index": my_id,
+                "secshare_index": signer_id,
+                "secnonce_index": signer_id,
                 "aggnonce": bytes_to_hex(aggnonce),
                 "msg": bytes_to_hex(msg),
                 "tweak_indices": tweak_indices,
@@ -111,7 +101,7 @@ class TweakGroupBuilder:
 
     def _append_error(
         self,
-        my_id: int,
+        signer_id: int,
         ids: List[int],
         pubshare_indices: List[int],
         secshare_index: int,
@@ -129,12 +119,12 @@ class TweakGroupBuilder:
         signer_set = (self.n, self.t, ids, pubshares, self.thresh_pk)
         session = SessionContext(*signer_set, aggnonce, tweaks, is_xonly, msg)
         err = expect_exception(
-            lambda: sign(secnonce, secshare, my_id, session), ValueError
+            lambda: sign(secnonce, secshare, signer_id, session), ValueError
         )
         self.group["error_tests"].append(
             {
                 "comment": comment,
-                "my_id": my_id,
+                "signer_id": signer_id,
                 "ids": ids,
                 "pubshare_indices": pubshare_indices,
                 "secshare_index": secshare_index,
@@ -147,25 +137,10 @@ class TweakGroupBuilder:
             }
         )
 
-    # --- Array A: valid_tests ---
-
     def add_valid_tests(self) -> None:
         msg = COMMON_MSGS[0]
-        aggnonce_full = self._agg(self.full)
+        aggnonce_min2 = self._agg(self.min2)
 
-        # No tweaks applied
-        self._append_valid(
-            0,
-            self.min_s,
-            self.min_s,
-            self.min_s,
-            self.aggnonce_min,
-            msg,
-            [],
-            [],
-            "No tweaks applied",
-        )
-        # Single x-only tweak
         self._append_valid(
             0,
             self.min_s,
@@ -177,7 +152,6 @@ class TweakGroupBuilder:
             [True],
             "Single x-only tweak (used for BIP341 Taproot)",
         )
-        # Single plain tweak
         self._append_valid(
             0,
             self.min_s,
@@ -189,7 +163,6 @@ class TweakGroupBuilder:
             [False],
             "Single plain tweak (used for BIP32 derivation)",
         )
-        # Plain then x-only tweak
         self._append_valid(
             0,
             self.min_s,
@@ -201,7 +174,6 @@ class TweakGroupBuilder:
             [False, True],
             "A plain tweak followed by an x-only tweak",
         )
-        # Four tweaks alternating x-only and plain
         self._append_valid(
             0,
             self.min_s,
@@ -213,40 +185,24 @@ class TweakGroupBuilder:
             [True, False, True, False],
             "Four tweaks alternating x-only and plain",
         )
-        # Four tweaks: two plain then two x-only
         self._append_valid(
-            0,
-            self.min_s,
-            self.min_s,
-            self.min_s,
-            self.aggnonce_min,
+            1,
+            self.min2,
+            self.min2,
+            self.min2,
+            aggnonce_min2,
             msg,
             [0, 1, 2, 3],
             [False, False, True, True],
             "Four tweaks: two plain followed by two x-only",
         )
-        # Same tweaks as the previous case but all n signers, signed by non-first member
-        self._append_valid(
-            1,
-            self.full,
-            self.full,
-            self.full,
-            aggnonce_full,
-            msg,
-            [0, 1, 2, 3],
-            [False, False, True, True],
-            "Same tweaks as the previous case but with all signers participating, signed by a non-first member of the signer set",
-        )
-
-    # --- Array B: error_tests ---
 
     def add_error_tests(self) -> None:
         msg = COMMON_MSGS[0]
-        my_id = 0
+        signer_id = 0
 
-        # Tweak exceeds the group order
         self._append_error(
-            my_id,
+            signer_id,
             self.min_s,
             self.min_s,
             0,
@@ -255,11 +211,10 @@ class TweakGroupBuilder:
             msg,
             [self.inputs.OUT_OF_RANGE_TWEAK_IDX],
             [False],
-            "Tweak exceeds the group order",
+            "Tweak equals the group order, which is out of range",
         )
-        # Infinity tweak
         self._append_error(
-            my_id,
+            signer_id,
             self.min_s,
             self.min_s,
             0,
@@ -270,9 +225,8 @@ class TweakGroupBuilder:
             [False],
             "Plain tweak drives the tweaked threshold public key to the point at infinity",
         )
-        # Length mismatch between tweaks and is_xonly
         self._append_error(
-            my_id,
+            signer_id,
             self.min_s,
             self.min_s,
             0,
@@ -283,16 +237,15 @@ class TweakGroupBuilder:
             [],
             "Number of tweaks does not match the number of tweak modes",
         )
-        # Invalid 33-byte tweak
         self._append_error(
-            my_id,
+            signer_id,
             self.min_s,
             self.min_s,
             0,
             0,
             self.aggnonce_min,
             msg,
-            # index of the appended invalid 33-byte tweak (last slot of the pool)
+            # last pool entry, the appended invalid tweak
             [len(self.inputs.tweaks_pool)],
             [False],
             "Tweak is not a 32-byte array",
