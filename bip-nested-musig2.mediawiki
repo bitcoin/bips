@@ -80,7 +80,7 @@ This specification instantiates their roles as follows:
 ** ''L<sub>d</sub>'' is the lexicographically sorted BIP327 key list formed from exactly one distinguished occurrence of ''pk<sub>d</sub>'' together with every occurrence in ''T<sub>d</sub>''.<br>For ''d > 0'', let ''keyagg_ctx<sub>d</sub> = KeyAgg(L<sub>d</sub>)'' and ''pk<sub>d−1</sub> = GetPlainPubkey(keyagg_ctx<sub>d</sub>)''.<br>Thus, ''pk<sub>d−1</sub>'' is the 33-byte plain aggregate public key by which the level-''d'' aggregation node participates at level ''d−1''.<br>''GetPlainPubkey(KeyAgg(L<sub>0</sub>))'' is the root aggregate plain public key.
 ** ''a<sub>d</sub>'' is the BIP327 key-aggregation coefficient ''a<sub>d</sub> = KeyAggCoeff(L<sub>d</sub>, pk<sub>d</sub>)''.<br>The product ''a<sub>0</sub>·a<sub>1</sub>·...·a<sub>&Lambda;−1</sub> mod n'' is the leaf signer's recursive key-aggregation coefficient.
 * ''out<sub>d</sub>'' is the 66-byte internal aggregate nonce of the aggregation node at level ''d'' on the signer's path. It is the output of BIP327 ''NonceAgg'' applied to the first-round contributions of that node's participants.<br>For ''d > 0'', ''out<sub>d</sub>'' is not itself the contribution sent to the parent node. Instead, the node is represented at level ''d−1'' by ''NonceAggExt(out<sub>d</sub>, pk<sub>d−1</sub>)''.<br>The sequence ''(out<sub>0</sub>, ..., out<sub>&Lambda;−1</sub>)'' is called the signer's '''nonce path'''.
-* For ''d = 1, ..., &Lambda;−1'', ''b<sub>d</sub>'' is the message-independent intermediate nonce-binding factor derived from ''out<sub>d</sub>'' and the complete 33-byte plain aggregate public key ''pk<sub>d−1</sub>''. It is the same coefficient used by ''NonceAggExt'' when constructing the internal node's external nonce.
+* For ''d = 1, ..., &Lambda;−1'', ''b<sub>d</sub> = AggNonceCoeffHash(out<sub>d</sub>, cpoint(pk<sub>d−1</sub>))'' is the message-independent intermediate nonce-binding factor defined in [[#external-nonce-aggregation|External Nonce Aggregation]]. It hashes the internal aggregate nonce followed by the 32-byte X-only encoding of the aggregate point. It is the same coefficient used by ''NonceAggExt'' when constructing the internal node's external nonce.
 * ''b<sub>0</sub>'' is the root nonce-binding factor computed according to BIP327 from ''out<sub>0</sub>'', the final root X-only aggregate public key, and the message. If root-level aggregate-key tweaks are applied, use the public key after those tweaks.<br>''b<sub>0</sub>'' is the only nonce-binding factor that commits directly to the message.
 * ''b&#780;'' is the accumulated nonce-binding factor ''b&#780; = b<sub>0</sub>·b<sub>1</sub>·...·b<sub>&Lambda;−1</sub> mod n''.<br>Because this specification uses the BIP327 two-nonce construction, ''b&#780;'' is the coefficient multiplying the leaf signer's second secret nonce in its nested partial-signature equation.
 * ''c'' is the BIP340 challenge ''c = int(hash<sub>BIP0340/challenge</sub>(xbytes(R) || xbytes(Q) || m)) mod n'', where ''Q'' is the final root aggregate public key and ''R'' is the final effective nonce point.
@@ -198,15 +198,24 @@ This specification does not prescribe a transport mechanism for distributing the
 
 ====External Nonce Aggregation====
 
+Internal Algorithm ''AggNonceCoeffHash(aggnonce, Q)'':
+* Inputs:
+** ''aggnonce'': the 66-byte internal aggregate nonce produced by ''NonceAgg'' for a non-root aggregation node.
+** ''Q'': that node's finite aggregate public-key point.
+* Return ''int(hash<sub>NestedMuSig/aggnoncecoef</sub>(aggnonce || xbytes(Q))) mod n''.
+
+The tagged-hash input is exactly 98 bytes: the 66-byte internal aggregate nonce followed by the 32-byte X-only encoding of ''Q''. It contains neither the compressed public-key prefix nor the message. When the aggregate public key is supplied as a 33-byte plain public key ''pk_agg'', obtain the point as ''Q = cpoint(pk_agg)'' before applying ''xbytes''.
+
 Algorithm ''NonceAggExt(aggnonce, pk_agg)'':
 * Inputs:
 ** ''aggnonce'': the 66-byte internal aggregate nonce produced by ''NonceAgg'' for a non-root aggregation node.
 ** ''pk_agg'': the 33-byte BIP327 plain aggregate public key by which that node is represented at its parent.
 * ''Fail'' if ''len(aggnonce) ≠ 66''.
 * ''Fail'' if ''len(pk_agg) ≠ 33''.
+* Let ''Q = cpoint(pk_agg)''; ''Fail'' if that fails.
 * Let ''R'<sub>1</sub> = cpoint_ext(aggnonce[0:33])''; ''Fail'' if that fails.
 * Let ''R'<sub>2</sub> = cpoint_ext(aggnonce[33:66])''; ''Fail'' if that fails.
-* Let ''b = int(hash<sub>NestedMuSig/aggnoncecoef</sub>(aggnonce || xbytes(pk_agg))) mod n''.
+* Let ''b = AggNonceCoeffHash(aggnonce, Q)''.
 * Let ''R<sub>1</sub> = R'<sub>1</sub>''.
 * Let ''R<sub>2</sub> = b⋅R'<sub>2</sub>''.
 * ''Fail'' if ''R<sub>1</sub>'' or ''R<sub>2</sub>'' is the point at infinity.
@@ -258,7 +267,7 @@ Internal Algorithm ''GetSessionValues(session_ctx, pk)'':
 * Let ''keyagg_ctx = KeyAgg(L<sub>Λ−1</sub>)''; fail if ''KeyAgg'' fails according to BIP327.
 * For ''d = Λ−2, ..., 0'':
 ** Let ''pk<sub>d</sub> = GetPlainPubkey(keyagg_ctx)''.
-** Let ''b<sub>d+1</sub> = int(hash<sub>NestedMuSig/aggnoncecoef</sub>(nonce_path[d+1] || xbytes(pk<sub>d</sub>))) mod n''.
+** Let ''b<sub>d+1</sub> = AggNonceCoeffHash(nonce_path[d+1], cpoint(pk<sub>d</sub>))''.
 ** ''Fail'' if ''R'<sub>1,d+1</sub>'' is the point at infinity.
 ** Let ''R<sub>2,ext</sub> = b<sub>d+1</sub>⋅R'<sub>2,d+1</sub>''.
 ** ''Fail'' if ''R<sub>2,ext</sub>'' is the point at infinity.
@@ -428,6 +437,8 @@ BIP327 ''KeyAgg'' is order-dependent and provides ''KeySort'' for applications t
 
 The Nested MuSig2 construction distinguishes intermediate nonce binding from root nonce binding. Intermediate aggregation uses a message-independent binding factor, while the root binding factor additionally commits to the message.
 
+The nonce-first input order and 32-byte X-only aggregate-key encoding in ''AggNonceCoeffHash'' follow BIP327's [https://github.com/bitcoin/bips/blob/master/bip-0327.mediawiki#session-context GetSessionValues] computation, ''hash<sub>MuSig/noncecoef</sub>(aggnonce || xbytes(Q) || m)'', also used by [https://github.com/bitcoin/bips/blob/master/bip-0327/reference.py the BIP327 reference implementation]. The intermediate computation uses its own tag and omits the message. BIP327 defines the root computation; using this encoding for intermediate binding is a choice of this specification.
+
 This specification instantiates these roles with separate tagged hashes:
 * <code>NestedMuSig/aggnoncecoef</code> for intermediate binding; and
 * <code>MuSig/noncecoef</code> for root binding.
@@ -540,13 +551,9 @@ The reference implementation MUST NOT substitute NestedMuSig2-specific tags for 
 
 ===Intermediate Nonce Binding===
 
-The reference implementation of ''NonceAggExt'' MUST compute ''b = int(hash<sub>NestedMuSig/aggnoncecoef</sub>(pk_agg || aggnonce)) mod n''.
+The reference implementation of ''NonceAggExt'' and ''GetSessionValues'' MUST compute intermediate binding factors using ''AggNonceCoeffHash'' as defined in [[#external-nonce-aggregation|External Nonce Aggregation]].
 
-Here:
-* ''pk_agg'' is exactly the 33-byte BIP327 plain aggregate public key; and
-* ''aggnonce'' is exactly the 66-byte internal aggregate nonce.
-
-The implementation MUST NOT replace ''pk_agg'' by an X-only public-key encoding and MUST NOT include the message in this computation. If either resulting external nonce component is the point at infinity, ''NonceAggExt'' MUST fail rather than serializing the component using ''cbytes_ext''. Every successful ''NonceAggExt'' output therefore consists of two ordinary finite compressed secp256k1 points and can be consumed by the parent's unchanged BIP327 ''NonceAgg'' algorithm.
+If either resulting external nonce component is the point at infinity, ''NonceAggExt'' MUST fail rather than serializing the component using ''cbytes_ext''. Every successful ''NonceAggExt'' output therefore consists of two ordinary finite compressed secp256k1 points and can be consumed by the parent's unchanged BIP327 ''NonceAgg'' algorithm.
 
 ===Session and Signing State===
 
@@ -655,7 +662,7 @@ Every aggregation node MUST use the BIP327 ''KeyAgg'' construction, including it
 
 ===Recursive Nonce Binding===
 
-The intermediate nonce-binding transformation performed by ''NonceAggExt'' is security-critical. For every non-root aggregation node, the intermediate binding factor is derived from that node's aggregate plain public key and its internal aggregate nonce. The factor transforms the second aggregate nonce component before the node appears as a participant to its parent. A signer then accumulates the binding factors along its path: ''b̌ = b<sub>0</sub>·b<sub>1</sub>·...·b<sub>Λ−1</sub> mod n''.
+The intermediate nonce-binding transformation performed by ''NonceAggExt'' is security-critical. For every non-root aggregation node, the intermediate binding factor is derived from that node's 66-byte internal aggregate nonce followed by the 32-byte X-only encoding of its aggregate public-key point, as specified in [[#external-nonce-aggregation|AggNonceCoeffHash]]. The factor transforms the second aggregate nonce component before the node appears as a participant to its parent. A signer then accumulates the binding factors along its path: ''b̌ = b<sub>0</sub>·b<sub>1</sub>·...·b<sub>Λ−1</sub> mod n''.
 
 Implementations MUST NOT:
 * omit an intermediate binding factor;

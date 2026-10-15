@@ -317,6 +317,9 @@ def nonce_agg(pubnonces: List[bytes]) -> bytes:
 # End of helper functions copied from BIP-327 reference implementation.
 #
 
+def agg_nonce_coeff_hash(aggnonce: bytes, aggkey: Point) -> int:
+    return int_from_bytes(tagged_hash('NestedMuSig/aggnoncecoef', aggnonce + xbytes(aggkey))) % n
+
 def nonce_agg_ext(nonce_internal: bytes, pk_internal: Point) -> bytes:
     try:
         if len(nonce_internal) != 66:
@@ -348,9 +351,6 @@ def apply_tweaks(keyagg_ctx: KeyAggContext, tweaks: List[bytes], is_xonly: List[
     for i in range(v):
         keyagg_ctx = apply_tweak(keyagg_ctx, tweaks[i], is_xonly[i])
     return keyagg_ctx
-
-def agg_nonce_coeff_hash(aggnonce: bytes, aggkey: Point) -> int:
-    return int_from_bytes(tagged_hash('NestedMuSig/aggnoncecoef', aggnonce + xbytes(aggkey))) % n
 
 def print_tree_path(pk_level: List[PlainPk]):
         print(f"Nodes at level: {[pk.hex().upper() for pk in pk_level]}")
