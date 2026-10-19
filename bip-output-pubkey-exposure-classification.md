@@ -168,8 +168,9 @@ Implementations MAY report a holder-retained secret such as `P` as a separate at
 NOT let it lower the level.
 
 **P2SH and P2WSH are `EXPOSED_ON_SPEND`.** The script is unknown until spent. A spend reveals it,
-together with any key material its signatures require. A script that requires no signature would
-publish no key material, but that cannot be observed before the spend and MUST NOT be assumed.
+together with any key material its signatures require. A script that requires no signature might
+not publish any key material when spent, but that cannot be observed before the spend and MUST NOT
+be assumed.
 
 **P2MR is `EXPOSED_ON_SPEND`.** P2MR has no key path, so no key material is on the chain before a
 spend: it is not exposed at rest. A script-path spend publishes the leaf script and its Merkle path
@@ -207,9 +208,9 @@ where available, is sufficient:
 > paying this `scriptPubKey` has a confirmed spend.
 
 Implementations SHOULD use this inference as a floor that retrieved transactions do not lower, with
-one exception. The floor over-approximates when no spend published key material, as with a
-revealed script or leaf that requires no signature. An implementation that has retrieved every
-spend of the script and finds that the derived condition does not hold SHOULD assign the level
+one exception. The floor over-approximates when no spend published key material, as can happen
+with a revealed script or leaf that requires no signature. An implementation that has retrieved
+every spend of the script and finds that the derived condition does not hold SHOULD assign the level
 from the table.
 
 If neither complete history nor an aggregate count is available, the implementation MUST assign
