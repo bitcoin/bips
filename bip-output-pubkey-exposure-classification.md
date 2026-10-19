@@ -9,7 +9,7 @@
   License: BSD-2-Clause OR CC0-1.0
   Discussion: 2026-09-03: https://delvingbitcoin.org/t/standardizing-an-exposure-classification-for-existing-outputs-pre-bip/2866
               2026-09-04: https://gnusha.org/pi/bitcoindev/010001a06dd4cdd9-b8082042-8750-4e9a-917e-2053c919e4c4-000000@email.amazonses.com/
-  Version: 0.6.0
+  Version: 0.6.1
   Requires: 360
 ```
 
@@ -108,13 +108,16 @@ change a level.
 
 #### `NOT_EXPOSED`
 
-The consensus rules of the output's type do not require secp256k1 key material to spend it, so
-neither attack applies. This level is a property of the output type. It MUST NOT be inferred for a
-hash-committed script from the absence of information about the script.
+The consensus rules of the output's type require a valid post-quantum signature on every spending
+path. A hybrid scheme that also requires a secp256k1 signature qualifies; a path that can be
+satisfied without a post-quantum signature does not. A derived secp256k1 private key alone cannot
+spend such an output, so neither attack applies, and the level holds even where a condition of
+`EXPOSED_AT_REST` is met. This level is a property of the output type. It MUST NOT be inferred for
+a hash-committed script from the absence of information about the script.
 
-No deployed output type qualifies. P2MR ([BIP 360](bip-0360.mediawiki)) does not: an unrevealed
-tree may contain a leaf that requires a secp256k1 signature. The level exists for future output
-types built on post-quantum signature schemes.
+No deployed output type qualifies. P2MR ([BIP 360](bip-0360.mediawiki)) does not: its consensus
+rules allow leaves that can be satisfied without a post-quantum signature. The level exists for
+future output types built on post-quantum signature schemes.
 
 #### `UNDETERMINED`
 
@@ -166,7 +169,7 @@ NOT let it lower the level.
 
 **P2SH and P2WSH are `EXPOSED_ON_SPEND`.** The script is unknown until spent. A spend reveals it,
 together with any key material its signatures require. A script that requires no signature would
-be unexposed, but that cannot be observed before the spend and MUST NOT be assumed.
+publish no key material, but that cannot be observed before the spend and MUST NOT be assumed.
 
 **P2MR is `EXPOSED_ON_SPEND`.** P2MR has no key path, so no key material is on the chain before a
 spend: it is not exposed at rest. A script-path spend publishes the leaf script and its Merkle path
@@ -398,18 +401,13 @@ there as `test_vectors.json` under CC0-1.0.
 
 ## Changelog
 
+* 0.6.1 — `NOT_EXPOSED` now requires a post-quantum signature on every spending path, so a hybrid
+  scheme qualifies, and it takes precedence over `EXPOSED_AT_REST` (review by murch on the pull
+  request). Shortened the 0.6.0 entry.
 * 0.6.0 — Condensed the text; test vector outcomes are unchanged. `EXPOSED_ON_SPEND` now covers
-  outputs that pay the same script: the exposure window opens when a spend of any of them is
-  broadcast and closes when the spend of the last of them is confirmed and buried. Removed the
-  naming note from Specification; the discussion remains in Rationale. In Appendix A, the
-  `SWEEP_WHEN_SPENDING` floor now says to spend every output paying the script in one transaction.
-  Review by murch on the pull request. Also: stated the derived condition in terms of key material
-  and defined "disclosed" by the two `EXPOSED_AT_REST` conditions, so a revealed script or leaf
-  that requires no signature is not disclosure; the aggregate-count floor is now lowered only after
-  every spend of the script has been retrieved; dropped the claim that every satisfiable P2MR leaf
-  requires a secp256k1 signature; stated that a pre-activation witness version 2, 32-byte output
-  carries the P2MR level and is flagged separately; and noted that a P2MR output with a depth-zero
-  tree is spendable by anyone once its leaf script is revealed, which implementations SHOULD flag.
+  outputs that pay the same script, and its Appendix A floor says to spend them in one transaction.
+  Removed the naming note from Specification. Review by murch on the pull request. Also clarified
+  disclosure, the aggregate-count floor and two cases where anyone can spend the output.
 * 0.5.1 — Noted that a witness version 2, 32-byte output is spendable by anyone until BIP 360
   activates; implementations SHOULD flag it separately.
 * 0.5.0 — Changed the type to Informational. Mapped the first two levels onto BIP 360's long and
