@@ -59,7 +59,19 @@ def gen_all_generate_proof_vectors(f):
         writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case {i+1}"))
         idx += 1
 
-    # failure cases: a is not within group order (a=0, a=N)
+    # success cases: a at the bounds of the valid range (a=1, a=N-1)
+    a_bound = 1
+    proof = dleq_generate_proof(a_bound, B, auxrand, G=G, m=msg)
+    assert proof is not None and len(proof) == 64
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_bound:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case (a=1)"))
+    idx += 1
+    a_bound = GE.ORDER - 1
+    proof = dleq_generate_proof(a_bound, B, auxrand, G=G, m=msg)
+    assert proof is not None and len(proof) == 64
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_bound:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case (a=N-1 [group order - 1])"))
+    idx += 1
+
+    # failure cases: a is not within group order (a=0, a=N, a=N+1)
     a_invalid = 0
     assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
     writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=0)"))
@@ -67,6 +79,10 @@ def gen_all_generate_proof_vectors(f):
     a_invalid = GE.ORDER
     assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
     writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=N [group order])"))
+    idx += 1
+    a_invalid = GE.ORDER + 1
+    assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=N+1 [group order + 1])"))
     idx += 1
 
     # failure case: B is point at infinity
