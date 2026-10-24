@@ -14,7 +14,7 @@ from secp256k1lab.secp256k1 import G, GE, Scalar
 from secp256k1lab.util import tagged_hash, hash_sha256
 
 
-from bech32m import convertbits, bech32_encode, decode, Encoding
+from bech32m import bech32_decode, bech32_encode, convertbits, Encoding
 from bitcoin_utils import (
         deser_txid,
         from_hex,
@@ -116,11 +116,20 @@ def create_labeled_silent_payment_address(b_scan: Scalar, B_spend: GE, m: int, h
 
 
 def decode_silent_payment_address(address: str, hrp: str = "tsp") -> Tuple[GE, GE]:
-    _, data = decode(hrp, address)
-    if data is None:
+    hrpgot, data, spec = bech32_decode(address)
+    if hrpgot != hrp or spec != Encoding.BECH32M or data is None or not data:
         return GE(), GE()
-    B_scan = GE.from_bytes_compressed(data[:33])
-    B_spend = GE.from_bytes_compressed(data[33:])
+
+    version = data[0]
+    if version == 31:
+        return GE(), GE()
+
+    decoded = convertbits(data[1:], 5, 8, False)
+    if decoded is None or len(decoded) < 66 or (version == 0 and len(decoded) != 66):
+        return GE(), GE()
+
+    B_scan = GE.from_bytes_compressed(decoded[:33])
+    B_spend = GE.from_bytes_compressed(decoded[33:66])
 
     return B_scan, B_spend
 
