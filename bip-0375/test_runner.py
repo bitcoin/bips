@@ -14,6 +14,7 @@ for path in [str(deps_dir), str(secp256k1lab_dir)]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
+from signatures import check_partial_signatures
 from validator.psbt_bip375 import BIP375PSBT
 from validator.validate_psbt import (
     validate_psbt_structure,
@@ -85,15 +86,20 @@ def run_validation_tests(test_data: dict, verbosity: int = 0) -> tuple[int, int]
         is_valid, result = validate_bip375_psbt(
             test_vector["psbt"], test_vector.get("checks"), debug=verbosity >= 2
         )
+        signature_errors = check_partial_signatures(
+            BIP375PSBT.from_base64(test_vector["psbt"])
+        )
         print(f"{test_vector['description']}")
-        if not is_valid:
+        if not is_valid and not signature_errors:
             passed += 1
             if verbosity >= 1:
                 print(f"  {result}")
         else:
             failed += 1
-            if result:
+            if is_valid and result:
                 print(f"  ERROR: {result}")
+            for error in signature_errors:
+                print(f"  ERROR: {error}")
 
     # Process valid PSBTs (should pass validation)
     valid_tests = test_data.get("valid", [])
@@ -103,16 +109,21 @@ def run_validation_tests(test_data: dict, verbosity: int = 0) -> tuple[int, int]
         is_valid, result = validate_bip375_psbt(
             test_vector["psbt"], test_vector.get("checks"), debug=verbosity >= 2
         )
+        signature_errors = check_partial_signatures(
+            BIP375PSBT.from_base64(test_vector["psbt"])
+        )
 
         print(f"{test_vector['description']}")
-        if is_valid:
+        if is_valid and not signature_errors:
             passed += 1
             if verbosity >= 1:
                 print(f"  {result}")
         else:
             failed += 1
-            if result:
+            if not is_valid and result:
                 print(f"  ERROR: {result}")
+            for error in signature_errors:
+                print(f"  ERROR: {error}")
 
     return passed, failed
 

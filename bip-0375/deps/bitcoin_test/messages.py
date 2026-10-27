@@ -29,6 +29,8 @@ import hashlib
 import math
 from io import BytesIO
 
+from .ripemd160 import ripemd160
+
 COIN = 100000000  # 1 btc in satoshis
 WITNESS_SCALE_FACTOR = 4
 
@@ -37,7 +39,7 @@ WITNESS_SCALE_FACTOR = 4
 # ============================================================================
 
 def hash160(s: bytes) -> bytes:
-    return hashlib.new("ripemd160", sha256(s)).digest()
+    return ripemd160(sha256(s))
 
 
 def sha256(s: bytes) -> bytes:
