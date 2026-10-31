@@ -36,7 +36,7 @@ def dleq_challenge(
             + m,
         ),
         "big",
-    )
+    ) % GE.ORDER
 
 
 def dleq_generate_proof(
@@ -76,6 +76,8 @@ def dleq_verify_proof(
         return False
     assert len(proof) == 64
     e = int.from_bytes(proof[:32], "big")
+    if e >= GE.ORDER:
+        return False
     s = int.from_bytes(proof[32:], "big")
     if s >= GE.ORDER:
         return False

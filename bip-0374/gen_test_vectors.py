@@ -59,7 +59,19 @@ def gen_all_generate_proof_vectors(f):
         writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case {i+1}"))
         idx += 1
 
-    # failure cases: a is not within group order (a=0, a=N)
+    # success cases: a at the bounds of the valid range (a=1, a=N-1)
+    a_bound = 1
+    proof = dleq_generate_proof(a_bound, B, auxrand, G=G, m=msg)
+    assert proof is not None and len(proof) == 64
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_bound:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case (a=1)"))
+    idx += 1
+    a_bound = GE.ORDER - 1
+    proof = dleq_generate_proof(a_bound, B, auxrand, G=G, m=msg)
+    assert proof is not None and len(proof) == 64
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_bound:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), proof.hex(), f"Success case (a=N-1 [group order - 1])"))
+    idx += 1
+
+    # failure cases: a is not within group order (a=0, a=N, a=N+1)
     a_invalid = 0
     assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
     writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=0)"))
@@ -67,6 +79,10 @@ def gen_all_generate_proof_vectors(f):
     a_invalid = GE.ORDER
     assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
     writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=N [group order])"))
+    idx += 1
+    a_invalid = GE.ORDER + 1
+    assert dleq_generate_proof(a_invalid, B, auxrand, G=G, m=msg) is None
+    writer.writerow((idx, G.to_bytes_compressed().hex(), f"{a_invalid:064x}", B.to_bytes_compressed().hex(), auxrand.hex(), msg.hex(), "INVALID", f"Failure case (a=N+1 [group order + 1])"))
     idx += 1
 
     # failure case: B is point at infinity
@@ -114,6 +130,19 @@ def gen_all_verify_proof_vectors(f):
     msg_damaged = bytes(msg_damaged)
     writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
                      C.to_bytes_compressed().hex(), proof.hex(), msg_damaged.hex(), "FALSE", f"Tampered message (random bit-flip)"))
+    idx += 1
+
+    # out-of-range proof values should fail (e and s must both be valid scalars)
+    order_bytes = GE.ORDER.to_bytes(32, "big")
+    proof_e_out_of_range = order_bytes + proof[32:]
+    assert not dleq_verify_proof(A, B, C, proof_e_out_of_range, G=G, m=msg)
+    writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+                     C.to_bytes_compressed().hex(), proof_e_out_of_range.hex(), msg.hex(), "FALSE", f"Proof with e equal to curve order"))
+    idx += 1
+    proof_s_out_of_range = proof[:32] + order_bytes
+    assert not dleq_verify_proof(A, B, C, proof_s_out_of_range, G=G, m=msg)
+    writer.writerow((idx, G.to_bytes_compressed().hex(), A.to_bytes_compressed().hex(), B.to_bytes_compressed().hex(),
+                     C.to_bytes_compressed().hex(), proof_s_out_of_range.hex(), msg.hex(), "FALSE", f"Proof with s equal to curve order"))
     idx += 1
 
 

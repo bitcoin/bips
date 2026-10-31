@@ -11,7 +11,7 @@
   License: BSD-2-Clause
   Discussion: https://gist.github.com/andrewtoth/df97c3260cc8d12f09d3855ee61322ea
               https://groups.google.com/g/bitcoindev/c/MezoKV5md7s
-  Version: 0.2.0
+  Version: 0.3.1
 </pre>
 
 == Introduction ==
@@ -64,7 +64,7 @@ Input:
 * The secret key ''a'': a 256-bit unsigned integer
 * The public key ''B'': a point on the curve
 * Auxiliary random data ''r'': a 32-byte array<ref name="why_include_auxiliary_random_data"> ''' Why include auxiliary random data?''' The auxiliary random data should be set to fresh randomness for each proof. The same rationale and recommendations from [https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki#default-signing BIP340] should be applied.</ref> 
-* The generator point ''G'': a point on the curve<ref name="why_include_G"> ''' Why include the generator point G as an input?''' While all other BIPs have used the generator point from secp256k1, passing it as an input here lets this algorithm be used for other curves.</ref>
+* The generator point ''G'': a point on the curve<ref name="why_include_G"> ''' Why include the generator point G as an input?''' While all other BIPs have used the generator point from secp256k1, passing it as an input here lets this algorithm be used for other generators on secp256k1.</ref>
 * An optional message ''m'': a 32-byte array<ref name="why_include_a_message"> ''' Why include a message as an input?''' This could be useful for protocols that want to authorize on a compound statement, not just knowledge of a scalar. This allows the protocol to combine knowledge of the scalar and the statement.</ref>
 
 The algorithm ''GenerateProof(a, B, r, G, m)'' is defined as:
@@ -79,7 +79,7 @@ The algorithm ''GenerateProof(a, B, r, G, m)'' is defined as:
 * Fail if ''k = 0''.
 * Let ''R<sub>1</sub> = k⋅G''.
 * Let ''R<sub>2</sub> = k⋅B''.
-* Let ''e = int(hash<sub>BIP0374/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>) || m'))''.
+* Let ''e = int(hash<sub>BIP0374/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>) || m')) mod n''.
 * Let ''s = (k + e⋅a) mod n''.
 * Let ''proof = bytes(32, e) || bytes(32, s)''.
 * If ''VerifyProof(A, B, C, proof, G, m)'' (see below) returns failure, abort.
@@ -87,26 +87,26 @@ The algorithm ''GenerateProof(a, B, r, G, m)'' is defined as:
 
 === DLEQ Proof Verification ===
 
-The following verifies the proof generated in the previous section. If the following algorithm succeeds, the points ''A'' and ''C'' were both generated from the same scalar. The former from multiplying by ''G'', and the latter from multiplying by ''B''.
+The following verifies the proof generated in the previous section. If the following algorithm succeeds, the points ''A'' and ''C'' were both generated from the same scalar ''a'', i.e. ''A = a⋅G'' and ''C = a⋅B''.
 
 Input:
 * The public key of the secret key used in the proof generation ''A'': a point on the curve
 * The public key used in the proof generation ''B'': a point on the curve
 * The result of multiplying the secret and public keys used in the proof generation ''C'': a point on the curve
 * A proof ''proof'': a 64-byte array
-* The generator point used in the proof generation ''G'': a point on the curve<ref name="why_include_G"> ''' Why include the generator point G as an input?''' While all other BIPs have used the generator point from Secp256k1, passing it as an input here lets this algorithm be used for other curves.</ref>
-* An optional message ''m'': a 32-byte array<ref name="why_include_a_message"> ''' Why include a message as an input?''' This could be useful for protocols that want to authorize on a compound statement, not just knowledge of a scalar. This allows the protocol to combine knowledge of the scalar and the statement.</ref>
+* The generator point used in the proof generation ''G'': a point on the curve<ref name="why_include_G" />
+* An optional message ''m'': a 32-byte array<ref name="why_include_a_message" />
 
 The algorithm ''VerifyProof(A, B, C, proof, G, m)'' is defined as:
 * Fail if any of ''is_infinite(A)'', ''is_infinite(B)'', ''is_infinite(C)'', ''is_infinite(G)''
-* Let ''e = int(proof[0:32])''.
+* Let ''e = int(proof[0:32])''; fail if ''e &ge; n''.
 * Let ''s = int(proof[32:64])''; fail if ''s &ge; n''.
 * Let ''R<sub>1</sub> = s⋅G - e⋅A''.
 * Fail if ''is_infinite(R<sub>1</sub>)''.
 * Let ''R<sub>2</sub> = s⋅B - e⋅C''.
 * Fail if ''is_infinite(R<sub>2</sub>)''.
 * Let ''m' = m if m is provided, otherwise an empty byte array''.
-* Fail if ''e ≠ int(hash<sub>BIP0374/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>) || m'))''.
+* Fail if ''e ≠ int(hash<sub>BIP0374/challenge</sub>(cbytes(A) || cbytes(B) || cbytes(C) || cbytes(G) || cbytes(R<sub>1</sub>) || cbytes(R<sub>2</sub>) || m')) mod n''.
 * Return success iff no failure occurred before reaching this point.
 
 ==Backwards Compatibility==
@@ -124,6 +124,10 @@ Test vectors can be generated by running <code>./bip-0374/gen_test_vectors.py</c
 
 == Changelog ==
 
+* 0.3.1 (2026-10-26):
+** Add test vectors checking scalar boundaries
+* 0.3.0 (2026-08-19):
+** Treat the challenge ''e'' as a scalar (reduced modulo the curve order) and reject proofs with ''e &ge; n''
 * 0.2.0 (2025-02-27):
 ** Add the message to the rand computation
 * 0.1.0 (2024-12-26):

@@ -74,8 +74,10 @@ It reuses the base-32 character set from BIP-0173, and consists of:
 *** If the threshold parameter is "0" then the share index, defined below, MUST have a value of "s" (or "S").
 ** An identifier consisting of 4 bech32 characters.
 ** A share index, which is any bech32 character. Note that a share index value of "s" (or "S") is special and denotes the unshared secret (see section "Unshared Secret").
-** A payload which is a sequence of up to 74 bech32 characters. (However, see '''Long codex32 Strings''' below for an exception to this limit.)
+** A payload which is a sequence of up to 69 bech32 characters. (However, see '''Long codex32''' below for an exception to this limit.)
 ** A checksum which consists of 13 bech32 characters as described below.
+
+String validity may be further restricted by specific applications, see '''Master seed format''' below.
 
 As with bech32 strings, a codex32 string MUST be entirely uppercase or entirely lowercase.
 Note that per BIP-0173, the lowercase form is used when determining a character's value for checksum purposes.
@@ -85,14 +87,22 @@ If a codex32 string is encoded in a QR code, it SHOULD use the uppercase form, a
 
 ====Checksum====
 
-The last thirteen characters of the data part form a checksum and contain no information.
+The last thirteen characters of a regular codex32 data part form a checksum and contain no information.
 Valid strings MUST pass the criteria for validity specified by the Python 3 code snippet below.
-The function <code>ms32_verify_checksum</code> must return true when its argument is the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
+The function <code>ms32_verify_checksum</code> selects the checksum variant required by codex32 and MUST return true when its argument is the data part as a list of integers representing the characters converted using the bech32 character table from BIP-0173.
+The functions <code>ms32_verify_regular_checksum</code> and <code>ms32_verify_long_checksum</code> verify only their respective checksum variants within their stated periods.
 
-To construct a valid checksum given the data-part characters (excluding the checksum), the <code>ms32_create_checksum</code> function can be used.
+Checksum selection depends on the expanded codeword length: the BIP-0173 expansion of the human-readable part followed by the complete data part.
+For the required human-readable part <code>ms</code>, the expansion contributes five values.
+The regular checksum MUST be used when this length is at most 93, and the long checksum MUST be used when this length is between 96 and 1023, inclusive.
+Expanded lengths 94 and 95, and lengths greater than 1023, are invalid.
+
+The functions <code>ms32_create_regular_checksum</code> and <code>ms32_create_long_checksum</code> construct the individual checksum variants.
+To construct the checksum variant required by codex32 given the data-part characters (excluding the checksum), the <code>ms32_create_checksum</code> function can be used.
 
 <source lang="python">
 MS32_CONST = 0x10ce0795c2fd1e62a
+MS32_HRP_EXPANDED_LENGTH = 5                       # bech32_hrp_expand("ms")
 
 def ms32_polymod(values):
     GEN = [
@@ -110,22 +120,29 @@ def ms32_polymod(values):
             residue ^= GEN[i] if ((b >> i) & 1) else 0
     return residue
 
-def ms32_verify_checksum(data):
-    if len(data) >= 96:                      # See Long codex32 Strings
-        return ms32_verify_long_checksum(data)
-    if len(data) <= 93:
-        return ms32_polymod(data) == MS32_CONST
-    return False
+def ms32_verify_regular_checksum(data):
+    if MS32_HRP_EXPANDED_LENGTH + len(data) > 93:
+        return False
+    return ms32_polymod(data) == MS32_CONST
 
-def ms32_create_checksum(data):
-    if len(data) > 80:                       # See Long codex32 Strings
-        return ms32_create_long_checksum(data)
+def ms32_verify_checksum(data):
+    expanded_length = MS32_HRP_EXPANDED_LENGTH + len(data)
+    if expanded_length >= 96:                       # See Long codex32
+        return ms32_verify_long_checksum(data)
+    return ms32_verify_regular_checksum(data)
+
+def ms32_create_regular_checksum(data):
     values = data
     polymod = ms32_polymod(values + [0] * 13) ^ MS32_CONST
     return [(polymod >> 5 * (12 - i)) & 31 for i in range(13)]
+
+def ms32_create_checksum(data):
+    if MS32_HRP_EXPANDED_LENGTH + len(data) + 13 > 93:  # See Long codex32
+        return ms32_create_long_checksum(data)
+    return ms32_create_regular_checksum(data)
 </source>
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
-guarantees detection of '''any error affecting at most 8 characters'''
+guarantees detection of '''any error changing at most 8 symbols''' in expanded codewords up to 93 symbols long
 and has less than a 3 in 10<sup>20</sup> chance of failing to detect more
 random errors.
 
@@ -147,23 +164,19 @@ We do not specify how an implementation should implement error correction. Howev
 
 When the share index of a valid codex32 string (converted to lowercase) is the letter "s", we call the string a codex32 secret.
 
-The secret is decoded by converting the payload to bytes:
-
-* Translate the characters to 5 bits values using the bech32 character table from BIP-0173, most significant bit first.
-* Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or less, and is discarded.
-
-Note that unlike the decoding process in BIP-0173, we do NOT require that the incomplete group be all zeros.
+The secret's payload is decoded by application-specific rules.
 
 For an unshared secret, the threshold parameter (the first character of the data part) is ignored (beyond the fact it must be a digit for the codex32 string to be valid).
 We recommend using the digit "0" for the threshold parameter in this case.
 The 4 character identifier also has no effect beyond aiding users in distinguishing between multiple different secrets in cases where they have more than one.
 
-The function <code>ms32_encode</code> constructs a codex32 string when its argument is the converted data-part characters (excluding the checksum).
+The function <code>ms32_encode</code> constructs a codex32 string with the required <code>ms</code> human-readable part when its argument is the converted data-part characters (excluding the checksum).
 
-To validate a codex32 string and determine the data-part (excluding the checksum) as a list of 5-bit values, the <code>ms32_decode</code> function can be used.
+To validate an <code>ms</code> master-seed share or secret and determine the data-part (excluding the checksum) as a list of 5-bit values, the <code>ms32_decode</code> function can be used.
 
 <source lang="python">
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+MS32_VALID_LENGTHS = (48, 54, 61, 67, 74, 127)
 
 def ms32_encode(data):
     combined = data + ms32_create_checksum(data)
@@ -175,7 +188,7 @@ def ms32_decode(codex):
         return None
     codex = codex.lower()
     pos = codex.rfind("1")
-    if pos < 2 or not (48 <= len(codex) <= 127):
+    if pos < 2 or len(codex) not in MS32_VALID_LENGTHS:
         return None
     if not all(x in CHARSET for x in codex[pos+1:]):
         return None
@@ -184,7 +197,7 @@ def ms32_decode(codex):
     data = [CHARSET.index(x) for x in codex[pos+1:]]
     if not ms32_verify_checksum(data):
         return None
-    return data[:-13 if len(data) < 94 else -15]  # See Long codex32 Strings
+    return data[:-13 if MS32_HRP_EXPANDED_LENGTH + len(data) < 94 else -15]
 </source>
 
 ===Master seed format===
@@ -197,13 +210,39 @@ A secret seed is a codex32 encoding of:
 * The data-part values:
 ** A threshold parameter, which MUST be a single digit between "2" and "9", or the digit "0".
 ** An identifier consisting of 4 bech32 characters.
-*** We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every master seed and share set the user may need to disambiguate.
+*** We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every master seed and master seed share set the user may need to disambiguate.
 ** The share index "s".
-** A conversion of the 16-to-64-byte BIP-0032 HD master seed to bech32:
+** A conversion of a 16-, 20-, 24-, 28-, 32-, or 64-byte BIP-0032 HD master seed to bech32:
 *** Start with the bits of the master seed, most significant bit per byte first.
 *** Re-arrange those bits into groups of 5, and pad with arbitrary bits at the end if needed.
 *** Translate those bits to characters using the bech32 character table from BIP-0173.
 ** A valid checksum in accordance with the Checksum section.
+
+The payload is decoded to a master seed as follows:
+
+* Translate the characters to 5-bit values using the bech32 character table from BIP-0173, most significant bit first.
+* Re-arrange those bits into groups of 8 bits. Any incomplete group at the end MUST be 4 bits or less, and is discarded.
+
+Unlike the decoding process in BIP-0173, master-seed decoding does not require that the discarded incomplete group contain only zero bits.
+The decoded master seed MUST be exactly 16, 20, 24, 28, 32, or 64 bytes.
+
+The supported master seed sizes map to codex32 as follows:
+
+{| class="wikitable"
+! Bits !! Bytes !! Payload characters !! Encoded length !! Checksum
+|-
+| 128 || 16 || 26 || 48 || Regular
+|-
+| 160 || 20 || 32 || 54 || Regular
+|-
+| 192 || 24 || 39 || 61 || Regular
+|-
+| 224 || 28 || 45 || 67 || Regular
+|-
+| 256 || 32 || 52 || 74 || Regular
+|-
+| 512 || 64 || 103 || 127 || Long
+|}
 
 ===Recovering Secret===
 
@@ -275,7 +314,7 @@ There are two ways to create an initial set of ''k'' valid codex32 strings, depe
 
 In the case that the user wishes to generate a fresh secret, the user generates random initial shares, as follows:
 
-# Choose a bitsize, between 128 and 512, which must be a multiple of 8
+# Choose a bit size from 128, 160, 192, 224, 256, or 512
 # Choose a threshold value ''k'' between 2 and 9, inclusive
 # Choose a 4 bech32 character identifier
 #* We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every secret the user may need to disambiguate
@@ -298,7 +337,7 @@ The conversion process consists of:
 # Choose a 4 bech32 character identifier
 #* We do not define how to choose the identifier, beyond noting that it SHOULD be distinct for every set of shares the user may need to disambiguate
 # Set the share index to <code>s</code>
-# Set the payload to a bech32 encoding of the secret data, padded with arbitrary bits
+# Set the payload to a bech32 encoding of the application-specified secret payload bits; for a master seed, follow "Master seed format".
 # Generate a valid checksum in accordance with the Checksum section
 
 Along with the codex32 secret, the user must generate ''k''-1 other codex32 shares, each with the same threshold value, the same identifier, and a distinct share index.
@@ -308,8 +347,8 @@ The codex32 secret and the ''k''-1 codex32 shares form a set of ''k'' valid init
 
 ===Long codex32===
 
-The 13 character checksum design only supports up to 80 data characters.
-Excluding the threshold, identifier and index characters, this limits the payload to 74 characters or 46 bytes.
+The 13 character checksum design only supports expanded codewords of up to 93 values.
+After accounting for the expanded <code>ms</code> human-readable part, header, and checksum, this limits the payload of a regular codex32 string to 69 characters.
 While this is enough to support the 32-byte advised size of BIP-0032 master seeds, BIP-0032 allows seeds to be up to 64 bytes in size.
 We define a long codex32 format to support these longer seeds by defining an alternative checksum.
 
@@ -333,6 +372,8 @@ def ms32_long_polymod(values):
     return residue
 
 def ms32_verify_long_checksum(data):
+    if MS32_HRP_EXPANDED_LENGTH + len(data) > 1023:
+        return False
     return ms32_long_polymod(data) == MS32_LONG_CONST
 
 def ms32_create_long_checksum(data):
@@ -341,17 +382,17 @@ def ms32_create_long_checksum(data):
     return [(polymod >> 5 * (14 - i)) & 31 for i in range(15)]
 </source>
 This implements a [https://en.wikipedia.org/wiki/BCH_code BCH code] that
-guarantees detection of '''any error affecting at most 8 characters'''
+guarantees detection of '''any error changing at most 8 symbols''' in expanded codewords up to 1023 symbols long
 and has less than a 3 in 10<sup>23</sup> chance of failing to detect more
 random errors.
 
 A long codex32 string follows the same specification as a regular codex32 string with the following changes.
 
-* The payload is a sequence of between 75 and 103 bech32 characters.
+* The payload is a sequence of up to 997 bech32 characters.
 * The checksum consists of 15 bech32 characters as defined above.
+* The expanded codeword length MUST be between 96 and 1023 values, inclusive.
 
-A codex32 string with a data part of 94 or 95 characters is never legal as a regular codex32 string is limited to 93 data characters and a long codex32 string is at least 96 data characters.
-
+A codex32 string with an expanded codeword length of 94 or 95 values is never legal.
 Generation of long shares and recovery of the long secret from long shares proceeds in exactly the same way as for regular shares with the <code>ms32_interpolate</code> function.
 
 The long checksum is designed to be an error correcting code that can correct up to 4 character substitutions, up to 8 unreadable characters (called erasures), or up to 15 consecutive erasures.
@@ -368,7 +409,7 @@ This fact allows the header data to be covered by the checksum.
 The checksum size and identifier size have been chosen so that the encoding of 128-bit master seeds and shares fit within 48 characters.
 This is a standard size for many common seed storage formats, which has been popularized by the 12 four-letter word format of the BIP-0039 mnemonic.
 
-The 13 character checksum is adequate to correct 4 errors in up to 93 characters (80 characters of data and 13 characters of the checksum).
+The 13 character checksum is adequate to correct 4 errors in expanded codewords of up to 93 values.
 We can correct up to 8 erasures (errors with known locations), and up to 13 consecutive errors (burst errors).
 Beyond that, our code is guaranteed to detect up to 8 errors.
 More generally, any number of random errors will be detected with overwhelming (1 - 2^65) probability. However, the checksum does not protect against maliciously constructed errors.
@@ -376,15 +417,18 @@ These parameters are slightly better than those of the checksum used in SLIP-003
 
 For 256-bit seeds and shares our strings are 74 characters, which fits into the 96 character format of the 24 four-letter word format of the BIP-0039 mnemonic, with plenty of room to spare.
 
-A longer checksum is needed to support up to 512-bit seeds, the longest seed length specified in BIP-0032, as the 13 character checksum isn't adequate for more than 80 data characters.
+The supported 128-, 160-, 192-, 224-, and 256-bit sizes are the entropy sizes defined by BIP-0039, while 512 bits is the BIP-0032 seed size produced by BIP-0039 recovery.
+These encoded lengths have at least six-character gaps, reducing target length ambiguity for optional insert/delection correction workflows.
+
+A longer checksum is needed to support up to 512-bit seeds, the longest seed length specified in BIP-0032, because their expanded codewords exceed the regular checksum's 93-symbol limit.
 While we could use the 15 character checksum for both cases, we prefer to keep the strings as short as possible for the more common cases of 128-bit and 256-bit master seeds.
 We only guarantee to correct 4 characters no matter how long the string is.
 Longer strings mean more chances for transcription errors, so shorter strings are better.
 
-The longest data part using the regular 13 character checksum is 93 characters and corresponds to a 368-bit secret.
-At this length, the prefix <code>MS1</code> is not covered by the checksum.
-This is acceptable because the checksum scheme itself requires you to know that the <code>MS1</code> prefix is being used in the first place.
+Checksum selection includes the expanded <code>ms</code> human-readable part, so every regular codex32 codeword remains within the 93-value checksum period.
 If the prefix is damaged and a user is guessing that the data might be using this scheme, then the user can enter the available data explicitly using the suspected <code>MS1</code> prefix.
+
+<references />
 
 ===Not BIP-0039 Entropy===
 
@@ -418,16 +462,20 @@ The main advantage of this alternative approach would be that wallets could give
 In practice, we do not expect users in switch back and forth between backup formats, and instead just generate a fresh master seed using Codex32.
 
 Seeing little value with BIP-0039 compatibility (English-only), all the difficulties with BIP-0039 language choice, not to mention the PBKDF2 overhead of using BIP-0039, we think it is best to abandon BIP-0039 and encode BIP-0032 master seeds directly.
-Our approach is semi-convertible with BIP-0039's 512-bit master seeds (in all languages, see Backwards Compatibility) and fully interconvertible with SLIP-39 encoded master seeds or any other encoding of BIP-0032 master seeds.
+Our approach is semi-convertible with BIP-0039's 512-bit master seeds (in all languages, see Backwards Compatibility) and interconvertible with SLIP-0039 master seeds or any other encoding of BIP-0032 master seeds with a supported length.
 
 ==Backwards Compatibility==
+
+Earlier revisions accepted every master seed length from 16 through 64 bytes using regular checksum up to 93 data characters and long checksum from 96 data characters.
+This revision retains 16-, 20-, 24-, 28-, 32-, and 64-byte master seeds.
+Encodings at retained sizes are unchanged; all other formerly valid 16-to-64-byte strings are now invalid.
 
 codex32 is an alternative to BIP-0039 and SLIP-0039.
 It is technically possible to derive the BIP32 master seed from seed words encoded in one of these schemes, and then to encode this seed in codex32.
 For BIP-0039 this process is irreversible, since it involves hashing the original words.
 Furthermore, the resulting seed will be 512 bits long, which may be too large to be safely and conveniently handled.
 
-SLIP-0039 seed words can be reversibly converted to master seeds, so it is possible to interconvert between SLIP-0039 and codex32.
+SLIP-0039 seed words can be reversibly converted to master seeds, so it is possible to interconvert between SLIP-0039 and codex32 for master seeds of supported lengths.
 However, SLIP-0039 '''shares''' cannot be converted to codex32 shares because the two schemes use a different underlying field.
 
 The authors of this BIP do not recommend interconversion.
@@ -435,8 +483,9 @@ Instead, users who wish to switch to codex32 should generate a fresh seed and sw
 
 ==Reference Implementation==
 
-Our [https://github.com/BlockstreamResearch/codex32  reference implementation repository] contains implementations in Rust and PostScript.
 The inline code in this BIP text can be used as a Python reference.
+A complete Python implementation is available in the [https://github.com/BenWestgate/python-codex32 python-codex32 repository].
+The [https://github.com/BlockstreamResearch/codex32 original project repository] contains implementations in Rust and PostScript.
 
 ==Test Vectors==
 
@@ -547,6 +596,19 @@ payload (bech32): <code>M32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD6
 * Master seed (hex): <code>dc5423251cb87175ff8110c8531d0952d8d73e1194e95b5f19d6f9df7c01111104c9baecdfea8cccc677fb9ddc8aec5553b86e528bcadfdcc201c17c638c47e9</code>
 * master node xprv: <code>xprv9s21ZrQH143K4UYT4rP3TZVKKbmRVmfRqTx9mG2xCy2JYipZbkLV8rwvBXsUbEv9KQiUD7oED1Wyi9evZzUn2rqK9skRgPkNaAzyw3YrpJN</code>
 
+===Test vectors 6, 7, and 8===
+
+These unshared codex32-encoded master seeds use the identifier <code>seed</code> and cover all supported master seed sizes not shown by Test vectors 1--5.
+
+* 160-bit master seed (hex): <code>000102030405060708090a0b0c0d0e0f10111213</code>
+** codex32 secret: <code>ms10seedsqqqsyqcyq5rqwzqfpg9scrgwpugpzysn9vaqzzvs20xnl</code>
+* 192-bit master seed (hex): <code>202122232425262728292a2b2c2d2e2f3031323334353637</code>
+** The three discarded bits have the nonzero value <code>101</code>.
+** codex32 secret: <code>ms10seedsyqsjygeyy5nzw2pf9g4jctfw9ucrzv3nxs6nvdau84gz0632s0xs</code>
+* 224-bit master seed (hex): <code>404142434445464748494a4b4c4d4e4f505152535455565758595a5b</code>
+** The discarded bit has the value <code>1</code>.
+** codex32 secret: <code>ms10seedsgpq5ys6yg4rywjzfff95cn2wfag9z5jn2324v46ct9d9hrcduqw8c3lccl</code>
+
 ===Invalid test vectors===
 
 These examples have incorrect checksums.
@@ -561,8 +623,6 @@ These examples have incorrect checksums.
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxc55srw5jrm0</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxgc7rwhtudwc</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxx4gy22afwghvs</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxe8yfm0</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxvm597d</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxme084q0vpht7pe0</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxme084q0vpht7pew</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxqyadsp3nywm8a</code>
@@ -577,19 +637,12 @@ These examples have incorrect checksums.
 These examples use the wrong checksum for their given data sizes.
 
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxurfvwmdcmymdufv</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxcsyppjkd8lz4hx3</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxu6hwvl5p0l9xf3c</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxwqey9rfs6smenxa</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxv70wkzrjr4ntqet</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx3hmlrmpa4zl0v</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxrfggf88znkaup</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxpt7l4aycv9qzj</code>
-* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxus27z9xtyxyw3</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxcwm4re8fs78vn</code>
 
 These examples have improper lengths.
 They are either too short, too long, or would decode to byte sequence with an incomplete group greater than 4 bits.
 
+* <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxwqey9rfs6smenxa</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxw0a4c70rfefn4</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxk4pavy5n46nea</code>
 * <code>ms10fauxsxxxxxxxxxxxxxxxxxxxxxxxxxxx9lrwar5zwng4w</code>

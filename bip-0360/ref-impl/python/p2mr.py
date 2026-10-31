@@ -23,6 +23,11 @@ BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 BECH32M_CONST = 0x2BC830A3
 MAX_COMPACT_SIZE = 2**64 - 1
 
+# BIP 360, Script Validation: a control block "must have length 1 + 32 * m, for a
+# value of m that is an integer between 0 and 128, inclusive" -- so no script leaf
+# may sit deeper than 128 branches, or its control block is consensus-invalid.
+CONTROL_MAX_NODE_COUNT = 128
+
 # A script tree node is either a leaf (dict) or a branch (list of nodes)
 ScriptTree = Union[Dict[str, Any], List["ScriptTree"]]
 
@@ -88,7 +93,7 @@ def tapbranch_hash(left: bytes, right: bytes) -> bytes:
     return tagged_hash("TapBranch", b"".join(sorted((left, right))))
 
 
-def compute_merkle_root(tree: ScriptTree) -> bytes:
+def compute_merkle_root(tree: ScriptTree, depth: int = 0) -> bytes:
     """Recursively compute script tree merkle root"""
     if isinstance(tree, dict):  # Leaf
         version = tree["leafVersion"]
@@ -99,8 +104,15 @@ def compute_merkle_root(tree: ScriptTree) -> bytes:
         # Script trees are treated strictly as binary trees; each branch node should have
         # exactly 2 children. This isn't a general n-ary fold, and combining
         # more than 2 children sequentially would not produce a valid P2MR merkle root.
-        assert len(tree) == 2, f"expected binary branch, got {len(tree)} children"
-        left, right = compute_merkle_root(tree[0]), compute_merkle_root(tree[1])
+        if depth >= CONTROL_MAX_NODE_COUNT:
+            raise ValueError(
+                f"compute_merkle_root: leaf deeper than {CONTROL_MAX_NODE_COUNT}; "
+                "its control block would exceed the consensus length limit"
+            )
+        if len(tree) != 2:
+            raise ValueError(f"expected binary branch, got {len(tree)} children")
+        left = compute_merkle_root(tree[0], depth + 1)
+        right = compute_merkle_root(tree[1], depth + 1)
         return tapbranch_hash(left, right)
 
     else:  # badbadnotgood
@@ -118,18 +130,26 @@ def compute_control_block(path: int, tree: ScriptTree) -> bytes:
     """
     if isinstance(tree, dict):
         return bytes([tree["leafVersion"] | 1])
-    assert isinstance(tree, list) and len(tree) == 2
+    if not (isinstance(tree, list) and len(tree) == 2):
+        raise ValueError("compute_control_block: invalid tree node")
 
     control_block = b""
 
     while isinstance(tree, list):
-        assert len(tree) == 2
+        if len(tree) != 2:
+            raise ValueError(f"expected binary branch, got {len(tree)} children")
         sibling = tree[(path & 1) ^ 1]
         tree = tree[(path & 1)]
         control_block = compute_merkle_root(sibling) + control_block
         path >>= 1
 
-    assert isinstance(tree, dict)
+    if not isinstance(tree, dict):
+        raise ValueError("compute_control_block: path does not terminate at a leaf")
+    if len(control_block) > 32 * CONTROL_MAX_NODE_COUNT:
+        raise ValueError(
+            f"compute_control_block: {1 + len(control_block)} bytes exceeds the "
+            f"consensus limit of 1 + 32 * {CONTROL_MAX_NODE_COUNT}"
+        )
     return bytes([tree["leafVersion"] | 1]) + control_block
 
 
@@ -412,6 +432,39 @@ def run_single_test(v: Dict[str, Any], test_num: int) -> bool:
         return False
 
 
+def negative_structure_tests() -> None:
+    """Malformed trees must raise -- never silently return a wrong root -- including under python -O."""
+    print("\nRunning negative structure tests...")
+    leaf_a = {"leafVersion": 0xC0, "script": "51"}
+    leaf_b = {"leafVersion": 0xC0, "script": "52"}
+    leaf_c = {"leafVersion": 0xC0, "script": "53"}
+
+    # A ternary branch must be refused, never reduced to its first two children.
+    try:
+        compute_merkle_root([leaf_a, leaf_b, leaf_c])
+        raise SystemExit("FAILED: ternary branch accepted")
+    except ValueError:
+        pass
+
+    # A leaf may sit at depth 128 (m = 128) but never deeper.
+    tree: ScriptTree = leaf_a
+    for _ in range(CONTROL_MAX_NODE_COUNT):
+        tree = [tree, leaf_b]
+    cb = compute_control_block(0, tree)  # depth 128: still valid
+    if len(cb) != 1 + 32 * CONTROL_MAX_NODE_COUNT:
+        raise SystemExit("FAILED: wrong control block length at maximum depth")
+
+    tree = [tree, leaf_b]  # depth 129: consensus-invalid
+    for attempt in (lambda: compute_merkle_root(tree), lambda: compute_control_block(0, tree)):
+        try:
+            attempt()
+            raise SystemExit("FAILED: >128-deep tree accepted")
+        except ValueError:
+            pass
+
+    print("3/3 negative structure tests passed.")
+
+
 def BIP360_tests() -> None:
     """Run all BIP-360 Test Vectors."""
     print("\nRunning BIP-0360 Pay-to-Merkle-Root (P2MR) Tests...")
@@ -421,6 +474,7 @@ def BIP360_tests() -> None:
 
     passed = sum(run_single_test(v, i + 1) for i, v in enumerate(test_vectors))
     print(f"\n{passed}/{len(test_vectors)} BIP-360 tests passed successfully.")
+    negative_structure_tests()
 
 
 if __name__ == "__main__":

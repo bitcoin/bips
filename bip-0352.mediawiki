@@ -13,7 +13,7 @@
               2022-03-28: https://gnusha.org/pi/bitcoindev/CAPv7TjbXm953U2h+-12MfJ24YqOM5Kcq77_xFTjVK+R2nf-nYg@mail.gmail.com/ [bitcoin-dev] Silent Payments – Non-interactive private payments with no on-chain overhead
               2022-10-11: https://gnusha.org/pi/bitcoindev/P_21MLHGJicZ-hkbC4DGu86c5BtNKiH8spY4TOw5FJsfimdi_6VyHzU_y-s1mZsOcC2FA3EW_6w6W5qfV9dRK_7AvTAxDlwVfU-yhWZPEuo=@protonmail.com/ [bitcoin-dev] Silent Payment v4 (coinjoin support added)
               2023-08-04: https://gnusha.org/pi/bitcoindev/ZM03twumu88V2NFH@petertodd.org/ [bitcoin-dev] BIP-352 Silent Payments addresses should have an expiration time
-  Version: 1.1.1
+  Version: 1.1.2
   Requires: 340, 341, 350
 </pre>
 
@@ -75,7 +75,7 @@ In order to allow Alice to create more than one output for Bob<ref name="why_mor
 * Let ''P<sub>0</sub> = B + hash(a·B || k)·G''
 * For additional outputs:
 ** Increment ''k'' by one (''k++'')
-** Let ''P<sub>i</sub> = B + hash(a·B || k)·G''
+** Let ''P<sub>k</sub> = B + hash(a·B || k)·G''
 
 Bob detects this output the same as before by searching for ''P<sub>0</sub> = B + hash(b·A || 0)·G''. Once he detects the first output, he must:
 
@@ -87,7 +87,7 @@ Since Bob will only perform these subsequent checks after a transaction with at 
 
 ''' Preventing address reuse '''
 
-If Alice were to use a different UTXO from the same public key ''A'' for a subsequent payment to Bob, she would end up deriving the same destinations ''P<sub>i</sub>''. To prevent this, Alice should include an input hash in the following manner:
+If Alice were to use a different UTXO from the same public key ''A'' for a subsequent payment to Bob, she would end up deriving the same destinations ''P<sub>k</sub>''. To prevent this, Alice should include an input hash in the following manner:
 
 * Let ''input_hash = hash(outpoint || A)''<ref name="why_include_A">'''Why include A in the input hash calculation?''' By committing to A in input hash, this ensures that the sender cannot maliciously choose a private key ''a&prime;'' in a subsequent transaction where ''a&prime; = input_hash·a / input_hash&prime;'', which would force address reuse in the protocol.</ref>
 * Let ''P<sub>0</sub> = B + hash(input_hash·a·B || 0)·G''
@@ -101,7 +101,8 @@ In our simplified example we have been referring to Alice's transactions as havi
 Alice performs the tweak with the sum of her input private keys in the following manner:
 
 * Let ''a = a<sub>1</sub> + a<sub>2</sub> + ... + a<sub>n</sub>''
-* Let ''input_hash = hash(outpoint<sub>L</sub> || (a·G))'', where ''outpoint<sub>L</sub>'' is the smallest outpoint lexicographically<ref name="why_smallest_outpoint">'''Why use the lexicographically smallest outpoint for the hash?''' Recall that the purpose of including the input hash is so that the sender and receiver can both come up with a deterministic nonce that ensures that a unique address is generated each time, even when reusing the same scriptPubKey as an input. Choosing the smallest outpoint lexicographically satisfies this requirement, while also ensuring that the generated output is not dependent on the final ordering of inputs in the transaction. Using a single outpoint also works well with memory constrained devices (such as hardware signing devices) as it does not require the device to have the entire transaction in memory in order to generate the silent payment output.</ref>
+* Let ''A = a·G''
+* Let ''input_hash = hash(outpoint<sub>L</sub> || A)'', where ''outpoint<sub>L</sub>'' is the smallest outpoint lexicographically<ref name="why_smallest_outpoint">'''Why use the lexicographically smallest outpoint for the hash?''' Recall that the purpose of including the input hash is so that the sender and receiver can both come up with a deterministic nonce that ensures that a unique address is generated each time, even when reusing the same scriptPubKey as an input. Choosing the smallest outpoint lexicographically satisfies this requirement, while also ensuring that the generated output is not dependent on the final ordering of inputs in the transaction. Using a single outpoint also works well with memory constrained devices (such as hardware signing devices) as it does not require the device to have the entire transaction in memory in order to generate the silent payment output.</ref>
 * Let ''P<sub>0</sub> = B + hash(input_hash·a·B || 0)·G''
 
 ''' Spend and Scan Key '''
@@ -207,7 +208,7 @@ A silent payment address is constructed in the following manner:
 *** The character "q", to represent a silent payment address of version 0
 *** The 66-byte concatenation of the receiver's public keys, ''ser<sub>P</sub>(B<sub>scan</sub>) || ser<sub>P</sub>(B<sub>m</sub>)''
 
-Note: [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP173] imposes a 90 character limit for Bech32 segwit addresses and limits versions to 0 through 16, whereas a silent payment address requires ''at least'' 117 characters<ref name="why_117_chars"> ''' Why do silent payment addresses need at least 117 characters?''' A silent payment address is a bech32m encoding comprised of the following parts:
+Note: [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP173] imposes a 90 character limit for Bech32 segwit addresses and limits versions to 0 through 16, whereas a silent payment address requires ''at least'' 116 characters<ref name="why_116_chars"> ''' Why do silent payment addresses need at least 116 characters?''' A silent payment address is a bech32m encoding comprised of the following parts:
 
 
 * HRP [2-3 characters]
@@ -217,7 +218,7 @@ Note: [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki BIP173] im
 * checksum [6 characters]
 
 
-For a silent payments v0 address, this results in a 117-character address when using a 3-character HRP. Future versions of silent payment addresses may add to the payload, which is why a 1023-character limit is suggested.</ref> and allows versions up to 31. Additionally, since higher versions may add to the data field, it is recommended implementations use a limit of 1023 characters (see [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#checksum-design BIP173: Checksum design] for more details).
+For a silent payments v0 address, this results in a 116-character address when using the 2-character mainnet HRP ("sp"), or a 117-character address when using the 3-character testnet HRP ("tsp"). Future versions of silent payment addresses may add to the payload, which is why a 1023-character limit is suggested.</ref> and allows versions up to 31. Additionally, since higher versions may add to the data field, it is recommended implementations use a limit of 1023 characters (see [https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#checksum-design BIP173: Checksum design] for more details).
 
 === Inputs For Shared Secret Derivation ===
 
@@ -504,6 +505,8 @@ The <code>MAJOR</code> version is incremented if changes to the BIP are introduc
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.1.2''' (2026-10-25):
+** Add test vector "Single recipient: taproot key-path spend with annex"
 * '''1.1.1''' (2026-04-16):
 ** Add test vector "Input keys intermediate sum is zero but final sum is non-zero"
 * '''1.1.0''' (2026-03-02):

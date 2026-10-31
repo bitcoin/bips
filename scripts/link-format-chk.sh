@@ -9,7 +9,7 @@
 ECODE=0
 MEDIAWIKI_ECODE=0
 while IFS= read -r fname; do
-    GRES=$(grep -nE '\]\((https?://|\.\./bip-|/bip-)' "$fname")
+    GRES=$(grep -nE '\]\((https?://|((\.\.?/)+|/)?bip-)' "$fname")
     if [ "$GRES" != "" ]; then
         if [ $MEDIAWIKI_ECODE -eq 0 ]; then
             >&2 echo "GitHub Mediawiki format writes links as [URL text], not as [text](URL):"
