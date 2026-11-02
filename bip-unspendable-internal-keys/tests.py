@@ -137,6 +137,60 @@ class ConstructionTests(unittest.TestCase):
         original = self.cases["single-origin"]["given"]
         self.assertIn(original["keys_info"][0], ref.export_policy(original["template"], original["keys_info"]).descriptor)
 
+    def test_export_preserves_bip388_public_key_conflicts(self):
+        # Check BIP 388's "Additional rules" directly, without a wallet validator.
+        first, second = self.cases["musig-same-point"]["given"]["keys_info"]
+        template = "tr(_/**,{pk(@0/**),pk(@1/**)})"
+        for name, keys_info, record_count in (
+                ("different-chain-codes", [first, second], 2),
+                ("identical-xpubs", [first, first], 1)):
+            with self.subTest(case=name):
+                policy = ref.normalize_policy(template, keys_info)
+                self.assertEqual(len(policy.records), record_count)
+                self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
+                exported = ref.export_policy(template, keys_info)
+                self.assertEqual(exported.template, "tr(@2/**,{pk(@0/**),pk(@1/**)})")
+                self.assertEqual(exported.keys_info[:-1], tuple(keys_info))
+                parsed = [bip32.parse_xpub(info) for info in exported.keys_info[:-1]]
+                # BIP 388 requires distinct public keys, regardless of chain codes.
+                self.assertEqual(parsed[0][0], parsed[1][0])
+                self.assertEqual(len({chain_code for _, chain_code in parsed}), record_count)
+
+    def test_export_preserves_bip388_repeated_musig_indexes(self):
+        given = self.cases["musig-repeated"]["given"]
+        policy = ref.normalize_policy(given["template"], given["keys_info"])
+        self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
+        exported = ref.export_policy(given["template"], given["keys_info"])
+        self.assertEqual(exported.template, "tr(@2/**,pk(musig(@0,@1,@0)/**))")
+        self.assertEqual(exported.keys_info[:-1], tuple(given["keys_info"]))
+        tree = ref.Parser(exported.template.split(",", 1)[1][:-1]).tree()
+        key, = ref.keys(tree)
+        self.assertEqual(key.kind, "musig")
+        # BIP 388 forbids repeated key indexes within a musig placeholder.
+        self.assertLess(len(set(key.indexes)), len(key.indexes))
+
+    def test_export_preserves_bip388_path_conflicts(self):
+        original = self.cases["sorted"]["given"]["keys_info"]
+        for tree, key_count, overlap in (
+                ("{pk(@0/**),pk(@0/**)}", 1, {"0", "1"}),
+                ("{pk(@0/<0;1>/*),pk(@0/<1;2>/*)}", 1, {"1"}),
+                ("{pk(musig(@0,@1)/**),pk(musig(@1,@0)/<1;2>/*)}", 2, {"1"})):
+            with self.subTest(tree=tree):
+                template = f"tr(_/**,{tree})"
+                keys_info = original[:key_count]
+                policy = ref.normalize_policy(template, keys_info)
+                self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
+                exported = ref.export_policy(template, keys_info)
+                self.assertEqual(exported.template, f"tr(@{key_count}/**,{tree})")
+                self.assertEqual(exported.keys_info[:-1], tuple(keys_info))
+                exported_tree = ref.Parser(exported.template.split(",", 1)[1][:-1]).tree()
+                left, right = ref.keys(exported_tree)
+                # BIP 388 identifies musig placeholders by their set of indexes.
+                self.assertEqual(left.kind, right.kind)
+                self.assertEqual(set(left.indexes), set(right.indexes))
+                # Alternatives for the same placeholder must be disjoint in BIP 388.
+                self.assertEqual(set(left.path[0].values) & set(right.path[0].values), overlap)
+
     def test_network_only_changes_root_version_and_checksum(self):
         given = self.cases["single"]["given"]
         root = ref.construct_root(ref.normalize_policy(given["template"], given["keys_info"]))

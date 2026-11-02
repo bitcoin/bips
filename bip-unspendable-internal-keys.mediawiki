@@ -29,6 +29,8 @@ The vendored secp256k1lab files are licensed under the [[bip-unspendable-interna
 
 A Taproot policy that uses a fixed unspendable internal key produces outputs that are recognizable when script-path spends reveal that key. [[bip-0341.mediawiki#constructing-and-spending-taproot-outputs|BIP 341]] recommends ''H + rG'' with a fresh ''r''. Current implementations use various approaches, such as taking entropy from the keys or choosing and retaining a random ''r''. Deriving the public tweaks from a policy commitment lets independent implementations reproduce the internal key from a policy backup, without additional secret material. Committing to the policy's structure also distinguishes descriptors that use the same keys under different spending conditions.
 
+Anyone holding the policy can also re-derive the internal key and thereby prove the key path was unspendable. This can be useful in post-quantum settings or for exposure classification.
+
 == Specification ==
 
 This BIP specifies only the representation, normalization, and derivation needed to construct <code>_</code>. Implementations independently apply the applicable descriptor, Miniscript, wallet-policy, and consensus requirements to the surrounding policy.
@@ -118,7 +120,7 @@ The policy and selected derivation are enough to reproduce the internal key. See
 
 == Backward compatibility ==
 
-Descriptor consumers that support the exported expressions can use the exported form without recognizing <code>_</code>. Export does not guarantee acceptance by a BIP 388 wallet-policy consumer: for example, this construction permits records with equal public keys and different chain codes, while BIP 388 requires pairwise distinct public keys in its key-information vector.
+Descriptor consumers that support the exported expressions can use the exported form without recognizing <code>_</code>. Export does not guarantee acceptance by a [[bip-0388.mediawiki#additional-rules|BIP 388 wallet-policy consumer]]. This construction permits duplicate public keys in the key-information vector, even with different chain codes; repeated key indexes within <code>musig(...)</code>; and repeated or overlapping multipath alternatives for the same key placeholder. BIP 388 forbids these cases. For the path-overlap rule, <code>musig</code> placeholders with the same set of key indexes count as the same placeholder regardless of participant order.
 
 An explicit root ''(H, chain_code)'' with the same derivation paths and script tree reproduces this BIP's addresses on the same network for valid derivations. An exported xpub does not encode this BIP's requirement to fail on an invalid child. Consumers that substitute the next index as described in BIP 32 do not reproduce this construction's failure behavior; matching that behavior requires rejecting the requested selection without substitution.
 
@@ -127,6 +129,8 @@ Other conventions, including fixed ''H'', key-set commitments, and random ''r'',
 == Reference implementation and test vectors ==
 
 A [[bip-unspendable-internal-keys/reference.py|reference implementation for Python 3.10 or later]] and standalone [[bip-unspendable-internal-keys/vectors.json|JSON test vectors]] are provided. The implementation is for demonstration and interoperability testing, not production use.
+
+Production implementations should use iterative parsing (or raise the limit) if deep nesting is expected.
 
 The recursive parser and normalizer may exceed Python's recursion limit and raise <code>RecursionError</code> on deeply nested inputs. This is a resource limitation of the reference implementation.
 
