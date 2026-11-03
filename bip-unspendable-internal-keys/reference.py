@@ -175,8 +175,18 @@ class ExportedPolicy:
 def export_policy(template: str, keys_info: list[str], network: str = "mainnet") -> ExportedPolicy:
     policy = normalize_policy(template, keys_info)
     root = construct_root(policy).serialize(network)
+    assigned = {}
+
+    def reindex(match):
+        i = int(match[1])
+        if i not in assigned:
+            assigned[i] = len(assigned) + 1
+        return "@" + str(assigned[i])
+
+    exported_template = re.sub(r"@([0-9]+)", reindex, template)
     # Parsing has established that the first underscore is the internal key.
-    exported_template = template.replace("_", "@" + str(len(keys_info)), 1)
-    exported_keys = tuple(keys_info) + (root,)
+    exported_template = exported_template.replace("_", "@0", 1)
+    order = list(assigned) + [i for i in range(len(keys_info)) if i not in assigned]
+    exported_keys = (root,) + tuple(keys_info[i] for i in order)
     descriptor = re.sub(r"@([0-9]+)", lambda m: exported_keys[int(m[1])], exported_template)
     return ExportedPolicy(exported_template, exported_keys, descriptor.replace("/**", "/<0;1>/*"))

@@ -20,8 +20,9 @@ implementation does not compile scripts, aggregate MuSig keys, or sign transacti
 | `export_policy(template, keys_info, network)` | Replacement template, augmented key-information vector, and checksumless descriptor. |
 
 The network argument is `mainnet` or `testnet`; testnet version bytes also serve
-signet and regtest. Export selects the synthetic root's version bytes and preserves
-the supplied key-information items.
+signet and regtest. Export selects the synthetic root's version bytes, assigns it
+`@0`, and renumbers the other placeholders by first appearance. Supplied
+key-information items are preserved, with unreferenced items placed last.
 
 [policy.py](policy.py) provides parsing and printing, [bip32.py](bip32.py) handles
 public BIP 32 keys, and [encoding.py](encoding.py) provides Base58Check and CompactSize

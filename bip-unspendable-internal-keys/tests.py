@@ -6,6 +6,7 @@ import hashlib
 import itertools
 import json
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 
@@ -126,16 +127,30 @@ class ConstructionTests(unittest.TestCase):
         normalized = ref.normalize_policy(given["template"], given["keys_info"])
         self.assertEqual(normalized.records, tuple(sorted(records)))
 
-    def test_export_preserves_input_and_indexes(self):
+    def test_export_reindexes_and_preserves_key_information(self):
         given = self.cases["index-ten"]["given"]
         exported = ref.export_policy(given["template"], given["keys_info"])
-        self.assertEqual(exported.template, "tr(@11/**,multi_a(1,@1/**,@10/**))")
-        self.assertEqual(exported.keys_info[:-1], tuple(given["keys_info"]))
+        self.assertEqual(exported.template, "tr(@0/**,multi_a(1,@1/**,@2/**))")
+        order = [1, 10, 0, 2, 3, 4, 5, 6, 7, 8, 9]
+        self.assertEqual(exported.keys_info[1:], tuple(given["keys_info"][i] for i in order))
         self.assertEqual(exported.descriptor,
-                         f"tr({exported.keys_info[-1]}/<0;1>/*,multi_a(1,"
+                         f"tr({exported.keys_info[0]}/<0;1>/*,multi_a(1,"
                          f"{given['keys_info'][1]}/<0;1>/*,{given['keys_info'][10]}/<0;1>/*))")
         original = self.cases["single-origin"]["given"]
         self.assertIn(original["keys_info"][0], ref.export_policy(original["template"], original["keys_info"]).descriptor)
+
+    def test_export_indexes_follow_first_appearance(self):
+        for case in self.vectors["valid"]:
+            with self.subTest(case=case["name"]):
+                given = case["given"]
+                exported = ref.export_policy(given["template"], given["keys_info"], given["network"])
+                self.assertEqual(exported.keys_info[0], case["expected"]["synthetic_xpub"])
+                self.assertCountEqual(exported.keys_info[1:], given["keys_info"])
+                seen = set()
+                for index in map(int, re.findall(r"@([0-9]+)", exported.template)):
+                    if index not in seen:
+                        self.assertEqual(index, len(seen))
+                        seen.add(index)
 
     def test_export_preserves_bip388_public_key_conflicts(self):
         # Check BIP 388's "Additional rules" directly, without a wallet validator.
@@ -149,9 +164,9 @@ class ConstructionTests(unittest.TestCase):
                 self.assertEqual(len(policy.records), record_count)
                 self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
                 exported = ref.export_policy(template, keys_info)
-                self.assertEqual(exported.template, "tr(@2/**,{pk(@0/**),pk(@1/**)})")
-                self.assertEqual(exported.keys_info[:-1], tuple(keys_info))
-                parsed = [bip32.parse_xpub(info) for info in exported.keys_info[:-1]]
+                self.assertEqual(exported.template, "tr(@0/**,{pk(@1/**),pk(@2/**)})")
+                self.assertEqual(exported.keys_info[1:], tuple(keys_info))
+                parsed = [bip32.parse_xpub(info) for info in exported.keys_info[1:]]
                 # BIP 388 requires distinct public keys, regardless of chain codes.
                 self.assertEqual(parsed[0][0], parsed[1][0])
                 self.assertEqual(len({chain_code for _, chain_code in parsed}), record_count)
@@ -161,8 +176,8 @@ class ConstructionTests(unittest.TestCase):
         policy = ref.normalize_policy(given["template"], given["keys_info"])
         self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
         exported = ref.export_policy(given["template"], given["keys_info"])
-        self.assertEqual(exported.template, "tr(@2/**,pk(musig(@0,@1,@0)/**))")
-        self.assertEqual(exported.keys_info[:-1], tuple(given["keys_info"]))
+        self.assertEqual(exported.template, "tr(@0/**,pk(musig(@1,@2,@1)/**))")
+        self.assertEqual(exported.keys_info[1:], tuple(given["keys_info"]))
         tree = ref.Parser(exported.template.split(",", 1)[1][:-1]).tree()
         key, = ref.keys(tree)
         self.assertEqual(key.kind, "musig")
@@ -171,18 +186,19 @@ class ConstructionTests(unittest.TestCase):
 
     def test_export_preserves_bip388_path_conflicts(self):
         original = self.cases["sorted"]["given"]["keys_info"]
-        for tree, key_count, overlap in (
-                ("{pk(@0/**),pk(@0/**)}", 1, {"0", "1"}),
-                ("{pk(@0/<0;1>/*),pk(@0/<1;2>/*)}", 1, {"1"}),
-                ("{pk(musig(@0,@1)/**),pk(musig(@1,@0)/<1;2>/*)}", 2, {"1"})):
+        for tree, expected_tree, key_count, overlap in (
+                ("{pk(@0/**),pk(@0/**)}", "{pk(@1/**),pk(@1/**)}", 1, {"0", "1"}),
+                ("{pk(@0/<0;1>/*),pk(@0/<1;2>/*)}", "{pk(@1/<0;1>/*),pk(@1/<1;2>/*)}", 1, {"1"}),
+                ("{pk(musig(@0,@1)/**),pk(musig(@1,@0)/<1;2>/*)}",
+                 "{pk(musig(@1,@2)/**),pk(musig(@2,@1)/<1;2>/*)}", 2, {"1"})):
             with self.subTest(tree=tree):
                 template = f"tr(_/**,{tree})"
                 keys_info = original[:key_count]
                 policy = ref.normalize_policy(template, keys_info)
                 self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
                 exported = ref.export_policy(template, keys_info)
-                self.assertEqual(exported.template, f"tr(@{key_count}/**,{tree})")
-                self.assertEqual(exported.keys_info[:-1], tuple(keys_info))
+                self.assertEqual(exported.template, f"tr(@0/**,{expected_tree})")
+                self.assertEqual(exported.keys_info[1:], tuple(keys_info))
                 exported_tree = ref.Parser(exported.template.split(",", 1)[1][:-1]).tree()
                 left, right = ref.keys(exported_tree)
                 # BIP 388 identifies musig placeholders by their set of indexes.
