@@ -9,7 +9,14 @@ from typing import Tuple
 
 project_root = Path(__file__).parent
 deps_dir = project_root / "deps"
-secp256k1lab_dir = deps_dir / "secp256k1lab" / "src"
+# Prefer BIP-374's secp256k1lab (the one used by its reference.py)
+bips_root = project_root.parent
+secp256k1lab_dir = bips_root / "bip-0374" / "secp256k1lab" / "src"
+if not secp256k1lab_dir.is_dir():
+    raise ImportError(
+        f"BIP-374 secp256k1lab not found at {secp256k1lab_dir}. "
+        "Run the BIP-375 tests from a full bips checkout."
+    )
 for path in [str(deps_dir), str(secp256k1lab_dir)]:
     if path not in sys.path:
         sys.path.insert(0, path)
