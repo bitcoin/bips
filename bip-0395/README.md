@@ -1,4 +1,4 @@
-# Unspendable internal keys: reference implementation
+# BIP 395: Unspendable internal keys reference implementation
 
 Requires Python 3.10 or later. All dependencies are included or part of the
 Python standard library; no package installation is needed.
@@ -54,7 +54,7 @@ review before replacing the fixed vectors.
 Run the [offline tests](tests.py) from the repository root:
 
 ```sh
-python3 -B bip-unspendable-internal-keys/tests.py
+python3 -B bip-0395/tests.py
 ```
 
 The runner reads the fixed vectors without rewriting them. It also checks published
@@ -65,7 +65,7 @@ The optional [Bitcoin Core cross-check](check_core.py) compares exported xpub
 derivation with explicit internal keys for selected descriptors:
 
 ```sh
-python3 -B bip-unspendable-internal-keys/check_core.py
+python3 -B bip-0395/check_core.py
 ```
 
 This requires `bitcoind` and `bitcoin-cli` on the executable search path. It starts a
