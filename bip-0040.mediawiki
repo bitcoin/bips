@@ -1,0 +1,212 @@
+<pre>
+  BIP: 40
+  Layer: API/RPC
+  Title: Stratum wire protocol
+  Author: Marek Palatinus <slush@satoshilabs.com>
+          Ben van Hartingsveldt <ben.vanhartingsveldt@yocto.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0040
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-03-07
+  License: CC0-1.0
+</pre>
+
+==Abstract==
+
+This document describes the Stratum wire protocol used in clients such as Electrum, and which also laid the foundation for the Stratum mining protocol, used in many Bitcoin pools.
+
+The specification is intended to set a standard for connections between clients and servers in which the client is able to request data without having to download the full blockchain.
+
+The specification consists of four parts. In the first part, the data format is defined. In the second part, the possible transport protocols (including encapsulation) are described. In the third part, the available methods are documented. In the fourth part, signed messages are explained.
+
+==Motivation==
+
+Many clients want to give users access to the Bitcoin ecosystem. However, for specific reasons not every user is able to download the full blockchain to their machine.
+
+The Stratum wire protocol defines a way to access the blockchain without having it downloaded. For example, a client can request both the genesis block and the latest block with the same latency, because the Stratum server synchronizes and indexes all the blocks for us.
+
+==History==
+
+The Stratum wire protocol was introduced by Marek Palatinus in late 2011 and early 2012. It was a language-independent alternative to the Python-based protocol in early versions of Electrum, created by Thomas Voegtlin. The Stratum wire protocol made it possible to create compatible servers that Electrum could connect to, but it also made it possible to write alternative clients.
+
+Later in 2012, Marek Palatinus introduced Stratum for mining pools as well: The Stratum mining protocol, as defined in [[bip-0041.mediawiki|BIP 41]].
+
+==Extension==
+
+This BIP has some extended specification information that isn't found in the older, legacy specifications.<ref name="extended">This is extended specification information of the Stratum wire protocol to make it more complete. This information will not be found in any code or specification before this BIP.</ref> For backwards compatibility, it is recommended to implement the legacy specification information too, which is also described in this specification.
+
+==Specification: Data Format==
+
+Stratum leverages [https://www.jsonrpc.org/ JSON-RPC]. Both versions 1.0 and 2.0 are allowed, according to their respective rules.
+
+Additionally, it is a convention to give all Stratum methods in the <code>method</code> property a name that meets the following EBNF notation: <code>method ::= serviceType ("[" serviceVendor "]")? "." methodName</code>, where <code>serviceType</code> and <code>serviceVendor</code> are allowed to have dots and <code>methodName</code> isn't. For example, the values <code>blockchain.block.subscribe</code> and <code>blockchain.block[Electrum].subscribe</code>.
+
+The service vendor is optional. However, multiple vendors can define the same service type, so the service vendor is introduced to distinguish them. If the service vendor is absent, the default service type is executed. It is up to the server implementer which service vendor is the default.
+
+''Note: In JSON-RPC 1.0, the <code>param</code> property is an array, so everything should be passed in the right order. In JSON-RPC 2.0, named parameters are also allowed. In that case, only the parameter names that are documented should be used; otherwise, the method can fail. It is maybe also possible that a specific method (or server) only supports <code>params</code> as an array, because it doesn't know how to handle named params, even if it supports JSON-RPC 2.0.''
+
+==Specification: Transport Protocols==
+
+It is possible to send JSON-RPC messages over different transport protocols, like TCP and HTTP. It is also possible to protect these protocols with SSL/TLS.
+
+''Note: Implementers may write servers that support multiple coins, assuming that those coins all use the same port (e.g. 50001). Because HTTP and WebSockets support virtual hosting (<code>Host</code> header or <code>:authority</code> pseudo-header), it is possible to create a server on a single IP address that supports multiple coins by checking the domain name. The same is the case for the transport protocols with SSL/TLS when SNI is used. On plain TCP, virtual hosting is not possible. A similar experience can be reached by using multiple IP addresses. For IPv6, a network of /96 would be enough to hypothetically support all coins ever listed in SLIP-44. For IPv4, you would need all IPv4 addresses that exist to do the same, even the invalid ones, so a suggestion is to only use the server for coins you really need. Also, other ports could possibly be used, and in that case, a /16 IP block with all 65536 TCP ports in use will be enough to support all coins. However, because using non-standard and non-default ports is not user-friendly, this is also not recommended.''
+
+===TCP===
+
+Stratum over a TCP connection. Every JSON-RPC message (including batch messages) is sent on a single line, ending with a line-feed (<code>\n</code>), so <code>\r\n</code> is also allowed. Line-feeds inside the JSON should be encoded as usual. Both client and server can initiate a request on which the other side could respond with a result or an error. Below, the default ports of Stratum for Bitcoin are defined. Other coins may define other default ports.
+
+* Default port: <code>50001</code>
+* Letter: <code>t</code>
+
+===TCP over SSL/TLS===
+
+Stratum over a TCP connection with SSL/TLS: the same as normal TCP, but with SSL/TLS enabled.
+
+* Default port: <code>50002</code>
+* Letter: <code>s</code>
+
+===HTTP===
+
+Stratum over an HTTP connection. When communicating over HTTP, there 2 possible options: polling and pushing. In both cases, the request and response have a <code>Content-Type</code> header with the value <code>application/stratum</code>. Like in the TCP transport, the messages have to end with a line-feed (<code>\n</code>). It is possible to send multiple messages in one HTTP request or response.
+
+A request or response may contain a <code>Content-MD5</code> header to allow the receiver to detect any modification to the content. It is up to clients and servers how to handle a mismatch. A suggestion for a client would be to retry the command. A suggestion for a server would be to return a 400 error (or return a 200 error with a JSON-RPC error message).
+
+* Default port: <code>8081</code>
+* Letter: <code>h</code>
+
+====Session====
+
+Because it is not sure if an HTTP connection will stay open, it is highly possible that messages will be sent over multiple connections. To keep track of the same "session", a cookie with the name <code>STRATUM_SESSION</code> is used. If a client sends a request with a cookie, the servers knows exactly which session is used and which notifications to send.
+
+Servers could send the <code>Stratum-Session-Timeout</code><ref name="extended"/> header to tell the client when a session with the same session id will be seen as a new session by the server. The header contains a number that indicates how many seconds are left. This is different from <code>Expires</code> or <code>Max-Age</code> parameters of the <code>Set-Cookie</code> header that indicate when a cookie (not necessarily a session) should have been expired by the client. For backwards compatibility, a <code>X-Session-Timeout</code> header with the same value should be sent in those requests, too.
+
+====HTTP Poll====
+
+When polling, an HTTP POST request is sent with <code>application/stratum</code> in the <code>Content-Type</code> header. In the body, there could be one or more messages. If the body is empty, the client only wants to check for notifications.
+
+If no error occurred, the server will respond with a 200 status code and with <code>application/stratum</code> in the <code>Content-Type</code> header. If there are one or more notifications or other messages, the body will contain those messages. Otherwise, the body will be empty.
+
+====HTTP Push====
+
+HTTP Poll is the default mode when connecting with a server over HTTP. To get the session in HTTP Push mode, a client should send a regular HTTP Poll request with an additional <code>Stratum-Callback-URL</code><ref name="extended"/> header. This will let the server send notifications using the callback URL without the client needing to send HTTP poll requests with a very small interval. To disable HTTP Push mode, a regular HTTP poll request should be sent with an additional empty <code>Stratum-Callback-URL</code><ref name="extended"/> header. For backwards compatibility, a <code>X-Callback-URL</code> header with the same value should be sent in those requests too.
+
+The callback URL will be called when there are notifications. This request is an HTTP POST request with a <code>Content-Type</code> header and a <code>Stratum-Session-ID</code><ref name="extended"/> header. The <code>Stratum-Session-ID</code><ref name="extended"/> contains the same id as the <code>STRATUM_SESSION</code> cookie. This makes it possible to use the callback URL for multiple sessions. The response of the callback URL is expected to be empty, so any response body will likely be ignored. For backwards compatibility, a <code>X-Session-ID</code> header with the same value should be sent in those requests too.
+
+===HTTP over SSL/TLS===
+
+Stratum over an HTTP connection with SSL/TLS: the same as normal HTTP, but with SSL/TLS enabled.
+
+* Default port: <code>8082</code>
+* Letter: <code>g</code>
+
+===WebSocket===
+
+Stratum over a WebSocket connection. When using WebSockets, the JSON-RPC messages (including batch messages) are encapsulated in a WebSocket message. It is also possible to send multiple JSON-RPC messages in one WebSocket message. Every JSON-RPC message should end with a line-feed (<code>\n</code>). Both client and server can initiate a message request on which the other side could respond with a result or an error, like Stratum over TCP.
+
+* Default port: <code>8083</code><ref name="extended"/>
+* Letter: <code>w</code><ref name="extended"/>
+
+====Subprotocol<ref name="extended"/>====
+
+In a WebSocket upgrade request, it is possible to use the <code>Sec-WebSocket-Protocol</code> header to let the WebSocket server know which subprotocol is desired to send over the connection. For Stratum, the value <code>stratum</code> is registered. The use of this header is optional. If the server supports the use of this subprotocol too, it will let the client know by sending a <code>Sec-WebSocket-Protocol</code> header back. If the server doesn't send a subprotocol back, the connection will continue without using one. Use of this feature is fully backwards compatible.
+
+====Example====
+
+<pre>
+  // Open WebSocket with using a subprotocol
+  new WebSocket('ws://stratum.example.com:8083',['stratum']);
+
+  // Open WebSocket without using a subprotocol
+  new WebSocket('ws://stratum.example.com:8083');
+</pre>
+
+===WebSocket over SSL/TLS===
+
+Stratum over a WebSocket connection with SSL/TLS: the same as normal WebSocket, but with SSL/TLS enabled.
+
+* Default port: <code>8084</code><ref name="extended"/>
+* Letter: <code>u</code><ref name="extended"/>
+
+==Specification: Services==
+
+On top of Stratum, some services are defined. They are listed below, grouped by vendor.
+
+{{Note|type=warn|text=For protocol versions on and below 1.0, correctness of documentation about services "blockchain" and "server" cannot assured due to lack of information. Use with caution.}}
+
+===Vendor: Stratum===
+
+* [[bip-0040/service-discovery.mediawiki|Discovery]]
+* [[bip-0040/service-example.mediawiki|Example]]
+* [[bip-0040/service-example.pubsub.mediawiki|Example Publish-Subscribe]]
+* [[bip-0040/service-server.mediawiki|Server]]
+* [[bip-0040/service-server.peers.mediawiki|Server Peers]]
+
+===Vendor: Electrum===
+
+* [[bip-0040/service-blockchain.mediawiki|Blockchain]]
+* [[bip-0040/service-blockchain.address.mediawiki|Blockchain Address]]
+* [[bip-0040/service-blockchain.block.mediawiki|Blockchain Block]]
+* [[bip-0040/service-blockchain.headers.mediawiki|Blockchain Headers]]
+* [[bip-0040/service-blockchain.numblocks.mediawiki|Blockchain Number of Blocks]]
+* [[bip-0040/service-blockchain.scripthash.mediawiki|Blockchain Script Hash]]
+* [[bip-0040/service-blockchain.transaction.mediawiki|Blockchain Transaction]]
+* [[bip-0040/service-blockchain.utxo.mediawiki|Blockchain Unspent Transaction Output]]
+* [[bip-0040/service-mempool.mediawiki|Memory Pool]]
+
+===Vendor: blockchain.info===
+
+* [[bip-0040/service-firstbits.mediawiki|Firstbits]]
+
+===Vendor: firstbits.com===
+
+* [[bip-0040/service-firstbits.mediawiki|Firstbits]]
+
+==Specification: Signature==
+
+In Stratum, it is possible to sign messages. Before signing, the <code>sign_time</code> property is added to the root object. After that, the JSON is converted to canonical format with RFC 8785. This JSON is put through the sign function. The output of the sign function is added to the root object in the <code>sign</code> property. Also, the properties <code>sign_id</code> is added to the root object, where this ID can be used to know which private key is used and which public key needs to be used to verify the signature. Also, the <code>sign_algo</code> is added to indicate which algorithm is used. For now, only <code>ecdsa;SECP256k1</code> is defined.
+
+For verification, from the received message JSON the <code>sign</code> property, <code>sign_id</code> property, and <code>sign_algo</code> need to be removed and the JSON must be converted to canonical format with RFC 8785. After that, the JSON can be put in the verification function, in combination with the public key that is retrieved by the <code>sign_id</code>.
+
+==IANA Considerations==
+
+===HTTP Field===
+
+IANA maintains the registry of HTTP Fields at https://www.iana.org/assignments/http-fields.
+
+This document serves as the specification for the HTTP fields "Stratum-Session-ID", "Stratum-Session-Timeout" and "Stratum-Callback-URL".
+
+===Media Type===
+
+IANA maintains the registry of Media Types [https://www.rfc-editor.org/info/bcp13 BCP13] at http://www.iana.org/assignments/media-types.
+
+This document serves as the specification for the media type "application/stratum". It has been registered with IANA.
+
+===Service Name and Transport Protocol Port Number===
+
+IANA maintains the registry of Service Names and Transport Protocol Port Numbers [https://www.rfc-editor.org/info/bcp165 BCP165] at https://www.iana.org/assignments/service-names-port-numbers.
+
+This document serves as the specification for the service name "stratum" with TCP and UDP port number 50001 and description "Stratum Protocol". It has been registered with IANA.
+
+This document serves as the specification for the service name "stratums" with TCP and UDP port number 50002 and description "Stratum Protocol over SSL/TLS". It has been registered with IANA.
+
+===WebSocket Subprotocol Name===
+
+IANA maintains the registry of WebSocket Subprotocol Names at https://www.iana.org/assignments/websocket.
+
+This document serves as the specification for the WebSocket subprotocol name "stratum". It has been registered with IANA.
+
+==Backwards compatibility==
+
+Clients and servers that implement the Stratum protocol are technically capable of providing backwards compatibility with older protocol versions. For example, the <code>server.version</code> method is sent by the client to tell or negotiate a protocol version. Based on that information, client and server can decide which commands to send and which methods and/or parameters to support. Also, as noted in [[#extension|Extension]], the things annotated with <ref name="extended"/> are "extensions" to the protocol; they don't replace old behaviour.
+
+==Rationale==
+
+The Stratum protocol was invented to replace the platform dependent Python-based Electrum protocol with a platform independent protocol. Design decisions are not fully clear, but discussion about the protocol took place on BitcoinTalk.org (https://bitcointalk.org/index.php?topic=557866.10 and https://bitcointalk.org/index.php?topic=557991.0).
+
+==References==
+<references/>
+
+==Copyright==
+
+This BIP is licensed under the Creative Commons CC0 1.0 Universal licence.
