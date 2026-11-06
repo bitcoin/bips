@@ -80,7 +80,7 @@ def sig_agg_vectors():
         "75448A87274B056468B977BE06EB1E9F657577B7320B0A3376EA51FD420D18A8"])
     msg = bytes.fromhex("599C67EA410D005B9DA90817CF03ED3B1C868E4DA4EDF00A5880B0082C237869")
 
-    psigs = [None] * 9
+    psigs = [None] * 10
 
     valid_test_cases = [
         {
@@ -111,6 +111,13 @@ def sig_agg_vectors():
             "tweak_indices": [0, 1, 2],
             "is_xonly": [True, False, True],
             "psig_indices": [6, 7],
+        }, {
+            "aggnonce": None,
+            "nonce_indices": [0],
+            "key_indices": [0],
+            "tweak_indices": [],
+            "is_xonly": [],
+            "psig_indices": [9],
         },
     ]
     for (i, test_case) in enumerate(valid_test_cases):
