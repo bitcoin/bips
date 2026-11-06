@@ -8,7 +8,7 @@
   Type: Informational
   Assigned: 2020-03-20
   License: BSD-2-Clause OR OPUBL-1.0
-  Version: 2.1.0
+  Version: 2.2.0
 </pre>
 
 ==Abstract==
@@ -222,6 +222,136 @@ INPUT:
 OUTPUT:
 * DERIVED ENTROPY=ae131e2312cdc61331542efe0d1077bac5ea803adf24b313a4f0e48e9c51f37f
 * DERIVED BIP39 MNEMONIC=puppy ocean match cereal symbol another shed magic wrap hammer bulb intact gadget divorce twin tonight reason outdoor destroy simple truth cigar social volcano
+
+===BIP93===
+Application number: 93'
+
+Generates canonical initial codex32 strings.
+
+The derivation path format is:
+
+<code>m/83696968'/93'/{profile}'/{payload_len}'/{threshold}'/{identifier_index}'/{share_idx}'</code>
+
+<code>{profile}</code> selects the secret-payload construction and human-readable part.
+Profile <code>0</code> uses the human-readable part <code>ms</code>.
+An unassigned <code>{profile}</code> has no application-93 output.
+
+<code>{payload_len}</code> is the number of bech32 characters in the payload and MUST be valid for the selected <code>{profile}</code>.
+
+<code>{threshold}</code> is the ordinary integer threshold, either <code>0</code>
+or <code>2</code> through <code>9</code>, not the bech32 value of its digit.
+
+<code>{identifier_index}</code> is the reversible 20-bit serialization of the
+exactly four-character codex32 identifier, with the first character most significant.
+
+Let <code>u5(c)</code> be the 5-bit value of <code>c</code>
+in the bech32 character table from BIP173.
+
+<pre>
+identifier_index =
+    u5(identifier[0]) << 15 |
+    u5(identifier[1]) << 10 |
+    u5(identifier[2]) <<  5 |
+    u5(identifier[3])
+</pre>
+
+<code>{identifier_index}</code> MUST be in <code>[0, 2^20)</code>.
+Decode it as exactly four 5-bit values, including leading zero values
+(the bech32 character <code>q</code>); no truncation or modular reduction is permitted.
+
+<code>{share_idx}</code> is an ordinal selecting a header character:
+<code>0=s, 1=a, 2=c, 3=d, 4=e, 5=f, 6=g, 7=h, 8=j, 9=k</code>.
+It is not that character's bech32 value.
+
+At threshold <code>0</code>, the canonical initial basis consists of
+<code>{share_idx} = 0</code> (character <code>s</code>).
+Otherwise, for threshold <code>k</code>, the canonical initial basis consists of
+ordinals <code>1</code> through <code>k</code>, selecting the first <code>k</code> share indices in the sequence <code>a</code>,
+<code>c</code>, <code>d</code>, <code>e</code>, <code>f</code>,
+<code>g</code>, <code>h</code>, <code>j</code>, <code>k</code>.
+
+All path segments MUST be hardened. Implementations MUST reject invalid thresholds,
+out-of-range identifier indices, and all threshold/share-ordinal combinations outside
+the canonical initial basis. Such paths have no application-93 output.
+
+For a fixed BIP85 root key, each valid fully specified path MUST produce exactly one
+canonical initial codex32 string.
+Each resulting string MUST correspond to exactly one valid fully specified path.
+
+To generate a canonical initial codex32 string,
+create a BIP85 DRNG whose seed is the derived entropy.
+The constructions below produce exactly <code>5 * payload_len</code> payload bits.
+Re-arrange these bits into groups of 5 and translate them to characters
+using the bech32 character table from BIP173.
+Assemble the output from the human-readable part selected by <code>{profile}</code>,
+the header formed by the threshold digit, the four decoded identifier characters,
+and the character selected by <code>{share_idx}</code>, and the payload.
+Generate the checksum as specified by BIP93.
+The application-93 output MUST be lowercase.
+
+====Master seed====
+
+Profile <code>0</code> encodes a BIP32 HD master seed
+using the BIP93 master seed format.
+
+Let <code>byte_len = floor(5 * payload_len / 8)</code>
+and <code>pad_len = (5 * payload_len) mod 8</code>.
+
+Read <code>byte_len</code> bytes from the DRNG
+and append <code>pad_len</code> zero bits.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* HEADER: 0secrs
+* THRESHOLD: 0
+* IDENTIFIER INDEX: 550659
+* SHARE ORDINAL: 0
+* PATH: m/83696968'/93'/0'/26'/0'/550659'/0'
+
+OUTPUT:
+* DERIVED ENTROPY=d92e0ee55a59ec6e0d5a906c47cb78f68c088df04de61e4dea96823e0c0dbb9b7d311a448ed6e2ee2a695fec8828f2f4a1ffe7613883c4d18a8c2b79b8df5ce8
+* DERIVED MASTER SEED=6c6e3826e7079266e316bb6afc8ffda0
+* DERIVED CODEX32 SECRET=ms10secrsd3hrsfh8q7fxdcckhd40erla5qqv6k77kxuk8qk
+
+Here <code>payload_len = 26</code>, <code>byte_len = 16</code>,
+and <code>pad_len = 2</code>.
+
+====Shares====
+
+For a share in the canonical initial basis,
+read <code>ceil(5 * payload_len / 8)</code> bytes from the DRNG
+and keep the first <code>5 * payload_len</code> bits, most significant bit first.
+
+Additional shares are obtained by BIP93 interpolation.
+A canonical initial basis can be generated from one or multiple BIP85 root keys.
+
+The following outputs form a threshold-2 initial basis.
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PAYLOAD LENGTH: 26
+* HEADER: 2shara
+* THRESHOLD: 2
+* IDENTIFIER INDEX: 548771
+* SHARE ORDINAL: 1
+* PATH: m/83696968'/93'/0'/26'/2'/548771'/1'
+
+OUTPUT:
+* DERIVED ENTROPY=26cb7e63dde27e32a4faca53d05467b7d5db3d39872d355b4fd32688b1141a98c0aa731e48bedc494ae46d0d4eecf5c826b514b49d3944347031b85ccb7bf913
+* DERIVED CODEX32 SHARE=ms12sharakkl9gzadqpmpglp0aagm6jvvwn9ufzcz7zzrh8z
+
+INPUT:
+* MASTER BIP32 ROOT KEY: xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb
+* PAYLOAD LENGTH: 26
+* HEADER: 2sharc
+* THRESHOLD: 2
+* IDENTIFIER INDEX: 548771
+* SHARE ORDINAL: 2
+* PATH: m/83696968'/93'/0'/26'/2'/548771'/2'
+
+OUTPUT:
+* DERIVED ENTROPY=28ec528b05a74077a3224198a76a01ef8d62840545ea675263ca83b4d07784aae079a915bbc512d13b98ff85e686d12ea86f8c77b569b93f8a45c8016801a054
+* DERIVED CODEX32 SHARE=ms12sharc9fff6m0ntaf2j7tslw69yfjpnel3mgy293gkmff
 
 ===HD-Seed WIF===
 Application number: 2'
@@ -481,7 +611,7 @@ This specification relies on BIP32 but is agnostic to how the BIP32 root key is 
 
 ==References==
 
-BIP32, BIP39,
+BIP32, BIP39, BIP93, BIP173,
 [https://github.com/nostr-protocol/nips/blob/master/01.md NIP-01],
 [https://github.com/nostr-protocol/nips/blob/master/06.md NIP-06],
 [https://github.com/nostr-protocol/nips/blob/master/19.md NIP-19]
@@ -491,6 +621,12 @@ BIP32, BIP39,
 * 1.3.0 Python 3.x library implementation: [https://github.com/akarve/bipsea]
 
 ==Changelog==
+
+===2.2.0 (2026-08-20)===
+
+====Added====
+
+* codex32 application 93'
 
 ===2.1.0 (2026-08-02)===
 
