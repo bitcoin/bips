@@ -1,0 +1,146 @@
+<pre>
+  BIP: 395
+  Layer: Applications
+  Title: Unspendable Internal Keys for Wallet Policies
+  Authors: NTL <2099999997690000@proton.me>
+  Deputies: bitryonix <bitryonix@proton.me>
+  Status: Draft
+  Type: Specification
+  Assigned: 2026-11-04
+  License: BSD-2-Clause
+  Discussion: 2026-09-09: https://groups.google.com/u/2/g/bitcoindev/c/se3TkNnbno4
+              2023-12-19: https://delvingbitcoin.org/t/unspendable-keys-in-descriptors/304
+              2025-01-17: https://github.com/bitcoin/bips/pull/1746
+  Version: 0.1.0
+  Requires: 32, 174, 340, 341, 379, 380, 386, 387, 388, 389, 390
+</pre>
+
+== Abstract ==
+
+This BIP defines <code>_</code> as a placeholder for a Taproot internal key with no known signing key, for use in policies that require an unspendable key path. The key is derived from a synthetic [[bip-0032.mediawiki#extended-keys|BIP 32]] extended public key ''(H, chain_code)'', where ''H'' is the [[bip-0341.mediawiki#constructing-and-spending-taproot-outputs|BIP 341]] NUMS (Nothing Up My Sleeve) point and the chain code is a tagged hash of the normalized policy.
+
+== Copyright ==
+
+This BIP is licensed under the BSD 2-clause license.
+
+The vendored secp256k1lab files are licensed under the [[bip-0395/secp256k1lab/COPYING|MIT license]].
+
+== Motivation ==
+
+A Taproot policy that uses a fixed unspendable internal key produces outputs that are recognizable when script-path spends reveal that key. [[bip-0341.mediawiki#constructing-and-spending-taproot-outputs|BIP 341]] recommends ''H + rG'' with a fresh ''r''. Current implementations use various approaches, such as taking entropy from the keys or choosing and retaining a random ''r''. Deriving the public tweaks from a policy commitment lets independent implementations reproduce the internal key from a policy backup, without additional secret material. Committing to the policy's structure also distinguishes descriptors that use the same keys under different spending conditions.
+
+Anyone holding the policy can also re-derive the internal key and thereby prove the key path was unspendable. This can be useful in post-quantum settings or for exposure classification.
+
+== Specification ==
+
+This BIP specifies only the representation, normalization, and derivation needed to construct <code>_</code>. Implementations independently apply the applicable descriptor, Miniscript, wallet-policy, and consensus requirements to the surrounding policy.
+
+=== Input representation ===
+
+The input consists of a descriptor template and a key-information vector in [[bip-0388.mediawiki#formal-definition|BIP 388's representation]], with the following syntax for normalization:
+
+* The template is <code>tr(KEY,TREE)</code>, with the binary tree syntax of [[bip-0386.mediawiki#tree-expression|BIP 386]], where <code>KEY</code> is <code>_</code> followed by a derivation suffix. Leaves use the Tapscript fragment syntax and translation table of [[bip-0379.md#translation-table|BIP 379]], or [[bip-0387.mediawiki#sortedmulti_a|BIP 387's]] <code>sortedmulti_a</code> syntax. The latter forms a whole leaf.
+* Every key expression in <code>TREE</code>'s leaves is <code>@i</code> or <code>musig(@i,...)</code>, followed by an optional derivation suffix in the syntax of [[bip-0380.mediawiki#key-expressions|BIP 380]] and [[bip-0389.mediawiki#specification|BIP 389]]. The abbreviation <code>/**</code> means <code>/<0;1>/*</code>.
+* Each <code>@i</code> MUST resolve to a key-information item containing a [[bip-0032.mediawiki#serialization-format|BIP 32]] extended public key, with optional [[bip-0380.mediawiki#key-expressions|BIP 380]] origin information.
+
+An expression outside this syntax MUST cause construction to fail.
+
+=== The <code>_</code> placeholder ===
+
+<code>_</code> extends the key-placeholder syntax above. It MUST NOT occur elsewhere in the template and has no key-information item.
+
+Its suffix MUST contain only unhardened derivation steps and end in <code>/*</code>. If the template uses [[bip-0389.mediawiki#specification|BIP 389 multipath expansion]], <code>_</code> MUST have a tuple containing the consecutive integers ''0, ..., m-1'', where ''m'' is the number of expansions. For example:
+
+<pre>
+tr(_/*,pk(@0/*))
+tr(_/**,pk(@0/**))
+tr(_/<0;1;2;3>/*,pk(@0/<4;5;6;7>/*))
+</pre>
+
+=== Commitment normalization ===
+
+For a referenced key-information item with public key ''K<sub>i</sub>'' and chain code ''c<sub>i</sub>'', define its 65-byte ''record'' as ''R<sub>i</sub> = ser<sub>P</sub>(K<sub>i</sub>) || c<sub>i</sub>''. The operator ''||'' denotes byte concatenation, and ''ser<sub>P</sub>'' is the compressed public-key serialization from [[bip-0032.mediawiki#conventions|BIP 32's conventions]]. Origins, network versions, depth, parent fingerprints, and child numbers are excluded. Unreferenced items are omitted.
+
+The following ''serialization rules'' apply to the template and to every key expression, leaf, and subtree in it. They MUST be serialized as ASCII without whitespace or checksum. Integers MUST use their shortest unsigned decimal representation, and hexadecimal MUST be lowercase. Derivation suffixes may use either <code>h</code> or <code>'</code> as a hardened marker. For commitment serialization, implementations MUST write <code>h</code> for every hardened marker, including those in multipath alternatives and wildcard steps. Implementations MUST use the syntactic sugar <code>pk</code>, <code>pkh</code>, <code>and_n</code>, <code>t:</code>, <code>l:</code>, and <code>u:</code> from the [[bip-0379.md#translation-table|BIP 379 translation table]] wherever the expanded forms match. They MUST use <code>l:</code> when both <code>l:</code> and <code>u:</code> match, and MUST join adjacent wrappers as specified there. A terminal <code>/<0;1>/*</code> MUST be written as <code>/**</code>. Implementations MUST preserve all other derivation steps and the order of multipath alternatives, and MUST NOT perform any other rewrite.
+
+An expression's ''resolved string'' is its serialization under these rules, with each <code>@i</code> replaced by the lowercase hexadecimal encoding of its record ''R<sub>i</sub>''. Resolved strings MUST be compared lexicographically by unsigned ASCII byte value.
+
+Implementations MUST apply these steps in order:
+
+# Work from leaves to root. Sort <code>musig(...)</code> participants by their records, compared lexicographically as unsigned bytes. Sort <code>sortedmulti_a</code> keys and each TapTree sibling pair by resolved string, with all serialization rules above applied before comparison. Preserve all other ordering and retain every occurrence.
+# Traverse the resulting template in printing order. Assign each distinct record an index when it first appears. Replace every key reference with its assigned <code>@0</code>, <code>@1</code>, ... index, and place the records in that order.
+# Serialize the template under the serialization rules.
+
+The result is a template ''T'' and ''n'' distinct records ''R<sub>0</sub>, ..., R<sub>n-1</sub>'', where ''n'' can be zero.
+
+=== Synthetic root and derivation ===
+
+Using [[bip-0174.mediawiki#specification|BIP 174's ''CompactSize'']] and [[bip-0340.mediawiki#design|BIP 340's tagged hash]], implementations MUST compute:
+
+* ''preimage = CompactSize(len(T)) || T || CompactSize(n) || R<sub>0</sub> || ... || R<sub>n-1</sub>''
+* ''chain_code = hash<sub>WalletPolicy/NUMS/1</sub>(preimage)''
+
+Here, ''len(T)'' is the byte length of ''T'', and ''hash<sub>name</sub>(x)'' is BIP 340's tagged hash ''SHA256(SHA256(tag) || SHA256(tag) || x)'', where ''tag'' is the UTF-8 encoding of ''name''. The synthetic root is the [[bip-0032.mediawiki#extended-keys|BIP 32]] extended public key ''(H, chain_code)'', with ''ser<sub>P</sub>(H) = 0x0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0''. Its depth, parent fingerprint, and child number are zero. It has no origin. Its [[bip-0032.mediawiki#key-identifiers|BIP 32 fingerprint]] is <code>7c461e5d</code>.
+
+For the selected expansion and wildcard index, implementations MUST derive the internal key from the synthetic root and <code>_</code>'s suffix, using [[bip-0389.mediawiki#specification|BIP 389]] expansion, [[bip-0032.mediawiki#public-parent-key--public-child-key|BIP 32 ''CKDpub'']], and [[bip-0386.mediawiki#modified-key-expression|BIP 386's x-only conversion]]. If a requested child is invalid, construction MUST fail for that selection. Implementations MUST NOT substitute a different child index.
+
+=== Export ===
+
+To export, implementations MUST replace <code>_</code> in the input template with a key placeholder referencing the synthetic root's [[bip-0032.mediawiki#serialization-format|BIP 32 serialization]] for the target network and MUST preserve its derivation suffix.
+
+Implementations MUST assign the synthetic root index 0, renumber the other referenced input indexes consecutively from 1 in order of first appearance in the input template, and order the key-information vector accordingly, appending unreferenced input items in their original order. Descriptor derivation then follows [[bip-0388.mediawiki#descriptor-derivation|BIP 388]].
+
+== Rationale ==
+
+The commitment covers the whole normalized policy because committing only to its keys would give every policy over the same keys the same internal key. Script-path spends would then reveal equal internal keys and link those policies. A coordinator could also reuse one wallet's internal keys in another. Binding thresholds, timelocks, roles, ranges, repetition, and tree structure prevents both.
+
+The public key and chain code determine every derived key, so these are the only fields in a record. Version bytes, depth, parent fingerprint, child number, and origin do not change derived keys. Including them in the commitment would produce different internal keys for an xpub and its tpub form, or for the same key with and without an origin, even though the derived keys and script trees are identical. The excluded fields stay in the input because export needs them.
+
+This draft permits items with the same public key and different chain codes. Sorting compares complete records because comparing public keys alone would leave their order undefined.
+
+Listing a key twice or including an unused key does not change any script. Normalization merges equal records and omits unreferenced items. Otherwise, the key vector could affect the chain code without changing the wallet.
+
+Normalization sorts MuSig participants, <code>sortedmulti_a</code> keys, and TapTree siblings because these reorderings leave every script and Merkle root unchanged. [[bip-0390.mediawiki#musigkey-key--key|BIP 390]] sorts participants before aggregation, <code>sortedmulti_a</code> sorts at derivation, and TapBranch hashes its children in sorted order. Normalization also writes hardened derivation markers, the <code>/**</code> alias, and [[bip-0379.md#translation-table|BIP 379]] sugar in one form; these spelling changes likewise preserve scripts and Merkle roots. Every other order is preserved because it changes the scripts.
+
+The commitment binds the structure the user reviewed. It does not evaluate scripts or compute <code>musig(...)</code> aggregates, since that would require aggregation on the signer and erase the distinction between an explicit <code>musig(...)</code> and a supplied aggregate key. The construction therefore permits different commitments for policies with identical script trees.
+
+This BIP makes no claim of semantic canonicalization. Determining whether two policies produce the same keys in every case would require information about relationships between keys, such as whether one xpub is a descendant of another, that public data does not reveal.
+
+Whenever the tree uses a multipath tuple, <code>_</code> must carry one too, with consecutive alternatives starting at zero. Its suffix must end in <code>/*</code>. These requirements give every expansion and address index its own internal-key path, preventing key reuse between receive and change or between indexes. Consecutive alternatives give the tuple a single spelling.
+
+The hash covers the template with <code>@i</code> placeholders and each record once. This is the pair a [[bip-0388.mediawiki#formal-definition|BIP 388]] signer already registers. Hashing this form instead of the resolved string includes each key once in binary and keeps vectors readable.
+
+The chain code uses a single tagged hash with a versioned tag. The tag separates this use of SHA-256 from other uses, and the version lets an incompatible revision choose a new tag to avoid collisions with this one.
+
+== Security considerations ==
+
+Key-path unspendability relies on the discrete logarithm of ''H'' being unknown. Every unhardened derivation adds a publicly computable multiple of the generator, so recovering a derived internal key's private key would reveal that logarithm. The tagged hash separates this commitment's use of SHA-256 from other uses.
+
+A supplied synthetic root and path let anyone verify derivation from ''H''. Recomputing the commitment from the complete policy verifies that the root commits to the normalized form defined here. Revealing a derived internal key alone does not reveal the synthetic root's chain code. However, an observer who knows or can guess the complete normalized policy can reconstruct the root and enumerate its internal keys. This includes policies with no key records, such as <code>tr(_/*,older(144))</code>. Disclosure of the synthetic root also permits enumeration of internal keys for known or guessed paths. Internal keys revealed in control blocks can then be matched against that enumeration. Computing unspent outputs additionally requires their script trees.
+
+The policy and selected derivation are enough to reproduce the internal key. Seed backups alone do not reconstruct the policy.
+
+== Backward compatibility ==
+
+Descriptor consumers that support the exported expressions can use the exported form without recognizing <code>_</code>. Export does not guarantee acceptance by a [[bip-0388.mediawiki#additional-rules|BIP 388 wallet-policy consumer]]. This construction permits duplicate public keys in the key-information vector, even with different chain codes; repeated key indexes within <code>musig(...)</code>; and repeated or overlapping multipath alternatives for the same key placeholder. BIP 388 forbids these cases. For the path-overlap rule, <code>musig</code> placeholders with the same set of key indexes count as the same placeholder regardless of participant order.
+
+An explicit root ''(H, chain_code)'' with the same derivation paths and script tree reproduces this BIP's addresses on the same network for valid derivations. An exported xpub does not encode this BIP's requirement to fail on an invalid child. Consumers that substitute the next index as described in BIP 32 do not reproduce this construction's failure behavior; matching that behavior requires rejecting the requested selection without substitution.
+
+Other conventions, including fixed ''H'', key-set commitments, and random ''r'', will not match this BIP's results. Adopting this construction changes the addresses of an existing policy. A wallet MUST therefore treat the result as a separate descriptor with its own address set and MUST keep the original descriptor to watch and spend coins received under the earlier convention.
+
+== Reference implementation and test vectors ==
+
+A [[bip-0395/reference.py|reference implementation for Python 3.10 or later]] and standalone [[bip-0395/vectors.json|JSON test vectors]] are provided. The implementation is for demonstration and interoperability testing, not production use.
+
+
+The recursive parser and normalizer may exceed Python's recursion limit and raise <code>RecursionError</code> on deeply nested inputs. This is a resource limitation of the reference implementation. Production implementations should use iterative parsing (or raise the limit) if deep nesting is expected.
+
+See the [[bip-0395/README.md|implementation README]] for dependencies, the API, the vector format, and instructions for running the tests and Bitcoin Core cross-check.
+
+== Acknowledgements ==
+
+The <code>_</code> placeholder and policy-derived internal key are due to [https://delvingbitcoin.org/t/unspendable-keys-in-descriptors/304 Salvatore Ingala]. The extended-key form with public key ''H'' is due to [https://gist.github.com/sipa/06c5c844df155d4e5044c2c8cac9c05e#unspendable-keys Pieter Wuille].
+
+[https://delvingbitcoin.org/t/unspendable-keys-in-descriptors/304/21 Antoine Poinsot], [https://groups.google.com/g/bitcoindev/c/xWxy8DtW6m8 Andrew Toth], [https://github.com/bitcoin/bips/commit/fbbf80819608303d2d89e4873f865e1406b212cc Kewde], [https://github.com/trezor/trezor-firmware/pull/4159#discussion_r1880505228 Andrew Kozlik], and the reviewers of [https://github.com/bitcoin/bips/pull/1746 bitcoin/bips#1746] shaped this document.
+
+The author is responsible for any shortcomings.
