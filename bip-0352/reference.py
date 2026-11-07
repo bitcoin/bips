@@ -32,6 +32,10 @@ from bitcoin_utils import (
 
 K_max = 2323  # per-group recipient limit
 NUMS_H = 0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0
+TAPROOT_CONTROL_BASE_SIZE = 33
+TAPROOT_CONTROL_NODE_SIZE = 32
+TAPROOT_CONTROL_MAX_NODE_COUNT = 128
+TAPROOT_CONTROL_MAX_SIZE = TAPROOT_CONTROL_BASE_SIZE + TAPROOT_CONTROL_NODE_SIZE * TAPROOT_CONTROL_MAX_NODE_COUNT
 
 
 def get_pubkey_from_input(vin: VinInfo) -> GE:
@@ -79,6 +83,9 @@ def get_pubkey_from_input(vin: VinInfo) -> GE:
                 # Script-path spend
                 control_block = witnessStack[-1]
                 #  control block is <control byte> <32 byte internal key> and 0 or more <32 byte hash>
+                assert len(control_block) >= TAPROOT_CONTROL_BASE_SIZE
+                assert len(control_block) <= TAPROOT_CONTROL_MAX_SIZE
+                assert (len(control_block) - TAPROOT_CONTROL_BASE_SIZE) % TAPROOT_CONTROL_NODE_SIZE == 0
                 internal_key = control_block[1:33]
                 if (internal_key == NUMS_H.to_bytes(32, 'big')):
                     # Skip if NUMS_H
