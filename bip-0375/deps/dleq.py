@@ -1,88 +1,32 @@
 #!/usr/bin/env python3
 """
-Handle DLEQ proof generation and verification
+Import/re-export BIP-374 DLEQ functions from bip-0374/reference.py
+for proof generation and verification.
 
-Adapted from bip-0374 reference.py
+Used by the BIP-375 validator for PSBT_GLOBAL_SP_DLEQ / PSBT_IN_SP_DLEQ.
 """
 
-from secp256k1lab.secp256k1 import G, GE
-from secp256k1lab.util import tagged_hash, xor_bytes
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 
-
-DLEQ_TAG_AUX = "BIP0374/aux"
-DLEQ_TAG_NONCE = "BIP0374/nonce"
-DLEQ_TAG_CHALLENGE = "BIP0374/challenge"
-
-
-def dleq_challenge(
-    A: GE, B: GE, C: GE, R1: GE, R2: GE, m: bytes | None, G: GE,
-) -> int:
-    if m is not None:
-        assert len(m) == 32
-    m = bytes([]) if m is None else m
-    return int.from_bytes(
-        tagged_hash(
-            DLEQ_TAG_CHALLENGE,
-            A.to_bytes_compressed()
-            + B.to_bytes_compressed()
-            + C.to_bytes_compressed()
-            + G.to_bytes_compressed()
-            + R1.to_bytes_compressed()
-            + R2.to_bytes_compressed()
-            + m,
-        ),
-        "big",
-    ) % GE.ORDER
-
-
-def dleq_generate_proof(
-    a: int, B: GE, r: bytes, G: GE = G, m: bytes | None = None
-) -> bytes | None:
-    assert len(r) == 32
-    if not (0 < a < GE.ORDER):
-        return None
-    if B.infinity:
-        return None
-    if m is not None:
-        assert len(m) == 32
-    A = a * G
-    C = a * B
-    t = xor_bytes(a.to_bytes(32, "big"), tagged_hash(DLEQ_TAG_AUX, r))
-    m_prime = bytes([]) if m is None else m
-    rand = tagged_hash(
-        DLEQ_TAG_NONCE, t + A.to_bytes_compressed() + C.to_bytes_compressed() + m_prime
+_REFERENCE = Path(__file__).resolve().parents[2] / "bip-0374" / "reference.py"
+if not _REFERENCE.is_file():
+    raise ImportError(
+        f"BIP-374 reference not found at {_REFERENCE}. "
+        "Run the BIP-375 tests from a full bips checkout."
     )
-    k = int.from_bytes(rand, "big") % GE.ORDER
-    if k == 0:
-        return None
-    R1 = k * G
-    R2 = k * B
-    e = dleq_challenge(A, B, C, R1, R2, m, G)
-    s = (k + e * a) % GE.ORDER
-    proof = e.to_bytes(32, "big") + s.to_bytes(32, "big")
-    if not dleq_verify_proof(A, B, C, proof, G=G, m=m):
-        return None
-    return proof
 
+_spec = spec_from_file_location("bip0374_reference", _REFERENCE)
+_mod = module_from_spec(_spec)
+assert _spec.loader is not None
+_spec.loader.exec_module(_mod)
 
-def dleq_verify_proof(
-    A: GE, B: GE, C: GE, proof: bytes, G: GE = G, m: bytes | None = None
-) -> bool:
-    if A.infinity or B.infinity or C.infinity or G.infinity:
-        return False
-    assert len(proof) == 64
-    e = int.from_bytes(proof[:32], "big")
-    if e >= GE.ORDER:
-        return False
-    s = int.from_bytes(proof[32:], "big")
-    if s >= GE.ORDER:
-        return False
-    R1 = s * G - e * A
-    if R1.infinity:
-        return False
-    R2 = s * B - e * C
-    if R2.infinity:
-        return False
-    if e != dleq_challenge(A, B, C, R1, R2, m, G):
-        return False
-    return True
+dleq_challenge = _mod.dleq_challenge
+dleq_generate_proof = _mod.dleq_generate_proof
+dleq_verify_proof = _mod.dleq_verify_proof
+
+__all__ = [
+    "dleq_challenge",
+    "dleq_generate_proof",
+    "dleq_verify_proof",
+]
