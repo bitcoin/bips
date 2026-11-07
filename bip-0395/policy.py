@@ -88,7 +88,7 @@ class Parser:
     def step_value(self) -> str:
         text = self.match(r"[0-9]+[h']?")
         child_number(text)
-        return str(int(text.rstrip("h'"))) + (text[-1] if text[-1] in "h'" else "")
+        return str(int(text.rstrip("h'"))) + ("h" if text[-1] in "h'" else "")
 
     def path(self) -> tuple[Step, ...]:
         steps = []
@@ -98,7 +98,7 @@ class Parser:
                 break
             if self.take("*"):
                 marker = self.match(r"[h']") if self.text[self.pos:self.pos+1] in ("h", "'") else ""
-                steps.append(Step("wildcard", ("*" + marker,)))
+                steps.append(Step("wildcard", ("*" + ("h" if marker else ""),)))
                 break
             if self.take("<"):
                 values = [self.step_value()]

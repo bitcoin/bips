@@ -88,6 +88,8 @@ def generate():
     add("tree-reshaped", "tr(_/**,{{pk(@0/**),pk(@1/**)},pk(@2/**)})", [A, B, C])
     add("tree-repeated", "tr(_/**,{pk(@0/**),pk(@0/**)})", [A])
     add("tree-duplicate-record", "tr(_/**,{pk(@0/**),pk(@1/**)})", [A, A])
+    add("tree-sugar", "tr(_/**,{pk(@0/**),pk(@1/**)})", [B, A])
+    add("tree-sugar-expanded", "tr(_/**,{c:pk_k(@0/**),pk(@1/**)})", [B, A])
     add("timelock", "tr(_/**,and_v(v:pk(@0/**),older(144)))", [A])
     add("timelock-changed", "tr(_/**,and_v(v:pk(@0/**),older(145)))", [A])
     add("sugar", "tr(_/**,and_n(pk(@0/**),tv:pkh(@1/**)))", [A, B])
@@ -110,6 +112,8 @@ def generate():
     add("or-c", "tr(_/**,t:or_c(pk(@0/**),v:pk(@1/**)))", [A, B])
     add("hash-fragments", "tr(_/**,{hash256(" + "12" * 32 + "),{ripemd160(" + "34" * 20 + "),hash160(" + "56" * 20 + ")}})", [])
     add("hardened-leaf-syntax", "tr(_/**,pk(@0/1h/<2';3h>/*'))", [A])
+    add("hardened-leaf-h", "tr(_/**,pk(@0/1h/<2h;3h>/*h))", [A])
+    add("hardened-leaf-apostrophe", "tr(_/**,pk(@0/1'/<2';3'>/*'))", [A])
     add("index-ten", "tr(_/**,multi_a(1,@1/**,@10/**))", [A, B] + [C] * 9)
 
     equivalent = [
@@ -117,8 +121,10 @@ def generate():
         ["sorted", "sorted-permuted"], ["musig", "musig-permuted"],
         ["musig-repeated", "musig-duplicate-record"], ["musig-same-point", "musig-same-point-reversed"],
         ["tree", "tree-swapped"], ["tree-repeated", "tree-duplicate-record"],
+        ["tree-sugar", "tree-sugar-expanded"],
         ["sugar", "sugar-expanded"], ["l-zero", "u-zero", "or-zero"],
         ["numeric-spelling", "numeric-canonical"], ["hashlock", "hashlock-lower"],
+        ["hardened-leaf-syntax", "hardened-leaf-h", "hardened-leaf-apostrophe"],
     ]
     distinct = [
         ["single", "single-chain-code"], ["single", "single-path"], ["single", "single-fixed"],
