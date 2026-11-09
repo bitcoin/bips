@@ -137,7 +137,7 @@ while (++$bipnum <= $topbip) {
 		}
 	}
 	my %found;
-	my ($title, $authors, $status, $version, $type, $layer);
+	my ($title, $owners, $status, $version, $type, $layer);
 	my ($field, $val, @field_order, $continuation);
 	while (<$F>) {
 		last if ($is_markdown && m[^```$]);
@@ -169,10 +169,20 @@ while (++$bipnum <= $topbip) {
 			my ($authorname, $authoremail) = ($1, $2);
 			$authoremail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
 			$emails{$authorname}->{$authoremail} = undef;
-			if (defined $authors) {
-				$authors .= ", $authorname";
+			if (defined $owners) {
+				$owners .= ", $authorname";
 			} else {
-				$authors = $authorname;
+				$owners = $authorname;
+			}
+		} elsif ($field eq 'Deputies') {
+			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Deputies line in $fn";
+			my ($deputyname, $deputyemail) = ($1, $2);
+			$deputyemail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
+			$emails{$deputyname}->{$deputyemail} = undef;
+			if (defined $owners) {
+				$owners .= ", $deputyname";
+			} else {
+				$owners = $deputyname;
 			}
 		} elsif ($field eq 'Status') {
 			if ($bipnum == 38) {  # HACK
@@ -245,7 +255,7 @@ while (++$bipnum <= $topbip) {
 		}
 	}
 	print "| ${title}\n";
-	print "| ${authors}\n";
+	print "| ${owners}\n";
 	print "| ${type}\n";
 	print "| ${status}\n";
 	close $F;
