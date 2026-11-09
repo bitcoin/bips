@@ -174,6 +174,16 @@ while (++$bipnum <= $topbip) {
 			} else {
 				$authors = $authorname;
 			}
+		} elsif ($field eq 'Deputies') {
+			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Deputies line in $fn";
+			my ($deputyname, $deputyemail) = ($1, $2);
+			$deputyemail =~ s/(?<=\D)$bipnum(?=\D)/<BIPNUM>/g;
+			$emails{$deputyname}->{$deputyemail} = undef;
+			if (defined $authors) {
+				$authors .= ", $deputyname";
+			} else {
+				$authors = $deputyname;
+			}
 		} elsif ($field eq 'Status') {
 			if ($bipnum == 38) {  # HACK
 				$val =~ s/\s+\(.*\)$//;
