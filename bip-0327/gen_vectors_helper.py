@@ -15,6 +15,38 @@ def gen_key_agg_vectors():
     print("  pubkey:", pk.hex().upper())
     print("  tweak: ", tweak.hex().upper())
 
+def gen_sign_verify_vectors():
+    print("sign_verify_vectors.json: Signature exceeds group size but is valid modulo n")
+    with open(os.path.join(sys.path[0], 'vectors', 'sign_verify_vectors.json')) as f:
+        test_data = json.load(f)
+    X = fromhex_all(test_data["pubkeys"])
+    pnonce = fromhex_all(test_data["pnonces"])
+    aggnonce = bytes.fromhex(test_data["aggnonces"][0])
+    msg = bytes.fromhex(test_data["msgs"][0])
+    pubkeys = X[0:3]
+
+    session_ctx = SessionContext(aggnonce, pubkeys, [], [], msg)
+    (Q, gacc, _, b, R, e) = get_session_values(session_ctx)
+    P = cpoint(pubkeys[0])
+    a = get_session_key_agg_coeff(session_ctx, P)
+    g = 1 if has_even_y(Q) else n - 1
+    # Choose the first half of the pubnonce of signer 0 such that the effective
+    # nonce of signer 0 is -e*a*g*gacc*P. Then the partial signature 0 is
+    # valid. Since n*G = 0*G, the partial signature n satisfies the
+    # verification equation as well, so only the range check rejects it.
+    T = point_mul(P, e * a * g * gacc % n)
+    Re_s_ = point_negate(T) if has_even_y(R) else T
+    R_s2 = cpoint(pnonce[0][33:66])
+    R_s1 = point_add(Re_s_, point_negate(point_mul(R_s2, b)))
+    # Change the first half of the pubnonce of signer 2 such that the
+    # aggregate nonce, and thus b, R and e, stay the same.
+    R_s1_2 = point_add(cpoint(aggnonce[0:33]), point_negate(point_add(R_s1, cpoint(pnonce[1][0:33]))))
+    pubnonces = [cbytes(R_s1) + pnonce[0][33:66], pnonce[1], cbytes(R_s1_2) + pnonce[2][33:66]]
+    assert nonce_agg(pubnonces) == aggnonce
+    assert partial_sig_verify(bytes_from_int(0), pubnonces, pubkeys, [], [], msg, 0)
+    print("  pnonce of signer 0:", pubnonces[0].hex().upper())
+    print("  pnonce of signer 2:", pubnonces[2].hex().upper())
+
 def check_sign_verify_vectors():
     with open(os.path.join(sys.path[0], 'vectors', 'sign_verify_vectors.json')) as f:
         test_data = json.load(f)
@@ -187,6 +219,7 @@ def sig_agg_vectors():
     }, indent=4))
 
 gen_key_agg_vectors()
+gen_sign_verify_vectors()
 check_sign_verify_vectors()
 check_tweak_vectors()
 print()
