@@ -112,7 +112,7 @@ def sig_agg_vectors():
         "75448A87274B056468B977BE06EB1E9F657577B7320B0A3376EA51FD420D18A8"])
     msg = bytes.fromhex("599C67EA410D005B9DA90817CF03ED3B1C868E4DA4EDF00A5880B0082C237869")
 
-    psigs = [None] * 10
+    psigs = [None] * 12
 
     valid_test_cases = [
         {
@@ -151,6 +151,14 @@ def sig_agg_vectors():
             "is_xonly": [],
             "psig_indices": [9],
             "comment": "A single signer. Detects implementations that reject a single signer in PartialSigAgg.",
+        }, {
+            "aggnonce": None,
+            "nonce_indices": [0, 5],
+            "key_indices": [0, 1],
+            "tweak_indices": [2],
+            "is_xonly": [False],
+            "psig_indices": [10, 11],
+            "comment": "The tweaked aggregate public key has an odd Y coordinate. Detects implementations that omit g in e*g*tacc.",
         },
     ]
     for (i, test_case) in enumerate(valid_test_cases):
@@ -175,11 +183,14 @@ def sig_agg_vectors():
         sig = partial_sig_agg([psigs[i] for i in psig_indices], session_ctx)
         keygen_ctx = key_agg_and_tweak(vec_pubkeys, vec_tweaks, is_xonly)
         # To maximize coverage of the sig_agg algorithm, we want one public key
-        # point with an even and one with an odd Y coordinate.
+        # point with an even and one with an odd Y coordinate, and one tweaked
+        # public key point with an odd Y coordinate.
         if i == 0:
             assert(has_even_y(keygen_ctx[0]))
         if i == 1:
             assert(not has_even_y(keygen_ctx[0]))
+        if i == 5:
+            assert(not has_even_y(keygen_ctx[0]) and keygen_ctx[2] != 0)
         aggpk = get_xonly_pk(keygen_ctx)
         assert schnorr_verify(msg, aggpk, sig)
         test_case["expected"] = sig.hex().upper()
