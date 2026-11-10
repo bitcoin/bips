@@ -2,6 +2,12 @@
 
 """Reference implementation of DLEQ BIP for secp256k1 with unit tests."""
 
+# Note: BIP375 is a downstream consumer of this reference implementation;
+# it loads the DLEQ functions from this file and uses the vendored
+# secp256k1lab subtree. Before making functional changes to this file
+# or the secp256k1lab subtree, please run BIP375’s test suite
+# (python bip-0375/test_runner.py) to check for regressions.
+
 from pathlib import Path
 import random
 import sys
