@@ -63,17 +63,19 @@ def check_partial_signatures(psbt: PSBT) -> List[str]:
 
     A signature with no defined signature hash, such as one on a witness v2
     input or one committing to an output without PSBT_OUT_SCRIPT, is a failure.
+    An input whose spent output, or whose P2SH redeem script, is missing from
+    the PSBT is skipped: such a PSBT is malformed, and rejecting it is the
+    validator's job.
 
     Returns the list of failures, empty if there is none.
     """
     errors = []
     for i, input_map in enumerate(psbt.i):
         spent_output = _spent_output(input_map)
-        if spent_output is None:
-            errors.append(f"Input {i} spent output not found in PSBT_IN_WITNESS_UTXO or PSBT_IN_NON_WITNESS_UTXO")
+        redeem_script = input_map.get(PSBT_IN_REDEEM_SCRIPT)
+        if spent_output is None or (_is_p2sh(spent_output[1]) and redeem_script is None):
             continue
         amount, script_pubkey = spent_output
-        redeem_script = input_map.get(PSBT_IN_REDEEM_SCRIPT)
         if _is_p2sh(script_pubkey) and redeem_script is not None:
             if hash160(redeem_script) != script_pubkey[2:22]:
                 errors.append(f"Input {i} P2SH program does not commit to PSBT_IN_REDEEM_SCRIPT")
