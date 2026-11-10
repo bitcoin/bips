@@ -1,0 +1,280 @@
+<pre>
+  BIP: ?
+  Layer: Consensus (hard fork)
+  Title: Adaptive Block Weight Limit
+  Authors: Jørgen S. Notland <jqrgen@nexa.org>
+  Status: Draft
+  Type: Specification
+  Assigned: ?
+  License: BSD-2-Clause
+  Requires: 141
+</pre>
+
+==Abstract==
+
+This document specifies a hard fork that replaces Bitcoin's fixed maximum block weight of 4,000,000 weight units with a limit that is recomputed for every block from the median weight of recent blocks. The limit for the next block is the larger of a short-window median (about 90 days of blocks) and a long-window median (about 365 days of blocks), multiplied by a constant, bounded below by the current limit and above by an absolute cap. The block signature operation cost limit scales in proportion to the block weight limit. The algorithm is an adaptation of the adaptive block size algorithm used by the Nexa blockchain.
+
+==Copyright==
+
+This document is licensed under the 2-clause BSD license.
+
+==Motivation==
+
+The maximum block weight is a consensus rule. Under the current rules, any change to it requires a coordinated consensus change, and earlier proposals to change the block size limit by a one-time increase, a fixed growth schedule or a miner vote (BIPs 100 to 109, see [[#Prior_art|Prior art]]) all have the status Closed.
+
+A rule that derives the limit from the chain itself makes the limit a deterministic function of block history that every node computes independently, in the same way that the proof-of-work target is derived from block timestamps. This proposal aims to:
+
+* allow the limit to follow sustained changes in block usage without a further consensus change for each adjustment;
+* make it costly to move the limit: because the limit depends on medians over long windows, raising it requires a majority of blocks over a period of months to be larger, rather than a small number of very large blocks;
+* never reduce capacity below the current 4,000,000 weight unit limit;
+* keep the rule simple enough to specify in a few lines of integer arithmetic.
+
+This document does not argue that a larger limit is desirable. It specifies one well-defined, previously deployed mechanism so that it can be reviewed and evaluated on its own merits.
+
+==Specification==
+
+===Definitions===
+
+* ''Block weight'' is as defined in [[bip-0141.mediawiki|BIP 141]].
+* ''H<sub>A</sub>'' is the activation height (see [[#Deployment|Deployment]]).
+* For a block at height ''h'', ''W(h)'' is its block weight.
+* For an odd number ''n'' of values, ''median(values)'' is the value at zero-based index (''n'' − 1) / 2 after sorting the values in ascending order.
+* ''window(h, w)'' is the list of the ''w'' + 1 values ''W(h − w)'', ..., ''W(h)'', i.e. the weights of block ''h'' and the ''w'' blocks before it. It is defined only if ''h − w'' ≥ 0. Blocks before ''H<sub>A</sub>'' are included; their weight is computed by the BIP 141 rules regardless of whether they contain witness data.
+
+===Parameters===
+
+{| class="wikitable"
+! Name !! Value !! Notes
+|-
+| ''S'' (short window) || 12,960 blocks || 90 days × 144 blocks per day. Nexa uses 90 days.
+|-
+| ''L'' (long window) || 52,560 blocks || 365 days × 144 blocks per day. Nexa uses 365 days.
+|-
+| ''M'' (multiplier) || 10 || Same value as Nexa.
+|-
+| ''F'' (floor) || 4,000,000 weight units || The current maximum block weight. '''Open question.'''
+|-
+| ''C'' (cap) || TBD || Absolute upper bound. '''Open question.'''
+|-
+| ''R'' (weight per sigop cost) || 50 || 4,000,000 / 80,000, the current ratio of maximum block weight to maximum sigop cost.
+|}
+
+144 blocks per day follows from Bitcoin's target block spacing of 600 seconds.<ref>Bitcoin Core <code>consensus.nPowTargetSpacing = 10 * 60</code>, [https://github.com/bitcoin/bitcoin/blob/9320233a3d589eec0a25695eebe92bd35e0814c4/src/kernel/chainparams.cpp#L128 src/kernel/chainparams.cpp line 128].</ref> The values of ''S'', ''L'' and ''M'' are taken from Nexa (see [[#Nexa_reference_algorithm|Nexa reference algorithm]]) with the window lengths converted from days of Nexa blocks to days of Bitcoin blocks.
+
+===Maximum block weight===
+
+For a block ''B'' at height ''h'' ≥ ''H<sub>A</sub>'' whose parent is at height ''p'' = ''h'' − 1, the maximum block weight ''LIMIT(h)'' is computed as follows, using unsigned 64-bit integer arithmetic:
+
+# If ''window(p, L)'' and ''window(p, S)'' are both defined, let ''m'' = max(median(window(p, S)), median(window(p, L))).
+# Otherwise, if only ''window(p, S)'' is defined, let ''m'' = median(window(p, S)).
+# Otherwise, let ''m'' = 0.
+# Let ''LIMIT(h)'' = min(max(''m'' × ''M'', ''F''), ''C'').
+
+Block ''B'' is invalid if ''W(h)'' > ''LIMIT(h)''.
+
+On Bitcoin mainnet both windows are defined at any plausible activation height, so steps 2 and 3 only apply to new test networks. They are kept so that the rule is defined for any chain and matches the Nexa reference algorithm.
+
+Because ''C'' is bounded and ''M'' is small, ''m'' × ''M'' cannot overflow a 64-bit integer for any ''C'' below 2<sup>60</sup>.
+
+===Maximum signature operation cost===
+
+For a block at height ''h'' ≥ ''H<sub>A</sub>'', the BIP 141 rule that the total sigop cost must not exceed 80,000 is replaced by: the total sigop cost must not exceed floor(''LIMIT(h)'' / ''R''). With ''LIMIT(h)'' = ''F'' this equals the current limit of 80,000.
+
+===Unchanged rules===
+
+All other consensus rules, including the BIP 141 definition of weight, transaction-level rules, and the coinbase witness commitment, are unchanged. Blocks below ''H<sub>A</sub>'' are validated under the current rules.
+
+===Deployment===
+
+This is a hard fork: blocks valid under this proposal may be invalid under the current rules, so nodes that do not upgrade will reject the first block whose weight exceeds 4,000,000 or whose sigop cost exceeds 80,000, and every block built on it.
+
+'''Open question:''' the activation mechanism and parameters are not specified in this draft. Options include:
+
+* a flag day at a fixed height ''H<sub>A</sub>'';
+* a two-phase activation based on median time past, as used by Nexa's protocol upgrades, where the block whose median time past first reaches the activation time is still validated under the old rules and all subsequent blocks under the new rules;<ref>Nexa [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/doc/fork1.md doc/fork1.md], section "Activation".</ref>
+* a flag day preceded by a miner signalling period (for example using version bits as in [[bip-0009.mediawiki|BIP 9]] or [[bip-0008.mediawiki|BIP 8]]) to measure readiness, keeping in mind that signalling alone cannot make a hard fork safe for non-upgraded nodes.
+
+Whichever mechanism is chosen, it must give non-mining full nodes, wallets and services enough lead time to upgrade. Until the rules are activated, the limit computed by this algorithm has no effect.
+
+==Rationale==
+
+===Median instead of mean===
+
+A mean can be raised by a single very large block. The median of a window can only be raised if more than half of the blocks in that window are larger, which over 12,960 or 52,560 blocks requires sustained participation by a majority of block producers. The Nexa specification gives the same reason.<ref name="nexaspec">Nexa specification, [https://spec.nexa.org/blocks/adaptive-blocksize/ Design and operation of the adaptive blocksize feature].</ref>
+
+===Two windows===
+
+The limit uses the larger of the two medians. When usage rises, the short-window median reacts first; when usage falls, the long-window median keeps the limit up for longer. The intended effect, as stated in the Nexa specification, is that the limit can increase faster than it decreases.<ref name="nexaspec" />
+
+===Multiplier===
+
+The multiplier provides headroom above the median for short surges in demand.<ref name="nexaspec" /> A consequence is that the limit can be up to ''M'' times the median block weight. For example, if both medians equal 1,000,000 weight units, ''LIMIT'' is 10,000,000 weight units; if both medians are close to the current limit of 4,000,000, ''LIMIT'' is close to 40,000,000 weight units. Reviewers should evaluate whether ''M'' = 10 is appropriate for Bitcoin, where the effect of block size on propagation, validation time and the cost of running a full node may weigh differently than on Nexa.
+
+===Floor===
+
+Setting ''F'' to the current limit means the rule never reduces capacity compared to today. Nexa's floor started at 100,000 bytes and was raised to 2,000,000 bytes in its first hard fork, which gives "more volatility in transaction generation rates" as the stated reason.<ref>Nexa [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/doc/fork1.md#L79 doc/fork1.md line 79]; constants in [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/consensus.h#L30-31 src/consensus/consensus.h lines 30–31].</ref>
+
+===Cap===
+
+Nexa bounds the computed limit by 1,000,000,000 bytes.<ref>Nexa <code>DEFAULT_LARGEST_BLOCKSIZE_POSSIBLE = 1000 * ONE_MEGABYTE</code>, [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/consensus.h#L42 src/consensus/consensus.h line 42], applied in [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L209-210 src/consensus/adaptive_blocksize.cpp lines 209–210].</ref> An absolute cap keeps the integer arithmetic bounded and gives implementations a known worst case for buffer and message sizes. The appropriate value for Bitcoin is left open.
+
+===Block weight instead of size===
+
+Since BIP 141, Bitcoin's block limit is expressed in weight. Using weight preserves the existing relative cost of witness and non-witness data. Nexa has no witness discount and uses the serialized block size (excluding the nonce).<ref>Nexa specification, [https://spec.nexa.org/blocks/block/ Block overview], "Size field".</ref>
+
+===Signature operation limit===
+
+Nexa scales the per-block signature-check limit with the computed maximum block size rather than with the actual size of the block.<ref name="nexaspec" /><ref>Nexa <code>GetMaxBlockSigChecks</code> and <code>BLOCK_SIGCHECKS_RATIO = 141</code>, [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/consensus.h#L107-125 src/consensus/consensus.h lines 107–125].</ref> This proposal keeps Bitcoin's existing ratio of weight to sigop cost so that the worst-case sigop density per weight unit is unchanged.
+
+===Window includes pre-activation blocks===
+
+Including blocks mined before activation means the limit is defined from the first post-activation block and reflects actual recent usage. The alternative, counting only post-activation blocks, would keep the limit at ''F'' for at least ''S'' blocks after activation. '''Open question.'''
+
+===Nexa reference algorithm===
+
+Nexa computes, after connecting each block, the maximum size of the next block:<ref>[https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L163-213 src/consensus/adaptive_blocksize.cpp lines 163–213], called from [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/validation/validation.cpp#L597-608 src/validation/validation.cpp lines 597–608] and enforced at [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/validation/validation.cpp#L241-249 lines 241–249].</ref>
+
+* the medians of the last ''nWindow'' + 1 block sizes for a short window of 90 days and a long window of 365 days of blocks, where a day is 720 blocks;<ref>[https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/consensus.h#L27 consensus.h line 27] (<code>ONE_DAY_OF_BLOCKS = 144 * 5</code>), [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/consensus.h#L33-34 lines 33–34]; window length and odd-count median in [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L22-37 adaptive_blocksize.cpp lines 22–37] and [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L133-134 lines 133–134].</ref>
+* the larger median (or the short median if the long window is not yet complete) multiplied by <code>BLOCK_SIZE_MULTIPLIER = 10</code>;<ref>[https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/consensus.h#L39 consensus.h line 39]; [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L182-192 adaptive_blocksize.cpp lines 182–192].</ref>
+* bounded below by the network's floor (2,000,000 bytes on Nexa mainnet) and above by 1,000,000,000 bytes.<ref>Nexa mainnet parameters, [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/chainparams.cpp#L737-740 src/chainparams.cpp lines 737–740]; floor applied at [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L204-207 adaptive_blocksize.cpp lines 204–207].</ref>
+
+The adaptive maximum block size was listed as a main feature of Nexa 1.0.0.<ref>[https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/doc/release-notes/1.0.0.0.md#L27 doc/release-notes/1.0.0.0.md line 27].</ref> The 2,000,000-byte floor took effect with Nexa Hard Fork 1, activated on 31 March 2025.<ref>[https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/doc/release-notes/2.0.0.0.md#L31 doc/release-notes/2.0.0.0.md line 31] and [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/doc/release-notes/2.0.0.0.md#L46 line 46]; [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/chainparams.cpp#L696-700 src/chainparams.cpp lines 696–700].</ref> Nexa's planned Hard Fork 2 adds a higher floor tied to its Tailstorm subblock parameter;<ref>[https://spec.nexa.org/upgrades/hard-fork-2/ Nexa specification: Hard Fork 2]; [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp#L195-203 adaptive_blocksize.cpp lines 195–203].</ref> that change is specific to Tailstorm and is not part of this proposal.
+
+The Nexa specification attributes the algorithm family to a 2016 proposal by Stephen Pair for a limit equal to a multiple of a recent median block size.<ref name="nexaspec" /><ref>Stephen Pair, [https://medium.com/@spair/a-simple-adaptive-block-size-limit-748f7cbcfb75 A Simple, Adaptive Block Size Limit], 7 January 2016.</ref>
+
+Differences between this proposal and Nexa:
+
+{| class="wikitable"
+! !! Nexa mainnet !! This proposal
+|-
+| Measured quantity || serialized block size (bytes, excluding nonce) || BIP 141 block weight
+|-
+| Short / long window || 90 / 365 days at 720 blocks per day || 90 / 365 days at 144 blocks per day
+|-
+| Multiplier || 10 || 10
+|-
+| Floor || 2,000,000 bytes || 4,000,000 weight units (open)
+|-
+| Cap || 1,000,000,000 bytes || open
+|-
+| Signature limit || max size / 141 sigchecks || max weight / 50 sigop cost
+|}
+
+===Prior art===
+
+Several earlier BIPs proposed changing Bitcoin's block size limit; all are now Closed:
+
+* [[bip-0100.mediawiki|BIP 100]] (Jeff Garzik): a hard limit set by coinbase vote on the difficulty retargeting schedule.
+* [[bip-0101.mediawiki|BIP 101]] (Gavin Andresen): a maximum size that grows over time at a predictable rate.
+* [[bip-0102.mediawiki|BIP 102]] (Jeff Garzik): a one-time increase to 2 MB.
+* [[bip-0103.mediawiki|BIP 103]] (Pieter Wuille): growth intended to follow technological improvements.
+* [[bip-0104.mediawiki|BIP 104]] (t.khan): adjustment targeting 75% full blocks, based on the average size of the previous 2016 blocks.
+* [[bip-0105.mediawiki|BIP 105]] (BtcDrak): retargeting every 2016 blocks from miner votes cast in the coinbase, with a difficulty penalty for voting to increase.
+* [[bip-0106.mediawiki|BIP 106]] (Upal Chakraborty): a dynamically controlled cap based on previous block sizes and, optionally, fees.
+* [[bip-0107.mediawiki|BIP 107]] (Washington Y. Sanchez): a dynamic limit based on transaction volume.
+* [[bip-0109.mediawiki|BIP 109]] (Gavin Andresen): a one-time increase to 2,000,000 bytes with sigop and sighash limits.
+
+This proposal differs from BIP 104 and BIP 106 by using medians over long windows rather than the average of a single retarget period, and from BIP 100 and BIP 105 by not requiring explicit votes.
+
+Outside Bitcoin:
+
+* Bitcoin Cash's CHIP-2023-04, the Adaptive Blocksize Limit Algorithm (ABLA; status: Accepted), adjusts the limit after each block from an exponentially weighted moving average of block sizes plus an elastic buffer, with a 32 MB floor.<ref>bitcoincashautist, [https://gitlab.com/0353F40E/ebaa CHIP-2023-04 Adaptive Blocksize Limit Algorithm for Bitcoin Cash].</ref> The CHIP's discussion thread includes back-tests comparing it to single- and dual-median rules.<ref>[https://bitcoincashresearch.org/t/chip-2023-04-adaptive-blocksize-limit-algorithm-for-bitcoin-cash/1037 Bitcoin Cash Research forum thread for CHIP-2023-04].</ref>
+* Monero uses a dynamic block weight with a short-term median over 100 blocks, a long-term median over 100,000 blocks and a block reward penalty for blocks above the effective median, with a maximum block weight of twice the effective median.<ref>Cuprate, [https://monero-book.cuprate.org/consensus_rules/blocks/weights.html The Monero Book: Weights].</ref> Unlike Monero, this proposal does not use a reward penalty.
+
+===Concerns to be addressed===
+
+The following concerns apply to any block size increase and are not resolved by this draft:
+
+* '''Full node resource requirements.''' A higher limit can increase bandwidth, storage, initial block download time and UTXO set growth. With ''M'' = 10 the limit can be up to ten times the median block weight.
+* '''Validation cost.''' Larger blocks permit more expensive worst-case blocks, including legacy signature hashing costs. [[bip-0054.md|BIP 54]] (Consensus Cleanup) addresses some worst-case validation costs; whether this proposal should require it is an open question.
+* '''Propagation and centralization.''' Larger blocks take longer to propagate, which can favour larger or better-connected miners.
+* '''Chain split.''' As with any hard fork, activation without near-universal adoption results in two chains.
+
+===Open questions===
+
+# Activation mechanism and height ''H<sub>A</sub>''.
+# Value of the floor ''F'' (this draft uses the current 4,000,000 weight units).
+# Value of the cap ''C''.
+# Whether ''M'' = 10 is appropriate for Bitcoin.
+# Whether the windows include blocks mined before activation (this draft: yes).
+# Whether this proposal should require [[bip-0054.md|BIP 54]] or other worst-case validation limits.
+
+==Backward Compatibility==
+
+This proposal is a hard fork. Nodes that do not implement it will reject any block with weight above 4,000,000 or sigop cost above 80,000, and will follow a different chain from that block onward. All nodes, including non-mining nodes, wallets and services that validate blocks, must upgrade before activation to follow the upgraded chain.
+
+As long as no block exceeds the current limits, upgraded and non-upgraded nodes accept the same blocks.
+
+Implementations also need to review limits that are not consensus rules but are tied to the current maximum block size, for example the maximum peer-to-peer message length in Bitcoin Core (4,000,000 bytes), which would otherwise prevent relaying blocks larger than that.<ref>Bitcoin Core <code>MAX_PROTOCOL_MESSAGE_LENGTH = 4 * 1000 * 1000</code>, [https://github.com/bitcoin/bitcoin/blob/9320233a3d589eec0a25695eebe92bd35e0814c4/src/net.h#L66 src/net.h line 66]; <code>MAX_BLOCK_SERIALIZED_SIZE</code>, <code>MAX_BLOCK_WEIGHT</code> and <code>MAX_BLOCK_SIGOPS_COST</code> in [https://github.com/bitcoin/bitcoin/blob/9320233a3d589eec0a25695eebe92bd35e0814c4/src/consensus/consensus.h#L13-17 src/consensus/consensus.h lines 13–17].</ref> The <code>getblocktemplate</code> fields <code>sizelimit</code>, <code>weightlimit</code> and <code>sigoplimit</code> ([[bip-0145.mediawiki|BIP 145]]) would need to report values derived from ''LIMIT(h)''.
+
+==Reference Implementation==
+
+There is no Bitcoin reference implementation yet. '''TODO.'''
+
+The algorithm this proposal adapts is implemented in the Nexa full node (MIT license) in [https://gitlab.com/nexa/nexa/-/blob/df4ff0e5ba34882d53601398eff49710bc2a78a6/src/consensus/adaptive_blocksize.cpp src/consensus/adaptive_blocksize.cpp]. A non-consensus Python model of the rule in this document, which produced the test vectors below, is:
+
+<source lang="python">
+def median_odd(values):
+    assert len(values) % 2 == 1
+    return sorted(values)[(len(values) - 1) // 2]
+
+def next_max_block_weight(weights, S, L, M, F, C):
+    # weights: weights of all blocks up to and including the parent, oldest first
+    m = 0
+    if len(weights) >= L + 1:
+        m = max(median_odd(weights[-(S + 1):]), median_odd(weights[-(L + 1):]))
+    elif len(weights) >= S + 1:
+        m = median_odd(weights[-(S + 1):])
+    return min(max(m * M, F), C)
+
+def max_sigop_cost(limit, R=50):
+    return limit // R
+</source>
+
+==Test Vectors==
+
+===Reduced parameters===
+
+With ''S'' = 2, ''L'' = 4, ''M'' = 10, ''F'' = 1,000, ''C'' = 1,000,000. "Weights" lists the weights of all blocks from height 0 to the parent, oldest first.
+
+{| class="wikitable"
+! Weights !! LIMIT !! Reason
+|-
+| (none) || 1,000 || no complete window; floor
+|-
+| 500, 500 || 1,000 || no complete window; floor
+|-
+| 50, 60, 70 || 1,000 || short median 60 × 10 = 600 < floor
+|-
+| 50, 60, 70, 80 || 1,000 || short median 70 × 10 = 700 < floor
+|-
+| 100, 200, 300, 400, 500 || 4,000 || short median 400, long median 300
+|-
+| 900, 900, 900, 10, 10 || 9,000 || short median 10, long median 900
+|-
+| 10, 10, 900, 900, 900 || 9,000 || short median 900, long median 900
+|-
+| 400, 400, 400, 400, 99,999, 99,999, 99,999 || 999,990 || short median 99,999
+|-
+| 200,000 × 5 || 1,000,000 || 2,000,000 capped at ''C''
+|}
+
+===Mainnet parameters===
+
+With ''S'' = 12,960, ''L'' = 52,560, ''M'' = 10, ''F'' = 4,000,000 and ''C'' ≥ 40,000,000:
+
+{| class="wikitable"
+! Last 52,561 block weights !! LIMIT !! Max sigop cost
+|-
+| all 1,000,000 || 10,000,000 || 200,000
+|-
+| all 3,993,000 || 39,930,000 || 798,600
+|-
+| 39,600 × 3,000,000 followed by 12,961 × 3,900,000 || 39,000,000 || 780,000
+|}
+
+'''TODO:''' auxiliary test vectors in a machine-readable format and vectors around reorganizations once a reference implementation exists.
+
+==References==
+
+<references />
