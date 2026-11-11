@@ -272,11 +272,10 @@ pub fn calculate_txhash(
     let inout_fields = bytes.next().unwrap_or(0x00);
 
     // Inputs
-    let (input_selection, commit_number_inputs) = if let Some(first_byte) = bytes.next() {
-		parse_inout_selection(first_byte, &mut bytes, tx.input.len(), current_input_idx)?
-	} else {
-		(vec![], false)
-	};
+    let (input_selection, commit_number_inputs) = {
+        let first_byte = bytes.next().ok_or("input selector byte missing")?;
+        parse_inout_selection(first_byte, &mut bytes, tx.input.len(), current_input_idx)?
+    };
 
     if commit_number_inputs {
         (tx.input.len() as u32).consensus_encode(&mut engine).unwrap();
@@ -357,11 +356,10 @@ pub fn calculate_txhash(
     }
 
     // Outputs
-    let (output_selection, commit_number_outputs) = if let Some(first_byte) = bytes.next() {
+    let (output_selection, commit_number_outputs) = {
+        let first_byte = bytes.next().ok_or("output selector byte missing")?;
         parse_inout_selection(first_byte, &mut bytes, tx.output.len(), current_input_idx)?
-    } else {
-		(vec![], false)
-	};
+    };
 
 	if commit_number_outputs {
 		(tx.output.len() as u32).consensus_encode(&mut engine).unwrap();
@@ -529,14 +527,14 @@ mod test_vectors {
         // txfs and range of inputs to run it on
         let selectors: &[(&[u8], Option<Box<dyn Any>>)] = &[
             // global
-            (&[1 << 0, 0], None),
-            (&[1 << 1, 0], None),
-            (&[1 << 2, 0], None),
-            (&[1 << 3, 0], None),
-            (&[1 << 4, 0], None),
-            (&[1 << 5, 0], None),
-            (&[1 << 6, 0], None),
-            (&[1 << 7, 0], None),
+            (&[1 << 0, 0, selnone, selnone], None),
+            (&[1 << 1, 0, selnone, selnone], None),
+            (&[1 << 2, 0, selnone, selnone], None),
+            (&[1 << 3, 0, selnone, selnone], None),
+            (&[1 << 4, 0, selnone, selnone], None),
+            (&[1 << 5, 0, selnone, selnone], None),
+            (&[1 << 6, 0, selnone, selnone], None),
+            (&[1 << 7, 0, selnone, selnone], None),
             // outputs
             (&[all, 0,                          0, number | selnone], None),
             (&[all, TXFS_OUTPUTS_SCRIPTPUBKEYS, 0, selcur], None),
@@ -552,35 +550,35 @@ mod test_vectors {
             (&[all, TXFS_OUTPUTS_VALUES,        0, number | selall], None),
             (&[all, TXFS_OUTPUTS_ALL,           0, number | selall], None),
             // inputs
-            (&[all, 0,                              number | selnone], None),
-            (&[all, TXFS_INPUTS_PREVOUTS,           selcur], None),
-            (&[all, TXFS_INPUTS_SEQUENCES,          selcur], None),
-            (&[all, TXFS_INPUTS_SCRIPTSIGS,         selcur], None),
-            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, selcur], None),
-            (&[all, TXFS_INPUTS_PREV_VALUES,        selcur], None),
-            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    selcur], None),
-            (&[all, TXFS_INPUTS_ALL,                selcur], None),
-            (&[all, TXFS_INPUTS_PREVOUTS,           selall], None),
-            (&[all, TXFS_INPUTS_SEQUENCES,          selall], None),
-            (&[all, TXFS_INPUTS_SCRIPTSIGS,         selall], None),
-            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, selall], None),
-            (&[all, TXFS_INPUTS_PREV_VALUES,        selall], None),
-            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    selall], None),
-            (&[all, TXFS_INPUTS_ALL,                selall], None),
-            (&[all, TXFS_INPUTS_PREVOUTS,           number | selcur], None),
-            (&[all, TXFS_INPUTS_SEQUENCES,          number | selcur], None),
-            (&[all, TXFS_INPUTS_SCRIPTSIGS,         number | selcur], None),
-            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, number | selcur], None),
-            (&[all, TXFS_INPUTS_PREV_VALUES,        number | selcur], None),
-            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    number | selcur], None),
-            (&[all, TXFS_INPUTS_ALL,                number | selcur], None),
-            (&[all, TXFS_INPUTS_PREVOUTS,           number | selall], None),
-            (&[all, TXFS_INPUTS_SEQUENCES,          number | selall], None),
-            (&[all, TXFS_INPUTS_SCRIPTSIGS,         number | selall], None),
-            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, number | selall], None),
-            (&[all, TXFS_INPUTS_PREV_VALUES,        number | selall], None),
-            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    number | selall], None),
-            (&[all, TXFS_INPUTS_ALL,                number | selall], None),
+            (&[all, 0,                              number | selnone, selnone], None),
+            (&[all, TXFS_INPUTS_PREVOUTS,           selcur, selnone], None),
+            (&[all, TXFS_INPUTS_SEQUENCES,          selcur, selnone], None),
+            (&[all, TXFS_INPUTS_SCRIPTSIGS,         selcur, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, selcur, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_VALUES,        selcur, selnone], None),
+            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    selcur, selnone], None),
+            (&[all, TXFS_INPUTS_ALL,                selcur, selnone], None),
+            (&[all, TXFS_INPUTS_PREVOUTS,           selall, selnone], None),
+            (&[all, TXFS_INPUTS_SEQUENCES,          selall, selnone], None),
+            (&[all, TXFS_INPUTS_SCRIPTSIGS,         selall, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, selall, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_VALUES,        selall, selnone], None),
+            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    selall, selnone], None),
+            (&[all, TXFS_INPUTS_ALL,                selall, selnone], None),
+            (&[all, TXFS_INPUTS_PREVOUTS,           number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_SEQUENCES,          number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_SCRIPTSIGS,         number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_VALUES,        number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_ALL,                number | selcur, selnone], None),
+            (&[all, TXFS_INPUTS_PREVOUTS,           number | selall, selnone], None),
+            (&[all, TXFS_INPUTS_SEQUENCES,          number | selall, selnone], None),
+            (&[all, TXFS_INPUTS_SCRIPTSIGS,         number | selall, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_SCRIPTPUBKEYS, number | selall, selnone], None),
+            (&[all, TXFS_INPUTS_PREV_VALUES,        number | selall, selnone], None),
+            (&[all, TXFS_INPUTS_TAPROOT_ANNEXES,    number | selall, selnone], None),
+            (&[all, TXFS_INPUTS_ALL,                number | selall, selnone], None),
             // both
             (&[all, allio, selall, selall], None),
             (&[all, allio, selcur, selcur], None),
@@ -685,6 +683,41 @@ mod test_vectors {
 
         let mut file = std::fs::File::create(path).unwrap();
         serde_json::to_writer_pretty(&mut file, &ret).unwrap();
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn reject_truncated_long_form_txfs() {
+            let (tx, prevs) = test_vector_tx();
+
+            // 2-byte long form: only global + inout-fields bytes, no selection bytes at all.
+            // Per the spec every long-form TxFieldSelector must carry an input and an output
+            // selection byte ("For both inputs and then outputs, expect an additional byte"),
+            // so this must be rejected rather than silently treated as NONE/NONE.
+            assert!(calculate_txhash(&[0x00, 0x00], &tx, &prevs, 0, None).is_err());
+
+            // 3-byte long form: input selection present, output selection byte missing.
+            assert!(calculate_txhash(
+                &[0x00, 0x00, TXFS_INOUT_SELECTION_NONE],
+                &tx, &prevs, 0, None,
+            )
+            .is_err());
+
+            // 4-byte long form with explicit NONE/NONE selectors is valid.
+            assert!(calculate_txhash(
+                &[
+                    0x00,
+                    0x00,
+                    TXFS_INOUT_SELECTION_NONE,
+                    TXFS_INOUT_SELECTION_NONE,
+                ],
+                &tx, &prevs, 0, None,
+            )
+            .is_ok());
+        }
     }
 }
 
