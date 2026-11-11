@@ -14,6 +14,8 @@ for path in [str(deps_dir), str(secp256k1lab_dir)]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
+from deps.bitcoin_test.psbt import PSBT_IN_PARTIAL_SIG
+from signatures import check_partial_signatures
 from validator.psbt_bip375 import BIP375PSBT
 from validator.validate_psbt import (
     validate_psbt_structure,
@@ -85,15 +87,20 @@ def run_validation_tests(test_data: dict, verbosity: int = 0) -> tuple[int, int]
         is_valid, result = validate_bip375_psbt(
             test_vector["psbt"], test_vector.get("checks"), debug=verbosity >= 2
         )
+        signature_errors = check_partial_signatures(
+            BIP375PSBT.from_base64(test_vector["psbt"])
+        )
         print(f"{test_vector['description']}")
-        if not is_valid:
+        if not is_valid and not signature_errors:
             passed += 1
             if verbosity >= 1:
                 print(f"  {result}")
         else:
             failed += 1
-            if result:
+            if is_valid and result:
                 print(f"  ERROR: {result}")
+            for error in signature_errors:
+                print(f"  ERROR: {error}")
 
     # Process valid PSBTs (should pass validation)
     valid_tests = test_data.get("valid", [])
@@ -103,18 +110,43 @@ def run_validation_tests(test_data: dict, verbosity: int = 0) -> tuple[int, int]
         is_valid, result = validate_bip375_psbt(
             test_vector["psbt"], test_vector.get("checks"), debug=verbosity >= 2
         )
+        signature_errors = check_partial_signatures(
+            BIP375PSBT.from_base64(test_vector["psbt"])
+        )
 
         print(f"{test_vector['description']}")
-        if is_valid:
+        if is_valid and not signature_errors:
             passed += 1
             if verbosity >= 1:
                 print(f"  {result}")
         else:
             failed += 1
-            if result:
+            if not is_valid and result:
                 print(f"  ERROR: {result}")
+            for error in signature_errors:
+                print(f"  ERROR: {error}")
 
     return passed, failed
+
+
+def run_tampered_signature_test(test_data: dict) -> tuple[int, int]:
+    """Check that flipping a byte of a valid vector's signature fails the signature check"""
+    print("")
+    print("Tampered signature: 1")
+    for test_vector in test_data.get("valid", []):
+        psbt = BIP375PSBT.from_base64(test_vector["psbt"])
+        for input_map in psbt.i:
+            for key, signature in input_map.get_all_by_type(PSBT_IN_PARTIAL_SIG):
+                # Flip the low bit of the last byte of s: the DER encoding and the sighash byte stay valid
+                tampered = signature[:-2] + bytes([signature[-2] ^ 1]) + signature[-1:]
+                input_map.map[bytes([PSBT_IN_PARTIAL_SIG]) + key] = tampered
+                print(f"{test_vector['description']}")
+                if check_partial_signatures(psbt):
+                    return 1, 0
+                print("  ERROR: tampered signature passes the signature check")
+                return 0, 1
+    print("  ERROR: no valid vector has a PSBT_IN_PARTIAL_SIG")
+    return 0, 1
 
 
 def main():
@@ -144,6 +176,9 @@ def main():
     print()
 
     passed, failed = run_validation_tests(test_data, args.verbosity)
+    tamper_passed, tamper_failed = run_tampered_signature_test(test_data)
+    passed += tamper_passed
+    failed += tamper_failed
 
     print()
     print(f"Summary: {passed} passed, {failed} failed")
