@@ -10,7 +10,7 @@
   License: BSD-3-Clause
   Discussion: 2022-04-05: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-April/020198.html [bitcoin-dev] MuSig2 BIP
               2022-10-11: https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2022-October/021000.html [bitcoin-dev] MuSig2 BIP
-  Version: 1.0.4
+  Version: 1.0.5
 </pre>
 
 == Introduction ==
@@ -744,11 +744,42 @@ If we would nonetheless allow the final nonce to be the point at infinity, then 
 if ''PartialSigVerify'' succeeds for all partial signatures, then ''PartialSigAgg'' will return a valid Schnorr signature.
 Since this is a valuable feature, we modify MuSig2* (which is defined in the appendix of the [https://eprint.iacr.org/2020/1261 MuSig2 paper]) to avoid producing an invalid Schnorr signature while still allowing detection of the dishonest signer: In ''GetSessionValues'', if the final nonce ''R'' would be the point at infinity, set it to the generator instead (an arbitrary choice).
 
-This modification to ''GetSessionValues'' does not affect the unforgeability of the scheme.
-Given a successful adversary against the unforgeability game (EUF-CMA) for the modified scheme, a reduction can win the unforgeability game for the original scheme by simulating the modification towards the adversary:
-When the adversary provides ''aggnonce' = bytes(33, 0) || bytes(33, 0)'', the reduction sets ''aggnonce = cbytes_ext(G) || bytes(33, 0)''.
-For any other ''aggnonce' '', the reduction sets ''aggnonce = aggnonce' ''.
-(The case that the adversary provides an ''aggnonce' ≠ bytes(33, 0) || bytes(33, 0) '' but nevertheless ''R' '' in ''GetSessionValues'' is the point at infinity happens only with negligible probability.)
+This modification to ''GetSessionValues'' does not affect the unforgeability of the scheme in the random oracle model.
+Given a successful adversary against the unforgeability game (EUF-CMA) for the modified scheme, a reduction can win the unforgeability game for the original scheme by simulating the modification towards the adversary.<ref>The reduction forwards the hash queries and signing queries of the adversary to the unforgeability game for the original scheme (the original game) but translates the inputs of hash queries and the aggregate nonce of signing queries.
+If the secret nonce, the secret key, and all elements of the session context other than the aggregate nonce are fixed, the partial signature computed by ''Sign'' depends on the aggregate nonce and on the hash functions only through the nonce coefficient ''b'', the challenge ''e'', and ''has_even_y(R)''.
+The adversary can check the partial signature using ''PartialSigVerify''.
+Therefore, the translation must ensure that these three values in the adversary's view agree with their counterparts in the original game.
+In the adversary's view, a session with ''aggnonce<sub>∞</sub> = bytes(33, 0) || bytes(33, 0)'' and a session with ''aggnonce<sub>G</sub> = cbytes(G) || bytes(33, 0)'' have the same final nonce ''G'' and thus the same challenge, but independent nonce coefficients.
+Since the challenge in the original game is determined by the final nonce and the nonce coefficient by the aggregate nonce, the reduction answers them with sessions of the original game that have the same final nonce ''W'' but are derived from two different aggregate nonces.
+Since the challenge depends only on ''xbytes(R)'', a session with ''aggnonce<sub>-G</sub> = cbytes(-G) || bytes(33, 0)'', whose final nonce is ''-G'', has the same challenge as well, and the reduction answers it with a session of the original game whose final nonce is ''-W''.<br />
+Concretely, the reduction treats each pair of aggregate public key ''Q'' and message ''m'' separately as follows.
+Let ''b(aggnonce) = int(hash<sub>MuSig/noncecoef</sub>(aggnonce || xbytes(Q) || m)) mod n'' and ''e(R) = int(hash<sub>BIP0340/challenge</sub>(xbytes(R) || xbytes(Q) || m)) mod n'' denote the values computed in ''GetSessionValues'' with the hash functions of the original game,
+and let ''b'(aggnonce)'' and ''e'(R)'' denote the corresponding values computed with the hash functions that the reduction provides to the adversary.
+The reduction chooses ''y<sub>1</sub>'' and ''y<sub>2</sub>'' uniformly at random from ''1..n-1'' and sets
+* ''aggnonce<sub>Y</sub> = cbytes(y<sub>1</sub>⋅G) || cbytes(y<sub>2</sub>⋅G)'',
+* ''w = (y<sub>1</sub> + b(aggnonce<sub>Y</sub>)⋅y<sub>2</sub>) mod n'' and ''W = w⋅G'', repeating the choice of ''y<sub>1</sub>'' and ''y<sub>2</sub>'' until ''not is_infinite(W)'', ''W ≠ G'', and ''has_even_y(W)'',
+* ''aggnonce<sub>W</sub> = cbytes(W) || bytes(33, 0)'' and ''aggnonce<sub>-W</sub> = cbytes(-W) || bytes(33, 0)''.
+In the original game, both ''aggnonce<sub>Y</sub>'' and ''aggnonce<sub>W</sub>'' result in the final nonce ''R = W'', and ''aggnonce<sub>-W</sub>'' results in the final nonce ''R = -W''.
+The reduction answers the adversary's queries to ''hash<sub>MuSig/noncecoef</sub>'' and its signing queries after swapping ''aggnonce<sub>∞</sub>'' with ''aggnonce<sub>Y</sub>'', ''aggnonce<sub>G</sub>'' with ''aggnonce<sub>W</sub>'', and ''aggnonce<sub>-G</sub>'' with ''aggnonce<sub>-W</sub>'' in the query,
+and it answers the adversary's queries to ''hash<sub>BIP0340/challenge</sub>'' after swapping ''xbytes(G)'' with ''xbytes(W)'' in the query.
+Since these translations are permutations of the inputs, the hash functions in the adversary's view are random oracles, as in the unforgeability game for the modified scheme.
+(The swaps involving ''aggnonce<sub>W</sub>'' and ''aggnonce<sub>-W</sub>'' depend on the output of ''hash<sub>MuSig/noncecoef</sub>'' at ''aggnonce<sub>Y</sub>'', but conditioned on this output, the outputs at all other inputs remain uniformly random and independent, so the hash function in the adversary's view is still uniformly random.)<br />
+A session in which the adversary provides ''aggnonce<sub>∞</sub>'' has, in the adversary's view, the nonce coefficient ''b'(aggnonce<sub>∞</sub>) = b(aggnonce<sub>Y</sub>)'', the final nonce ''G'', and the challenge ''e'(G) = e(W)''.
+The reduction answers it with a session of the original game with aggregate nonce ''aggnonce<sub>Y</sub>'', which has the nonce coefficient ''b(aggnonce<sub>Y</sub>)'', the final nonce ''W'', and the challenge ''e(W)''.
+Similarly, a session in which the adversary provides ''aggnonce<sub>G</sub>'' has, in the adversary's view, the nonce coefficient ''b'(aggnonce<sub>G</sub>) = b(aggnonce<sub>W</sub>)'', the final nonce ''G'', and the challenge ''e(W)'',
+and the reduction answers it with a session of the original game with aggregate nonce ''aggnonce<sub>W</sub>'', which has the nonce coefficient ''b(aggnonce<sub>W</sub>)'', the final nonce ''W'', and the challenge ''e(W)''.
+In both cases, the nonce coefficients and challenges agree, and ''G'' and ''W'' both have an even Y coordinate, so the original game returns exactly the partial signature that the adversary expects.
+A session in which the adversary provides ''aggnonce<sub>-G</sub>'' is answered with ''aggnonce<sub>-W</sub>'' in the same way, with ''-G'' and ''-W'' in place of ''G'' and ''W'', which both have an odd Y coordinate.
+For a session with any aggregate nonce other than these six, the reduction forwards the signing query unchanged, and the nonce coefficient and the challenge agree because the hash functions agree on the inputs involved, except in the negligible cases discussed below.<br />
+The simulation fails only if the adversary provides ''aggnonce<sub>Y</sub>'', ''aggnonce<sub>W</sub>'', or ''aggnonce<sub>-W</sub>'' in a signing query, or if it provides an aggregate nonce other than these six for which ''R' '' in ''GetSessionValues'' is the point at infinity, ''G'', ''-G'', ''W'', or ''-W''.
+The former requires guessing ''y<sub>1</sub>⋅G'' and ''y<sub>2</sub>⋅G'' or ''W'', which are random and hidden from the adversary.
+The latter requires ''R<sub>2</sub>'' not to be the point at infinity, because otherwise ''R' = R<sub>1</sub>'' and the aggregate nonce would be one of the six, and then it requires the uniformly random nonce coefficient to take one of at most five specific values.
+Hence, these cases happen only with negligible probability.<br />
+When the adversary outputs a forgery ''(R, s)'' for a message ''m'' that is valid in its view, i.e., ''has_even_y(R)'' and ''s⋅G = R + e'(R)⋅lift_x(xbytes(Q))'', the reduction outputs a forgery for the same message in the original game:
+if ''R = G'', it outputs ''(W, (s + w - 1) mod n)'', which is valid because ''e'(G) = e(W)'';
+if ''R = W'', it outputs ''(G, (s - w + 1) mod n)'', which is valid because ''e'(W) = e(G)'';
+otherwise, it outputs ''(R, s)'', which is valid because ''e'(R) = e(R)''.
+Since the reduction knows the discrete logarithms of all group elements it introduces, it can provide the representations of group elements required of an adversary in the algebraic group model, so the argument also applies in that model.</ref>
 
 === Choosing the Size of the Nonce ===
 
@@ -782,6 +813,8 @@ An exception to this rule is <code>MAJOR</code> version zero (0.y.z) which is fo
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.0.5''' (2026-11-13):
+** Fix the reduction sketch for the handling of the point at infinity in nonce aggregation.
 * '''1.0.4''' (2026-08-19):
 ** Fix two minor bugs in the specification of ''PartialSigAgg''.
 * '''1.0.3''' (2026-01-05):
