@@ -199,8 +199,10 @@ them.
 
 A signer MUST answer a request needing a capability it does not advertise with
 `ERROR` `0x0F` (unsupported operation), e.g. a Taproot miniscript descriptor
-without bit 1, a silent payment request without bit 2, or a `musig()` key
-without bit 3.
+without bit 1, a silent payment send without bit 2, or a `musig()` key
+without bit 3. A `FORM` that needs a capability the signer does not advertise,
+such as `FORM` `0x03` without bit 2, is the exception: it gets `ERROR` `0x06` (see
+Error response body).
 
 ### Encoding
 
@@ -317,9 +319,15 @@ code alone is not meaningful, so `ERROR_MESSAGE` carries the description. A rece
 MUST NOT reject an unrecognized `ERROR`; `STATUS` = `1` already denotes an error,
 and it SHOULD fall back to `ERROR_MESSAGE`.
 
+A signer MUST answer `0x06` to a request carrying a `DESCRIPTOR_BODY` whose `FORM`
+it cannot take, whatever the reason: a `FORM` value it does not know, a form it
+does not implement, or a form needing a capability bit it does not advertise
+(e.g. `FORM` `0x03` without bit 2). It answers `0x06`, not `0x0F` or `0x03`.
+
 A signer MUST answer `0x0F` to a request whose operation, or a capability it
 needs, the signer does not support: a known `TYPE` it does not implement, or a
-request needing a capability bit it does not advertise (see `CAPABILITIES`).
+request needing a capability bit it does not advertise (see `CAPABILITIES`),
+except a `FORM` it cannot take (`0x06`).
 A signer MUST answer `0x10` to a request whose descriptor, keys, address or `PSBT`
 are for a network it does not sign for (not in its Get Info `NETWORKS`), or for
 another network than the one it is set to.
@@ -330,7 +338,8 @@ far enough to know its `REQUEST_ID` or its `TYPE`: input that does not begin wit
 unknown, reserved or `0x00`, or `STATUS` = `1` on a request. Its `MSG_TYPE` has
 `DIRECTION` = `1`, `STATUS` = `1` and `TYPE` `0x00` (unreadable request), and its
 `VERSION` is the signer's own protocol version. A request whose header is readable
-but whose `BODY` is malformed gets `0x03` with its own `REQUEST_ID` and `TYPE`.
+but whose `BODY` is malformed gets `0x03` with its own `REQUEST_ID` and `TYPE`,
+unless the fault is a `FORM` it does not know, which gets `0x06`.
 
 #### Body
 
@@ -483,7 +492,9 @@ body field.
 `DESCRIPTOR_ALIAS` `DERIV` `ADDRESS` `DESCRIPTOR` `POR`
 
 `DESCRIPTOR_ALIAS`: the alias the descriptor is registered under on the device.
-`DERIV`: `DERIVATION_PATH`, the path under the descriptor.
+`DERIV`: `DERIVATION_PATH`, the path under the descriptor, not from the master key:
+`7` for index 7 of a `.../0/*` descriptor, or `0/7` for receive index 7 of a
+`.../<0;1>/*` one.
 `ADDRESS`: OPTIONAL `STRING`, the expected address (recommended).
 `DESCRIPTOR`: OPTIONAL `DESCRIPTOR_BODY`, the full descriptor / wallet policy (for
 stateless devices).
@@ -499,7 +510,7 @@ A silent payment address is verified with a `DESCRIPTOR` of `FORM` `0x03`
 
 The answer is a `URI` holding the address, or the error `0x08` when the address
 differs from `ADDRESS`. It requires capability bit 2: a signer without it MUST
-answer with `ERROR` `0x0F`.
+answer with `ERROR` `0x06`, as for any `FORM` it cannot take.
 
 **Ok response** (`TYPE` = `0x04`, response):
 
@@ -569,8 +580,8 @@ carried.
 With silent payment outputs, the signer MUST NOT add a signature until every
 silent payment output script is set in the `PSBT` or computable from the complete
 shares; until then its answer carries the shares and proofs only. It MUST refuse a
-`PSBT` with a `PSBT_IN_SIGHASH_TYPE` other than `SIGHASH_ALL`, and signs with
-`SIGHASH_ALL` when none is set.
+`PSBT` with a `PSBT_IN_SIGHASH_TYPE` other than `SIGHASH_ALL` with `ERROR` `0x0A`,
+and signs with `SIGHASH_ALL` when none is set.
 
 `SIG_ENTRY` follows this format:
 
