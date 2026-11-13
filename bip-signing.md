@@ -243,7 +243,7 @@ Bits (bit 7 is the MSB):
 +-------+----------------------+
 | Value | Type                 |
 +-------+----------------------+
-| 0x00  | Reserved             |
+| 0x00  | Unreadable request   |
 | 0x01  | Get Info             |
 | 0x02  | Get Keys             |
 | 0x03  | Register Descriptor  |
@@ -255,6 +255,11 @@ Bits (bit 7 is the MSB):
 Values `0x06`–`0x3F` are reserved. A parser MUST reject an unknown `TYPE`, and
 MUST reject `STATUS` = `1` on a request (`DIRECTION` = `0`).
 
+`TYPE` `0x00` (unreadable request) is valid only in an error response whose
+`REQUEST_ID` is `0x0000`: the reply to a request the signer cannot read (see Error
+response body). A parser MUST accept it there, and MUST reject it in a request, in
+an ok response, and in an error response with another `REQUEST_ID`.
+
 #### Request Id
 
 `REQUEST_ID`: 2 opaque bytes with no `LENGTH` prefix. The requester chooses the
@@ -262,6 +267,10 @@ value, and the responder echoes it verbatim in the matching response, including 
 error response, so a coordinator can pair a response with the request it sent. It
 carries no structure and a receiver MUST NOT interpret it. It MUST be present in
 every message.
+
+The reply to a request the signer cannot read carries `REQUEST_ID` `0x0000` instead
+(see Error response body). A coordinator SHOULD NOT choose `0x0000`, so this reply
+never pairs with a request it sent.
 
 #### Error response body
 
@@ -314,6 +323,14 @@ request needing a capability bit it does not advertise (see `CAPABILITIES`).
 A signer MUST answer `0x10` to a request whose descriptor, keys, address or `PSBT`
 are for a network it does not sign for (not in its Get Info `NETWORKS`), or for
 another network than the one it is set to.
+
+A signer MUST answer `0x03` with `REQUEST_ID` `0x0000` to a request it cannot read
+far enough to know its `REQUEST_ID` or its `TYPE`: input that does not begin with
+`MAGIC`, input that ends before `REQUEST_ID` is fully read, a `TYPE` that is
+unknown, reserved or `0x00`, or `STATUS` = `1` on a request. Its `MSG_TYPE` has
+`DIRECTION` = `1`, `STATUS` = `1` and `TYPE` `0x00` (unreadable request), and its
+`VERSION` is the signer's own protocol version. A request whose header is readable
+but whose `BODY` is malformed gets `0x03` with its own `REQUEST_ID` and `TYPE`.
 
 #### Body
 
@@ -706,9 +723,12 @@ Rules for future versions:
   `PRESENCE` outside `{0x00, 0x01}`, a discriminant outside its defined range: the
   `TYPE`, the `FORM`, the Get Keys `KIND` or the Signing response `KIND` (an
   unknown `SIG_KIND` is skipped and an unknown `WANT_KIND` ignored, as their
-  sections define), `STATUS` = `1` on a request, a `STRING` that is not
-  valid UTF-8 or that contains a nul byte, or a `FORM` `0x03` body with both or
-  neither of `SCAN_PATH` and `SCAN_KEY`.
+  sections define), `STATUS` = `1` on a request, `TYPE` `0x00` outside an error
+  response with `REQUEST_ID` `0x0000`, a `STRING` that is not valid UTF-8 or that
+  contains a nul byte, or a `FORM` `0x03` body with both or neither of `SCAN_PATH`
+  and `SCAN_KEY`.
+- A signer MUST answer a request it cannot read with `REQUEST_ID` `0x0000` and
+  `TYPE` `0x00` (see Error response body).
 
 ## Rationale
 
@@ -723,6 +743,8 @@ See also the footnotes throughout the specification.
   job, so one encoding serves every channel.
 - **Request id.** The responder echoes `REQUEST_ID`, also in an error response, so
   the coordinator pairs a response with its request whatever order they arrive in.
+  A request too broken to read gets `REQUEST_ID` `0x0000`, which a coordinator does
+  not choose, so that reply pairs with no request.
 - **One byte per optional field.** `PRESENCE` marks an optional field without
   tags: the field order is fixed by this specification.
 - **Append-only versioning.** New fields go after the existing ones and an older
@@ -777,12 +799,14 @@ Machine-checkable vectors accompany this specification, in
   `0x06` and `0x07`), and an entry of an unknown `SIG_KIND` that a reader skips.
 - `errors.json`: error responses (`STATUS` = `1`), standard and vendor codes,
   including `0x0D` (MuSig2 session), `0x0E` (alias already registered), `0x0F`
-  (unsupported operation) and `0x10` (network mismatch).
+  (unsupported operation), `0x10` (network mismatch) and the reply to an
+  unreadable request (`TYPE` `0x00`, `REQUEST_ID` `0x0000`).
 - `versioning.json`: forward compatibility, a message whose `VERSION` is above 1
   and which carries trailing bytes a version-1 parser does not know.
-- `invalid.json`: malformed messages a reader MUST reject, each a vector above
-  with one change its `description` names: a bad `MAGIC`, a reserved or unknown
-  `TYPE`, `FORM` and `KIND`, `STATUS` = `1` on a request, truncated input, an
+- `invalid.json`: malformed messages a reader MUST reject, each a vector above with
+  one change its `description` names: a bad `MAGIC`, a reserved or unknown `TYPE`,
+  `FORM` and `KIND`, `TYPE` `0x00` on a request, an ok response or an error response
+  with another `REQUEST_ID`, `STATUS` = `1` on a request, truncated input, an
   invalid `BOOL` or `STRING`, a `DESCRIPTOR_ALIAS` above 32 bytes, both or neither
   of `SCAN_PATH` and `SCAN_KEY`, unpaired or duplicate silent payment entries, a
   global one with an `INPUT_INDEX` other than `0`, signatures of the wrong length,
