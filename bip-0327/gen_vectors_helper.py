@@ -15,6 +15,38 @@ def gen_key_agg_vectors():
     print("  pubkey:", pk.hex().upper())
     print("  tweak: ", tweak.hex().upper())
 
+def gen_sign_verify_vectors():
+    print("sign_verify_vectors.json: Signature exceeds group size but is valid modulo n")
+    with open(os.path.join(sys.path[0], 'vectors', 'sign_verify_vectors.json')) as f:
+        test_data = json.load(f)
+    X = fromhex_all(test_data["pubkeys"])
+    pnonce = fromhex_all(test_data["pnonces"])
+    aggnonce = bytes.fromhex(test_data["aggnonces"][0])
+    msg = bytes.fromhex(test_data["msgs"][0])
+    pubkeys = X[0:3]
+
+    session_ctx = SessionContext(aggnonce, pubkeys, [], [], msg)
+    (Q, gacc, _, b, R, e) = get_session_values(session_ctx)
+    P = cpoint(pubkeys[0])
+    a = get_session_key_agg_coeff(session_ctx, P)
+    g = 1 if has_even_y(Q) else n - 1
+    # Choose the first half of the pubnonce of signer 0 such that the effective
+    # nonce of signer 0 is -e*a*g*gacc*P. Then the partial signature 0 is
+    # valid. Since n*G = 0*G, the partial signature n satisfies the
+    # verification equation as well, so only the range check rejects it.
+    T = point_mul(P, e * a * g * gacc % n)
+    Re_s_ = point_negate(T) if has_even_y(R) else T
+    R_s2 = cpoint(pnonce[0][33:66])
+    R_s1 = point_add(Re_s_, point_negate(point_mul(R_s2, b)))
+    # Change the first half of the pubnonce of signer 2 such that the
+    # aggregate nonce, and thus b, R and e, stay the same.
+    R_s1_2 = point_add(cpoint(aggnonce[0:33]), point_negate(point_add(R_s1, cpoint(pnonce[1][0:33]))))
+    pubnonces = [cbytes(R_s1) + pnonce[0][33:66], pnonce[1], cbytes(R_s1_2) + pnonce[2][33:66]]
+    assert nonce_agg(pubnonces) == aggnonce
+    assert partial_sig_verify(bytes_from_int(0), pubnonces, pubkeys, [], [], msg, 0)
+    print("  pnonce of signer 0:", pubnonces[0].hex().upper())
+    print("  pnonce of signer 2:", pubnonces[2].hex().upper())
+
 def check_sign_verify_vectors():
     with open(os.path.join(sys.path[0], 'vectors', 'sign_verify_vectors.json')) as f:
         test_data = json.load(f)
@@ -80,7 +112,7 @@ def sig_agg_vectors():
         "75448A87274B056468B977BE06EB1E9F657577B7320B0A3376EA51FD420D18A8"])
     msg = bytes.fromhex("599C67EA410D005B9DA90817CF03ED3B1C868E4DA4EDF00A5880B0082C237869")
 
-    psigs = [None] * 9
+    psigs = [None] * 12
 
     valid_test_cases = [
         {
@@ -111,6 +143,22 @@ def sig_agg_vectors():
             "tweak_indices": [0, 1, 2],
             "is_xonly": [True, False, True],
             "psig_indices": [6, 7],
+        }, {
+            "aggnonce": None,
+            "nonce_indices": [0],
+            "key_indices": [0],
+            "tweak_indices": [],
+            "is_xonly": [],
+            "psig_indices": [9],
+            "comment": "A single signer. Detects implementations that reject a single signer in PartialSigAgg.",
+        }, {
+            "aggnonce": None,
+            "nonce_indices": [0, 5],
+            "key_indices": [0, 1],
+            "tweak_indices": [2],
+            "is_xonly": [False],
+            "psig_indices": [10, 11],
+            "comment": "The tweaked aggregate public key has an odd Y coordinate. Detects implementations that omit g in e*g*tacc.",
         },
     ]
     for (i, test_case) in enumerate(valid_test_cases):
@@ -135,11 +183,14 @@ def sig_agg_vectors():
         sig = partial_sig_agg([psigs[i] for i in psig_indices], session_ctx)
         keygen_ctx = key_agg_and_tweak(vec_pubkeys, vec_tweaks, is_xonly)
         # To maximize coverage of the sig_agg algorithm, we want one public key
-        # point with an even and one with an odd Y coordinate.
+        # point with an even and one with an odd Y coordinate, and one tweaked
+        # public key point with an odd Y coordinate.
         if i == 0:
             assert(has_even_y(keygen_ctx[0]))
         if i == 1:
             assert(not has_even_y(keygen_ctx[0]))
+        if i == 5:
+            assert(not has_even_y(keygen_ctx[0]) and keygen_ctx[2] != 0)
         aggpk = get_xonly_pk(keygen_ctx)
         assert schnorr_verify(msg, aggpk, sig)
         test_case["expected"] = sig.hex().upper()
@@ -179,6 +230,7 @@ def sig_agg_vectors():
     }, indent=4))
 
 gen_key_agg_vectors()
+gen_sign_verify_vectors()
 check_sign_verify_vectors()
 check_tweak_vectors()
 print()
