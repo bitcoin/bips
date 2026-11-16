@@ -170,27 +170,50 @@ unspecified pre-release rather than reject.
 Bit 0 is the LSB.
 
 ```
-+------+----------------------------------+
-| Bit  | Capability                       |
-+------+----------------------------------+
-| 0    | Miniscript, SegWit v0            |
-| 1    | Miniscript, Taproot (v1)         |
-| 2    | Silent Payments (v0)             |
-| 3    | MuSig2                           |
-| 4    | Reserved for future capabilities |
-| 5    | PSBT trimming                    |
-| 6–30 | Reserved for future capabilities |
-| 31   | Upgrade signal (MSB)             |
-+------+----------------------------------+
++-------+------------------------------------------+
+| Bit   | Capability                               |
++-------+------------------------------------------+
+| 0     | BIP-380 descriptors (`FORM` `0x01`)      |
+| 1     | BIP-388 wallet policies (`FORM` `0x02`)  |
+| 2     | Miniscript, SegWit v0                    |
+| 3     | Miniscript, Taproot (v1)                 |
+| 4     | Silent payment sends (BIP-375)           |
+| 5     | Silent payment accounts (`FORM` `0x03`)  |
+| 6     | Unregister Descriptor                    |
+| 7     | MuSig2                                   |
+| 8–30  | Reserved for future capabilities         |
+| 31    | Upgrade signal (MSB)                     |
++-------+------------------------------------------+
 ```
 
-Bit 3 means the signer is a BIP-327 MuSig2 participant for BIP-390 `musig()` keys,
+Bits 0 and 1 name the descriptor forms the signer takes, in Register Descriptor and
+in any request carrying a `DESCRIPTOR_BODY`. A signer MUST set the bit of each form
+it takes, so a coordinator picks the form before it sends one: a BIP-388 wallet
+policy always converts to a BIP-380 descriptor, while a descriptor converts to a
+wallet policy only when it fits BIP-388's restrictions.
+
+A signer taking bit 0 or bit 1 handles the basic descriptors whatever its other
+bits: `pkh`, `wpkh`, `sh(wpkh)`, `tr` with a key and no script tree, and `multi` /
+`sortedmulti` under `sh`, `wsh` and `sh(wsh)`. Bit 2 extends this to any miniscript
+under `wsh` and `sh(wsh)`, bit 3 to `tr` with a script tree of miniscript leaves.
+
+Bit 4 means the signer can sign a transaction paying silent payment outputs: it
+answers with the BIP-375 ECDH shares and DLEQ proofs (see Signing), whatever wallet
+its inputs belong to.
+
+Bit 5 means the signer holds silent payment accounts: it takes `FORM` `0x03`,
+verifies their addresses (see Address Verification) and spends the outputs they
+received. It also answers Get Keys `KIND` `0x01` at its BIP-352 scan key path, so a
+coordinator can scan for the account; the user MAY still refuse the export
+(`ERROR` `0x0C`).
+
+Bit 6 means the signer implements Unregister Descriptor. A signer that only issues
+a `POR` never sets it.
+
+Bit 7 means the signer is a BIP-327 MuSig2 participant for BIP-390 `musig()` keys,
 and MAY answer with `SIG_KIND` `0x04` / `0x05` (see Signing).
 
-Bit 5 means the signer can answer a Signing request with a trimmed `PSBT` (see
-Signing).
-
-Bits 4 and 6–30 are reserved for future capabilities and MUST be `0` in this
+Bits 8–30 are reserved for future capabilities and MUST be `0` in this
 version; a reader MUST ignore an unknown capability bit rather than reject, so a
 newer signer can advertise capabilities an older coordinator does not know. Bit 31
 (the MSB) MUST be `0` in this version; a `1` signals that the signer exposes
@@ -198,11 +221,11 @@ capabilities beyond this bitfield and the coordinator should upgrade to interpre
 them.
 
 A signer MUST answer a request needing a capability it does not advertise with
-`ERROR` `0x0F` (unsupported operation), e.g. a Taproot miniscript descriptor
-without bit 1, a silent payment send without bit 2, or a `musig()` key
-without bit 3. A `FORM` that needs a capability the signer does not advertise,
-such as `FORM` `0x03` without bit 2, is the exception: it gets `ERROR` `0x06` (see
-Error response body).
+`ERROR` `0x0F` (unsupported operation), e.g. a Taproot miniscript descriptor without
+bit 3, a silent payment send without bit 4, an Unregister Descriptor request without
+bit 6, or a `musig()` key without bit 7. A `FORM` that needs a capability the signer
+does not advertise, such as `FORM` `0x01` without bit 0 or `FORM` `0x03` without bit
+5, is the exception: it gets `ERROR` `0x06` (see Error response body).
 
 ### Encoding
 
@@ -323,7 +346,7 @@ and it SHOULD fall back to `ERROR_MESSAGE`.
 A signer MUST answer `0x06` to a request carrying a `DESCRIPTOR_BODY` whose `FORM`
 it cannot take, whatever the reason: a `FORM` value it does not know, a form it
 does not implement, or a form needing a capability bit it does not advertise
-(e.g. `FORM` `0x03` without bit 2). It answers `0x06`, not `0x0F` or `0x03`.
+(e.g. `FORM` `0x03` without bit 5). It answers `0x06`, not `0x0F` or `0x03`.
 
 A signer MUST answer `0x0F` to a request whose operation, or a capability it
 needs, the signer does not support: a known `TYPE` it does not implement, or a
@@ -510,7 +533,7 @@ A silent payment address is verified with a `DESCRIPTOR` of `FORM` `0x03`
 - `ADDRESS`: the expected silent payment address.
 
 The answer is a `URI` holding the address, or the error `0x08` when the address
-differs from `ADDRESS`. It requires capability bit 2: a signer without it MUST
+differs from `ADDRESS`. It requires capability bit 5: a signer without it MUST
 answer with `ERROR` `0x06`, as for any `FORM` it cannot take.
 
 **Ok response** (`TYPE` = `0x04`, response):
@@ -708,9 +731,9 @@ The signer MUST ask the user to confirm before it removes the registration, show
 `DESCRIPTOR_ALIAS` and the descriptor registered under it. A declined request gets
 `ERROR` `0x01`, and an alias the signer does not hold gets `ERROR` `0x04`.
 
-A signer that never stores a registration, and only issues a `POR`, answers
-`ERROR` `0x0F`. This request cannot revoke a `POR`: the coordinator forgets it
-instead.
+A signer that never stores a registration, and only issues a `POR`, does not
+advertise capability bit 6 and answers `ERROR` `0x0F`. This request cannot revoke
+a `POR`: the coordinator forgets it instead.
 
 **Ok response** (`TYPE` = `0x07`, response):
 
@@ -824,8 +847,8 @@ Machine-checkable vectors accompany this specification, in
 [`bip-signing/test_vectors/`](./bip-signing/test_vectors/):
 
 - `get_info.json`: Get Info request, an ok response from a ready signer with its
-  `FINGERPRINT`, the same advertising PSBT trimming (capability bit 5), and one from
-  a locked signer without `FINGERPRINT`.
+  `FINGERPRINT`, the same advertising Unregister Descriptor (capability bit 6), and
+  one from a locked signer without `FINGERPRINT`.
 - `get_keys.json`: Get Keys request/response.
 - `register_descriptor.json`: Register Descriptor request/response, each `FORM`.
 - `unregister_descriptor.json`: Unregister Descriptor request/response.
