@@ -9,7 +9,7 @@
   License: BSD-2-Clause
   Discussion: 2026-04-28: https://delvingbitcoin.org/t/qr-based-signing-flow-payloads-in-miniscript-context/2464
               2026-11-12: https://groups.google.com/g/bitcoindev/c/gmHOr6JRJyU/m/kkWnI_NAAgAJ
-  Requires: 32, 174, 321, 327, 340, 341, 352, 370, 373, 374, 375, 380, 388, 390
+  Requires: 32, 174, 321, 327, 340, 341, 352, 370, 373, 374, 375, 376, 380, 388, 390
 ```
 
 ## Introduction
@@ -47,7 +47,8 @@ external signer, whatever carries the bytes (USB, NFC, a file, etc.).
 
 This BIP defines one binary encoding for these messages. It covers miniscript
 descriptors, BIP-388 wallet policies, MuSig2 (BIP-373) and silent payment sends
-(BIP-375), so any coordinator implementing it can drive any signer implementing it.
+(BIP-375) and spends (BIP-376), so any coordinator implementing it can drive any
+signer implementing it.
 
 ## Specification
 
@@ -203,9 +204,9 @@ its inputs belong to.
 
 Bit 5 means the signer holds silent payment accounts: it takes `FORM` `0x03`,
 verifies their addresses (see Address Verification) and spends the outputs they
-received. It also answers Get Keys `KIND` `0x01` at its BIP-352 scan key path, so a
-coordinator can scan for the account; the user MAY still refuse the export
-(`ERROR` `0x0C`).
+received (BIP-376). It also answers Get Keys `KIND` `0x01` at its BIP-352 scan key
+path, so a coordinator can scan for the account; the user MAY still refuse the
+export (`ERROR` `0x0C`).
 
 Bit 6 means the signer implements Unregister Descriptor. A signer that only issues
 a `POR` never sets it.
@@ -222,10 +223,11 @@ them.
 
 A signer MUST answer a request needing a capability it does not advertise with
 `ERROR` `0x0F` (unsupported operation), e.g. a Taproot miniscript descriptor without
-bit 3, a silent payment send without bit 4, an Unregister Descriptor request without
-bit 6, or a `musig()` key without bit 7. A `FORM` that needs a capability the signer
-does not advertise, such as `FORM` `0x01` without bit 0 or `FORM` `0x03` without bit
-5, is the exception: it gets `ERROR` `0x06` (see Error response body).
+bit 3, a silent payment send without bit 4, a silent payment spend without bit 5, an
+Unregister Descriptor request without bit 6, or a `musig()` key without bit 7. A
+`FORM` that needs a capability the signer does not advertise, such as `FORM` `0x01`
+without bit 0 or `FORM` `0x03` without bit 5, is the exception: it gets `ERROR`
+`0x06` (see Error response body).
 
 ### Encoding
 
