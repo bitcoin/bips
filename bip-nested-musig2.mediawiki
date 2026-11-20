@@ -6,6 +6,7 @@
   Type: Specification
   Assigned: ?
   License: BSD-3-Clause
+  Discussion: 2026-11-19: https://groups.google.com/g/bitcoindev/c/eSgxP8NmEnA/m/oSxrtE9jAQAJ
   Requires: 327, 340
 </pre>
 
@@ -36,6 +37,47 @@ The construction preserves the external BIP340 interface. The completed protocol
 NestedMuSig2 remains an ''n''-of-''n'' construction at each MuSig2 aggregation node. Nesting does not provide ''t''-of-''n'' threshold signing; each MuSig2 node on the signing tree must ultimately include every participant required for the signing session.
 
 Nested signing retains MuSig2's nonce-contribution and partial-signature stages, while contributions are recursively processed through the aggregation tree. This specification defines the additional key, nonce, session, signing, partial-signature verification, and signature-aggregation rules required to perform that recursive composition while producing a BIP340-compatible final signature.
+
+==Overview==
+
+NestedMuSig2 arranges signers in a tree. The leaves hold individual signing keys, and each group combines its participants' contributions before passing a single contribution to its parent. The root produces the final signature. Every participant in each group is required to sign.
+
+===Optionality of Features===
+
+As in BIP327, implementations may omit features that their applications do not need. Optional features include:
+* Applying plain tweaks after X-only tweaks at the root.
+* Applying root aggregate-key tweaks at all.
+* Supporting messages whose length is not exactly 32 bytes.
+* Identifying a disruptive participant after an abort; aborting when an algorithm requires it remains mandatory.
+* Supporting duplicate participant public keys within an aggregation node, including keys representing nested groups.
+
+Implementations must reject unsupported inputs rather than silently ignore them. For example, an implementation restricted to 32-byte messages must fail when given a message of another length. Tests for unsupported features may expect rejection or be skipped where appropriate. The reference implementation continues to support all specified features and run all required test-vector suites.
+
+===Public Key Aggregation===
+
+Key aggregation proceeds from the leaves toward the root. Each group sorts its participants' public keys with ''KeySort'' and combines them with ''KeyAgg''. Its aggregate plain public key then represents the group in its parent's key aggregation. This continues until the root aggregate public key is obtained. Key aggregation uses only public information and can be completed before a signing session begins.
+
+===Tweaking the Aggregate Key===
+
+The root aggregate key can optionally be tweaked using BIP327 ''ApplyTweak'', for example for BIP32 derivation or a Taproot output. Aggregate-key tweaks apply only at the root; intermediate group keys remain untweaked. All signers use the same ordered tweaks and tweak modes. The final signature is verified under the resulting root X-only public key.
+
+===General Signing Flow===
+
+'''Round 1: Nonce generation and aggregation.'''
+Each leaf signer runs ''NonceGen'', keeps its secret nonce private, and sends its public nonce to its group. Each group combines its participants' public nonces with ''NonceAgg''. A non-root group then runs ''NonceAggExt'' to bind this internal aggregate nonce to its aggregate key before forwarding the resulting external nonce to its parent. This continues up to the root. This round can take place before the message is known.
+
+Before round 2, each signer obtains the message, root tweaks, cosigner public keys at each level on its path, and the internal aggregate nonces along that path, including the root's. These form its ''[[#session-context|Session Context]]'' and let it account for every aggregation level when signing.
+
+'''Round 2: Partial signing and aggregation.'''
+Each leaf signer runs ''Sign'' using its secret key, secret nonce, and [[#session-context|Session Context]]. Each non-root group combines its participants' partial signatures with ''PartialSigAggIntermediate'' and forwards one partial signature to its parent. The root uses ''PartialSigAgg'' to combine its participants' contributions and account for any root tweaks, producing the final BIP340 signature. Contributions can be checked with ''PartialSigVerify'', and the completed signature can be checked with ordinary BIP340 verification.
+
+A secret nonce must be used for only one signing attempt, even if that attempt fails.
+
+===Identifying Disruptive Signers===
+
+Before combining partial signatures, an aggregator can use ''[[#partial-signature-verification|PartialSigVerify]]'' to check each participant's contribution against its public key, public nonce, and [[#session-context|Session Context]]. For a leaf signer, this uses its individual key and nonce. For a nested group, it uses the group's aggregate plain public key, external nonce, and Session Context truncated to its position in the parent group.
+
+A failed check identifies an invalid contribution for that session. If the participant is a nested group, the parent can identify the failing group; finding a particular leaf requires checking the contributions inside that group. Applications needing this information should retain participant contributions and ensure that the parties agree on the session being checked. Not every abort can be attributed to an individual signer; see [[#identifiable-aborts|Identifiable Aborts]].
 
 ==Specification==
 
