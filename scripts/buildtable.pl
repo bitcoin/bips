@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+use Encode qw(decode FB_CROAK LEAVE_SRC);
 
 my $topbip = 9999;
 my $include_layer = 1;
@@ -162,7 +163,7 @@ while (++$bipnum <= $topbip) {
 			die "$fn claims to be BIP $val" if $val ne $bipnum;
 		} elsif ($field eq 'Title') {
 			$title = $val;
-			my $title_len = length($title);
+			my $title_len = length(decode('UTF-8', $title, FB_CROAK | LEAVE_SRC));
 			die "$fn has too-long Title ($title_len > 50 char max)" if $title_len > 50 and not exists $TolerateTitleTooLong{$bipnum};
 		} elsif ($field eq 'Authors') {
 			$val =~ m/^(\S[^<@>]*\S) \<([^@>]*\@[\w.-]+\.\w+)\>$/ or die "Malformed Authors line in $fn";
