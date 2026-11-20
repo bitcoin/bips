@@ -8,10 +8,12 @@ A reference validation implementation for BIP-375: Sending Silent Payments with 
 - **`validator/psbt_bip375.py`** - BIP-375 specific PSBT/PSBTMap extensions
 - **`validator/validate_psbt.py`** - Main BIP-375 validation functions
 - **`test_runner.py`** - Test infrastructure (executable)
+- **`signatures.py`** - Test vector signature and key commitment checks, run by the test runner
 
 ## Dependencies
 - **`deps/bitcoin_test/psbt.py`** - Bitcoin test framework PSBT module - [PR #21283](https://github.com/bitcoin/bitcoin/pull/21283)
 - **`deps/bitcoin_test/messages.py`** - Bitcoin test framework primitives and message structures
+- **`deps/bitcoin_test/ripemd160.py`** - Bitcoin test framework pure Python RIPEMD-160
 - **`deps/dleq.py`** - Reference DLEQ implementation from BIP-374
 - **`deps/secp256k1lab/`** - vendored copy of [secp256k1lab](https://github.com/secp256k1lab/secp256k1lab/commit/44dc4bd893b8f03e621585e3bf255253e0e0fbfb) library at version 1.0.0
 
