@@ -26,12 +26,12 @@ class ConstructionTests(unittest.TestCase):
         cls.cases = {case["name"]: case for case in cls.vectors["valid"]}
 
     def test_fixed_vectors(self):
-        self.assertEqual(self.vectors["version"], 1)
+        self.assertEqual(self.vectors["version"], 2)
+        self.assertEqual(self.vectors["tag"], "WalletPolicy/NUMS/2")
         for case in self.vectors["valid"]:
             with self.subTest(case=case["name"]):
                 given, middle, expected = case["given"], case["intermediary"], case["expected"]
-                policy = ref.normalize_policy(given["template"], given["keys_info"])
-                self.assertEqual(policy.template, middle["normalized_template"])
+                policy = ref.prepare_policy(given["template"], given["keys_info"])
                 self.assertEqual([r.hex() for r in policy.records], middle["records"])
                 root = ref.construct_root(policy)
                 self.assertEqual(root.preimage.hex(), middle["preimage"])
@@ -49,7 +49,7 @@ class ConstructionTests(unittest.TestCase):
 
     def commitment(self, name):
         given = self.cases[name]["given"]
-        return ref.construct_root(ref.normalize_policy(given["template"], given["keys_info"])).chain_code
+        return ref.construct_root(ref.prepare_policy(given["template"], given["keys_info"])).chain_code
 
     def test_equivalences_and_distinctions(self):
         for group in self.vectors["equivalent"]:
@@ -63,18 +63,19 @@ class ConstructionTests(unittest.TestCase):
         for case in self.vectors["invalid"]:
             with self.subTest(case=case["name"]):
                 given = case["given"]
-                if case["error_stage"] == "normalize":
+                if case["error_stage"] == "prepare":
                     with self.assertRaises(ValueError):
-                        ref.normalize_policy(given["template"], given["keys_info"])
+                        ref.prepare_policy(given["template"], given["keys_info"])
                 else:
                     self.assertEqual(case["error_stage"], "derive")
-                    policy = ref.normalize_policy(given["template"], given["keys_info"])
+                    policy = ref.prepare_policy(given["template"], given["keys_info"])
                     with self.assertRaises(ValueError):
                         ref.derive_internal_key(policy, given["expansion"], given["index"])
 
     def test_recorded_core_results_match_vectors(self):
         report = json.loads((HERE / "core-checks.json").read_text())
         self.assertEqual(report["network"], "regtest")
+        self.assertEqual(report["tag"], self.vectors["tag"])
         self.assertTrue(report["core_version"])
         self.assertTrue(report["checks"])
         for check in report["checks"]:
@@ -85,47 +86,75 @@ class ConstructionTests(unittest.TestCase):
                 self.assertEqual(check["internal_key"], case["expected"]["derivations"][position]["internal_key"])
                 self.assertTrue(check["addresses"])
 
-    def test_normalization_idempotence(self):
+    def test_reindexing_preserves_records(self):
         for case in self.vectors["valid"]:
             with self.subTest(case=case["name"]):
                 given = case["given"]
-                first = ref.normalize_policy(given["template"], given["keys_info"])
-                keys_info = [base58check_encode(bip32.VERSIONS["mainnet"] + bytes(9) + r[33:] + r[:33])
-                             for r in first.records]
-                self.assertEqual(ref.normalize_policy(first.template, keys_info), first)
+                first = ref.prepare_policy(given["template"], given["keys_info"])
+                keys_info = list(reversed(given["keys_info"]))
+                template = re.sub(r"@([0-9]+)", lambda m: "@" + str(len(keys_info) - 1 - int(m[1])),
+                                  given["template"])
+                second = ref.prepare_policy(template, keys_info)
+                self.assertEqual(second.records, first.records)
+                self.assertEqual(ref.construct_root(second), ref.construct_root(first))
 
     def test_manual_preimages(self):
-        # Fixed bytes are independent of the normalizer and vector generator.
+        # Fixed bytes are independent of record collection and the vector generator.
         xpub = self.cases["single"]["given"]["keys_info"][0]
         record = bytes.fromhex(
             "0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2"
             "873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508")
-        policy = ref.normalize_policy("tr(_/**,pk(@0/**))", [xpub])
+        policy = ref.prepare_policy("tr(_/**,pk(@0/**))", [xpub])
         self.assertEqual(policy.records, (record,))
-        preimage = b"\x12tr(_/**,pk(@0/**))\x01" + record
+        preimage = b"\x01" + record
         self.assertEqual(ref.construct_root(policy).preimage, preimage)
-        tag = hashlib.sha256(b"WalletPolicy/NUMS/1").digest()
+        tag = hashlib.sha256(b"WalletPolicy/NUMS/2").digest()
         self.assertEqual(ref.construct_root(policy).chain_code, hashlib.sha256(tag + tag + preimage).digest())
-        empty = ref.normalize_policy("tr(_/*,older(144))", [])
-        self.assertEqual(ref.construct_root(empty).preimage, b"\x12tr(_/*,older(144))\x00")
+        keys_info = self.cases["musig-same-point"]["given"]["keys_info"]
+        repeated = ref.prepare_policy("tr(_/**,pk(musig(@0,@1,@0)/**))", keys_info)
+        zero_chain_code = record[:33] + bytes(32)
+        preimage = b"\x02" + zero_chain_code + record
+        self.assertEqual(ref.construct_root(repeated).preimage, preimage)
+        self.assertEqual(ref.construct_root(repeated).chain_code, hashlib.sha256(tag + tag + preimage).digest())
+        empty = ref.prepare_policy("tr(_/*,older(144))", [])
+        self.assertEqual(ref.construct_root(empty).preimage, b"\x00")
         self.assertEqual(ref.construct_root(empty).chain_code.hex(),
-                         "c827a369333ab24ec0f3668defed7fcb9a5f157b08052d6d098b9148aac7c691")
+                         "67b63fef88b7c7de0b366c07bde99c1eb05c27dc9dad25de64521b77c1f85e71")
 
     def test_all_key_permutations(self):
         original = self.cases["sorted"]["given"]["keys_info"]
-        reference = ref.normalize_policy("tr(_/**,sortedmulti_a(2,@0/**,@1/**,@2/**))", original)
+        reference = ref.prepare_policy("tr(_/**,sortedmulti_a(2,@0/**,@1/**,@2/**))", original)
         for permutation in itertools.permutations(range(3)):
             keys_info = [original[i] for i in permutation]
             template = "tr(_/**,sortedmulti_a(2," + ",".join(f"@{i}/**" for i in reversed(range(3))) + "))"
-            self.assertEqual(ref.normalize_policy(template, keys_info), reference)
+            self.assertEqual(ref.prepare_policy(template, keys_info).records, reference.records)
 
-    def test_full_records_control_musig_sorting(self):
+    def test_equal_public_keys_with_different_chain_codes_remain_distinct(self):
         given = self.cases["musig-same-point"]["given"]
         records = [ref.key_record(x) for x in given["keys_info"]]
         self.assertEqual(records[0][:33], records[1][:33])
         self.assertNotEqual(records[0][33:], records[1][33:])
-        normalized = ref.normalize_policy(given["template"], given["keys_info"])
-        self.assertEqual(normalized.records, tuple(sorted(records)))
+        policy = ref.prepare_policy(given["template"], given["keys_info"])
+        self.assertEqual(policy.records, tuple(sorted(records)))
+
+    def test_internal_path_affects_derivation_only(self):
+        policies = {}
+        for name, expected_path in (
+                ("single", (0, 5)),
+                ("single-internal-receive", (0, 5)),
+                ("single-internal-prefix", (7, 0, 5)),
+                ("single-no-multipath", (5,))):
+            given = self.cases[name]["given"]
+            policy = ref.prepare_policy(given["template"], given["keys_info"])
+            self.assertEqual(ref.selected_path(policy, 0, 5), expected_path)
+            policies[name] = policy
+        self.assertEqual(len({ref.construct_root(policy) for policy in policies.values()}), 1)
+        internal_key = ref.derive_internal_key(policies["single"], 0, 5)
+        self.assertEqual(ref.derive_internal_key(policies["single-internal-receive"], 0, 5), internal_key)
+        for name in ("single-internal-prefix", "single-no-multipath"):
+            self.assertNotEqual(ref.derive_internal_key(policies[name], 0, 5), internal_key)
+        self.assertNotEqual(ref.derive_internal_key(policies["single"], 1, 5), internal_key)
+        self.assertNotEqual(ref.derive_internal_key(policies["single"], 0, 6), internal_key)
 
     def test_export_reindexes_and_preserves_key_information(self):
         given = self.cases["index-ten"]["given"]
@@ -160,7 +189,7 @@ class ConstructionTests(unittest.TestCase):
                 ("different-chain-codes", [first, second], 2),
                 ("identical-xpubs", [first, first], 1)):
             with self.subTest(case=name):
-                policy = ref.normalize_policy(template, keys_info)
+                policy = ref.prepare_policy(template, keys_info)
                 self.assertEqual(len(policy.records), record_count)
                 self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
                 exported = ref.export_policy(template, keys_info)
@@ -173,43 +202,31 @@ class ConstructionTests(unittest.TestCase):
 
     def test_export_preserves_bip388_repeated_musig_indexes(self):
         given = self.cases["musig-repeated"]["given"]
-        policy = ref.normalize_policy(given["template"], given["keys_info"])
+        policy = ref.prepare_policy(given["template"], given["keys_info"])
         self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
         exported = ref.export_policy(given["template"], given["keys_info"])
         self.assertEqual(exported.template, "tr(@0/**,pk(musig(@1,@2,@1)/**))")
         self.assertEqual(exported.keys_info[1:], tuple(given["keys_info"]))
-        tree = ref.Parser(exported.template.split(",", 1)[1][:-1]).tree()
-        key, = ref.keys(tree)
-        self.assertEqual(key.kind, "musig")
-        # BIP 388 forbids repeated key indexes within a musig placeholder.
-        self.assertLess(len(set(key.indexes)), len(key.indexes))
 
     def test_export_preserves_bip388_path_conflicts(self):
         original = self.cases["sorted"]["given"]["keys_info"]
-        for tree, expected_tree, key_count, overlap in (
-                ("{pk(@0/**),pk(@0/**)}", "{pk(@1/**),pk(@1/**)}", 1, {"0", "1"}),
-                ("{pk(@0/<0;1>/*),pk(@0/<1;2>/*)}", "{pk(@1/<0;1>/*),pk(@1/<1;2>/*)}", 1, {"1"}),
+        for tree, expected_tree, key_count in (
+                ("{pk(@0/**),pk(@0/**)}", "{pk(@1/**),pk(@1/**)}", 1),
+                ("{pk(@0/<0;1>/*),pk(@0/<1;2>/*)}", "{pk(@1/<0;1>/*),pk(@1/<1;2>/*)}", 1),
                 ("{pk(musig(@0,@1)/**),pk(musig(@1,@0)/<1;2>/*)}",
-                 "{pk(musig(@1,@2)/**),pk(musig(@2,@1)/<1;2>/*)}", 2, {"1"})):
+                 "{pk(musig(@1,@2)/**),pk(musig(@2,@1)/<1;2>/*)}", 2)):
             with self.subTest(tree=tree):
                 template = f"tr(_/**,{tree})"
                 keys_info = original[:key_count]
-                policy = ref.normalize_policy(template, keys_info)
+                policy = ref.prepare_policy(template, keys_info)
                 self.assertEqual(len(ref.derive_internal_key(policy, 0, 0)), 32)
                 exported = ref.export_policy(template, keys_info)
                 self.assertEqual(exported.template, f"tr(@0/**,{expected_tree})")
                 self.assertEqual(exported.keys_info[1:], tuple(keys_info))
-                exported_tree = ref.Parser(exported.template.split(",", 1)[1][:-1]).tree()
-                left, right = ref.keys(exported_tree)
-                # BIP 388 identifies musig placeholders by their set of indexes.
-                self.assertEqual(left.kind, right.kind)
-                self.assertEqual(set(left.indexes), set(right.indexes))
-                # Alternatives for the same placeholder must be disjoint in BIP 388.
-                self.assertEqual(set(left.path[0].values) & set(right.path[0].values), overlap)
 
     def test_network_only_changes_root_version_and_checksum(self):
         given = self.cases["single"]["given"]
-        root = ref.construct_root(ref.normalize_policy(given["template"], given["keys_info"]))
+        root = ref.construct_root(ref.prepare_policy(given["template"], given["keys_info"]))
         main = base58check_decode(root.serialize("mainnet"))
         test = base58check_decode(root.serialize("testnet"))
         self.assertEqual(main[4:], test[4:])
@@ -224,23 +241,30 @@ class ConstructionTests(unittest.TestCase):
             keys_info = [base58check_encode(original[:13] + i.to_bytes(32, "big") + original[45:])
                          for i in range(count)]
             template = "tr(_/*,multi_a(1," + ",".join(f"@{i}/*" for i in range(count)) + "))"
-            policy = ref.normalize_policy(template, keys_info)
+            policy = ref.prepare_policy(template, keys_info)
             root = ref.construct_root(policy)
-            prefix = compact_size(len(policy.template)) + policy.template.encode()
-            self.assertTrue(root.preimage.startswith(prefix + (b"\xfc" if count == 252 else b"\xfd\xfd\x00")))
+            prefix = b"\xfc" if count == 252 else b"\xfd\xfd\x00"
+            records = b"".join(original[45:] + i.to_bytes(32, "big") for i in range(count))
+            self.assertEqual(root.preimage, prefix + records)
 
-    def test_template_length_compactsize_boundary(self):
-        for length in (252, 253):
-            # The construction grammar does not impose script resource limits.
-            wrappers = "n" * (length - len("tr(_/*,:1)"))
-            template = "tr(_/*," + wrappers + ":1)"
-            policy = ref.normalize_policy(template, [])
-            self.assertEqual(len(policy.template), length)
-            expected = b"\xfc" if length == 252 else b"\xfd\xfd\x00"
-            self.assertTrue(ref.construct_root(policy).preimage.startswith(expected + policy.template.encode()))
+    def test_long_wrapper_sequence(self):
+        given = self.cases["single"]["given"]
+        template = "tr(_/**," + "n" * 2000 + ":pk(@0/**))"
+        policy = ref.prepare_policy(template, given["keys_info"])
+        expected = ref.prepare_policy(given["template"], given["keys_info"])
+        self.assertEqual(ref.construct_root(policy), ref.construct_root(expected))
+
+    def test_derivation_uses_prepared_path(self):
+        case = self.cases["four-expansions"]
+        policy = ref.prepare_policy(case["given"]["template"], case["given"]["keys_info"])
+        with patch.object(ref, "Parser", side_effect=AssertionError("Unexpected parsing during derivation")):
+            for selection, derived in zip(case["given"]["selections"], case["expected"]["derivations"]):
+                expansion, index = selection["expansion"], selection["index"]
+                self.assertEqual(list(ref.selected_path(policy, expansion, index)), derived["path"])
+                self.assertEqual(ref.derive_internal_key(policy, expansion, index).hex(), derived["internal_key"])
 
     def test_stops_at_first_invalid_child(self):
-        policy = ref.normalize_policy("tr(_/7/8/*,1)", [])
+        policy = ref.prepare_policy("tr(_/7/8/*,1)", [])
         with patch.object(ref, "ckd_pub", side_effect=ValueError("invalid child")) as ckd:
             with self.assertRaises(ValueError):
                 ref.derive_internal_key(policy, 0, 9)
@@ -248,13 +272,13 @@ class ConstructionTests(unittest.TestCase):
             self.assertEqual(ckd.call_args.args[2], 7)
 
     def test_no_multipath_has_one_expansion(self):
-        policy = ref.normalize_policy("tr(_/*,1)", [])
+        policy = ref.prepare_policy("tr(_/*,1)", [])
         with self.assertRaises(ValueError):
             ref.derive_internal_key(policy, 1, 0)
 
     def test_compressed_parity_is_preserved_between_steps(self):
         given = self.cases["four-expansions"]["given"]
-        policy = ref.normalize_policy(given["template"], given["keys_info"])
+        policy = ref.prepare_policy(given["template"], given["keys_info"])
         public_key, chain_code = ref.H, ref.construct_root(policy).chain_code
         parities = set()
         for index in (12, 3, 5, 17):

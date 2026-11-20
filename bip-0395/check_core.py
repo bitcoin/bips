@@ -22,7 +22,8 @@ import reference as ref
 def check():
     cases = json.loads((Path(__file__).resolve().parent / "vectors.json").read_text())["valid"]
     selected = {"single", "single-expanded", "four-expansions", "sorted", "sorted-permuted",
-                "tree", "tree-swapped", "timelock", "musig"}
+                "tree", "tree-swapped", "timelock", "musig", "single-path", "single-internal-prefix",
+                "single-internal-receive", "sorted-threshold", "timelock-changed", "roles", "roles-swapped"}
     # Release the ephemeral port before Core binds it. A collision fails startup.
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -54,22 +55,22 @@ def check():
                 else:
                     raise RuntimeError("Core RPC did not become ready")
 
-                report = {"core_version": info["subversion"], "network": "regtest", "checks": []}
+                report = {"core_version": info["subversion"], "network": "regtest", "tag": ref.TAG, "checks": []}
                 by_name = {}
                 for case in cases:
                     if case["name"] not in selected:
                         continue
                     given = case["given"]
-                    policy = ref.normalize_policy(given["template"], given["keys_info"])
+                    policy = ref.prepare_policy(given["template"], given["keys_info"])
                     # Keep the commitment unchanged while exporting network-compatible keys.
                     network_keys = []
                     for key in given["keys_info"]:
                         payload = base58check_decode(key)
                         network_keys.append(base58check_encode(VERSIONS["testnet"] + payload[4:]))
                     descriptor = ref.export_policy(given["template"], network_keys, "testnet").descriptor
-                    self_policy = ref.normalize_policy(given["template"], network_keys)
+                    self_policy = ref.prepare_policy(given["template"], network_keys)
                     if policy != self_policy:
-                        raise AssertionError("Network conversion changed normalization")
+                        raise AssertionError("Network conversion changed commitment records")
                     for selection in given["selections"]:
                         branch, index = selection["expansion"], selection["index"]
                         concrete = re.sub(r"/<([^>]+)>", lambda m: "/" + m[1].split(";")[branch], descriptor)
@@ -82,12 +83,19 @@ def check():
                             outputs.append(rpc("deriveaddresses", canonical))
                         if outputs[0] != outputs[1]:
                             raise AssertionError(f"Core derivation mismatch: {case['name']} {selection}")
-                        report["checks"].append({"name": case["name"], **selection,
-                                                 "internal_key": internal_key, "addresses": outputs[0]})
-                        by_name[case["name"], branch, index] = outputs[0]
+                        result = {"internal_key": internal_key, "addresses": outputs[0]}
+                        report["checks"].append({"name": case["name"], **selection, **result})
+                        by_name[case["name"], branch, index] = result
                 for left, right in (("single", "single-expanded"), ("sorted", "sorted-permuted"), ("tree", "tree-swapped")):
                     if by_name[left, 0, 0] != by_name[right, 0, 0]:
                         raise AssertionError("Equivalent exports produced different addresses")
+                for left, right in (("single", "single-path"), ("sorted", "sorted-threshold"),
+                                    ("timelock", "timelock-changed"), ("roles", "roles-swapped")):
+                    first, second = by_name[left, 0, 0], by_name[right, 0, 0]
+                    if first["internal_key"] != second["internal_key"]:
+                        raise AssertionError(f"Equal record sets produced different internal keys: {left}, {right}")
+                    if first["addresses"] == second["addresses"]:
+                        raise AssertionError(f"Different scripts produced identical addresses: {left}, {right}")
                 return report
             finally:
                 if node.poll() is None:

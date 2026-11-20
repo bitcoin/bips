@@ -28,7 +28,7 @@ def changed_xpub(xpub, *, network=None, metadata=None, chain_code=None, public_k
 
 
 def valid_case(name, template, keys_info, selections=((0, 0), (0, 1)), network="mainnet"):
-    policy = ref.normalize_policy(template, keys_info)
+    policy = ref.prepare_policy(template, keys_info)
     root = ref.construct_root(policy)
     export = ref.export_policy(template, keys_info, network)
     return {
@@ -36,7 +36,6 @@ def valid_case(name, template, keys_info, selections=((0, 0), (0, 1)), network="
         "given": {"template": template, "keys_info": keys_info, "network": network,
                   "selections": [{"expansion": b, "index": i} for b, i in selections]},
         "intermediary": {
-            "normalized_template": policy.template,
             "records": [r.hex() for r in policy.records],
             "preimage": root.preimage.hex(),
             "chain_code": root.chain_code.hex(),
@@ -65,9 +64,15 @@ def generate():
     add("single-metadata", "tr(_/**,pk(@0/**))", [changed_xpub(A, metadata=bytes.fromhex("037856341200000009"))])
     add("single-testnet", "tr(_/**,pk(@0/**))", [changed_xpub(A, network="testnet")], network="testnet")
     add("single-chain-code", "tr(_/**,pk(@0/**))", [changed_xpub(A, chain_code=bytes(32))])
+    add("single-other-key", "tr(_/**,pk(@0/**))", [B])
+    public_key = base58check_decode(A)[45:]
+    opposite_parity = bytes([public_key[0] ^ 1]) + public_key[1:]
+    add("single-parity", "tr(_/**,pk(@0/**))", [changed_xpub(A, public_key=opposite_parity)])
     add("single-path", "tr(_/**,pk(@0/7/**))", [A])
     add("single-fixed", "tr(_/**,pk(@0))", [A])
     add("single-no-multipath", "tr(_/*,pk(@0/*))", [A])
+    add("single-internal-prefix", "tr(_/7/**,pk(@0/**))", [A])
+    add("single-internal-receive", "tr(_/0/*,pk(@0/*))", [A])
     add("four-expansions", "tr(_/12/<0;1;2;3>/5/*,pk(@0/<4;5;6;7>/*))", [A], ((0, 0), (1, 0), (3, 17)))
     add("four-expansions-reordered", "tr(_/12/<0;1;2;3>/5/*,pk(@0/<5;4;6;7>/*))", [A])
     add("sorted", "tr(_/**,sortedmulti_a(2,@0/**,@1/**,@2/**))", [A, B, C])
@@ -88,10 +93,14 @@ def generate():
     add("tree-reshaped", "tr(_/**,{{pk(@0/**),pk(@1/**)},pk(@2/**)})", [A, B, C])
     add("tree-repeated", "tr(_/**,{pk(@0/**),pk(@0/**)})", [A])
     add("tree-duplicate-record", "tr(_/**,{pk(@0/**),pk(@1/**)})", [A, A])
+    add("tree-duplicate-metadata", "tr(_/**,{pk(@0/**),pk(@1/**)})",
+        [A, "[1234ABCD/44h]" + changed_xpub(A, metadata=bytes.fromhex("037856341200000009"))])
     add("tree-sugar", "tr(_/**,{pk(@0/**),pk(@1/**)})", [B, A])
     add("tree-sugar-expanded", "tr(_/**,{c:pk_k(@0/**),pk(@1/**)})", [B, A])
     add("timelock", "tr(_/**,and_v(v:pk(@0/**),older(144)))", [A])
     add("timelock-changed", "tr(_/**,and_v(v:pk(@0/**),older(145)))", [A])
+    add("roles", "tr(_/**,or_d(pk(musig(@0,@1)/**),and_v(v:pk(@2/**),older(144))))", [A, B, C])
+    add("roles-swapped", "tr(_/**,or_d(pk(musig(@2,@1)/**),and_v(v:pk(@0/**),older(144))))", [A, B, C])
     add("sugar", "tr(_/**,and_n(pk(@0/**),tv:pkh(@1/**)))", [A, B])
     add("sugar-expanded", "tr(_/**,andor(c:pk_k(@0/**),and_v(vc:pk_h(@1/**),1),0))", [A, B])
     add("zero-records", "tr(_/*,older(144))", [], ((0, 0), (0, 1), (0, 2)))
@@ -101,7 +110,7 @@ def generate():
     add("u-zero", "tr(_/**,u:0)", [])
     add("or-zero", "tr(_/**,or_i(0,0))", [])
     add("numeric-spelling", "tr(_/000/*,after(000144))", [])
-    add("numeric-canonical", "tr(_/0/*,after(144))", [])
+    add("numeric-unpadded", "tr(_/0/*,after(144))", [])
     add("hashlock", "tr(_/**,and_v(v:pk(@0/**),sha256(" + "AB" * 32 + ")))", [A])
     add("hashlock-lower", "tr(_/**,and_v(v:pk(@0/**),sha256(" + "ab" * 32 + ")))", [A])
     add("hashlock-changed", "tr(_/**,and_v(v:pk(@0/**),sha256(" + "ac" * 32 + ")))", [A])
@@ -117,21 +126,24 @@ def generate():
     add("index-ten", "tr(_/**,multi_a(1,@1/**,@10/**))", [A, B] + [C] * 9)
 
     equivalent = [
-        ["single", "single-expanded", "single-unused", "single-origin", "single-metadata", "single-testnet"],
-        ["sorted", "sorted-permuted"], ["musig", "musig-permuted"],
-        ["musig-repeated", "musig-duplicate-record"], ["musig-same-point", "musig-same-point-reversed"],
-        ["tree", "tree-swapped"], ["tree-repeated", "tree-duplicate-record"],
-        ["tree-sugar", "tree-sugar-expanded"],
-        ["sugar", "sugar-expanded"], ["l-zero", "u-zero", "or-zero"],
-        ["numeric-spelling", "numeric-canonical"], ["hashlock", "hashlock-lower"],
-        ["hardened-leaf-syntax", "hardened-leaf-h", "hardened-leaf-apostrophe"],
+        ["single", "single-expanded", "single-unused", "single-origin", "single-metadata", "single-testnet",
+         "single-path", "single-fixed", "single-no-multipath", "single-internal-prefix", "single-internal-receive",
+         "four-expansions", "four-expansions-reordered", "tree-repeated", "tree-duplicate-record",
+         "tree-duplicate-metadata", "timelock", "timelock-changed", "hashlock", "hashlock-lower", "hashlock-changed",
+         "hardened-leaf-syntax", "hardened-leaf-h", "hardened-leaf-apostrophe"],
+        ["sorted", "sorted-permuted", "sorted-threshold", "ordered", "ordered-reversed", "musig", "musig-permuted",
+         "tree", "tree-swapped", "tree-reshaped", "fragments", "roles", "roles-swapped"],
+        ["musig-repeated", "musig-duplicate-record", "musig-without-repeat", "tree-sugar", "tree-sugar-expanded",
+         "sugar", "sugar-expanded", "sorted-expressions", "wrappers", "or-c"],
+        ["musig-same-point", "musig-same-point-reversed"],
+        ["zero-records", "false", "true", "l-zero", "u-zero", "or-zero", "numeric-spelling", "numeric-unpadded",
+         "hash-fragments"],
     ]
     distinct = [
-        ["single", "single-chain-code"], ["single", "single-path"], ["single", "single-fixed"],
-        ["single", "single-no-multipath"], ["four-expansions", "four-expansions-reordered"],
-        ["sorted", "sorted-threshold"], ["ordered", "ordered-reversed"], ["ordered", "sorted"],
-        ["musig-repeated", "musig-without-repeat"], ["tree", "tree-reshaped"],
-        ["single", "tree-repeated"], ["timelock", "timelock-changed"], ["hashlock", "hashlock-changed"],
+        ["single", "single-chain-code"], ["single", "single-other-key"], ["single", "single-parity"],
+        ["single", "zero-records"], ["single", "musig-without-repeat"],
+        ["musig-without-repeat", "index-ten"], ["musig-without-repeat", "musig"],
+        ["single", "musig-same-point"], ["single-chain-code", "musig-same-point"],
     ]
     invalid = []
     malformed = {
@@ -174,7 +186,7 @@ def generate():
     }
     for name, template in malformed.items():
         invalid.append({"name": name, "given": {"template": template, "keys_info": [A, B]},
-                        "error_stage": "normalize"})
+                        "error_stage": "prepare"})
     bad_keys = {
         "bad-checksum": A[:-1] + ("1" if A[-1] != "1" else "2"),
         "bad-origin": "[xyz]" + A,
@@ -189,12 +201,13 @@ def generate():
     }
     for name, value in bad_keys.items():
         invalid.append({"name": name, "given": {"template": "tr(_/**,pk(@0/**))", "keys_info": [value]},
-                        "error_stage": "normalize"})
+                        "error_stage": "prepare"})
     for name, expansion, index in (("negative-expansion", -1, 0), ("large-expansion", 2, 0),
                                    ("negative-index", 0, -1), ("hardened-index", 0, 2**31)):
         invalid.append({"name": name, "given": {"template": "tr(_/**,pk(@0/**))", "keys_info": [A],
                                                   "expansion": expansion, "index": index}, "error_stage": "derive"})
-    return {"version": 1, "valid": cases, "equivalent": equivalent, "distinct": distinct, "invalid": invalid}
+    return {"version": 2, "tag": ref.TAG, "valid": cases, "equivalent": equivalent,
+            "distinct": distinct, "invalid": invalid}
 
 
 if __name__ == "__main__":
