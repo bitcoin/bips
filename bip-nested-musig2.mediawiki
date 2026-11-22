@@ -652,13 +652,18 @@ Implementers are encouraged to reproduce the test vectors independently rather t
 
 NestedMuSig2 is an interactive multi-signature protocol. Its security depends on correct nonce handling, correct recursive computation of key and nonce coefficients, consistent session state, and faithful implementation of the algorithms specified in this document. The security considerations of BIP327 apply in addition to the NestedMuSig2-specific considerations described below.
 
-===Security Model and Number of Nonces===
+===Security Model, Nesting Depth, and Instantiation Choices===
 
-The Nested MuSig2 paper provides security reductions for variants of the recursive construction under the Algebraic One-More Discrete Logarithm (AOMDL) assumption. The paper gives security results under different modeling assumptions depending on the nonce construction. In particular, the practically relevant compact construction uses two nonce points per signer and is analyzed in the random-oracle model together with the algebraic group model (ROM+AGM). This specification fixes ''ν = 2'' in order to remain compatible with BIP327, whose participant public nonce consists of exactly two elliptic-curve points. Accordingly, the two-nonce NestedMuSig2 construction specified by this BIP corresponds to the paper's compact ROM+AGM security result. It MUST NOT be described as being covered by the paper's ROM-only security theorem without also stating the additional assumptions required for the two-nonce instantiation.
+This specification uses two nonce points per signer (''ν = 2''), as in BIP327. The underlying NestedMuSig2 construction is secure against forgery under the Algebraic One-More Discrete Logarithm (AOMDL) assumption in the algebraic group model and random-oracle model (AGM+ROM).<span id="cite-nested-security"></span><sup>[[#note-nested-security|1]]</sup>
+
+This BIP targets shallow signer hierarchies, preferably with an application-level maximum depth ''D'' of 2 to 4. These cover the needs of most motivating applications; the paper notes that most require at most two aggregation levels. Here, ''D'' bounds every signer's path length ''Λ'': flat MuSig2 has depth 1, and a subgroup signing within an outer session has depth 2. It measures signer nesting, not transaction-tree depth.
+
+The preferred range is an application policy, not a proven security cutoff. The concrete AGM+ROM bound degrades exponentially with ''D'' and also depends on signing and hash-query budgets. Applications should consider these parameters when choosing their supported depth; the paper does not assign concrete security strengths to particular depths. Its ROM-only proof requires more nonces, while its MerkleNestedMuSig2 variant offers better depth dependence with additional commitment data. Neither alternative is specified by this BIP.<span id="cite-nested-depth"></span><sup>[[#note-nested-depth|2]]</sup>
 
 This specification additionally makes concrete interoperability choices not defined by the abstract construction in the paper, including:
 * BIP327 optimized key aggregation;
 * mandatory ''KeySort'' at each aggregation node;
+* X-only aggregate-key encoding in the intermediate nonce-binding hash;
 * concrete secp256k1 point encodings;
 * concrete tagged-hash domain strings;
 * exceptional-point handling; and
@@ -866,4 +871,9 @@ Final verification requires only:
 * the final 64-byte BIP340 signature.
 
 The final verifier does not require knowledge of the signer tree, intermediate aggregate keys, nonce path, partial signatures, or any other NestedMuSig2 state.
+
+==Footnotes==
+
+# <span id="note-nested-security"></span>Nadav Kohen, [https://eprint.iacr.org/2026/223.pdf Nested MuSig2], Section 5.2, Theorem 2; proof in Appendix C. The theorem establishes existential unforgeability under chosen-message attacks (EUF-CMA) with two nonces for a bounded maximum nesting depth ''D''. AGM+ROM is also used for BIP327's two-nonce variant; see [https://github.com/bitcoin/bips/blob/master/bip-0327.mediawiki#choosing-the-size-of-the-nonce BIP327, "Choosing the Size of the Nonce"]. These models idealize hash functions and restrict adversaries to supplying algebraic representations of their output group elements. The result is conditional on those models and the AOMDL assumption; it does not replace review of the concrete instantiation or implementation. [[#cite-nested-security|↑]]
+# <span id="note-nested-depth"></span>Nadav Kohen, [https://eprint.iacr.org/2026/223.pdf Nested MuSig2], Section 4, "Security Degradation in the Nesting Depth" and Table 2, and the opening of Section 5. The paper describes most motivating applications as having ''D &le; 2'' and declines to state concrete bit-security figures because the bounds are loose; the preferred 2-to-4 range above is this BIP's application guidance. Theorem 1's ROM-only construction requires ''ν = 2<sup>D+1</sup>'' nonces (eight at depth 2) and has doubly exponential depth dependence. Appendix D, Theorem 4 gives MerkleNestedMuSig2 quartic depth dependence under AGM+ROM, but changes the signing messages. [[#cite-nested-depth|↑]]
 
