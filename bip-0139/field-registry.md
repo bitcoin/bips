@@ -212,6 +212,9 @@ The device object may contain any of these fields.
 | transports          | optional | array     | Media over which the device can be reached, in     |
 |                     |          |           | order of preference. See Device Transports.        |
 |---------------------|----------|-----------|----------------------------------------------------|
+| bip377_capabilities | optional | array     | BIP-0377 capabilities the device advertised. See   |
+|                     |          |           | Device Capabilities.                               |
+|---------------------|----------|-----------|----------------------------------------------------|
 | registered          | optional | bool      | Whether the descriptor has been registered on the  |
 |                     |          |           | device.                                            |
 |---------------------|----------|-----------|----------------------------------------------------|
@@ -243,6 +246,14 @@ The `transports` array may contain any of the following values.
 
 Entries are ordered by preference, most preferred first. An importer MUST ignore a
 value it does not know rather than reject the whole array.
+
+### Device Capabilities
+
+The `bip377_capabilities` field is an array of unsigned 32-bit integers, as last
+reported by the device. The first entry is the BIP-0377 `CAPABILITIES` bitfield, bit 0
+being the least significant bit. Later entries are reserved for the capability fields
+a later version of BIP-0377 may add. An importer MUST ignore an entry or a bit it does
+not know rather than reject the field.
 
 ### Device Firmware Version
 
