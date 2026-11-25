@@ -247,7 +247,8 @@ value it does not know rather than reject the whole array.
 ### Device Firmware Version
 
 The `firmware_version` field takes the form `<major>.<minor>.<patch>`, each part a
-decimal integer, optionally followed by `-<prerelease>`.
+decimal integer, optionally followed by `-<prerelease>` and an optional decimal
+`<number>` with no separator, such as `1.2.3-rc2`.
 
 `<prerelease>` may be one of the following values.
 
