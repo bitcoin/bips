@@ -60,7 +60,9 @@ Fields of the [account object][accountobj].
 |                    |          |                 | Structure for the permitted values.            |
 |--------------------|----------|-----------------|------------------------------------------------|
 | descriptor         |          | string/array    | Account descriptor. Its structure is defined   |
-|                    |          |                 | by `type`. See Account Object Structure.       |
+|                    |          |                 | by `type`: a string, an array of strings for   |
+|                    |          |                 | `multi_bip380`, or `[keys, policy]` for        |
+|                    |          |                 | `bip388`. See Account Object Structure.        |
 |--------------------|----------|-----------------|------------------------------------------------|
 | name               | optional | string          | Account name/alias.                            |
 |--------------------|----------|-----------------|------------------------------------------------|
