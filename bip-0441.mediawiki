@@ -9,7 +9,7 @@
   Assigned: 2026-03-25
   License: BSD-3-Clause
   Discussion: https://groups.google.com/g/bitcoindev/c/GisTcPb8Jco/m/8znWcWwKAQAJ
-  Version: 0.2.2
+  Version: 0.3.0
   Requires: 440
 </pre>
 
@@ -62,6 +62,8 @@ Validation of a script fails if:
 * Any stack element exceeds 4,000,000 bytes.
 * The total size of all stack (and altstack) elements exceeds 8,000,000 bytes.
 * The number of stack elements (including altstack elements) exceeds 32,768.
+
+[[bip-0342.mediawiki|BIP342]]'s sigops budget does not apply: signature checks are charged against the varops budget.
 
 ===Rationale===
 
@@ -153,6 +155,18 @@ stack as arbitrary-length little-endian values (instead of CScriptNum):
 # OP_ROLL
 # OP_IFDUP
 # OP_CHECKSIGADD
+# OP_NOT
+# OP_0NOTEQUAL
+# OP_BOOLAND
+# OP_BOOLOR
+# OP_NUMEQUAL
+# OP_NUMEQUALVERIFY
+# OP_NUMNOTEQUAL
+# OP_LESSTHAN
+# OP_GREATERTHAN
+# OP_LESSTHANOREQUAL
+# OP_GREATERTHANOREQUAL
+# OP_WITHIN
 
 For OP_CHECKLOCKTIMEVERIFY and OP_CHECKSEQUENCEVERIFY, the operand is decoded
 and costed as an arbitrary-length unsigned integer.  However, the decoded
@@ -182,8 +196,8 @@ Now:
 ``4. (ii) If the execution results in anything but exactly one element on the
 stack which contains one or more non-zero bytes, fail.``
 
-This final success check consumes varops budget as <code>wordspan(A) * 2</code>
-(COMPARINGZERO), where <code>A</code> is the remaining stack element. If this
+This final success check consumes varops budget as <code>READ(length(A))</code>,
+where <code>A</code> is the remaining stack element. If this
 cost exceeds the remaining transaction varops budget, fail before performing
 the non-zero-byte check.
 
@@ -191,22 +205,10 @@ the non-zero-byte check.
 
 Fifteen opcodes that were removed in v0.3.1 are re-enabled in 0xC2 Tapscript.
 
-If there are fewer than the required number of stack elements, these opcodes
-fail validation.  These are popped off the stack in right-to-left order,
-i.e. <nowiki>[A B]</nowiki> means pop B off the stack, then pop A off the
-stack.
+If there are fewer than the required number of stack elements, these opcodes fail validation.  These are popped off the stack in right-to-left order, i.e. <nowiki>[A B]</nowiki> means pop B off the stack, then pop A off the stack.  The varops cost formulas use these names, not the top-of-stack labels of BIP440's tables.
 
 See [[bip-0440.mediawiki|BIP440]] for the meaning of the
-annotations in the varops cost field.
-
-====Byte Lengths and Word Spans====
-
-This BIP uses the <code>length(...)</code> and <code>wordspan(...)</code>
-convention from [[bip-0440.mediawiki|BIP440]]: <code>length(X)</code> is the
-script-visible byte length of stack element <code>X</code>, while
-<code>wordspan(X)</code> is that length rounded up to the 64-bit word span used
-for numeric and bit-vector work.  Some formulas intentionally mix the two when
-an opcode performs both word-rounded interpretation and exact byte movement.
+cost primitives in the varops cost field.
 
 ====Splice Opcodes====
 
@@ -217,7 +219,6 @@ an opcode performs both word-rounded interpretation and exact byte movement.
 ! Description
 ! Definition
 ! Varops Cost
-! Varops Reason
 |-
 |OP_CAT
 |126
@@ -227,20 +228,18 @@ an opcode performs both word-rounded interpretation and exact byte movement.
 # Pop operands off the stack.
 # Append B to A.
 # Push A onto the stack.
-|(length(A) + length(B)) * 3
-|COPYING
+|BASE + WRITE(length(A) + length(B))
 |-
 |OP_SUBSTR
 |127
 |<nowiki>[A BEGIN LEN]</nowiki>
-|Extract bytes BEGIN through BEGIN+LEN of A
+|Extract bytes BEGIN through BEGIN+LEN-1 of A
 |
 # Pop operands off the stack.
-# Remove BEGIN bytes from the front of A (all bytes if BEGIN is greater than length of A).
-# If length(A) is greater than value(LEN), truncate A to length value(LEN).
+# If length(A) is greater than value(BEGIN) + value(LEN), truncate A to length value(BEGIN) + value(LEN).
+# Remove value(BEGIN) bytes from the front of A (all bytes if value(BEGIN) is greater than length(A)).
 # Push A onto the stack.
-|(wordspan(LEN) + wordspan(BEGIN)) * 2 + MIN(Value of LEN, MAX(length(A) - Value of BEGIN, 0)) * 3
-|LENGTHCONV + COPYING
+|BASE + READ(length(BEGIN)) + READ(length(LEN)) + ARITH(length(result))
 |-
 |OP_LEFT
 |128
@@ -250,8 +249,7 @@ an opcode performs both word-rounded interpretation and exact byte movement.
 # Pop operands off the stack.
 # If length(A) is greater than value(OFFSET), truncate A to length value(OFFSET).
 # Push A onto the stack.
-|wordspan(OFFSET) * 2
-|LENGTHCONV
+|BASE + READ(length(OFFSET))
 |-
 |OP_RIGHT
 |129
@@ -259,17 +257,15 @@ an opcode performs both word-rounded interpretation and exact byte movement.
 |Extract the rightmost OFFSET bytes of A
 |
 # Pop operands off the stack.
-# Convert OFFSET to a bounded length value.
 # If value(OFFSET) is less than length(A), remove length(A) - value(OFFSET) bytes from the front of A.
 # Otherwise leave A unchanged.
 # Push A onto the stack.
-|wordspan(OFFSET) * 2 + MIN(Value of OFFSET, length(A)) * 3
-|LENGTHCONV + COPYING
+|BASE + READ(length(OFFSET)) + ARITH(length(result))
 |}
 
 =====Rationale=====
 
-OP_CAT may require a reallocation of A (hence, COPYING A) before appending B.
+OP_CAT may require a reallocation of A before appending B.
 
 OP_SUBSTR may have to copy LEN bytes, but also needs to read its two numeric
 operands.  LEN is limited to the length of the operand minus BEGIN.
@@ -287,7 +283,6 @@ value.
 ! Description
 ! Definition
 ! Varops Cost
-! Varops Reason
 |-
 |OP_INVERT
 |131
@@ -297,8 +292,7 @@ value.
 # Pop operands off the stack.
 # For each byte in A, replace it with that byte bitwise XOR 0xFF (i.e. invert the bits)
 # Push A onto the stack.
-|wordspan(A) * 4
-|OTHER
+|BASE + READ(length(A)) + ARITH(length(A))
 |-
 |OP_AND
 |132
@@ -309,8 +303,7 @@ value.
 # If B is longer than A, swap B and A.
 # For each byte in A (the longer operand): bitwise AND it with the equivalent byte in B (or 0 if past end of B)
 # Push A onto the stack.
-|(wordspan(A) + wordspan(B)) * 2
-|OTHER + ZEROING
+|BASE + READ(length(A)) + READ(length(B)) + ARITH(MAX(length(A), length(B)))
 |-
 |OP_OR
 |133
@@ -321,8 +314,7 @@ value.
 # If B is longer than A, swap B and A.
 # For each byte in B (the shorter operand): bitwise OR it into the equivalent byte in A (altering A).
 # Push A onto the stack.
-|MIN(wordspan(A), wordspan(B)) * 4
-|OTHER
+|BASE + READ(length(A)) + READ(length(B)) + ARITH(MAX(length(A), length(B)))
 |-
 |OP_XOR
 |134
@@ -333,17 +325,13 @@ value.
 # If B is longer than A, swap B and A.
 # For each byte in B (the shorter operand): exclusive OR it into the equivalent byte in A (altering A).
 # Push A onto the stack.
-|MIN(wordspan(A), wordspan(B)) * 4
-|OTHER
+|BASE + READ(length(A)) + READ(length(B)) + ARITH(MAX(length(A), length(B)))
 |}
 
 =====Rationale=====
 
 OP_AND, OP_OR and OP_XOR are assumed to fold the results into the longer of
-the two operands.  This is an OTHER operation (i.e. cost is 4 per byte), but
-OP_AND needs to do this until one operand is exhausted, and then zero the rest
-(ZEROING, cost 2 per byte).  OP_OR and OP_XOR can stop processing the operands
-as soon as the shorter operand is exhausted.
+the two operands.
 
 ====Bitshift Opcodes====
 
@@ -359,7 +347,6 @@ OP_DOWNSHIFT (née OP_RSHIFT).
 ! Description
 ! Definition
 ! Varops Cost
-! Varops Reason
 |-
 |OP_UPSHIFT
 |152
@@ -367,12 +354,12 @@ OP_DOWNSHIFT (née OP_RSHIFT).
 |Move bits of A right by BITS (numerically increase)
 |
 # Pop operands off the stack.
-# If A shifted by value(BITS) would exceed the individual stack limit, fail.
+# If length(A) + ceil(value(BITS) / 8) would exceed the individual stack limit, fail.
+# Calculate the varops cost of the operation: if it exceeds the remaining budget, fail.
 # If value(BITS) % 8 == 0: simply prepend value(BITS) / 8 zeroes to A.
-# Otherwise: prepend (value(BITS) / 8) + 1 zeroes to A, then shift A *down* (8 - (value(BITS) % 8)) bits.
+# Otherwise: prepend (value(BITS) / 8) + 1 zeroes to A, then shift A *down* (8 - (value(BITS) % 8)) bits, which changes only the bytes that held A's value and the byte below them.
 # Push A onto the stack.
-|wordspan(BITS) * 2 + (Value of BITS) / 8 * 2 + length(A) * 3.  If BITS % 8 != 0, add wordspan(length(A) + (Value of BITS) / 8) * 4
-|LENGTHCONV + ZEROING + COPYING. If BITS % 8 != 0, + OTHER over the shifted result length.
+|BASE + READ(length(A)) + READ(length(BITS)) + ARITH(length(A)) + WRITE(length(result))
 |-
 |OP_DOWNSHIFT
 |153
@@ -380,12 +367,11 @@ OP_DOWNSHIFT (née OP_RSHIFT).
 |Move bits of A left by BITS (numerically decrease)
 |
 # Pop operands off the stack.
-# For BITOFF from 0 to (length(A)-1) * 8 - value(BITS):
-## Copy each bit in A from BITOFF + value(BITS) to BITOFF.
+# For each bit position BITOFF in A:
+## Set it to A's original bit at BITOFF + value(BITS), or zero if that source bit does not exist.
 # Truncate A to remove value(BITS) / 8 bytes from the end (or all bytes, if value(BITS) / 8 > length(A)).
 # Push A onto the stack.
-|wordspan(BITS) * 2 + MAX((length(A) - (Value of BITS) / 8), 0) * 3
-|LENGTHCONV + COPYING
+|BASE + READ(length(A)) + READ(length(BITS)) + ARITH(length(A))
 |}
 
 =====Rationale=====
@@ -394,9 +380,7 @@ DOWNSHIFT needs to read the value of the second operand BITS.  It then needs
 to move the remainder of A (the part after offset BITS/8 bytes).  In practice
 this should be implemented in word-size chunks, not bit-by-bit!
 
-UPSHIFT also needs to read BITS.  In general, it may need to reallocate
-(copying A and zeroing out remaining words).  If not moving an exact number of
-bytes (BITS % 8 != 0), another pass is needed to perform the bitshift.
+UPSHIFT also needs to read BITS.
 
 OP_UPSHIFT can produce huge results, and so must be checked for limits prior
 to evaluation.  It is also carefully defined to avoid reallocating twice
@@ -406,6 +390,8 @@ routine as OP_DOWNSHIFT.
 
 ====Multiply and Divide Opcodes====
 
+Let <code>n = MAX(length(A), length(B))</code> and <code>m = MIN(length(A), length(B))</code> for multiplication.  For division and modulus, let <code>A'</code> and <code>B'</code> be A and B with trailing zero bytes removed, <code>n = length(A')</code> and <code>m = length(B')</code>.
+
 {|
 ! Mnemonic
 ! Opcode
@@ -413,7 +399,6 @@ routine as OP_DOWNSHIFT.
 ! Description
 ! Definition
 ! Varops Cost
-! Varops Reason
 |-
 |OP_2MUL
 |141
@@ -425,8 +410,7 @@ routine as OP_DOWNSHIFT.
 # If the final byte overflows, append a single 1 byte.
 # Otherwise, truncate A at the last non-zero byte.
 # Push A onto the stack.
-|wordspan(A) * 7
-|OTHER + COPYING
+|BASE + READ(length(A)) + ARITH(length(A)) + WRITE(length(result))
 |-
 |OP_2DIV
 |142
@@ -437,8 +421,7 @@ routine as OP_DOWNSHIFT.
 # Shift each byte in A 1 bit to the right (decreasing values, equivalent to C's >> operator), taking the next byte’s bottom bit as the value of the top bit, and tracking the last non-zero value.
 # Truncate A at the last non-zero byte.
 # Push A onto the stack.
-|wordspan(A) * 4
-|OTHER
+|BASE + READ(length(A)) + ARITH(length(A))
 |-
 |OP_MUL
 |149
@@ -447,12 +430,11 @@ routine as OP_DOWNSHIFT.
 |
 # Pop operands off the stack.
 # Calculate the varops cost of the operation: if it exceeds the remaining budget, fail.
-# Allocate an all-zero vector R of length equal to length(A) + length(B).
-# For each word in A, multiply it by B and add it into the vector R, offset by the word offset in A.
+# Allocate an all-zero vector R of length equal to W(n) + W(m).
+# For each word of the shorter operand, multiply the longer operand by it and add the row into R, offset by that word's offset.
 # Truncate R at the last non-zero byte.
 # Push R onto the stack.
-|(length(A) + length(B)) * 3 + wordspan(A) / 8 * wordspan(B) * 27  (BEWARE OVERFLOW)
-|See Appendix
+|BASE + READ(length(A)) + READ(length(B)) + MUL(n, m) + WRITE(W(n) + W(m))
 |-
 |OP_DIV
 |150
@@ -460,13 +442,13 @@ routine as OP_DOWNSHIFT.
 |Divide A by (non-zero) B
 |
 # Pop operands off the stack.
+# Remove trailing zero bytes from A and B.
 # Calculate the varops cost of the operation: if it exceeds the remaining budget, fail.
 # If B is empty or all zeroes, fail.
 # Perform division as per Knuth's The Art of Computer Programming v2 page 272, Algorithm D "Division of non-negative integers".
 # Trim trailing zeroes off the quotient.
 # Push the quotient onto the stack.
-|wordspan(A) * 18 + wordspan(B) * 4 + wordspan(A)^2 * 2 / 3  (BEWARE OVERFLOW)
-|See Appendix
+|BASE + READ(length(A)) + READ(length(B)) + DIV(n, m)
 |-
 |OP_MOD
 |151
@@ -474,13 +456,13 @@ routine as OP_DOWNSHIFT.
 |Replace A with the remainder when A is divided by (non-zero) B
 |
 # Pop operands off the stack.
+# Remove trailing zero bytes from A and B.
 # Calculate the varops cost of the operation: if it exceeds the remaining budget, fail.
 # If B is empty or all zeroes, fail.
 # Perform division as per Knuth's The Art of Computer Programming v2 page 272, Algorithm D "Division of non-negative integers".
 # Trim trailing zeroes off the remainder.
 # Push the remainder onto the stack.
-|wordspan(A) * 18 + wordspan(B) * 4 + wordspan(A)^2 * 2 / 3  (BEWARE OVERFLOW)
-|See Appendix
+|BASE + READ(length(A)) + READ(length(B)) + DIV(n, m)
 |}
 
 =====Rationale=====
@@ -504,7 +486,6 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 ! Description
 ! Definition
 ! Varops Cost
-! Varops Reason
 |-
 |OP_ADD
 |147
@@ -514,12 +495,12 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 # Pop operands off the stack.
 # Option 1: trim trailing zeroes off A and B.
 # If B is longer than A, swap A and B.
-# For each byte in B, add it and previous overflow into the equivalent byte in A, remembering next overflow.
+# For each byte in A, add the equivalent byte in B (or zero if B has no byte there) and previous overflow, remembering next overflow.
 # If there was final overflow, append a 1 byte to A.
 # Option 2: If there was no final overflow, remember last non-zero byte written into A, and truncate A after that point.
 # Either Option 1 or Option 2 MUST be implemented.
-|MAX(wordspan(A), wordspan(B)) * 9
-|ARITH + COPYING
+# Push A onto the stack.
+|BASE + READ(length(A)) + READ(length(B)) + ARITH(MAX(length(A), length(B))) + WRITE(length(result))
 |-
 |OP_1ADD
 |139
@@ -528,8 +509,7 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 |
 # Pop operands off the stack.
 # Let B = 1, and continue as OP_ADD.
-|MAX(wordspan(1), wordspan(A)) * 9
-|ARITH + COPYING
+|BASE + READ(length(A)) + ARITH(length(A)) + WRITE(length(result))
 |-
 |OP_SUB
 |148
@@ -537,11 +517,11 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 |Subtract B from A where B is <= A
 |
 # Pop operands off the stack.
-# For each byte in B, subtract it and previous underflow from the equivalent byte in A, remembering next underflow.
-# If there was final underflow, fail validation.
+# For each byte in A, subtract the equivalent byte in B (or zero if B has no byte there) and previous underflow, remembering next underflow.
+# If there was final underflow, or any byte of B beyond A is non-zero, fail validation.
 # Remember last non-zero byte written into A, and truncate A after that point.
-|MAX(wordspan(A), wordspan(B)) * 6
-|ARITH
+# Push A onto the stack.
+|BASE + READ(length(A)) + READ(length(B)) + ARITH(MAX(length(A), length(B)))
 |-
 |OP_1SUB
 |140
@@ -550,90 +530,46 @@ The opcodes OP_ADD, OP_SUB, OP_1ADD and OP_1SUB are redefined in 0xC2 Tapscript 
 |
 # Pop operands off the stack.
 # Let B = 1, and continue as OP_SUB.
-|MAX(wordspan(1), wordspan(A)) * 6
-|ARITH
+|BASE + READ(length(A)) + ARITH(length(A))
 |}
-
-====Rationale====
-
-Note that the basic cost for ADD is six times the maximum operand length
-(ARITH), but then considers the case where a reallocation and copy needs to
-occur to append the final carry byte (COPYING, which costs 3 units per byte).
-
-Subtraction is cheaper because underflow does not occur: that is a validation
-failure, as mathematicians agree the result would not be natural.
 
 ===Misc Operators===
 
 The following opcodes have costs below:
 
+In this table, <code>signature_work(signature)</code> is <code>HASH(96) + SIGCHECK</code> for a nonempty signature and zero for an empty one.  <code>HASH(96)</code> is BIP 340's challenge hash over the 96 bytes <code><nowiki>R || P || m</nowiki></code>.  This rule also applies to unknown nonzero-length public-key types.
+
 {|
 ! Opcode
 ! Varops Budget Cost
-! Varops Reason
 |-
-| OP_CHECKLOCKTIMEVERIFY
-| wordspan(operand) * 2
-| LENGTHCONV
+|OP_CHECKLOCKTIMEVERIFY
+|BASE + READ(length(operand))
 |-
-| OP_CHECKSEQUENCEVERIFY
-| wordspan(operand) * 2
-| LENGTHCONV
+|OP_CHECKSEQUENCEVERIFY
+|BASE + READ(length(operand))
 |-
-| OP_CHECKSIGADD
-| MAX(wordspan(1), wordspan(number operand)) * 9 + 500,000
-| ARITH + COPYING + SIGCHECK
+|OP_CHECKSIGADD
+|BASE + READ(length(number operand)) + signature_work(signature) + (if signature is nonempty: ARITH(length(number operand)); otherwise 0) + WRITE(length(result))
 |-
-| OP_CHECKSIG
-| 500,000
-| SIGCHECK
+|OP_CHECKSIG
+|BASE + signature_work(signature) + WRITE(length(result))
 |-
-| OP_CHECKSIGVERIFY
-| 500,000
-| SIGCHECK
+|OP_CHECKSIGVERIFY
+|BASE + signature_work(signature)
 |}
 
 ====Rationale====
 
-OP_CHECKSIGADD does an OP_1ADD on success, so we use the same cost as that.
-For simplicity, this is charged whether the OP_CHECKSIGADD succeeds or not.
+OP_CHECKSIGADD always reads its numeric operand and writes its numeric result.  Its increment traversal and signature work are charged only for a nonempty signature.
 
 ===Other Operators===
 
-The varops costs of the following opcodes are defined in
-[[bip-0440.mediawiki|BIP440]]:
+The varops costs of the other existing opcodes are defined in [[bip-0440.mediawiki|BIP440]].  Any opcode not costed there or in this document costs only BASE, unless another BIP specifies a charge.
 
-* OP_VERIFY
-* OP_NOT
-* OP_0NOTEQUAL
-* OP_EQUAL
-* OP_EQUALVERIFY
-* OP_2DUP
-* OP_3DUP
-* OP_2OVER
-* OP_IFDUP
-* OP_DUP
-* OP_OVER
-* OP_PICK
-* OP_TUCK
-* OP_ROLL
-* OP_BOOLOR
-* OP_NUMEQUAL
-* OP_NUMEQUALVERIFY
-* OP_NUMNOTEQUAL
-* OP_LESSTHAN
-* OP_GREATERTHAN
-* OP_LESSTHANOREQUAL
-* OP_GREATERTHANOREQUAL
-* OP_MIN
-* OP_MAX
-* OP_WITHIN
-* OP_SHA256
-* OP_HASH160
-* OP_HASH256
+==Security Considerations==
 
-Any opcodes not mentioned in this document or the preceding list have a cost
-of 0 (they do not operate on variable-length stack objects).
+The 8,000,000-byte stack limit counts logical lengths, not allocated capacity, so an implementation that keeps a shortened value in its former buffer can grow memory through repeated duplication and truncation.  The reference implementation copies a shortened value into a right-sized buffer when the value's capacity exceeds twice its word span, which bounds stack storage to about twice the logical limit.  Each such copy is at most half the size of the buffer it replaces, so a chain of copies starting from one buffer totals at most that buffer's size, which the <code>WRITE</code> that produced its value, or the value's weight as a witness item, paid for.  Implementations must also bound temporary storage and concurrent evaluations.  Memory usage never affects script validity.
 
 ==Backwards compatibility==
 
@@ -648,9 +584,10 @@ Work in progress:
 
 ==Changelog==
 
+* 0.3.0: 2026-10-27: compose opcode costs from BIP440's primitives; charge MUL one row per word of the shorter operand; charge signature work only for a nonempty signature; specify numeric operand handling precisely; state that BIP342's sigops budget does not apply; add security considerations.
 * 0.2.2: 2026-06-15: clarify wordspan costs, OP_RIGHT semantics, OP_UPSHIFT unaligned cost, CLTV/CSV bounds, and final success-check cost.
 * 0.2.1: 2026-03-27: fix OP_MUL cost to round length(B) up
-* 0.2.0: 2025-02-21: change costs to match those in varops budget
+* 0.2.0: 2026-02-21: change costs to match those in varops budget
 * 0.1.0: 2025-09-27: first public posting
 
 ==Footnotes==
@@ -672,74 +609,17 @@ In alphabetical order:
 * Mark "Murch" Erhardt 
 * Rijndael (aka rot13maxi)
 * Steven Roose
-* FIXME: your name here!
 
 ==Appendix A: Cost Model Calculations for Multiply and Divide==
 
-Multiplication and division require multiple passes over the operands, meaning
-a cost proportional to the square of the lengths involved, and the word size
-used for that iteration makes a difference.  We assume 8 bytes (64 bits) at a
-time are evaluated, and the ability to multiply two 64-bit numbers and receive
-a 128-bit result, and divide a 128-bit number by a 64-bit number to receive a
-128-bit quotient and remainder.  This is true on modern 64-bit CPUs (sometimes
-using multiple instructions).
+Multiplication and division require multiple passes over the operands, meaning a cost proportional to the square of the lengths involved, and the word size used for that iteration makes a difference.  We assume 8 bytes (64 bits) at a time are evaluated, and the ability to multiply two 64-bit numbers and receive a 128-bit result, and divide a 128-bit number by a 64-bit number to receive a 64-bit quotient and remainder.  This is true on modern 64-bit CPUs (sometimes using multiple instructions).
 
 ===Multiplication Cost===
 
-For multiplication, the steps break down like so:
-# Allocate and zero the result: cost = (length(A) + length(B)) * 2 (ZEROING)
-# For each word in A:
-#* Multiply by each word in B, into a scratch vector: cost = 6 * wordspan(B) (ARITH)
-#* Sum scratch vector at the word offset into the result: cost = 6 * wordspan(B) (ARITH)
+With <code>n</code> and <code>m</code> as defined with the OP_MUL cost above, <code>MUL(n, m)</code> charges the complete multiplication of the operands, modeled as schoolbook multiplication: one row per 64-bit word of the shorter operand, each multiplying the words of the longer operand by that word and adding the row into the product.  Its four coefficients are a constant, a pass over the longer operand (<code>W(n)</code>), each row's fixed overhead (<code>W(m)</code>) and the word products (<code>W(n) W(m)</code>).  The shorter operand sets the rows whichever operand is on top, so no asymmetry depends on stack position.
 
-We increase the operand lengths to the next word boundary for the word-span
-loops, using <code>wordspan(n)</code> from [[bip-0440.mediawiki|BIP440]], as
-the multiplication below makes the difference from the simple byte length
-significant.
-
-Note: we do not assume Karatsuba, Toom-Cook or other optimizations.
-
-The theoretical cost is: (length(A) + length(B)) * 2 + wordspan(A) / 8 * wordspan(B) * 12.
-
-However, benchmarking reveals that the inner loop overhead (branch
-misprediction, cache effects on small elements) is undercosted by the
-theoretical model.  A 2.25× multiplier on the quadratic term accounts for
-this, giving a cost of: (length(A) + length(B)) * 3 + wordspan(A) / 8 *
-wordspan(B) * 27.
-
-This is slightly asymmetric: in practice an implementation usually finds that
-CPU pipelining means choosing B as the larger operand is optimal.
+The product's WRITE covers its full span, <code>W(n) + W(m)</code> bytes, whatever the trimmed result length.
 
 ===Division Cost===
 
-For division, the steps break down like so:
-
-# Bit shift both operands to set top bit of B (OP_UPSHIFT, without overflow for B): cost = wordspan(A) * 6 + wordspan(B) * 4
-
-# Trim trailing bytes.  This costs according to the number of bytes removed, but since that is subtractive on future costs, we ignore it.
-
-# If B is longer, the answer is 0 already.  So assume A is longer from now on (or equal length).
-
-# Compare: cost = wordspan(A) * 2 (COMPARING)
-
-# Subtract: cost = wordspan(A) * 6 (ARITH)
-
-# for (wordspan(A) - NormalizedLength(B)) in words:
-## Multiply word by B -> scratch: cost = NormalizedLength(B) * 6 (ARITH)
-## Subtract scratch from A: cost = wordspan(A) * 6 (ARITH)
-## Add B into A (no overflow): cost = wordspan(A) * 6 (ARITH)
-## Shrink A by 1 word.
-
-# OP_MOD: shift A down, trim trailing zeroes: cost = wordspan(A) * 4
-
-# OP_DIV: trim trailing zeros: cost = wordspan(A) * 4
-
-Note that the loop at step 6 shrinks A every time, so the *average* cost of
-each iteration is (NormalizedLength(B) * 6 + wordspan(A) * 12) / 2.  The cost of
-step 6 is:
-
-	(wordspan(A) - NormalizedLength(B)) / 8 * (NormalizedLength(B) * 6 + wordspan(A) * 12) / 2
-
-The worst case is when NormalizedLength(B) is 0: wordspan(A) * wordspan(A) * 2 / 3.
-
-The cost for all the steps is: wordspan(A) * 18 + wordspan(B) * 4 + wordspan(A) * wordspan(A) * 2 / 3.
+<code>n</code> and <code>m</code> are defined with the OP_DIV cost above.  <code>DIV(n, m)</code> charges rows over the divisor's words: one for each word of <code>Q(n, m)</code> from [[bip-0440.mediawiki|BIP440]], by which the dividend exceeds the divisor, plus a fixed few (a possible quotient word and the dividend word that normalizing the divisor can add), which its constant and <code>W(m)</code> terms pay for.  A dividend shorter than the divisor pays only those, although it only needs a comparison of the operands' lengths; the over-charge keeps one formula for every operand size.  <code>n</code> and <code>m</code> are trimmed lengths because arithmetic operands may carry zero padding (bit and byte operations do not normalize), and padding changes neither the quotient nor the work.  Encoded lengths would let a padded divisor reduce <code>Q(n, m)</code> to zero while the division still performs one word operation per quotient word and divisor word.  Finding the trimmed lengths is a part of reading each operand, charged as <code>READ(length(A)) + READ(length(B))</code>.  The <code>Q(n, m)</code> term covers each row's quotient-digit estimate and correction, which does not shrink with the divisor; without it, a long dividend and a one- or two-word divisor are undercharged.  OP_MOD also shifts the remainder back after normalization, which is not charged separately.
