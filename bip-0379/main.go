@@ -9,8 +9,8 @@
 //	go run .
 //
 // Positive vectors must be accepted, negative ones must be rejected. The
-// program exits non-zero if any vector fails, after reporting the first few
-// failures of each file.
+// program exits non-zero if no vector files are found or any vector fails.
+// It reports the first few failures of each file.
 package main
 
 import (
@@ -301,6 +301,10 @@ func run(dir string) error {
 		if res.failed() {
 			failedFiles++
 		}
+	}
+
+	if len(missing) == len(vectorFiles) {
+		return fmt.Errorf("no BIP379 vector files found in %s", dir)
 	}
 
 	fmt.Println()
