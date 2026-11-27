@@ -13,7 +13,7 @@
               2022-03-28: https://gnusha.org/pi/bitcoindev/CAPv7TjbXm953U2h+-12MfJ24YqOM5Kcq77_xFTjVK+R2nf-nYg@mail.gmail.com/ [bitcoin-dev] Silent Payments – Non-interactive private payments with no on-chain overhead
               2022-10-11: https://gnusha.org/pi/bitcoindev/P_21MLHGJicZ-hkbC4DGu86c5BtNKiH8spY4TOw5FJsfimdi_6VyHzU_y-s1mZsOcC2FA3EW_6w6W5qfV9dRK_7AvTAxDlwVfU-yhWZPEuo=@protonmail.com/ [bitcoin-dev] Silent Payment v4 (coinjoin support added)
               2023-08-04: https://gnusha.org/pi/bitcoindev/ZM03twumu88V2NFH@petertodd.org/ [bitcoin-dev] BIP-352 Silent Payments addresses should have an expiration time
-  Version: 1.1.2
+  Version: 1.2.0
   Requires: 340, 341, 350
 </pre>
 
@@ -324,7 +324,7 @@ All generated outputs MUST be present in the final transaction. If an output ''P
 
 ==== Key Derivation ====
 
-Two keys are needed to create a silent payments address: the spend key and the scan key. To ensure compatibility, wallets MAY use BIP32 derivation with the following derivation paths for the spend and scan key. When using BIP32 derivation, wallet software MUST use hardened derivation<ref name="bip32_derivation">'''Why use BIP32 hardened derivation?''' Using BIP32 derivation allows users to add silent payments to an existing master seed. It also ensures that a user's silent payment funds are recoverable in any BIP32/BIP43 compatible wallet. Using hardened derivation ensures that it is safe to export the scan private key without exposing the master key or spend private key.</ref> for both the spend and scan key.
+Two keys are needed to create a silent payments address: the spend key and the scan key. To ensure compatibility, wallets MAY use BIP32 derivation with the following derivation paths for the spend and scan key. When using BIP32 derivation, wallet software MUST use hardened derivation<ref name="bip32_derivation">'''Why use BIP32 hardened derivation?''' Using BIP32 derivation allows users to add silent payments to an existing master seed. It also ensures that a user's silent payment funds are recoverable in any BIP32/BIP43 compatible wallet. Using hardened derivation ensures that it is safe to export the scan private key without exposing the master key or spend private key.</ref> for both the spend and scan key. In addition, wallet software deriving the scan key from a BIP32 master key MUST use the scan key derivation path below<ref name="why_require_scan_path">'''Why require the scan key derivation path?''' The scan private key must be exported to wherever scanning takes place. A scan key derived at any other path may be a key that is also used for signing, or one from which other private keys can be derived, so exporting it could expose them. The scan key derivation path is hardened and reserved for this purpose, ensuring the exported key exposes nothing else. A single path also keeps funds recoverable from a seed alone: all silent payment addresses share the same format, so an address cannot indicate which derivation created it, and each additional candidate scan key would require another scan.</ref>.
 
 A scan and spend key pair using BIP32 derivation are defined (taking inspiration from [https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki BIP44]) in the following manner:
 
@@ -332,6 +332,8 @@ A scan and spend key pair using BIP32 derivation are defined (taking inspiration
     spend_private_key: m / purpose' / coin_type' / account' / 0' / 0
 
 <code>purpose</code> is a constant set to ''352'' following the BIP43 recommendation. Refer to [https://github.com/bitcoin/bips/blob/master/bip-0043.mediawiki BIP43] and [https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki BIP44] for more details.
+
+The scan private key is intended to be exported from the wallet or signing device holding the spend private key, for example to a scanning wallet. To ensure that exporting it never exposes a key used for another purpose, wallet software, including signing devices, MUST NOT use any key under <code>m / 352' / coin_type' / account' / 1'</code> for any purpose other than as a silent payments scan key, including for signing. This applies equally to wallet software that does not implement silent payments, as the purpose ''352'' is reserved for this BIP following BIP43. A signing device can therefore allow exporting the scan private key at this path while refusing to export any other private key.
 
 ==== Scanning ====
 
@@ -506,6 +508,8 @@ The <code>MAJOR</code> version is incremented if changes to the BIP are introduc
 The <code>MINOR</code> version is incremented whenever the inputs or the output of an algorithm changes in a backward-compatible way or new backward-compatible functionality is added.
 The <code>PATCH</code> version is incremented for other changes that are noteworthy (bug fixes, test vectors, important clarifications, etc.).
 
+* '''1.2.0''' (2026-11-27):
+** Require the scan key derivation path when deriving the scan key from a BIP32 master key, and reserve the scan key branch for use as a silent payments scan key only.
 * '''1.1.2''' (2026-10-25):
 ** Add test vector "Single recipient: taproot key-path spend with annex"
 * '''1.1.1''' (2026-04-16):
